@@ -6,14 +6,14 @@ pub type Span = SimpleSpan<usize>;
 // https://github.com/inkle/ink-tmlanguage/blob/master/grammars/Ink.YAML-tmLanguage
 
 #[derive(Copy, Clone, PartialEq, Debug)]
-enum Glue {
+pub enum Glue {
     Leading,
     Trailing,
     Both,
 }
 
 #[derive(Clone, PartialEq, Debug)]
-enum Element<'a> {
+pub enum Element<'a> {
     Blah,
     Knot(&'a str),
     Stitch(&'a str),
@@ -37,7 +37,15 @@ enum Element<'a> {
     },
 }
 
-fn parser<'a>() -> impl Parser<'a, &'a str, Vec<(Span, Element<'a>)>> {
+pub fn parser<'a>() -> impl Parser<'a, &'a str, Vec<(Span, Element<'a>)>> {
+    // let single_line = just("//").then(any().and_is(just('\n').not()).repeated());
+    //
+    // let multi_line = just("/*")
+    //     .then(any().and_is(just("*/").not()).repeated())
+    //     .then_ignore(just("*/"));
+    //
+    // let comment = single_line.or(multi_line).padded();
+
     let knot = just('=')
         .repeated()
         .at_least(2)
@@ -60,6 +68,8 @@ fn parser<'a>() -> impl Parser<'a, &'a str, Vec<(Span, Element<'a>)>> {
     let line = {
         let text = any()
             .and_is(one_of("#\n").not())
+            // .and_is(comment.not())
+            // .padded_by(comment.repeated())
             .repeated()
             .at_least(1)
             .to_slice();
@@ -79,7 +89,12 @@ fn parser<'a>() -> impl Parser<'a, &'a str, Vec<(Span, Element<'a>)>> {
     };
 
     let choice = |bullet: char, once: bool| {
-        let text = any().and_is(one_of("[]\n").not()).repeated().at_least(1);
+        let text = any()
+            .and_is(one_of("[]\n").not())
+            .repeated()
+            .at_least(1)
+            // .padded_by(comment.repeated())
+            ;
 
         let bullets = just(bullet)
             .padded_by(inline_whitespace())
@@ -124,7 +139,9 @@ fn parser<'a>() -> impl Parser<'a, &'a str, Vec<(Span, Element<'a>)>> {
         .or(gather)
         .or(line)
         .map_with(|element, xtra| (xtra.span(), element))
+        // .padded_by(comment.repeated())
         .padded()
+        .recover_with(skip_then_retry_until(any().ignored(), end()))
         .repeated()
         .collect()
 }
@@ -134,11 +151,12 @@ fn test_parser() {
     let input = r#"
     === knot =======
 
-    = stitch
+    = stitch // just for show
 
     A line of text # with a tag
     * a [single] choice
         ** [another] choice
+           with a /* follow up */ line of text
         ** [none]
     * [the best] choice
     +
@@ -151,6 +169,6 @@ fn test_parser() {
     let result = parser.parse(input);
     // println!("{:?}", result);
 
-    let errors = result.into_output_errors();
-    println!("{:#?}", errors);
+    let result = result.into_output_errors();
+    println!("{:#?}", result);
 }

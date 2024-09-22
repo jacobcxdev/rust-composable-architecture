@@ -14,9 +14,10 @@ use window::{
     LogicalSize, Size, StartCause, Window, WindowEvent, WindowId,
 };
 
+mod gpu;
 mod ink;
 mod script;
-mod wgpu;
+mod settings;
 mod window;
 
 struct State {
@@ -52,8 +53,29 @@ impl ApplicationHandler<Action> for State {
 
                 let id = window.id();
                 let proxy = self.proxy.clone();
-                let wgpu = block_on(wgpu::Surface::new(window.clone())); // must be on main thread
-                let store = Store::new(move || script::State::new(wgpu, proxy, id));
+                let wgpu = block_on(gpu::Surface::new(window.clone())); // must be on main thread
+
+                let mut state = script::State::new(wgpu, proxy, id);
+                let (width, height) = state.settings.window_size().into();
+
+                // let display = window
+                //     .current_monitor()
+                //     .or_else(|| window.primary_monitor())
+                //     .or_else(|| window.available_monitors().next())
+                //     .unwrap()
+                //     .size()
+                //     .to_logical(window.scale_factor());
+                //
+                let mut size = LogicalSize::new(width, height);
+                // size.height = size.height.min(display.height);
+                // size.width = size.width.min(display.width);
+
+                let _ = window.request_inner_size(size);
+                window.set_min_inner_size(Some(LogicalSize::new(size.width, 256.0)));
+
+                window.set_visible(true);
+
+                let store = Store::with_initial(state);
                 self.stores.insert(id, (store, window.clone()));
 
                 let file = FileDialog::new()

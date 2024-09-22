@@ -1,7 +1,8 @@
-use crate::{wgpu, window};
+use crate::{gpu, settings, window};
 
+use crate::ink::grammer;
 use composable::dependencies::with_dependency;
-use composable::{Effects, From, Reducer, Task, TryInto};
+use composable::{Effects, From, Reducer, TryInto};
 use composable_views::gpu::Output;
 use composable_views::ui::spacer;
 use composable_views::View;
@@ -12,11 +13,11 @@ use std::path::PathBuf;
 mod margin;
 
 pub struct State {
-    wgpu: wgpu::Surface<'static>,
+    wgpu: gpu::Surface<'static>,
     window: window::WindowId,
     proxy: window::EventLoopProxy,
-    resizing: Option<Task>,
 
+    pub settings: settings::State,
     margin: margin::State,
 }
 
@@ -39,7 +40,7 @@ impl Reducer for State {
             Parse(path) => {
                 if let Err(description) = self.parse(path) {
                     self.proxy
-                        .send_event(crate::window::Action::ErrorDialog(description, self.window))
+                        .send_event(window::Action::ErrorDialog(description, self.window))
                         .unwrap()
                 }
             }
@@ -56,17 +57,19 @@ impl Reducer for State {
 
 impl State {
     pub fn new(
-        wgpu: wgpu::Surface<'static>,
+        wgpu: gpu::Surface<'static>,
         proxy: window::EventLoopProxy,
         window: window::WindowId,
     ) -> Self {
+        let margin = Default::default();
+        let settings = Default::default(); // TODO: new()
+
         Self {
             wgpu,
             proxy,
             window,
-
-            resizing: None,
-            margin: Default::default(),
+            margin,
+            settings,
         }
     }
 
@@ -93,7 +96,10 @@ impl State {
         file.read_to_string(&mut script)
             .map_err(|err| err.to_string())?;
 
-        // let story = ink::parse(&script);
+        use chumsky::Parser;
+        let parser = grammer::parser();
+        let result = parser.parse(&script).into_output_errors();
+        println!("{:#?}", result);
 
         Ok(())
     }

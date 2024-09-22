@@ -139,7 +139,7 @@ impl<'a> Font<'a> {
             face,
             features: Vec::default(),
             direction: None,
-            script: None,
+            script: Script::from_iso15924_tag(Tag::from_bytes(b"Zzzz")),
             language: None,
             weight: None,
         })

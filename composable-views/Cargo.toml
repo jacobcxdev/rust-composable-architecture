@@ -28,7 +28,8 @@ divan.workspace = true
 chumsky = "1.0.0-alpha.7"
 ariadne = "0.4.1"
 
-toml_edit = "0.22.20"
+serde = { version = "1.0.210", features = ["derive"] }
+toml_edit = { version = "0.22.20" , features = ["serde"]}
 directories = "5.0.1"
 rfd = "0.14.1"
 

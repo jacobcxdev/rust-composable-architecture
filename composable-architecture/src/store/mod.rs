@@ -48,6 +48,11 @@ impl<State: Reducer> Store<State> {
         self.sender.send(Ok(action.into()))
     }
 
+    /// Calls the `Store`’s [`Reducer`][`crate::Reducer`] with `action`. and waits until
+    /// the `Reducer` has performed the `action`.
+    /// ## Note
+    /// - This is a blocking call and is usually not what is wanted.
+    /// - It does not wait for any `effect`s triggered by the `action`.
     pub fn sync(&self, action: impl Into<<State as Reducer>::Action>) {
         self.sender.sync(Ok(action.into()))
     }

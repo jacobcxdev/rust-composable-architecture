@@ -42,7 +42,7 @@ impl Output {
     /// A WGSL shader that consumes this `Output`’s output:
     ///
     /// ```wgsl
-    #[doc = include_str!("../../examples/winit/wgpu/shader.wgsl")]
+    #[doc = include_str!("../../examples/winit/gpu/shader.wgsl")]
     /// ```
     #[allow(clippy::type_complexity)]
     pub fn into_inner(mut self) -> (Vec<(i16, i16, [u8; 4])>, Vec<u32>) {
@@ -113,7 +113,7 @@ struct Storage {
 impl Storage {
     #[allow(clippy::type_complexity)]
     pub fn into_inner(self) -> (Vec<(i16, i16, [u8; 4])>, Vec<u32>) {
-        eprintln!("{} vertices", self.vertices.len());
+        // eprintln!("{} vertices", self.vertices.len());
         (self.vertices, self.indices)
     }
 }
