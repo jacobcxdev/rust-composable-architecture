@@ -50,6 +50,6 @@ impl View for Spacer {
 
     #[inline]
     fn update_layout(&self, size: Size, _bounds: Bounds) {
-        self.0.set(size).expect("size set twice")
+        self.0.set(size).ok();
     }
 }
