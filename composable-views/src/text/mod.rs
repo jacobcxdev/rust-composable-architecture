@@ -1,6 +1,6 @@
 pub use font::{Direction, Font, FontConfig, Glyphs, Language, Script};
 
-use crate::{Bounds, Output, Size, Transform, View};
+use crate::{Bounds, Output, Padding, Size, Transform, View};
 use composable::dependencies::Dependency;
 
 mod font;
@@ -45,6 +45,35 @@ impl Text<'_> {
     #[inline]
     pub fn line_gap(&self) -> f32 {
         self.font.line_gap() * self.scale
+    }
+
+    /// A line spaced view of the Text
+    #[inline]
+    pub fn line_spacing(self, spacing: f32) -> Padding<Self> {
+        let spacing = f32::max(0.0, spacing);
+
+        let single_spacing = Text::height(&self) + self.line_gap();
+        let adjustment = spacing * single_spacing;
+
+        let pad = adjustment - Text::height(&self);
+        self.padding_bottom(pad)
+    }
+
+    /// A single-spaced view of the Text
+    ///
+    /// See [`line_spacing`][`Self::line_spacing`]
+    #[inline(always)]
+    pub fn single_spaced(self) -> Padding<Self> {
+        let pad = self.line_gap();
+        self.padding_bottom(pad)
+    }
+
+    /// A double-spaced view of the Text
+    ///
+    /// See [`line_spacing`][`Self::line_spacing`]
+    #[inline(always)]
+    pub fn double_spaced(self) -> Padding<Self> {
+        self.line_spacing(2.0)
     }
 }
 
