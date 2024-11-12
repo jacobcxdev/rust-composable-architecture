@@ -1,5 +1,5 @@
 #![allow(unused_imports)]
-use crate::{Bounds, Event, Output, Point, Size, View};
+use crate::{Bounds, Event, Fixed, Output, Point, Size, View};
 // some of these are used in the macro
 
 pub use spacing::Spacer;
@@ -50,6 +50,15 @@ macro_rules! tuple_impl {
                     bounds.min.y += $val.size().height;
                     bounds.min.y = f32::min(bounds.min.y, bounds.max.y);
                 )+
+            }
+
+            #[inline(always)]
+            #[allow(refining_impl_trait)]
+            fn fixed(self, width: f32, height: f32) -> impl View {
+                Fixed {
+                    size: Size::new(width, height),
+                    view: self,
+                }
             }
 
             fn update_layout(&self, size: Size, bounds: Bounds) {
@@ -112,6 +121,15 @@ macro_rules! tuple_impl {
                     bounds.min.x += $val.size().width;
                     bounds.min.x = f32::min(bounds.min.x, bounds.max.x);
                 )+
+            }
+
+            #[inline(always)]
+            #[allow(refining_impl_trait)]
+            fn fixed(self, width: f32, height: f32) -> impl View {
+                Fixed {
+                    size: Size::new(width, height),
+                    view: self,
+                }
             }
 
             #[inline(always)]
