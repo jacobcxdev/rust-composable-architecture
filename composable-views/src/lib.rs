@@ -73,7 +73,7 @@ pub trait View: Sized {
 
     /// Add padding to the vertical sides of the `View`
     fn padding_vertical(self, pad: f32) -> Padding<Self> {
-        self.padding(0.0, 0.0, pad, 0.0)
+        self.padding(pad, 0.0, pad, 0.0)
     }
 
     /// Add different padding to the horizontal and vertical sides of the `View`
