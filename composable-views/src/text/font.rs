@@ -77,10 +77,16 @@ impl<'a> Font<'a> {
 
     /// Capital height,
     #[inline]
-    pub fn capital_height(&self) -> f32 {
+    pub fn capital_height(&self) -> Option<f32> {
         self.face
-            .capital_height()
-            .unwrap_or_else(|| self.face.ascender()) as f32
+            .capital_height().map(|x| x as f32)
+    }
+
+    /// x height.
+    #[inline]
+    pub fn x_height(&self) -> Option<f32> {
+        self.face
+            .x_height().map(|x| x as f32)
     }
 
     /// Line gap,

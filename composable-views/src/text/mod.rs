@@ -37,8 +37,14 @@ impl Text<'_> {
 
     /// Capital height of the Text’s font.
     #[inline]
-    pub fn capital_height(&self) -> f32 {
-        self.font.capital_height() * self.scale
+    pub fn capital_height(&self) -> Option<f32> {
+        self.font.capital_height().map(|x| x * self.scale)
+    }
+
+    /// x height of the Text’s font.
+    #[inline]
+    pub fn x_height(&self) -> Option<f32> {
+        self.font.capital_height().map(|x| x * self.scale)
     }
 
     /// Line gap of the Text’s font.
