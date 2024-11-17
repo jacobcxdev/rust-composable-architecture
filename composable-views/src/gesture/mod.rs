@@ -5,21 +5,12 @@ use composable::dependencies::DependencyDefault;
 mod recognizer;
 pub use recognizer::*;
 
+pub use std::num::NonZeroU128 as Id;
+
 mod tap;
 
 pub use tap::TapGesture;
 
-#[derive(Copy, Clone, Eq, PartialEq)]
-pub struct Id(pub(crate) std::num::NonZeroU128);
-
-#[doc(hidden)]
-impl TryFrom<u128> for Id {
-    type Error = std::num::TryFromIntError;
-
-    fn try_from(value: u128) -> Result<Self, Self::Error> {
-        Ok(Self(value.try_into()?))
-    }
-}
 
 #[non_exhaustive] // must use `State::default()`
 #[derive(Copy, Clone, Default, Eq, PartialEq)]

@@ -11,6 +11,7 @@ pub use shapes::{Circle, ContinuousRoundedRectangle, Ellipse, Rectangle, Rounded
 pub use shapes::{Path, Shape};
 #[doc(inline)]
 pub use text::Text;
+pub use ui_id::ui_id;
 
 use composable::{Effects, From, TryInto};
 

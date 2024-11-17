@@ -15,6 +15,9 @@ lyon = "1.0.1"
 usvg = "0.44.0"
 svg = "0.18.0"
 
+[dependencies.ui_id]
+path = "src/ui_id"
+
 
 [dev-dependencies]
 futures.workspace = true
