@@ -226,6 +226,7 @@ impl<T: View, E: View> View for Result<T, E> {
 pub enum Event {
     Gesture(Gesture),
     Resize { width: u32, height: u32 },
+    Rescale { scale: f32 },
     Redraw,
 }
 
