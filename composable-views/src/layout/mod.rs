@@ -182,6 +182,21 @@ tuple_impl! { A B C D E F G H I J K L M N O P Q R S T U V W X }
 tuple_impl! { A B C D E F G H I J K L M N O P Q R S T U V W X Y }
 // up to 25 views are supported
 
+// as is no views
+impl View for () {
+    #[inline(always)]
+    fn size(&self) -> Size {
+        Size::zero()
+    }
+
+    #[inline(always)]
+    fn event(&self, event: Event, offset: Point, bounds: Bounds) {}
+
+    #[inline(always)]
+    fn draw(&self, bounds: Bounds, onto: &mut impl Output) {}
+}
+
+
 impl<T: View, const N: usize> View for Horizontal<[T; N]> {
     #[inline]
     fn size(&self) -> Size {
