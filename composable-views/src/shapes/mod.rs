@@ -150,7 +150,7 @@ impl<T: Path> View for Shape<T> {
             bounds.min.y,
             size.width,
             size.height,
-            &Dependency::<Transform>::new().unwrap_or_default(),
+            &Dependency::<Transform>::get_or_default(),
             onto,
         );
     }

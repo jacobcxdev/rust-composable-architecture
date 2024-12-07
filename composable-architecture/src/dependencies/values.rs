@@ -34,9 +34,9 @@ impl<T> Default for Dependency<T> {
 ///  [`deref`]: Dependency::deref
 ///  [`borrow`]: Dependency::borrow
 impl<T> Dependency<T> {
-    /// Creates a optional reference to the dependency of type `T`.
+    /// Retrieves the (optional) reference to the dependency of type `T`.
     #[inline]
-    pub fn new() -> Self {
+    pub fn get() -> Self {
         Self::default()
     }
 
@@ -256,6 +256,15 @@ impl<T> Dependency<T> {
     {
         self.as_deref().cloned()
     }
+
+    /// Returns a copy of the dependency [`Some`] value or a default.
+    #[inline(always)]
+    pub fn get_or_default() -> T
+    where
+        T: Copy + Default,
+    {
+        Self::get().copied().unwrap_or_default()
+    }
 }
 
 /// The default value for a dependency.
@@ -302,18 +311,6 @@ Either register the dependency on the TestStore or use with_dependency(…) with
             self.inner.set(Guard::get().unwrap()).ok();
             self.as_deref().unwrap()
         })
-    }
-
-    /// ## SAFETY
-    /// A `DependencyDefault`, once fetched, will last for the life of the process.
-    ///
-    /// Holding this reference is not advised as it will not reflect further overrides of this dependency.
-    #[inline(always)]
-    pub fn as_ref() -> &'static T {
-        #[allow(unsafe_code)]
-        unsafe {
-            std::mem::transmute(Self::default().get_or_insert_default())
-        }
     }
 }
 

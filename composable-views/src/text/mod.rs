@@ -118,12 +118,12 @@ impl View for Text<'_> {
             }
         }
 
-        let transform = Dependency::<Transform>::new();
+        let transform = Dependency::<Transform>::get_or_default();
         let mut builder = Builder {
             transform: Transform::scale(self.scale, -self.scale) // negate y-axis
                 .then_translate((0.0, self.ascender()).into()) // font baseline
                 .then_translate(bounds.min.to_vector()) // start position,
-                .then(&transform.unwrap_or_default()),
+                .then(&transform),
             rgba: self.rgba,
             output,
         };

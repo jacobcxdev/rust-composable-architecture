@@ -37,7 +37,7 @@ impl Task {
     pub(crate) fn new<Action: 'static, S: Stream<Item = Action> + 'static>(stream: S) -> Self {
         // Only called by “root” `Effects`, so it will be the same `Action` as used by the `Store`
         let handle =
-            Dependency::<Executor<Result<Action, Thread>>>::new().and_then(
+            Dependency::<Executor<Result<Action, Thread>>>::get().and_then(
                 |executor| match executor.actions.upgrade() {
                     None => None,
                     Some(sender) => executor

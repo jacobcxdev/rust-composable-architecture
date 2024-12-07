@@ -43,7 +43,7 @@ impl Stream for Delay {
                 drop(state);
 
                 // Now that it has a Waker…
-                let scheduler = Dependency::<Reactor>::new();
+                let scheduler = Dependency::<Reactor>::get();
                 scheduler.add(instant, self.0.clone());
 
                 Poll::Pending

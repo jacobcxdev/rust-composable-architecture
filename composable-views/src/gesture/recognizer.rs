@@ -6,7 +6,7 @@ use super::{Id, State};
 ///
 #[inline(never)]
 pub fn recognizer(id: Id, gesture: Gesture, location: Point, bounds: Bounds) -> Option<Response> {
-    let current = Dependency::<State>::new();
+    let current = Dependency::<State>::get();
     let mut state = current.get();
 
     let id = Some(id);

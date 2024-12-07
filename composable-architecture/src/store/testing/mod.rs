@@ -69,7 +69,7 @@ where
         inner.now = now;
         drop(inner);
 
-        let timer = Dependency::<Reactor>::new();
+        let timer = Dependency::<Reactor>::get();
 
         loop {
             self.pool.run_until_stalled();
