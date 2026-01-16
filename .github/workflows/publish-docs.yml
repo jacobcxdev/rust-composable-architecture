@@ -4,6 +4,7 @@ on:
     push:
         branches:
             - main
+            - dev/next
 
 jobs:
     publish-docs:
@@ -42,3 +43,4 @@ jobs:
                   build-command: cargo doc --no-deps
                   output-dir: target/doc
                   stable-branch: main
+                  develop-branch: dev/next
