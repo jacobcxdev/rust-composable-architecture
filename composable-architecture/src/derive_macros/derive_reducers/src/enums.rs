@@ -14,16 +14,16 @@ pub fn derive_macro(identifier: Ident, data: DataEnum) -> TokenStream {
             variant.attrs.iter().all(|attr| {
                 !attr.path().is_ident("reducer")
                     || attr
-                    .parse_args::<Ident>()
-                    .map(|arg| arg != "skip")
-                    .unwrap_or(true)
+                        .parse_args::<Ident>()
+                        .map(|arg| arg != "skip")
+                        .unwrap_or(true)
             })
         })
         .map(|variant| {
             let name = &variant.ident;
 
-        // Only single-field tuple variants can participate as child reducers:
-        // `Enum::Variant(ChildState)` or `Enum::Variant(KeyedState<…>)`.
+            // Only single-field tuple variants can participate as child reducers:
+            // `Enum::Variant(ChildState)` or `Enum::Variant(KeyedState<…>)`.
             let keyed_state_ty = match &variant.fields {
                 Fields::Unnamed(fields) if fields.unnamed.len() == 1 => Some(&fields.unnamed[0].ty),
                 _ => None,

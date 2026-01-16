@@ -13,12 +13,16 @@ use syn::{GenericArgument, PathArguments, Type, TypeParamBound};
 pub fn is_keyed_state(ty: &Type) -> bool {
     match ty {
         Type::Path(path) => {
-            let Some(seg) = path.path.segments.last() else { return false };
+            let Some(seg) = path.path.segments.last() else {
+                return false;
+            };
 
             match seg.ident.to_string().as_str() {
                 "KeyedState" | "HashMap" | "BTreeMap" => true,
                 "Box" | "Option" => {
-                    let PathArguments::AngleBracketed(args) = &seg.arguments else { return false };
+                    let PathArguments::AngleBracketed(args) = &seg.arguments else {
+                        return false;
+                    };
 
                     args.args
                         .iter()
