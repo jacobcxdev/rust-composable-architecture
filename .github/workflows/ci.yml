@@ -1,107 +1,105 @@
 name: CI
 
 on:
-  push:
-    branches: ["main", "dev/next"]
-  pull_request:
-    branches: ["main", "dev/next"]
-  workflow_dispatch:
+    push:
+        branches: ["main", "dev/next"]
+        tags: ["*"]
+    pull_request:
+        branches: ["main", "dev/next"]
+    workflow_dispatch:
 
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+    group: ci-${{ github.workflow }}-${{ github.ref }}
+    cancel-in-progress: true
 
 permissions:
-  contents: read
+    contents: read
 
 env:
-  CARGO_TERM_COLOR: always
+    CARGO_TERM_COLOR: always
 
 jobs:
-  fmt:
-    name: fmt (rustfmt)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      
+    fmt:
+        name: fmt (rustfmt)
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v4
 
+            - uses: dtolnay/rust-toolchain@stable
+              with:
+                  components: rustfmt
 
+            - uses: Swatinem/rust-cache@v2
 
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt
+            - run: cargo fmt --all -- --check
 
-      - uses: Swatinem/rust-cache@v2
+    clippy:
+        name: clippy
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v4
 
-      - run: cargo fmt --all -- --check
+            - name: Install Linux dependencies
+              if: runner.os == 'Linux'
+              run: |
+                  sudo apt-get update
+                  sudo apt-get install -y libgtk-3-dev libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev libxkbcommon-dev libssl-dev
 
-  clippy:
-    name: clippy
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
+            - uses: dtolnay/rust-toolchain@stable
+              with:
+                  components: clippy
 
-      - name: Install Linux dependencies
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libgtk-3-dev libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev libxkbcommon-dev libssl-dev
+            - uses: Swatinem/rust-cache@v2
 
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: clippy
+            - run: cargo clippy --workspace --all-targets --all-features -- -D warnings
 
-      - uses: Swatinem/rust-cache@v2
+    test:
+        name: test (${{ matrix.os }}, ${{ matrix.toolchain }})
+        runs-on: ${{ matrix.os }}
+        strategy:
+            fail-fast: false
+            matrix:
+                os: [ubuntu-latest, windows-latest, macos-latest]
+                toolchain: [stable, beta]
+                include:
+                    - os: ubuntu-latest
+                      toolchain: nightly
+        continue-on-error: ${{ matrix.toolchain == 'nightly' }}
 
-      - run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+        steps:
+            - uses: actions/checkout@v4
 
-  test:
-    name: test (${{ matrix.os }}, ${{ matrix.toolchain }})
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
-        toolchain: [stable, beta]
-        include:
-          - os: ubuntu-latest
-            toolchain: nightly
-    continue-on-error: ${{ matrix.toolchain == 'nightly' }}
+            - name: Install Linux dependencies
+              if: runner.os == 'Linux'
+              run: |
+                  sudo apt-get update
+                  sudo apt-get install -y libgtk-3-dev libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev libxkbcommon-dev libssl-dev
 
-    steps:
-      - uses: actions/checkout@v4
+            - uses: dtolnay/rust-toolchain@master
+              with:
+                  toolchain: ${{ matrix.toolchain }}
 
-      - name: Install Linux dependencies
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libgtk-3-dev libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev libxkbcommon-dev libssl-dev
+            - uses: Swatinem/rust-cache@v2
 
-      - uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: ${{ matrix.toolchain }}
+            - run: cargo test --workspace --all-features --all-targets
 
-      - uses: Swatinem/rust-cache@v2
+    doc:
+        name: doc (rustdoc)
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v4
 
-      - run: cargo test --workspace --all-features --all-targets
+            - name: Install Linux dependencies
+              if: runner.os == 'Linux'
+              run: |
+                  sudo apt-get update
+                  sudo apt-get install -y libgtk-3-dev libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev libxkbcommon-dev libssl-dev
 
-  doc:
-    name: doc (rustdoc)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
+            - uses: dtolnay/rust-toolchain@stable
 
-      - name: Install Linux dependencies
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libgtk-3-dev libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev libxkbcommon-dev libssl-dev
+            - uses: Swatinem/rust-cache@v2
 
-      - uses: dtolnay/rust-toolchain@stable
-
-      - uses: Swatinem/rust-cache@v2
-
-      - name: Build docs (no deps, deny warnings)
-        env:
-          RUSTDOCFLAGS: "--cfg docsrs -D warnings"
-        run: cargo doc --workspace --all-features --no-deps
+            - name: Build docs (no deps, deny warnings)
+              env:
+                  RUSTDOCFLAGS: "--cfg docsrs -D warnings"
+              run: cargo doc --workspace --all-features --no-deps

@@ -21,6 +21,41 @@ And please only add new entries to the top of this list, right below the `# Unre
 
 
 
+## 0.7.0 - 2026-01-16
+
+### Added
+
+- Keyed reducer and effects support.
+- Support for publish on develop branch.
+- Documentation publishing workflow and expanded CI jobs.
+- Added `on_tap` gesture and `ui_id` support.
+- Support for arbitrary variable font axes and more font metrics.
+- Minimum-sized tap targets and padding offsets.
+- Window dependencies and ink parsing examples.
+- `RecursiveReducer` reduces parent _after_ children.
+
+### Removed
+
+- Removed extraneous doc comments.
+- Removed `ui` feature in favour of simplified dependencies.
+
+### Changed
+
+- Refactored CI workflow and documentation structure.
+- `RecursiveReducer` improvements for improved error handling and clarity.
+- Clarified documentation and enforced stricter documentation rules.
+- Improved formatting consistency in derive macros.
+- Default script set to `Unknown` or `Latn` where appropriate.
+
+### Fixed
+
+- Fixed logic in channel implementation to track senders correctly.
+- Fixed width `Spacer`s calculation in layouts.
+- `padding_vertical` now correctly includes `padding_top`.
+
+
+
+
 ## 0.6.0 - 2024-07-22
 
 ### Added
