@@ -3,7 +3,6 @@ use composable::dependencies::Dependency;
 
 use super::{Id, State};
 
-///
 #[inline(never)]
 pub fn recognizer(id: Id, gesture: Gesture, location: Point, bounds: Bounds) -> Option<Response> {
     let current = Dependency::<State>::get();

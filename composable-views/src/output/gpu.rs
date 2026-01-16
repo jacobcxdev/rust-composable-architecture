@@ -8,7 +8,6 @@ use lyon::tessellation::{
 
 use crate::Transform;
 
-///
 pub struct Output {
     storage: Storage,
     options: FillOptions,
@@ -102,7 +101,6 @@ impl super::Output for Output {
     }
 }
 
-///
 #[derive(Default)]
 struct Storage {
     vertices: Vec<(i16, i16, [u8; 4])>,

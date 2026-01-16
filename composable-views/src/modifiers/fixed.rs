@@ -1,6 +1,5 @@
 use crate::{Bounds, Event, Output, Size, View};
 
-///
 pub struct Fixed<V> {
     pub(crate) view: V,
     pub(crate) size: Size,
@@ -25,7 +24,6 @@ impl<V: View> View for Fixed<V> {
     }
 }
 
-///
 pub struct FixedWidth<V: View> {
     pub(crate) view: V,
     pub(crate) width: f32,
@@ -59,7 +57,6 @@ impl<V: View> View for FixedWidth<V> {
     }
 }
 
-///
 pub struct FixedHeight<V: View> {
     pub(crate) view: V,
     pub(crate) height: f32,

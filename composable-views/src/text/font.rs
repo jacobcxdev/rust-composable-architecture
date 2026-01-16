@@ -5,7 +5,6 @@ pub use rustybuzz::{Direction, Feature, GlyphBuffer as Glyphs, Language, Script}
 
 use crate::Text;
 
-///
 pub struct Font<'a> {
     face: Face<'a>,
     plan: ShapePlan,
@@ -152,7 +151,6 @@ impl<'a> Font<'a> {
     }
 }
 
-///
 #[derive(Clone)]
 pub struct FontConfig<'a> {
     face: Face<'a>,
@@ -164,7 +162,6 @@ pub struct FontConfig<'a> {
 }
 
 impl<'a> FontConfig<'a> {
-    ///
     #[inline]
     pub fn direction(self, direction: Direction) -> Self {
         Self {
@@ -173,7 +170,6 @@ impl<'a> FontConfig<'a> {
         }
     }
 
-    ///
     #[inline]
     pub fn script(self, script: Script) -> Self {
         Self {
@@ -182,7 +178,6 @@ impl<'a> FontConfig<'a> {
         }
     }
 
-    ///
     #[inline]
     pub fn language(self, language: Language) -> Self {
         Self {
@@ -191,7 +186,6 @@ impl<'a> FontConfig<'a> {
         }
     }
 
-    ///
     #[inline]
     pub fn feature(mut self, tag: &[u8; 4], value: u32) -> Self {
         self.features
@@ -200,7 +194,6 @@ impl<'a> FontConfig<'a> {
         self
     }
 
-    ///
     #[inline]
     pub fn variation(mut self, tag: &[u8; 4], value: f32) -> Self {
         self.variations.push((Tag::from_bytes(tag), value));
@@ -208,7 +201,6 @@ impl<'a> FontConfig<'a> {
         self
     }
 
-    ///
     #[inline]
     pub fn weight(self, weight: f32) -> Self {
         self.variation(b"wght", weight)
