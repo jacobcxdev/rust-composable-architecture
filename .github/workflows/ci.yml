@@ -1,21 +1,105 @@
-name: Continuous integration # https://github.com/dtolnay/rust-toolchain
+name: CI
 
 on:
-  pull_request:
-    branches: [ "develop" ]
-  push:
-    paths:
-      - ".github/workflows/ci.yml"
-      - "**/*.rs"
+    push:
+        branches: ["main", "dev/next"]
+        tags: ["*"]
+    pull_request:
+        branches: ["main", "dev/next"]
+    workflow_dispatch:
+
+concurrency:
+    group: ci-${{ github.workflow }}-${{ github.ref }}
+    cancel-in-progress: true
+
+permissions:
+    contents: read
 
 env:
-  CARGO_TERM_COLOR: always
+    CARGO_TERM_COLOR: always
 
 jobs:
-  tests:
-    name: cargo test
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - run: cargo test --all --all-features 
+    fmt:
+        name: fmt (rustfmt)
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v4
+
+            - uses: dtolnay/rust-toolchain@stable
+              with:
+                  components: rustfmt
+
+            - uses: Swatinem/rust-cache@v2
+
+            - run: cargo fmt --all -- --check
+
+    clippy:
+        name: clippy
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v4
+
+            - name: Install Linux dependencies
+              if: runner.os == 'Linux'
+              run: |
+                  sudo apt-get update
+                  sudo apt-get install -y libgtk-3-dev libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev libxkbcommon-dev libssl-dev
+
+            - uses: dtolnay/rust-toolchain@stable
+              with:
+                  components: clippy
+
+            - uses: Swatinem/rust-cache@v2
+
+            - run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+
+    test:
+        name: test (${{ matrix.os }}, ${{ matrix.toolchain }})
+        runs-on: ${{ matrix.os }}
+        strategy:
+            fail-fast: false
+            matrix:
+                os: [ubuntu-latest, windows-latest, macos-latest]
+                toolchain: [stable, beta]
+                include:
+                    - os: ubuntu-latest
+                      toolchain: nightly
+        continue-on-error: ${{ matrix.toolchain == 'nightly' }}
+
+        steps:
+            - uses: actions/checkout@v4
+
+            - name: Install Linux dependencies
+              if: runner.os == 'Linux'
+              run: |
+                  sudo apt-get update
+                  sudo apt-get install -y libgtk-3-dev libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev libxkbcommon-dev libssl-dev
+
+            - uses: dtolnay/rust-toolchain@master
+              with:
+                  toolchain: ${{ matrix.toolchain }}
+
+            - uses: Swatinem/rust-cache@v2
+
+            - run: cargo test --workspace --all-features --all-targets
+
+    doc:
+        name: doc (rustdoc)
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v4
+
+            - name: Install Linux dependencies
+              if: runner.os == 'Linux'
+              run: |
+                  sudo apt-get update
+                  sudo apt-get install -y libgtk-3-dev libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev libxkbcommon-dev libssl-dev
+
+            - uses: dtolnay/rust-toolchain@stable
+
+            - uses: Swatinem/rust-cache@v2
+
+            - name: Build docs (no deps, deny warnings)
+              env:
+                  RUSTDOCFLAGS: "--cfg docsrs -D warnings"
+              run: cargo doc --workspace --all-features --no-deps

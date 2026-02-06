@@ -1,20 +1,33 @@
 #![doc = include_str!("README.md")]
 
+//! Dependency scoping and access.
+//!
+//! This module provides dynamically scoped dependencies:
+//! values are supplied for a closure using [`with_dependency`] / [`with_dependencies`], and retrieved
+//! at use-sites with [`Dependency<T>`].
+//!
+//! The implementation uses per-thread storage with stack-like semantics:
+//! inner scopes shadow outer scopes for the same dependency type.
+
+pub use refs::Ref;
 pub use values::{Dependency, DependencyDefault};
 
 pub(crate) mod guard;
 mod refs;
 mod values;
 
-/// Supply a tuple of dependencies for the supplied closure
+/// Supplies a tuple of dependencies for the duration of `f`.
 ///
-/// For a single value [`with_dependency`] may be used instead.
+/// The tuple can contain heterogeneous dependency values; each value is scoped by its concrete type.
+/// Inner scopes shadow outer scopes.
+///
+/// For a single dependency value, prefer [`with_dependency`].
 pub fn with_dependencies<T: Tuple, F: FnOnce() -> R, R>(with: T, f: F) -> R {
     let _guards = with.guards();
     f()
 }
 
-/// Supply a single dependency for the supplied closure.
+/// Supplies a single dependency value for the duration of `f`.
 ///
 /// A convenience function that just forwards to [`with_dependencies`].
 pub fn with_dependency<T: 'static, F: FnOnce() -> R, R>(with: T, f: F) -> R {
@@ -25,6 +38,8 @@ pub fn with_dependency<T: 'static, F: FnOnce() -> R, R>(with: T, f: F) -> R {
 /// A [`tuple`] of up to twenty-five values.
 ///
 /// Used by [`with_dependencies`] to set the current [`Dependency`] values for its closure.
+///
+/// This is an internal mechanism: users generally only interact with [`with_dependencies`].
 pub trait Tuple {
     #[doc(hidden)]
     type Output;

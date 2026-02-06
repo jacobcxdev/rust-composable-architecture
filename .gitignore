@@ -1,3 +1,7 @@
 target/
 Cargo.lock
 .idea
+
+.claude/settings.local.json
+**/CLAUDE.md
+!/CLAUDE.md

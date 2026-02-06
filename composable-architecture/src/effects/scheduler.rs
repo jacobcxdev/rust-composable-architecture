@@ -1,3 +1,13 @@
+//! A minimal time reactor used by [`Delay`](crate::effects::Delay) and scheduling.
+//!
+//! This is intentionally tiny: it maintains an ordered queue of instants and wakes the
+//! futures blocked on them.
+//!
+//! - In a live store runtime, the default [`Reactor`] spawns a dedicated thread that parks until
+//!   the next scheduled instant.
+//! - In tests, [`TestStore`](crate::TestStore) installs a reactor created with `Reactor::new()`
+//!   (no thread) and drives it deterministically via `TestClock::advance`.
+
 use std::cmp::Reverse;
 use std::collections::VecDeque;
 use std::mem::replace;
@@ -73,6 +83,8 @@ impl Default for Reactor {
 impl DependencyDefault for Reactor {}
 
 impl Reactor {
+    /// Constructs a reactor without spawning the polling thread.
+    /// Used by `TestStore` to allow deterministic, manual time control.
     pub(crate) fn new() -> Self {
         let shared = Arc::new(Mutex::<Shared>::default());
 
@@ -82,11 +94,13 @@ impl Reactor {
         }
     }
 
+    /// Polls the reactor at `now`, waking any pending delays that have matured.
     pub(crate) fn poll(&self, now: Instant) -> Instant {
         Shared::poll(now, &self.shared).unwrap_or(now)
     }
 
     #[inline(never)]
+    /// Adds a delay to be woken at `new`.
     pub(crate) fn add(&self, new: Instant, state: Arc<Mutex<State>>) {
         let mut shared = self.shared.lock().unwrap();
         let next = shared.queue.peek_next();

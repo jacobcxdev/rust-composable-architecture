@@ -5,7 +5,35 @@ use std::rc::Rc;
 
 use super::{guard::Guard, refs::Ref};
 
-/// A wrapper type for accessing dependencies
+/// A wrapper type for accessing a dynamically scoped dependency.
+///
+/// `Dependency<T>` reads values provided by [`with_dependency`](crate::dependencies::with_dependency) /
+/// [`with_dependencies`](crate::dependencies::with_dependencies).
+///
+/// The value is stored internally as an `Rc<T>`, and this wrapper caches the value (if present)
+/// in an [`OnceCell`] the first time it is accessed.
+///
+/// If no value was provided, `Dependency<T>` behaves like an empty option.
+///
+/// # Defaults
+/// If `T` implements [`DependencyDefault`], then dereferencing `Dependency<T>` will lazily create a
+/// default instance **in production**.
+///
+/// In tests (`cfg!(test)`), attempting to fall back to a default will panic to force explicit
+/// dependency provisioning.
+///
+/// # Example
+/// ```rust
+/// use composable::dependencies::{with_dependency, Dependency};
+///
+/// #[derive(Default)]
+/// struct ApiClient;
+///
+/// with_dependency(ApiClient::default(), || {
+///     let api = Dependency::<ApiClient>::get();
+///     assert!(api.is_some());
+/// });
+/// ```
 pub struct Dependency<T: 'static> {
     inner: OnceCell<Rc<T>>,
 }
@@ -14,6 +42,9 @@ impl<T> Default for Dependency<T> {
     fn default() -> Self {
         let cell = OnceCell::new();
 
+        // Capture the currently scoped dependency value (if any) at construction time.
+        // This ensures a `Dependency<T>` created inside a scope continues to see that value
+        // through its lifetime, even if later scopes come and go.
         if let Some(inner) = Guard::get() {
             cell.set(inner).ok();
         }
@@ -28,6 +59,10 @@ impl<T> Default for Dependency<T> {
 ///   [`AsRef`], [`Deref`] and [`Borrow`] traits. Even if a value has not been explicitly
 ///   registered for it, the `Dependency` will still be able to [`as_ref`], [`deref`] and
 ///   [`borrow`] this default value.
+///
+/// # Note
+/// `Dependency<T>` is cheap to construct and pass around: it stores an `Rc<T>` internally,
+/// and only resolves (and caches) the value on first access.
 ///
 ///  [`std::option::Option`]: std::option
 ///  [`as_ref`]: Dependency::as_ref
@@ -291,6 +326,11 @@ impl<T: DependencyDefault> Dependency<T> {
     #[track_caller]
     #[inline(never)]
     fn get_or_insert_default(&self) -> &T {
+        // If no explicit dependency exists, attempt to create a default implementation.
+        //
+        // In tests, this is disallowed to prevent accidentally using production behaviour.
+        // Callers should supply dependency values explicitly via `with_dependency(…)` /
+        // `with_dependencies(…)`.
         self.as_deref().unwrap_or_else(|| {
             if cfg!(test) {
                 let detailed_explanation = r#".

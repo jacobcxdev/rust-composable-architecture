@@ -1,5 +1,13 @@
 #![doc = include_str!("README.md")]
 
+//! Implementation notes
+//!
+//! - In a live [`Store`](crate::Store), effects emitted during an action are queued and drained
+//!   before processing subsequent external actions. This provides a strong ordering guarantee for
+//!   internal effect chains.
+//! - In [`TestStore`](crate::TestStore), effects are recorded but not automatically drained; tests
+//!   must explicitly `recv(...)` them.
+
 use std::cell::RefCell;
 use std::collections::VecDeque;
 use std::iter::from_fn;
@@ -15,13 +23,15 @@ pub(crate) use task::Executor;
 #[doc(hidden)]
 pub use task::Task;
 
+use crate::Keyed;
+
 mod delay;
 pub(crate) mod scheduler;
 mod task;
 
-/// `Effects` are used within `Reducer`s to propagate `Action`s as side-effects of performing other `Action`s.
+/// `Effects` are used within `Reducer`s to propagate follow-up `Action`s as side-effects of handling an action.
 ///
-/// `Effects` are also [`Scheduler`]s — able to apply modifiers to when (and how often) `Action`s. are sent.
+/// `Effects` are also [`Scheduler`]s—able to apply modifiers to when (and how often) actions are sent.
 ///
 /// See [the module level documentation](self) for more.
 pub trait Effects: Clone + Scheduler<Action = <Self as Effects>::Action> {
@@ -30,6 +40,8 @@ pub trait Effects: Clone + Scheduler<Action = <Self as Effects>::Action> {
 
     /// An effect that sends an [`Action`][`Self::Action`] through
     /// the `Store`’s [`Reducer`][`crate::Reducer`].
+    ///
+    /// In a live [`Store`](crate::Store), actions emitted here are processed before later external actions.
     #[doc(alias = "send")]
     fn action(&self, action: impl Into<<Self as Effects>::Action>);
 
@@ -40,6 +52,8 @@ pub trait Effects: Clone + Scheduler<Action = <Self as Effects>::Action> {
     /// Use this method if you need to ability to [`cancel`][Task::cancel] the task
     /// while it is running. Otherwise [`future`][Effects::future] or [`stream`][Effects::stream]
     /// should be preferred.
+    ///
+    /// The returned [`Task`] may contain no handle if the store is shutting down.
     fn task<S: Stream<Item = <Self as Effects>::Action> + 'static>(&self, stream: S) -> Task;
 
     /// An effect that runs a [`Future`][`std::future`] and, if it returns an
@@ -71,7 +85,7 @@ pub trait Effects: Clone + Scheduler<Action = <Self as Effects>::Action> {
     ///     reduce(&mut self.child_reducer, action, effects.scope());
     /// }
     /// ```
-    /// on each child-reducer.
+    /// on each child reducer.
     ///
     /// [`RecursiveReducer`]: crate::derive_macros
     #[inline(always)]
@@ -81,9 +95,33 @@ pub trait Effects: Clone + Scheduler<Action = <Self as Effects>::Action> {
     {
         Scoped(self.clone(), Marker)
     }
+
+    /// Scopes the `Effects` down to one that sends keyed child actions.
+    ///
+    /// This is used to route child actions through the parent action type while
+    /// carrying an identifier that selects which child state should handle it.
+    ///
+    /// # Note
+    /// A parent `Action` type must have exactly one conversion route from `Keyed<K, ChildAction>`
+    /// (i.e. `Action: From<Keyed<K, ChildAction>>`) for `scope_keyed` to be unambiguous.
+    ///
+    /// If you need multiple keyed collections of the same child action type under one parent,
+    /// prefer using distinct *key types* (newtype keys) so the routed payload types differ:
+    ///
+    /// - `Keyed<TabsKey, ChildAction>`
+    /// - `Keyed<JobsKey, ChildAction>`
+    #[inline(always)]
+    fn scope_keyed<K, ChildAction>(&self, key: K) -> ScopedKeyed<Self, K, ChildAction>
+    where
+        <Self as Effects>::Action: From<Keyed<K, ChildAction>>,
+        K: Clone + 'static,
+        ChildAction: 'static,
+    {
+        ScopedKeyed(self.clone(), key, Marker)
+    }
 }
 
-/// [`Effects`] are also `Scheduler`s — able to apply modifiers to when (and how often) `Action`s. are sent.
+/// [`Effects`] are also schedulers—able to apply modifiers to when (and how often) actions are sent.
 pub trait Scheduler {
     /// The `Action` sends scheduled by this `Scheduler`.
     type Action;
@@ -215,6 +253,7 @@ pub enum Interval {
 }
 
 impl Interval {
+    /// Returns the underlying duration regardless of leading/trailing semantics.
     pub fn duration(&self) -> Duration {
         match self {
             Interval::Leading(duration) => *duration,
@@ -276,6 +315,68 @@ where
         Self::Action: Clone + 'static,
     {
         self.0.schedule(action.into(), after)
+    }
+}
+
+/// An `Effects` that scopes its `Action`s to one that sends keyed child actions.
+///
+/// This `struct` is created by the [`scope_keyed`] method on [`Effects`]. See its
+/// documentation for more.
+///
+/// [`scope_keyed`]: Effects::scope_keyed
+pub struct ScopedKeyed<Parent, K, Child>(Parent, K, Marker<Child>);
+
+// Using `#[derive(Clone)]` adds a `Clone` requirement to all `Action`s
+impl<Parent: Clone, K: Clone, Child> Clone for ScopedKeyed<Parent, K, Child> {
+    #[inline(always)]
+    fn clone(&self) -> Self {
+        ScopedKeyed(self.0.clone(), self.1.clone(), Marker)
+    }
+}
+
+impl<Parent, K, Child> Effects for ScopedKeyed<Parent, K, Child>
+where
+    Parent: Effects,
+    <Parent as Effects>::Action: Clone + From<Keyed<K, Child>> + 'static,
+    K: Clone + 'static,
+    Child: 'static,
+{
+    type Action = Child;
+
+    #[inline(always)]
+    fn action(&self, action: impl Into<<Self as Effects>::Action>) {
+        self.0.action(Keyed::new(self.1.clone(), action.into()));
+    }
+
+    #[inline(always)]
+    fn task<S: Stream<Item = Child> + 'static>(&self, stream: S) -> Task {
+        let key = self.1.clone();
+        self.0
+            .task(stream.map(move |action| Keyed::new(key.clone(), action).into()))
+    }
+}
+
+#[doc(hidden)]
+impl<Parent, K, Child> Scheduler for ScopedKeyed<Parent, K, Child>
+where
+    Parent: Effects,
+    <Parent as Effects>::Action: From<Keyed<K, Child>> + Clone + 'static,
+    K: Clone + 'static,
+    Child: 'static,
+{
+    type Action = Child;
+
+    #[inline(always)]
+    fn schedule(
+        &self,
+        action: Self::Action,
+        after: impl IntoIterator<Item = Delay> + 'static,
+    ) -> Task
+    where
+        Self::Action: Clone + 'static,
+    {
+        self.0
+            .schedule(Keyed::new(self.1.clone(), action).into(), after)
     }
 }
 

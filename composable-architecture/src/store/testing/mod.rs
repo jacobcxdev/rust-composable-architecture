@@ -1,3 +1,16 @@
+//! Deterministic test harness for reducers.
+//!
+//! [`TestStore`] is a single-threaded alternative to [`Store`](crate::Store) designed for unit and
+//! integration tests.
+//!
+//! Key behaviours:
+//!
+//! - Reducer effects are queued, not automatically drained. Tests must explicitly `recv` them.
+//! - The harness is strict: leaving queued actions unhandled fails the test (including on `Drop`).
+//! - Scheduled work can be driven deterministically via [`TestClock::advance`].
+//! - Asynchronous work running on the local executor can be drained via [`TestStore::wait`], but
+//!   beware infinite streams.
+
 use std::cell::RefCell;
 use std::collections::VecDeque;
 use std::fmt::Debug;
@@ -23,6 +36,8 @@ pub struct TestStore<State: Reducer>
 where
     <State as Reducer>::Action: Debug,
 {
+    /// The current reducer state. Stored as `Option` so we can move it out in `into_inner` without
+    /// violating `Drop` invariants.
     state: Option<State>, // `Option` so that `into_inner` does not break `Drop`
     pool: LocalPool,
 
@@ -47,6 +62,10 @@ where
 {
     #[track_caller]
     fn drop(&mut self) {
+        // Strict by design:
+        // if actions were emitted and not asserted (via `recv`), the test should fail.
+        //
+        // This catches “fire-and-forget” effects that would otherwise be silently ignored.
         assert!(
             self.inner.borrow().actions.is_empty(),
             "one or more extra actions were not tested for: {:#?}",
@@ -71,6 +90,8 @@ where
 
         let timer = Dependency::<Reactor>::get();
 
+        // Drive the local executor and poll the test scheduler until no further progress can be made.
+        // This deterministically advances delayed work without sleeping.
         loop {
             self.pool.run_until_stalled();
             timer.poll(now);
@@ -108,6 +129,9 @@ where
     }
     /// Calls the `Store`’s [`Reducer`][`crate::Reducer`] with `action` and asserts the
     /// expected state changes.
+    ///
+    /// # Panics
+    /// Panics if there is an unhandled queued action (use `recv` first).
     #[track_caller]
     pub fn send(&mut self, action: <State as Reducer>::Action, assert: impl FnOnce(&mut State))
     where
@@ -136,6 +160,9 @@ where
 
     /// Checks that the `Store`’s [`Reducer`][`crate::Reducer`] was called with `action`
     /// and asserts the expected state changes.
+    ///
+    /// # Panics
+    /// Panics if no action is queued, or if the next queued action does not equal `action`.
     #[track_caller]
     pub fn recv(&mut self, action: <State as Reducer>::Action, assert: impl FnOnce(&mut State))
     where
@@ -161,6 +188,12 @@ where
     }
 
     /// Waits until all scheduled tasks have completed.
+    ///
+    /// This runs the underlying local executor until it is idle. It is useful for reducers that
+    /// spawn immediate futures/streams (i.e. work that does not depend on simulated time).
+    ///
+    /// # Warning
+    /// If your test spawns an infinite stream, `wait()` will never return. Prefer using a timeout.
     ///
     /// A timeout should be added to tests calling `wait()` to ensure that it
     /// does not wait forever if there are bugs in the asynchronous tasks.

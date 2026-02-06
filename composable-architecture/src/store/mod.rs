@@ -1,3 +1,5 @@
+//! `Store`: a runtime for reducers.
+//!
 use std::thread::{JoinHandle, Thread};
 
 use crate::dependencies::Tuple;
@@ -20,6 +22,9 @@ impl<State: Reducer> Store<State> {
     ///
     /// If `State` is not [`Send`], then [`with_dependencies`][`Store::with_dependencies`] (or [`with_dependency`][`Store::with_dependency`])
     /// can be used instead.
+    ///
+    /// # Requirements
+    /// This constructor requires `State: Send` because the value is moved into the runtime thread.
     pub fn with_initial(state: State) -> Self
     where
         State: Send + 'static,
@@ -33,6 +38,9 @@ impl<State: Reducer> Store<State> {
     /// generates a tuple of the `Store`’s `dependencies`.
     ///
     /// Can be used if `State` is not [`Send`], but the arguments used to construct it are.
+    ///
+    /// This is also the recommended entrypoint for tests or apps that want to inject dependencies
+    /// without relying on global state.
     pub fn with_dependencies<F, D, T>(with: F, dependencies: D) -> Self
     where
         F: (FnOnce() -> State) + Send + 'static,
@@ -61,6 +69,8 @@ impl<State: Reducer> Store<State> {
     /// Calls the `Store`’s [`Reducer`][`crate::Reducer`] with `action`.
     ///
     /// Takes an [`Into<Action>`] so that both child and parent `Action`s may be sent easily.
+    ///
+    /// This method is non-blocking: it enqueues the action for the runtime thread to process.
     pub fn send(&self, action: impl Into<<State as Reducer>::Action>) {
         self.sender.send(Ok(action.into()))
     }
@@ -69,7 +79,11 @@ impl<State: Reducer> Store<State> {
     /// the `Reducer` has performed the `action`.
     /// ## Note
     /// - This is a blocking call and is usually not what is wanted.
-    /// - It does not wait for any `effect`s triggered by the `action`.
+    /// - It does not wait for asynchronous work spawned by effects (tasks/futures/streams).
+    ///
+    /// However, `sync` *does* wait for any synchronous follow-up actions emitted during this
+    /// action’s handling to be drained, since the runtime drains those before it returns to
+    /// awaiting the next external action.
     pub fn sync(&self, action: impl Into<<State as Reducer>::Action>) {
         self.sender.sync(Ok(action.into()))
     }
@@ -78,8 +92,8 @@ impl<State: Reducer> Store<State> {
     ///
     /// # Note
     /// Care should be exercised when using this method in applications that utilize
-    /// asynchronous [`Effects`][`crate::effects::Effects`]. `into_inner` makes a “best effort”
-    /// to wait until any pending tasks are completed but it is not guaranteed.
+    /// asynchronous [`Effects`][`crate::effects::Effects`]. `into_inner` makes a best effort to
+    /// allow pending tasks to run before shutdown, but completion is not guaranteed.
     pub fn into_inner(self) -> <State as Reducer>::Output {
         self.sender.send(Err(std::thread::current()));
         std::thread::park(); // waiting for any async tasks to finish up

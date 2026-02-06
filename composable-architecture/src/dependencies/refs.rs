@@ -1,3 +1,21 @@
+//! Helper reference-or-owned return type.
+//!
+//! Some `Dependency<T>` APIs can return either a borrowed dependency value (when present) or an
+//! owned fallback value (when absent). This enum allows callers to treat both cases uniformly via
+//! [`Deref`], [`AsRef`], and [`Borrow`].
+//!
+//! # Example
+//! ```rust
+//! use composable::dependencies::{Dependency, Ref};
+//!
+//! #[derive(Default)]
+//! struct Foo(u32);
+//!
+//! let dep = Dependency::<Foo>::get();
+//! let value: Ref<'_, Foo> = dep.unwrap_or(Foo(42));
+//! assert_eq!(value.0, 42);
+//! ```
+
 use std::borrow::Borrow;
 use std::ops::Deref;
 

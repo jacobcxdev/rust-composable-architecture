@@ -13,6 +13,9 @@ use crate::store::channel::WeakSender;
 /// A [`Store`][`crate::Store`] uses a [Local Async Executor] to run its `Task`s.
 ///
 /// [Local Async Executor]: https://maciej.codes/2022-06-09-local-async.html
+///
+/// # Cancellation
+/// Dropping a `Task` cancels the underlying future (it will not be polled again).
 #[doc(hidden)]
 #[derive(Debug)]
 #[must_use = "dropping a Task cancels the underlying future"]
@@ -53,12 +56,14 @@ impl Task {
             );
 
         Task {
-            handle, // may return a `Task { handle: None }` while the `Store` is shutting down
+            // `handle` may be `None` if the store is shutting down and the sender has been dropped.
+            handle,
             when: None,
         }
     }
 }
 
+/// Dependency injected into a store runtime to enable spawning effect tasks.
 pub(crate) struct Executor<Action> {
     pub(crate) spawner: LocalSpawner,
     pub(crate) actions: WeakSender<Action>,

@@ -5,7 +5,6 @@ use svg::{node::element::path::Data, node::element::Path, Document, Node};
 
 use crate::Transform;
 
-///
 pub struct Output {
     svg: Document,
     transform: Transform,

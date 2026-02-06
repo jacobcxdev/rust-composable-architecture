@@ -1,3 +1,10 @@
+//! A tiny future/stream that becomes ready once at (or after) a specific instant.
+//!
+//! `Delay` is used to implement scheduling in [`Scheduler`](crate::effects::Scheduler).
+//! It is powered by a [`Reactor`](crate::effects::scheduler::Reactor) dependency.
+//!
+//! `Delay` implements both `Future<Output = ()>` and `Stream<Item = ()>`; it yields exactly once.
+
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::{Arc, Mutex};
@@ -16,6 +23,7 @@ pub(crate) enum State {
     Done,
 }
 
+/// A one-shot delay that becomes ready once.
 pub struct Delay(Arc<Mutex<State>>);
 
 impl Future for Delay {
@@ -67,6 +75,7 @@ impl Stream for Delay {
 }
 
 impl Delay {
+    /// Create a delay that becomes ready at `instant` (or the first poll after it).
     pub fn new(instant: Instant) -> Self {
         Delay(Arc::new(Mutex::new(State::New(instant))))
     }
