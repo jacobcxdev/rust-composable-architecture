@@ -13,6 +13,7 @@ macro_rules! tuple_impl {
         #[doc(hidden)]
         #[allow(non_snake_case)]
         #[allow(unused_variables)]
+        #[allow(unused_assignments)]
         impl<$($val: View),+> View for ( $($val,)+ ) {
             #[inline]
             fn size(&self) -> Size {
@@ -96,6 +97,7 @@ macro_rules! tuple_impl {
         #[doc(hidden)]
         #[allow(non_snake_case)]
         #[allow(unused_variables)]
+        #[allow(unused_assignments)]
         impl<$($val: View),+> View for Horizontal<( $($val,)+ )> {
             #[inline]
             fn size(&self) -> Size {

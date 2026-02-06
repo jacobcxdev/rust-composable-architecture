@@ -1,3 +1,19 @@
+//! Per-thread storage for dynamically scoped dependencies.
+//!
+//! This is an internal implementation detail used by [`with_dependency`](crate::dependencies::with_dependency)
+//! and [`with_dependencies`](crate::dependencies::with_dependencies).
+//!
+//! Values are stored in thread-local storage keyed by [`TypeId`]. Each type maintains a stack of
+//! values (stored as `Rc<dyn Any>`); entering a scope pushes a value, and leaving the scope pops it.
+//!
+//! This provides *dynamic scoping* semantics:
+//! an inner scope shadows an outer scope for the same dependency type.
+//!
+//! ## LIFO discipline
+//!
+//! Guards are assumed to be used in a strictly stack-like manner (LIFO). This is enforced by
+//! construction: `Guard` is only created and dropped by the public scoping functions.
+
 use std::any::{Any, TypeId};
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -13,6 +29,9 @@ thread_local! {
 }
 
 impl<T: 'static> Guard<T> {
+    /// Pushes `value` onto the per-thread stack for `T`.
+    ///
+    /// When the guard is dropped, the value is popped.
     pub(crate) fn new(value: T) -> Self {
         PER_THREAD.with_borrow_mut(|map| {
             map.entry(TypeId::of::<T>())
@@ -25,6 +44,7 @@ impl<T: 'static> Guard<T> {
         }
     }
 
+    /// Returns the current (top-most) scoped value for `T`, if any.
     pub(crate) fn get() -> Option<Rc<T>> {
         PER_THREAD.with_borrow(|map| {
             map.get(&TypeId::of::<T>())

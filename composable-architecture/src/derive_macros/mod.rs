@@ -7,11 +7,12 @@
 //!   `#[derive(TryInto)]` on a `Action` whose variants contain another [`Reducer`]’s `Action`s
 //!   allows an attempted conversion to…
 //! - [`From`]  
-//!   `#[derive(TryInto)]` on a `Action` whose variants contain another [`Reducer`]’s `Action`s
+//!   `#[derive(From)]` on a `Action` whose variants contain another [`Reducer`]’s `Action`s
 //!   allows an attempted conversion from…
 //!
-//! These macros produce efficient implementations of the [`Reducer`], [`std::convert::TryInto`]
-//! and [`std::convert::From`] traits so that they do not have to be implemented manually.
+//! These macros produce efficient implementations of [`Reducer`] routing glue, and (via re-exports
+//! of `derive_more`) generate `std::convert::From` and `std::convert::TryInto` implementations so
+//! conversions do not have to be written manually.
 //!
 //! ##### Automatic Derived Reducers
 //!
@@ -26,6 +27,20 @@
 //! [`Reducer`]: crate::Reducer
 //! [`TryInto`]: #reexports
 //! [`From`]: #reexports
+//!
+//! # Keyed child reducers
+//!
+//! Some parent reducers own a *dynamic* collection of child states (tabs, rows, items, etc). For
+//! this pattern, the crate provides [`KeyedState`](crate::KeyedState) and [`Keyed`](crate::Keyed).
+//!
+//! - A keyed child field looks like: `children: KeyedState<Key, ChildState>`.
+//! - A routed action payload looks like: `Keyed<Key, ChildAction>`.
+//!
+//! To make routing work:
+//! - The parent `Action` must have exactly one conversion route to/from `Keyed<Key, ChildAction>`
+//!   (typically a dedicated enum variant).
+//! - Child effects should be scoped with [`Effects::scope_keyed`](crate::effects::Effects::scope_keyed),
+//!   which automatically re-wraps child actions back into `Keyed<Key, ChildAction>` for the same key.
 //!
 //! # Composite Reducers
 //!
@@ -126,7 +141,7 @@
 //! ```
 //! 1. Now that `Action`s are being passed to multiple `Reducers` they must be `Clone`.
 //! 2. The `RecursiveReducer` derive macro constructs a recursive `Reducer` from the `struct`.
-//! 3. The `From` and `TryInfo` derive macros ensure that conversions work, when they should,
+//! 3. The `From` and `TryInto` derive macros ensure that conversions work, when they should,
 //!    between parent and child `Action`s. These conversions utilize #4…
 //! 4. The parent has one (and only one) `Action` for the `Action`s of each of its children.
 //! 5. Finally, an implementation of the `RecursiveReducer` trait containing the parent’s `reduce`
@@ -215,13 +230,13 @@
 //! }
 //! ```
 //!
-//! `authenticated::Action`s will only run when the state is `LoggedIn` and vice-versa..
+//! `authenticated::Action`s will only run when the state is `LoggedIn` and vice versa.
 //!
 //! ---
 //! <br />
 //!
 //! Now, the [automatic derive reducer] behavior of [`Option`] is easy to described.
-//! It behaves is as if it were:
+//! It behaves as if it were:
 //!
 //! ```ignore
 //! #[derive(RecursiveReducer)]
@@ -250,6 +265,6 @@ pub trait RecursiveReducer {
     type Action;
 
     /// This `reduce` should perform any actions that are needed _before_ the macro recurses
-    /// into the other reducers.
+    /// into child reducers.
     fn reduce(&mut self, action: Self::Action, send: impl Effects<Self::Action>);
 }

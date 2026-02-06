@@ -1,3 +1,17 @@
+//! Store runtime implementation.
+//!
+//! This module contains the dedicated-thread event loop that powers [`Store`](crate::Store).
+//!
+//! Key behavioural guarantees:
+//!
+//! - External actions are processed in the order they are received.
+//! - While handling an external action, any synchronous effect actions emitted are queued and
+//!   drained *before* processing the next external action. This makes internal effect chains
+//!   uninterruptible by subsequent external sends.
+//! - Shutdown uses a small handshake: `Store::into_inner` sends a sentinel containing the calling
+//!   thread handle; the runtime schedules an `unpark` on its local executor to allow pending tasks
+//!   to make progress before exit.
+
 use std::cell::RefCell;
 use std::collections::VecDeque;
 use std::rc::Rc;
@@ -14,6 +28,9 @@ use crate::store::channel::{channel, WeakSender};
 use crate::store::Store;
 
 impl<State: Reducer> Store<State> {
+    /// Constructs a store running on a dedicated thread with an injected dependency tuple.
+    ///
+    /// This is the shared implementation behind `with_initial`, `with_dependency`, and `with_dependencies`.
     pub(crate) fn runtime<F, D, T>(with: F, dependencies: D) -> Self
     where
         F: (FnOnce() -> State) + Send + 'static,
@@ -47,7 +64,7 @@ impl<State: Reducer> Store<State> {
                                     Ok(action) => {
                                         state.reduce(action, Rc::downgrade(&effects));
 
-                                        // wrapping the `borrow_mut` in a closure to ensure that the
+                                        // Wrap the `borrow_mut` in a closure to ensure the borrow is dropped immediately,
                                         // `borrow_mut` is dropped immediately so that the action is
                                         // free to push further actions to `effects`
                                         let next = || effects.borrow_mut().pop_front();

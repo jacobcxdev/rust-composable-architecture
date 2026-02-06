@@ -1,0 +1,43 @@
+name: Publish Documentation
+
+on:
+    push:
+        branches:
+            - main
+            - dev/next
+        tags:
+            - "*"
+
+jobs:
+    publish-docs:
+        runs-on: ubuntu-latest
+        permissions:
+            contents: read
+        steps:
+            - name: Checkout
+              uses: actions/checkout@v4
+
+            - name: Install Rust toolchain
+              uses: dtolnay/rust-toolchain@stable
+
+            - name: Checkout Action Repository
+              run: |
+                  git clone --depth 1 https://x-access-token:${{ secrets.INDEX_REPO_TOKEN }}@github.com/jacobcxdev/jacobcxdev.github.io.git action-checkout
+
+            - name: Build Documentation
+              run: cargo doc --no-deps
+
+            - name: Copy LICENSE files into docs
+              run: cp LICENSE-*.md target/doc/composable/
+
+            - name: Create Root Redirect
+              run: echo '<meta http-equiv="refresh" content="0; url=composable/index.html">' > target/doc/index.html
+
+            - name: Publish to Index
+              uses: ./action-checkout/actions/publish-docs
+              with:
+                  token: ${{ secrets.INDEX_REPO_TOKEN }}
+                  build-command: cargo doc --no-deps
+                  output-dir: target/doc
+                  stable-branch: main
+                  develop-branch: dev/next

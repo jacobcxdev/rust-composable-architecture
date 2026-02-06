@@ -1,3 +1,11 @@
+//! Micro-benchmarks for action dispatch.
+//!
+//! These benches compare:
+//! - Many external `Store::send` calls
+//! - Internal effects that enqueue many actions (`send.action`)
+//! - Stream-based and future-based effect emission
+//!
+
 use divan::{bench as benchmark, main as run_benchmarks};
 use futures::{future, stream, StreamExt};
 
@@ -48,6 +56,7 @@ impl From<State> for usize {
     }
 }
 
+/// Large enough to amortise overhead and highlight per-send costs.
 const N: usize = 100000;
 
 mod one_hundred_thousand {

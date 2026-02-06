@@ -3,6 +3,9 @@ use std::time::Duration;
 /// By implementing the `TestClock` trait, [`TestStore`] can be used to test
 /// `Reducer`s that utilize [tasks], [futures], or [streams].
 ///
+/// `advance` moves a simulated clock used by the test scheduler—it does **not** sleep.
+/// This makes scheduled effects deterministic and fast.
+///
 /// This [`debounce`] example exercises scheduling and task cancellation; all
 /// with deterministic control of over the (simulated) passage of time.
 ///
@@ -83,5 +86,8 @@ use std::time::Duration;
 /// store.recv(Recv, |state| state.n = 2);
 /// ```
 pub trait TestClock {
+    /// Advances the simulated clock and drives any scheduled work that becomes due.
+    ///
+    /// This method is deterministic and does not sleep.
     fn advance(&mut self, duration: Duration);
 }

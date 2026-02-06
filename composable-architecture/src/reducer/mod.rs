@@ -13,16 +13,16 @@ pub trait Reducer {
     ///
     /// Using a separate `Output` type, rather than returning the `Reducer` itself, allows the
     /// `Store`s to support `Reducer` types that are not [`Send`].
-    ///  
-    /// - `Reducer`s that do not need to support [`into_inner`] should use declare
-    ///   `type Output = Self;` as it is a simple, recognizable default.
+    ///
+    /// - `Reducer`s that do not need to support [`into_inner`] should declare
+    ///   `type Output = Self;` as it is a simple, recognisable default.
     /// - A `Reducer` that _is_ `Send` can also default to `type Output = Self;`.
     /// - Otherwise, the `Reducer` will need to declare an `Output` type that _is_ `Send` and
-    ///   that can be crated [`From`] the `Reducer`’s state.
+    ///   that can be created from the `Reducer`’s state via [`From`].
     ///
     /// ```rust
-    /// # use std::rc::Rc;
     /// # use std::cell::Cell;
+    /// # use std::rc::Rc;
     /// # use composable::{Effects, Reducer, Store};
     /// # #[derive(Default)]
     /// struct State {
@@ -59,6 +59,9 @@ pub trait Reducer {
     fn reduce(&mut self, action: Self::Action, send: impl Effects<Self::Action>);
 }
 
+/// `Box<T>` is a Reducer whenever T is a Reducer.
+///
+/// This is a convenience for heap-allocating reducer state while preserving the same action type.
 impl<T: Reducer> Reducer for Box<T> {
     type Action = T::Action;
 
@@ -69,6 +72,9 @@ impl<T: Reducer> Reducer for Box<T> {
     }
 }
 
+/// `Option<T>` is a Reducer whenever T is a Reducer.
+///
+/// When the option is None, incoming actions are ignored (and no effects are produced).
 impl<T: Reducer> Reducer for Option<T> {
     type Action = T::Action;
 
