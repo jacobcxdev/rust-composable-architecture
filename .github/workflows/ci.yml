@@ -1,0 +1,471 @@
+name: CI
+
+on:
+    push:
+        branches: ["main", "dev/next"]
+        tags: ["*"]
+    pull_request:
+        branches: ["main", "dev/next"]
+    workflow_dispatch:
+
+concurrency:
+    group: ci-${{ github.workflow }}-${{ github.ref }}
+    cancel-in-progress: true
+
+permissions:
+    contents: read
+
+env:
+    CARGO_TERM_COLOR: always
+    RUST_BACKTRACE: 1
+
+jobs:
+    quality:
+        name: Stable quality gate
+        runs-on: ubuntu-24.04
+        steps:
+            - name: Checkout
+              uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+            - name: Install Rust 1.98.0
+              uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772
+              with:
+                  toolchain: 1.98.0
+                  components: clippy, rustfmt, rust-src
+
+            - name: Restore Cargo cache
+              uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+
+            - name: Test formatting source selection
+              env:
+                  PYTHONDONTWRITEBYTECODE: 1
+              run: python3 -m unittest scripts.tests.test_check_rust_format
+
+            - name: Check all Rust source formatting
+              run: python3 scripts/check_rust_format.py
+
+            - name: Test documentation lint enforcement
+              env:
+                  PYTHONDONTWRITEBYTECODE: 1
+              run: python3 -m unittest scripts.tests.test_documentation_lints
+
+            - name: Lint all targets and features
+              run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+
+            - name: Test workspace
+              run: cargo test --workspace --all-features
+
+            - name: Verify compiler contracts without Local
+              run: |
+                  cargo test --locked -p rca-core --no-default-features --test compile --test typed_compile --test removal_compile
+                  cargo test --locked -p rca-core -p rca-test --no-default-features --test compiler_contracts -- --check
+
+            - name: Stress composition reference models
+              timeout-minutes: 10
+              env:
+                  PROPTEST_CASES: 10000
+              run: cargo test --locked -p rca-core --features test-util --test lifecycle_properties --test keyed_properties --test scoped_properties
+
+            - name: Test documentation
+              run: cargo test --workspace --all-features --doc
+
+            - name: Build documentation
+              env:
+                  RUSTDOCFLAGS: -D warnings
+              run: |
+                  cargo doc --locked -p futures-core --no-deps
+                  cargo doc --locked -p rca-event-listener --all-features --no-deps
+                  cargo doc --locked --workspace --all-features --no-deps
+
+    comparison-correctness:
+        name: Comparison correctness (${{ matrix.engine }})
+        runs-on: ubuntu-24.04
+        timeout-minutes: 15
+        strategy:
+            fail-fast: false
+            matrix:
+                engine: [candidate, upstream, historical]
+        steps:
+            - name: Checkout
+              uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+            - name: Install Rust 1.98.0
+              uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772
+              with:
+                  toolchain: 1.98.0
+                  components: clippy, rustfmt
+
+            - name: Check counter fixture formatting
+              run: cargo fmt --manifest-path tests/composable-counter/${{ matrix.engine }}/Cargo.toml --check
+
+            - name: Lint counter fixture
+              run: cargo clippy --locked --manifest-path tests/composable-counter/${{ matrix.engine }}/Cargo.toml --all-targets -- -D warnings
+
+            - name: Lint allocation instrumentation
+              run: cargo clippy --locked --manifest-path tests/composable-counter/${{ matrix.engine }}/Cargo.toml --features allocation-measurement --all-targets -- -D warnings
+
+            - name: Test counter fixture
+              timeout-minutes: 2
+              run: cargo test --locked --manifest-path tests/composable-counter/${{ matrix.engine }}/Cargo.toml
+
+            - name: Test allocation instrumentation
+              timeout-minutes: 2
+              run: cargo test --locked --manifest-path tests/composable-counter/${{ matrix.engine }}/Cargo.toml --features allocation-measurement
+
+            - name: Check stream fixture formatting
+              run: cargo fmt --manifest-path tests/composable-stream/${{ matrix.engine }}/Cargo.toml --check
+
+            - name: Lint stream fixture
+              run: cargo clippy --locked --manifest-path tests/composable-stream/${{ matrix.engine }}/Cargo.toml --all-targets --all-features -- -D warnings
+
+            - name: Test stream fixture
+              id: stream-fixture
+              timeout-minutes: 2
+              # The pinned upstream shutdown baseline is recorded as failed.
+              # See tests/composable-stream/README.md#common-outcome-correctness-fixture.
+              continue-on-error: ${{ matrix.engine == 'upstream' }}
+              run: cargo test --locked --manifest-path tests/composable-stream/${{ matrix.engine }}/Cargo.toml
+
+            - name: Report upstream stream reference outcome
+              if: ${{ always() && matrix.engine == 'upstream' && steps.stream-fixture.outcome != 'skipped' }}
+              env:
+                  REFERENCE_OUTCOME: ${{ steps.stream-fixture.outcome }}
+              run: |
+                  printf 'Upstream stream observation: %s. The pinned reference remains a failed baseline; this run does not authorise numerical comparisons that depend on successful completion.\n' "$REFERENCE_OUTCOME" >> "$GITHUB_STEP_SUMMARY"
+
+            - name: Test common-outcome allocation instrumentation
+              timeout-minutes: 2
+              run: cargo test --locked --manifest-path tests/composable-stream/${{ matrix.engine }}/Cargo.toml --features allocation-measurement --test outcome
+
+            - name: Test stream evidence validator
+              if: matrix.engine == 'candidate'
+              timeout-minutes: 2
+              env:
+                  PYTHONDONTWRITEBYTECODE: 1
+                  PYTHONPATH: scripts/tests
+              run: python3 -m unittest test_composition_performance.ComposableFiniteStreamTests test_common_outcome_allocations test_composition_runner.CommonOutcomeAllocationRunnerTests
+
+            - name: Check timer fixture formatting
+              run: cargo fmt --manifest-path tests/composable-timers/${{ matrix.engine }}/Cargo.toml --check
+
+            - name: Lint timer fixture
+              run: cargo clippy --locked --manifest-path tests/composable-timers/${{ matrix.engine }}/Cargo.toml --all-targets -- -D warnings
+
+            - name: Test timer fixture
+              timeout-minutes: 2
+              run: cargo test --locked --manifest-path tests/composable-timers/${{ matrix.engine }}/Cargo.toml
+
+            - name: Check publication fixture formatting
+              run: cargo fmt --manifest-path tests/composable-observation/${{ matrix.engine }}/Cargo.toml --check
+
+            - name: Lint publication fixture
+              run: cargo clippy --locked --manifest-path tests/composable-observation/${{ matrix.engine }}/Cargo.toml --all-targets --all-features -- -D warnings
+
+            - name: Test publication fixture
+              timeout-minutes: 2
+              run: cargo test --locked --manifest-path tests/composable-observation/${{ matrix.engine }}/Cargo.toml --all-features
+
+    keyed-policy-comparison:
+        name: Keyed policy comparison (${{ matrix.engine }})
+        runs-on: ubuntu-24.04
+        timeout-minutes: 10
+        strategy:
+            fail-fast: false
+            matrix:
+                engine: [candidate, historical]
+        steps:
+            - name: Checkout
+              uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+            - name: Install Rust 1.98.0
+              uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772
+              with:
+                  toolchain: 1.98.0
+                  components: clippy, rustfmt
+
+            - name: Check keyed fixture formatting
+              run: cargo fmt --manifest-path tests/composable-keyed-policy/${{ matrix.engine }}/Cargo.toml --check
+
+            - name: Lint keyed fixture
+              run: cargo clippy --locked --manifest-path tests/composable-keyed-policy/${{ matrix.engine }}/Cargo.toml --all-targets -- -D warnings
+
+            - name: Test keyed fixture
+              timeout-minutes: 2
+              run: cargo test --locked --manifest-path tests/composable-keyed-policy/${{ matrix.engine }}/Cargo.toml
+
+    feature-powerset:
+        name: Additive feature powerset
+        runs-on: ubuntu-24.04
+        steps:
+            - name: Checkout
+              uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+            - name: Install Rust 1.98.0
+              uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772
+              with:
+                  toolchain: 1.98.0
+                  components: clippy
+
+            - name: Install cargo-hack
+              uses: taiki-e/install-action@6cd13508893c0e7eab5f273c2575d3859bd7229a # v2.86.6
+              with:
+                  tool: cargo-hack@0.6.45
+
+            - name: Restore Cargo cache
+              uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+
+            # The size probe is binary-only; the following check still covers it.
+            # Normal libraries exclude cfg(test) bodies without hiding library APIs.
+            - name: Require public and private library documentation
+              run: cargo hack clippy --locked --workspace --exclude rca-size-probe --feature-powerset --lib -- -D warnings -D missing_docs -D clippy::missing_docs_in_private_items
+
+            - name: Check workspace powerset
+              run: cargo hack check --workspace --feature-powerset --no-dev-deps
+
+            - name: Test umbrella powerset
+              run: cargo hack test -p rust-composable-architecture --feature-powerset
+
+            - name: Prove core dependency boundary
+              run: |
+                  cargo tree -p rca-core --no-default-features --edges normal > core-tree.txt
+                  if grep -Eq '(^| )((tokio)|(rca-test)|(rca-macros)|(rca-persistence)|(tempfile)|(insta)|(ui_test)|(trybuild)) v' core-tree.txt; then
+                      cat core-tree.txt
+                      exit 1
+                  fi
+                  cargo tree -p rust-composable-architecture --no-default-features --edges normal > facade-tree.txt
+                  if grep -Eq '(^| )((tokio)|(rca-test)|(rca-macros)|(rca-persistence)|(tempfile)|(insta)|(ui_test)|(trybuild)) v' facade-tree.txt; then
+                      cat facade-tree.txt
+                      exit 1
+                  fi
+                  cargo tree -p rca-persistence --no-default-features --edges normal > persistence-tree.txt
+                  if grep -Eq '(^| )((tokio)|(tempfile)|(insta)) v' persistence-tree.txt; then
+                      cat persistence-tree.txt
+                      exit 1
+                  fi
+
+    targets:
+        name: ${{ matrix.target }}
+        runs-on: ${{ matrix.os }}
+        strategy:
+            fail-fast: false
+            matrix:
+                include:
+                    - os: ubuntu-24.04
+                      target: x86_64-unknown-linux-gnu
+                      tokio: true
+                      native: true
+                    - os: ubuntu-24.04-arm
+                      target: aarch64-unknown-linux-gnu
+                      tokio: true
+                      native: true
+                    - os: macos-26
+                      target: x86_64-apple-darwin
+                      tokio: true
+                      native: false
+                    - os: macos-26
+                      target: aarch64-apple-darwin
+                      tokio: true
+                      native: true
+                    - os: windows-2025
+                      target: x86_64-pc-windows-msvc
+                      tokio: true
+                      native: true
+                    - os: ubuntu-24.04
+                      target: wasm32-unknown-unknown
+                      tokio: false
+                      native: false
+        steps:
+            - name: Checkout
+              uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+            - name: Install Rust 1.98.0
+              uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772
+              with:
+                  toolchain: 1.98.0
+                  targets: ${{ matrix.target }}
+                  components: clippy
+
+            - name: Restore Cargo cache
+              uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+              with:
+                  key: ${{ matrix.target }}
+
+            - name: Check runtime-neutral core
+              run: cargo check --locked -p rca-core --no-default-features --target ${{ matrix.target }}
+
+            - name: Check runtime-neutral umbrella
+              run: cargo check --locked -p rust-composable-architecture --no-default-features --target ${{ matrix.target }}
+
+            - name: Require runtime-neutral library documentation
+              run: cargo clippy --locked -p rca-core -p rust-composable-architecture --no-default-features --lib --target ${{ matrix.target }} -- -D warnings -D missing_docs -D clippy::missing_docs_in_private_items
+
+            - name: Require owned transport library documentation
+              run: cargo clippy --locked -p rca-async-channel -p rca-event-listener -p rca-event-listener-strategy --lib --target ${{ matrix.target }} -- -D warnings -D missing_docs -D clippy::missing_docs_in_private_items
+
+            - name: Check Tokio adapter
+              if: matrix.tokio
+              run: cargo check --locked -p rca-tokio --target ${{ matrix.target }}
+
+            - name: Check Tokio umbrella
+              if: matrix.tokio
+              run: cargo check --locked -p rust-composable-architecture --no-default-features --features tokio --target ${{ matrix.target }}
+
+            - name: Require Tokio library documentation
+              if: matrix.tokio
+              run: |
+                  cargo clippy --locked -p rca-tokio --lib --target ${{ matrix.target }} -- -D warnings -D missing_docs -D clippy::missing_docs_in_private_items
+                  cargo clippy --locked -p rust-composable-architecture --no-default-features --features tokio --lib --target ${{ matrix.target }} -- -D warnings -D missing_docs -D clippy::missing_docs_in_private_items
+
+            - name: Require native persistence and test library documentation
+              if: matrix.tokio && matrix.native != false
+              run: |
+                  cargo clippy --locked -p rca-persistence --features file --lib --target ${{ matrix.target }} -- -D warnings -D missing_docs -D clippy::missing_docs_in_private_items
+                  cargo clippy --locked -p rca-test --lib --target ${{ matrix.target }} -- -D warnings -D missing_docs -D clippy::missing_docs_in_private_items
+
+            - name: Record native runtime host toolchain
+              if: matrix.tokio && matrix.native != false
+              run: |
+                  rustc --version --verbose
+                  cargo --version
+
+            - name: Run native Tokio and host conformance
+              if: matrix.tokio && matrix.native != false
+              timeout-minutes: 10
+              run: cargo test --locked -p rca-tokio --target ${{ matrix.target }} --lib --test synchronous_host --test thread_affine_host --test async_cleanup_host -- --test-threads=1
+
+            - name: Run native file persistence and client lifecycle
+              if: matrix.tokio && matrix.native != false
+              timeout-minutes: 10
+              run: cargo test --locked -p rca-example-persistent-counter --target ${{ matrix.target }} -- --test-threads=1
+
+            - name: Run native proxy socket ownership
+              if: matrix.tokio && matrix.native != false
+              timeout-minutes: 10
+              run: cargo test --locked -p rca-example-mcmd-server --target ${{ matrix.target }} --test proxy_socket --test managed_proxy_socket -- --test-threads=1
+
+            - name: Run native deterministic conformance
+              if: matrix.tokio && matrix.native != false
+              timeout-minutes: 10
+              run: cargo test --locked -p rca-test --target ${{ matrix.target }} --test conformance_deterministic -- --test-threads=1
+
+            - name: Verify native compiler diagnostics
+              if: matrix.native != false
+              timeout-minutes: 10
+              run: cargo test --locked -p rca-core -p rca-test --all-features --test compiler_contracts -- --check
+
+    concurrency-model:
+        name: Loom concurrency model
+        runs-on: ubuntu-24.04
+        steps:
+            - name: Checkout
+              uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+            - name: Install Rust 1.98.0
+              uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772
+              with:
+                  toolchain: 1.98.0
+                  components: clippy
+
+            - name: Restore Cargo cache
+              uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+
+            - name: Require Loom listener library documentation
+              env:
+                  RUSTFLAGS: --cfg loom
+              run: cargo clippy --locked -p rca-event-listener --features loom --lib -- -D warnings -D missing_docs -D clippy::missing_docs_in_private_items
+
+            - name: Run Loom models
+              env:
+                  RUSTFLAGS: --cfg loom
+              run: |
+                  cargo test -p rca-core --test loom --release
+                  cargo test -p rca-core --lib control_wake_tests --release
+                  cargo test -p rca-core --lib finish_loom_tests --release
+                  cargo test -p rca-core --lib cancel_guard_loom_tests --release
+                  cargo test -p rca-core --lib store::mailbox::tests --release
+                  cargo test -p rca-test --lib host_teardown_tests --release
+
+    miri:
+        name: Miri runtime-neutral core
+        runs-on: ubuntu-24.04
+        steps:
+            - name: Checkout
+              uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+            - name: Install pinned nightly
+              uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772
+              with:
+                  toolchain: nightly-2026-08-23
+                  components: miri
+
+            - name: Restore Cargo cache
+              uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+
+            - name: Run Miri
+              run: rustup run nightly-2026-08-23 cargo miri test -p rca-core
+
+            - name: Run feature-gated composition properties under Miri
+              run: rustup run nightly-2026-08-23 cargo miri test --locked -p rca-core --features test-util --test lifecycle_properties --test keyed_properties --test scoped_properties
+
+    supply-chain:
+        name: Dependency and licence policy
+        runs-on: ubuntu-24.04
+        steps:
+            - name: Checkout
+              uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+            - name: Install Rust 1.98.0
+              uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772
+              with:
+                  toolchain: 1.98.0
+
+            - name: Install supply-chain tools
+              uses: taiki-e/install-action@6cd13508893c0e7eab5f273c2575d3859bd7229a # v2.86.6
+              with:
+                  tool: cargo-audit@0.22.2,cargo-deny@0.20.2
+
+            - name: Audit vulnerabilities
+              run: cargo audit
+
+            - name: Enforce dependency policy
+              run: cargo deny check
+
+    unused-dependencies:
+        name: Unused dependencies
+        runs-on: ubuntu-24.04
+        steps:
+            - name: Checkout
+              uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+            - name: Install pinned nightly
+              uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772
+              with:
+                  toolchain: nightly-2026-08-23
+
+            - name: Install cargo-udeps
+              uses: taiki-e/install-action@6cd13508893c0e7eab5f273c2575d3859bd7229a # v2.86.6
+              with:
+                  tool: cargo-udeps@0.1.61
+
+            - name: Restore Cargo cache
+              uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+
+            - name: Find unused dependencies
+              run: |
+                  nightly_bin=$(dirname "$(rustup which --toolchain nightly-2026-08-23 cargo)")
+                  PATH="${nightly_bin}:${PATH}" cargo udeps --workspace --all-targets --all-features
+
+    packaged-downstream:
+        name: Packaged downstream consumer
+        runs-on: ubuntu-24.04
+        steps:
+            - name: Checkout
+              uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+            - name: Install Rust 1.98.0
+              uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772
+              with:
+                  toolchain: 1.98.0
+
+            - name: Verify archives through local registry
+              run: scripts/verify-packaged-downstream.sh
