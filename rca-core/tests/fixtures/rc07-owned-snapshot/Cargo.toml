@@ -1,0 +1,19 @@
+[package]
+name = "rc07-owned-snapshot-consumer"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[workspace]
+
+[features]
+hosted = ["dep:rca-test"]
+no-clone = ["hosted"]
+no-debug = ["hosted"]
+no-equality = ["hosted"]
+no-send = ["hosted"]
+
+[dependencies]
+core_api = { package = "rca-core", path = "../../..", default-features = false }
+facade = { package = "rust-composable-architecture", path = "../../../../rca", default-features = false }
+rca-test = { path = "../../../../rca-test", optional = true }

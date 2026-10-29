@@ -1,0 +1,10 @@
+[package]
+name = "rc05-feature-adapter"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[workspace]
+
+[dependencies]
+rca = { package = "rust-composable-architecture", path = "../../../../rca", default-features = false }
