@@ -1,0 +1,80 @@
+RCA 0.8 projected observation and lifecycle benchmark
+
+source-revision: ad423f99bd41fa3c12be2f5f803e9840f49bcd07
+observation-benchmark-sha256: e967d69d540eb471947a6847950999ff2f5554a83c40813980f305eb7d3890ed
+store-benchmark-sha256: 1d02099cf8e13d7e046beedc54a68fca64d2ed1bab8568961814210533df88d1
+effects-benchmark-sha256: 438730bae0bef086823fd087b0ffacfc058b0956186a97dd83beb1912de67d81
+rustc: 1.98.0 (88d9e12ae 2026-08-18)
+host: aarch64-apple-darwin
+system: Darwin 25.6.0, Apple M3 Max, 51539607552 bytes RAM
+timer-precision: 41 ns
+
+Observation command: cargo bench -p rca-core --bench observation
+publication workload: 100 committed actions per iteration
+
+observation                         fastest       median        mean          slowest       samples
+active publication/0               500.8 us      606.7 us      625.9 us      976.6 us      20
+active publication/1               505.0 us      651.4 us      651.3 us      957.0 us      20
+active publication/8               552.6 us      681.6 us      686.6 us      1.034 ms      20
+active publication/64              587.8 us      631.9 us      652.8 us      971.9 us      20
+cancelled next resume              8.041 us      12.24 us      13.59 us      19.70 us      20
+large 4 KiB projection             628.5 us      663.8 us      708.0 us      1.026 ms      20
+observation drop cleanup           9.790 us      11.93 us      12.41 us      15.95 us      20
+observation handoff                6.416 us      11.22 us      11.37 us      15.29 us      20
+shutdown with observers/1          35.45 us      36.68 us      40.40 us      70.54 us      10
+shutdown with observers/8          73.79 us      77.99 us      79.72 us      92.16 us      10
+shutdown with observers/64         384.7 us      456.5 us      452.7 us      568.7 us      10
+slow consumer replacement          632.0 us      678.7 us      688.2 us      979.5 us      20
+
+Instrumented assertions:
+- selector calls equal active observers multiplied by committed actions;
+- publication work is O(active observers);
+- slow-consumer peak retention is two values, including handoff;
+- actor publication never waits for consumer progress;
+- drop cleanup uses actor control wake, not bounded mailbox admission.
+
+Effect-free command: cargo bench -p rca-core --bench store_actor
+workload: 1,000 committed effect-free actions per producer per iteration
+
+producers   fastest       median        mean          slowest       samples
+1           4.916 ms      6.522 ms      6.419 ms      7.446 ms      20
+2           5.543 ms      6.731 ms      6.706 ms      7.572 ms      20
+4           7.708 ms      11.13 ms      11.00 ms      14.58 ms      20
+8           12.69 ms      16.34 ms      16.50 ms      25.94 ms      20
+
+Same-host exact phase-3 control revision e00de04b556e390f8ef33e8bcfaa50a85db84c43:
+producers   phase-3 median   phase-4 median   change
+1           9.546 ms         6.522 ms         -31.7%
+2           8.840 ms         6.731 ms         -23.9%
+4           11.63 ms         11.13 ms         -4.3%
+8           15.49 ms         16.34 ms         +5.5%
+
+Effects command: cargo bench -p rca-core --bench effects
+
+effects                        fastest       median        mean          slowest       samples
+action task cancel             33.37 us      40.74 us      44.59 us      99.99 us      20
+far timer removal              10.16 us      13.64 us      14.68 us      31.66 us      20
+generation cancellation/1      31.83 us      38.08 us      41.54 us      64.20 us      10
+generation cancellation/16     203.9 us      244.4 us      243.3 us      279.3 us      10
+generation cancellation/256    3.422 ms      5.423 ms      5.157 ms      6.772 ms      10
+immediate send round trip      27.49 us      34.47 us      35.34 us      46.08 us      20
+overdue interval catch up      280.0 us      318.5 us      312.5 us      363.3 us      10
+run effect round trip          27.54 us      41.10 us      65.89 us      375.2 us      20
+zero deadline timers/1         4.957 us      7.791 us      8.908 us      18.29 us      10
+zero deadline timers/16        16.70 us      18.54 us      21.65 us      45.33 us      10
+zero deadline timers/256       182.7 us      194.8 us      197.1 us      233.7 us      10
+
+Thread-per-task benchmark variance was controlled by repeated current runs and
+an exact phase-3 checkout on the same host. Median-of-repeated-median checks for
+the noisy immediate-send, run-effect, interval, far-removal, and 256-generation
+cases showed no consistent regression above 10%. Effect-free throughput stayed
+within 5.5% of the same-host phase-3 control at every producer count.
+
+Property command: PROPTEST_CASES=1000 cargo test --workspace --all-targets --all-features
+result: 1,000 generated typed-cancellation schedules plus 1,000 generated stable timer-order cases passed.
+
+Qualification:
+- cargo fmt --all -- --check: passed
+- cargo test --workspace --all-targets --all-features: passed
+- cargo clippy --workspace --all-targets --all-features -- -D warnings: passed
+- RUSTDOCFLAGS=-D warnings cargo doc --workspace --all-features --no-deps --document-private-items: passed

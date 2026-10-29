@@ -1,0 +1,16 @@
+storage,count,inline_bytes,allocations,allocated_bytes,retained_bytes,peak_bytes
+rca_reserved,0,88,0,0,0,0
+legacy_hash_reserved,0,48,0,0,0,0
+legacy_btree,0,24,0,0,0,0
+rca_reserved,1,88,3,100,100,100
+legacy_hash_reserved,1,48,1,76,76,76
+legacy_btree,1,24,1,192,192,192
+rca_reserved,10,88,3,496,496,496
+legacy_hash_reserved,10,48,1,280,280,280
+legacy_btree,10,24,1,192,192,192
+rca_reserved,1000,88,3,50464,50464,50464
+legacy_hash_reserved,1000,48,1,34824,34824,34824
+legacy_btree,1000,24,167,34368,34368,34368
+rca_reserved,100000,88,3,4379680,4379680,4379680
+legacy_hash_reserved,100000,48,1,2228232,2228232,2228232
+legacy_btree,100000,24,16666,3428352,3428352,3428352

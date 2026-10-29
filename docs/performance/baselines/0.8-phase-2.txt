@@ -1,0 +1,25 @@
+RCA 0.8 actor commit benchmark
+
+command: cargo bench -p rca-core --bench store_actor
+benchmark-sha256: 1d02099cf8e13d7e046beedc54a68fca64d2ed1bab8568961814210533df88d1
+rustc: 1.98.0 (88d9e12ae 2026-08-18)
+host: aarch64-apple-darwin
+system: Darwin 25.6.0, Apple M3 Max, 51539607552 bytes RAM
+workload: 1,000 effect-free committed actions per producer per iteration
+samples: 20 per producer count
+
+Timer precision: 41 ns
+store_actor             fastest       | slowest       | median        | mean          | samples | iters
+`- effect_free_commits                |               |               |               |         |
+   |- 1                 4.036 ms      | 6.415 ms      | 5.857 ms      | 5.747 ms      | 20      | 20
+   |- 2                 5.63 ms       | 8.586 ms      | 7.076 ms      | 7.033 ms      | 20      | 20
+   |- 4                 7.995 ms      | 14.38 ms      | 11.72 ms      | 11.4 ms       | 20      | 20
+   `- 8                 12.72 ms      | 26.76 ms      | 18.3 ms       | 18.18 ms      | 20      | 20
+
+Idle actor probe
+
+command: store_actor test binary idle_actor_profile_window --ignored --exact
+window: 10.29 seconds wall
+user CPU: 0.00 seconds
+system CPU: 0.00 seconds
+maximum resident set size: 2244608 bytes
