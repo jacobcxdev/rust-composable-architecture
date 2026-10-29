@@ -1,0 +1,30 @@
+   Compiling rca-core v0.8.0-alpha.1 (<repo>/rca-core)
+   Compiling rca-tokio v0.8.0-alpha.1 (<repo>/rca-tokio)
+   Compiling rust-composable-architecture v0.8.0-alpha.1 (<repo>/rca)
+   Compiling rca-example-composition-search v0.0.0 (<repo>/examples/composition-search)
+    Finished `release` profile [optimized] target(s) in 7.79s
+    Analyzing <tmp>/symbols-root/release/rca-example-composition-search
+
+ File  .text     Size Crate
+27.4%  55.1% 278.4KiB std
+12.9%  26.0% 131.3KiB rca_core
+ 3.0%   5.9%  30.0KiB rca_example_composition_search
+ 2.4%   4.8%  24.4KiB tokio
+ 1.2%   2.4%  12.3KiB hashbrown
+ 0.7%   1.5%   7.5KiB async_channel
+ 0.7%   1.4%   7.2KiB rca_tokio
+ 0.5%   0.9%   4.7KiB [Unknown]
+ 0.4%   0.9%   4.4KiB event_listener
+ 0.2%   0.4%   2.0KiB heck
+ 0.2%   0.4%   1.9KiB toml_parser
+ 0.1%   0.3%   1.3KiB proc_macro2
+ 0.1%   0.2%   1.2KiB toml_edit
+ 0.1%   0.2%     900B indexmap
+ 0.1%   0.1%     644B futures_util
+ 0.1%   0.1%     608B syn
+ 0.0%   0.1%     480B proc_macro_crate
+ 0.0%   0.0%     228B __rustc
+ 0.0%   0.0%      68B winnow
+49.8% 100.0% 505.3KiB .text section size, the file size is 1014.7KiB
+
+Note: numbers above are a result of guesswork. They are not 100% correct and never will be.

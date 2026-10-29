@@ -1,0 +1,22 @@
+   Compiling rca-compile-scoped v0.0.0 (<repo>/benches/compile/scoped)
+    Finished `release` profile [optimized] target(s) in 4.39s
+    Analyzing <tmp>/symbols-fixtures/release/rca-compile-scoped
+
+ File  .text     Size Crate
+38.4%  68.5% 246.4KiB std
+11.2%  20.0%  72.0KiB rca_core
+ 1.6%   2.8%  10.0KiB rca_compile_scoped
+ 1.5%   2.8%   9.9KiB futures_executor
+ 1.4%   2.5%   9.0KiB hashbrown
+ 1.4%   2.5%   8.9KiB async_channel
+ 0.6%   1.0%   3.8KiB [Unknown]
+ 0.4%   0.8%   2.9KiB event_listener
+ 0.3%   0.5%   1.6KiB proc_macro2
+ 0.1%   0.2%     756B futures_task
+ 0.1%   0.2%     608B syn
+ 0.1%   0.1%     520B futures_util
+ 0.1%   0.1%     488B rca_compile_fixture_support
+ 0.0%   0.1%     228B __rustc
+56.1% 100.0% 360.0KiB .text section size, the file size is 641.9KiB
+
+Note: numbers above are a result of guesswork. They are not 100% correct and never will be.
