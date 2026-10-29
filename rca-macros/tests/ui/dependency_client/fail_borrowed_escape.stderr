@@ -1,0 +1,21 @@
+error[E0515]: cannot return value referencing local variable `text`
+  --> tests/ui/dependency_client/fail_borrowed_escape.rs:14:5
+   |
+14 |     (client.call)(&text)
+   |     ^^^^^^^^^^^^^^-----^
+   |     |             |
+   |     |             `text` is borrowed here
+   |     returns a value referencing data owned by the current function
+
+error: lifetime may not live long enough
+  --> tests/ui/dependency_client/fail_borrowed_escape.rs:18:5
+   |
+17 | fn escaped_capture<'a>(text: &'a str) -> Arc<dyn Fn() -> &'static str + Send + Sync> {
+   |                    -- lifetime `'a` defined here
+18 |     Arc::new(move || text)
+   |     ^^^^^^^^^^^^^^^^^^^^^^ returning this value requires that `'a` must outlive `'static`
+   |
+help: to declare that the trait object captures data from argument `text`, you can add an explicit `'a` lifetime bound
+   |
+17 | fn escaped_capture<'a>(text: &'a str) -> Arc<dyn Fn() -> &'static str + Send + Sync + 'a> {
+   |                                                                                     ++++

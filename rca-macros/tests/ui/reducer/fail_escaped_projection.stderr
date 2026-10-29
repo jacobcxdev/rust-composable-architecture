@@ -1,0 +1,12 @@
+error[E0597]: `state` does not live long enough
+  --> tests/ui/reducer/fail_escaped_projection.rs:12:33
+   |
+ 8 |     let borrowed = {
+   |         -------- borrow later stored here
+ 9 |         let state = State {
+   |             ----- binding `state` declared here
+...
+12 |         StatePaths::value().get(&state)
+   |                                 ^^^^^^ borrowed value does not live long enough
+13 |     };
+   |     - `state` dropped here while still borrowed

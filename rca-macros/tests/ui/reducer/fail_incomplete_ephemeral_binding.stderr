@@ -1,0 +1,5 @@
+error: ephemeral policy requires state_path, action_path, identity, predicate and bind
+ --> tests/ui/reducer/fail_incomplete_ephemeral_binding.rs:3:26
+  |
+3 |     case(alert, policy = ephemeral, action = supplied(()),
+  |                          ^^^^^^^^^

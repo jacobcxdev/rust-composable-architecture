@@ -1,0 +1,11 @@
+error[E0597]: `root` does not live long enough
+  --> tests/ui/action_paths/fail_aggregate_escape.rs:12:48
+   |
+11 |         let root = Action::Pair(String::from("local"), 1);
+   |             ---- binding `root` declared here
+12 |         borrowed = ActionPaths::pair().extract(&root).unwrap();
+   |                                                ^^^^^ borrowed value does not live long enough
+13 |     }
+   |     - `root` dropped here while still borrowed
+14 |     let _ = borrowed.0.len();
+   |             ---------- borrow later used here

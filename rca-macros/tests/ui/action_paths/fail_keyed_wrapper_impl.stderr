@@ -1,0 +1,77 @@
+error[E0277]: the trait bound `WrongKeyed<Id, Action>: rca_core::composition::keyed::sealed::KeyedActionPayload` is not satisfied
+  --> tests/ui/action_paths/fail_keyed_wrapper_impl.rs:11:5
+   |
+11 |     fn as_keyed_action(&self) -> &KeyedAction<Self::Id, Self::Action> {
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ unsatisfied trait bound
+   |
+help: the trait `rca_core::composition::keyed::sealed::KeyedActionPayload` is not implemented for `WrongKeyed<Id, Action>`
+  --> tests/ui/action_paths/fail_keyed_wrapper_impl.rs:5:1
+   |
+ 5 | struct WrongKeyed<Id, Action>(KeyedAction<Id, Action>);
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   = note: `WrongKeyed<Id, Action>` implements similarly named trait `KeyedActionPayload`, but not `rca_core::composition::keyed::sealed::KeyedActionPayload`
+help: the trait `rca_core::composition::keyed::sealed::KeyedActionPayload` is implemented for `KeyedAction<Id, Action>`
+  --> $WORKSPACE/rca-core/src/composition/keyed.rs
+   |
+   | impl<Id, Action> sealed::KeyedActionPayload for KeyedAction<Id, Action> {}
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+note: required by a bound in `KeyedActionPayload`
+  --> $WORKSPACE/rca-core/src/composition/keyed.rs
+   |
+   | pub trait KeyedActionPayload: sealed::KeyedActionPayload + Sized {
+   |                               ^^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `KeyedActionPayload`
+   = note: `KeyedActionPayload` is a "sealed trait", because to implement it you also need to implement `rca_core::composition::keyed::sealed::KeyedActionPayload`, which is not accessible; this is usually done to force you to use one of the provided types that already implement it
+   = help: the following type implements the trait:
+             rca_core::KeyedAction<Id, Action>
+
+error[E0277]: the trait bound `WrongKeyed<Id, Action>: rca_core::composition::keyed::sealed::KeyedActionPayload` is not satisfied
+  --> tests/ui/action_paths/fail_keyed_wrapper_impl.rs:15:5
+   |
+15 |     fn from_keyed_action(action: KeyedAction<Self::Id, Self::Action>) -> Self {
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ unsatisfied trait bound
+   |
+help: the trait `rca_core::composition::keyed::sealed::KeyedActionPayload` is not implemented for `WrongKeyed<Id, Action>`
+  --> tests/ui/action_paths/fail_keyed_wrapper_impl.rs:5:1
+   |
+ 5 | struct WrongKeyed<Id, Action>(KeyedAction<Id, Action>);
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   = note: `WrongKeyed<Id, Action>` implements similarly named trait `KeyedActionPayload`, but not `rca_core::composition::keyed::sealed::KeyedActionPayload`
+help: the trait `rca_core::composition::keyed::sealed::KeyedActionPayload` is implemented for `KeyedAction<Id, Action>`
+  --> $WORKSPACE/rca-core/src/composition/keyed.rs
+   |
+   | impl<Id, Action> sealed::KeyedActionPayload for KeyedAction<Id, Action> {}
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+note: required by a bound in `KeyedActionPayload`
+  --> $WORKSPACE/rca-core/src/composition/keyed.rs
+   |
+   | pub trait KeyedActionPayload: sealed::KeyedActionPayload + Sized {
+   |                               ^^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `KeyedActionPayload`
+   = note: `KeyedActionPayload` is a "sealed trait", because to implement it you also need to implement `rca_core::composition::keyed::sealed::KeyedActionPayload`, which is not accessible; this is usually done to force you to use one of the provided types that already implement it
+   = help: the following type implements the trait:
+             rca_core::KeyedAction<Id, Action>
+
+error[E0277]: the trait bound `WrongKeyed<Id, Action>: rca_core::composition::keyed::sealed::KeyedActionPayload` is not satisfied
+ --> tests/ui/action_paths/fail_keyed_wrapper_impl.rs:7:41
+  |
+7 | impl<Id, Action> KeyedActionPayload for WrongKeyed<Id, Action> {
+  |                                         ^^^^^^^^^^^^^^^^^^^^^^ unsatisfied trait bound
+  |
+help: the trait `rca_core::composition::keyed::sealed::KeyedActionPayload` is not implemented for `WrongKeyed<Id, Action>`
+ --> tests/ui/action_paths/fail_keyed_wrapper_impl.rs:5:1
+  |
+5 | struct WrongKeyed<Id, Action>(KeyedAction<Id, Action>);
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  = note: `WrongKeyed<Id, Action>` implements similarly named trait `KeyedActionPayload`, but not `rca_core::composition::keyed::sealed::KeyedActionPayload`
+help: the trait `rca_core::composition::keyed::sealed::KeyedActionPayload` is implemented for `KeyedAction<Id, Action>`
+ --> $WORKSPACE/rca-core/src/composition/keyed.rs
+  |
+  | impl<Id, Action> sealed::KeyedActionPayload for KeyedAction<Id, Action> {}
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+note: required by a bound in `KeyedActionPayload`
+ --> $WORKSPACE/rca-core/src/composition/keyed.rs
+  |
+  | pub trait KeyedActionPayload: sealed::KeyedActionPayload + Sized {
+  |                               ^^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `KeyedActionPayload`
+  = note: `KeyedActionPayload` is a "sealed trait", because to implement it you also need to implement `rca_core::composition::keyed::sealed::KeyedActionPayload`, which is not accessible; this is usually done to force you to use one of the provided types that already implement it
+  = help: the following type implements the trait:
+            rca_core::KeyedAction<Id, Action>

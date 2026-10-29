@@ -1,0 +1,5 @@
+error: expected child, case, reduce or data selection
+ --> tests/ui/reducer/fail_empty_selection.rs:3:5
+  |
+3 |     #[reducer()]
+  |     ^^^^^^^^^^^^

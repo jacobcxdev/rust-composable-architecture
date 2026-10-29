@@ -1,0 +1,14 @@
+error[E0308]: mismatched types
+ --> tests/ui/reducer/fail_cfg_missing_supplied_body.rs:1:1
+  |
+1 | / #[rca_macros::reducer(
+2 | |     state(supplied(())), action(supplied(())), body(supplied(body)),
+3 | | )]
+  | |  ^
+  | |  |
+  | |__expected `Effect<()>`, found `()`
+  |    implicitly returns `()` as its body has no tail or `return` expression
+  |
+  = note: expected struct `Effect<()>`
+          found unit type `()`
+  = note: this error originates in the macro `__rca_reducer_stage_1` (in Nightly builds, run with -Z macro-backtrace for more info)
