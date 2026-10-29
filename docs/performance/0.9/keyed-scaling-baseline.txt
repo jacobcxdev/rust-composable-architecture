@@ -1,0 +1,80 @@
+Task 1 keyed-scaling baseline
+Captured: 2026-08-30 Europe/London
+Workload commit: 4a86e5eff3c81b97a8450f4f10f6a13e784cb05a
+Benchmark source SHA-256: 8e4b8360f764ee46d3579a262e63dca46f0d9a0934f3efb2b2c8aedcaadd7569
+
+Environment:
+rustc 1.98.0 (88d9e12ae 2026-08-18)
+binary: rustc
+commit-hash: 88d9e12ae178fab0fb5cc050a94da85685d449ea
+commit-date: 2026-08-18
+host: aarch64-apple-darwin
+release: 1.98.0
+LLVM version: 22.1.8
+macOS 26.6.2 (25G83); arm64; Apple M3 Max; 48 GiB memory
+CARGO_BUILD_JOBS=1
+CARGO_PROFILE_DEV_DEBUG=0
+CARGO_PROFILE_TEST_DEBUG=0
+CARGO_PROFILE_DEV_STRIP=false
+CARGO_PROFILE_TEST_STRIP=false
+CARGO_PROFILE_BENCH_LTO=false
+CARGO_PROFILE_BENCH_DEBUG=false
+CARGO_PROFILE_BENCH_STRIP=true
+CARGO_TARGET_DIR=target/keyed-scaling-baseline
+
+Command:
+stable_bin=$(dirname "$(rustup which --toolchain 1.98.0 cargo)")
+stable_root=$(dirname "$stable_bin")
+export DYLD_LIBRARY_PATH="$stable_root/lib"
+export PATH="$stable_bin:$PATH"
+export RUSTC="$stable_bin/rustc"
+export RUSTDOC="$stable_bin/rustdoc"
+export CARGO_BUILD_JOBS=1
+export CARGO_PROFILE_DEV_DEBUG=0
+export CARGO_PROFILE_TEST_DEBUG=0
+export CARGO_PROFILE_DEV_STRIP=false
+export CARGO_PROFILE_TEST_STRIP=false
+export CARGO_PROFILE_BENCH_LTO=false
+export CARGO_PROFILE_BENCH_DEBUG=false
+export CARGO_PROFILE_BENCH_STRIP=true
+CARGO_TARGET_DIR=target/keyed-scaling-baseline \
+"$stable_bin/cargo" bench -p rca-core --bench composition --locked -- \
+keyed_initial_mount keyed_matching_route keyed_unrelated_reconciliation \
+keyed_one_removal_cancellation keyed_remove_1_000_active_entries \
+--color never
+
+Complete output:
+    Finished `bench` profile [optimized] target(s) in 0.15s
+     Running benches/composition.rs (target/keyed-scaling-baseline/release/deps/composition-4881258df0111245)
+Timer precision: 41 ns
+composition                           fastest       │ slowest       │ median        │ mean          │ samples │ iters
+├─ keyed_initial_mount                              │               │               │               │         │
+│  ├─ 10                              19.58 µs      │ 30.87 µs      │ 21.99 µs      │ 24.07 µs      │ 5       │ 5
+│  ├─ 1000                            557.1 µs      │ 685 µs        │ 612.7 µs      │ 609.3 µs      │ 5       │ 5
+│  ╰─ 100000                          3.125 s       │ 3.125 s       │ 3.125 s       │ 3.125 s       │ 1       │ 1
+├─ keyed_matching_route                             │               │               │               │         │
+│  ├─ 10                              4.749 µs      │ 14.62 µs      │ 8.083 µs      │ 8.586 µs      │ 50      │ 50
+│  │                                  210.5 Kitem/s │ 68.37 Kitem/s │ 123.7 Kitem/s │ 116.4 Kitem/s │         │
+│  ├─ 1000                            27.58 µs      │ 37.49 µs      │ 32.95 µs      │ 33.21 µs      │ 50      │ 50
+│  │                                  36.25 Kitem/s │ 26.66 Kitem/s │ 30.34 Kitem/s │ 30.1 Kitem/s  │         │
+│  ╰─ 100000                          2.796 ms      │ 5.362 ms      │ 3.209 ms      │ 3.577 ms      │ 50      │ 50
+│                                     357.5 item/s  │ 186.4 item/s  │ 311.6 item/s  │ 279.5 item/s  │         │
+├─ keyed_one_removal_cancellation                   │               │               │               │         │
+│  ├─ 10                              10.58 µs      │ 15.2 µs       │ 12.7 µs       │ 12.84 µs      │ 10      │ 10
+│  │                                  94.49 Kitem/s │ 65.75 Kitem/s │ 78.68 Kitem/s │ 77.87 Kitem/s │         │
+│  ├─ 1000                            39.54 µs      │ 49.79 µs      │ 45.2 µs       │ 45.01 µs      │ 10      │ 10
+│  │                                  25.29 Kitem/s │ 20.08 Kitem/s │ 22.12 Kitem/s │ 22.21 Kitem/s │         │
+│  ╰─ 100000                          3.955 ms      │ 5.682 ms      │ 4.138 ms      │ 4.305 ms      │ 10      │ 10
+│                                     252.8 item/s  │ 175.9 item/s  │ 241.6 item/s  │ 232.2 item/s  │         │
+├─ keyed_remove_1_000_active_entries                │               │               │               │         │
+│  ├─ 1000                            866.2 µs      │ 1.022 ms      │ 898.2 µs      │ 907.8 µs      │ 10      │ 10
+│  │                                  1.154 Mitem/s │ 977.5 Kitem/s │ 1.113 Mitem/s │ 1.101 Mitem/s │         │
+│  ╰─ 100000                          162 ms        │ 164.1 ms      │ 163.5 ms      │ 163.3 ms      │ 4       │ 4
+│                                     6.172 Kitem/s │ 6.093 Kitem/s │ 6.114 Kitem/s │ 6.123 Kitem/s │         │
+╰─ keyed_unrelated_reconciliation                   │               │               │               │         │
+   ├─ 10                              5.916 µs      │ 14.49 µs      │ 8.353 µs      │ 8.847 µs      │ 50      │ 50
+   │                                  169 Kitem/s   │ 68.96 Kitem/s │ 119.7 Kitem/s │ 113 Kitem/s   │         │
+   ├─ 1000                            27.62 µs      │ 37.91 µs      │ 32.18 µs      │ 32.78 µs      │ 50      │ 50
+   │                                  36.19 Kitem/s │ 26.37 Kitem/s │ 31.06 Kitem/s │ 30.5 Kitem/s  │         │
+   ╰─ 100000                          2.892 ms      │ 3.562 ms      │ 3.158 ms      │ 3.17 ms       │ 50      │ 50
+                                      345.6 item/s  │ 280.6 item/s  │ 316.5 item/s  │ 315.4 item/s  │         │

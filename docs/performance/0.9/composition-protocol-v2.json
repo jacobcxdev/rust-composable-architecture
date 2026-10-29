@@ -1,0 +1,134 @@
+{
+  "schema_version": 1,
+  "method_version": "composition-paired-v2",
+  "status": "frozen-before-measurement",
+  "runner": "mac15-9-m3-max-16c-48gb-macos26-ac-high",
+  "reference_revision": "b9eb6e732d2b0cf6ce3cd7255a5958781587af6c",
+  "budget_sha256": "22572ea0c98f78fe7412bb80d7c57940d15b2843256d15ac04d889adb70c63cb",
+  "allocation_manifest_sha256": "95a9e2ee87deaa3046d4a51893efe164282d51aef6a3b3eec61e9f1ca0b3bf32",
+  "regression_limit": 1.1,
+  "randomisation": {
+    "seed": "rca-composition-protocol-v2-2026-09-04-14",
+    "algorithm": "sha256-sort-labelled-order-strata-v1",
+    "order_schedule": [
+      "subject-control",
+      "subject-control",
+      "control-subject",
+      "control-subject",
+      "subject-control",
+      "control-subject",
+      "subject-control",
+      "control-subject",
+      "subject-control",
+      "subject-control",
+      "control-subject",
+      "subject-control",
+      "control-subject",
+      "subject-control",
+      "control-subject",
+      "subject-control",
+      "control-subject",
+      "subject-control",
+      "control-subject",
+      "control-subject"
+    ]
+  },
+  "runtime": {
+    "pairs_per_order_stratum": 10,
+    "diagnostic_processes_per_binary": 1,
+    "diagnostic_timing_rows": 153,
+    "isolated_timing_rows": 1,
+    "divan_sample_policy": "sample_count, sample_size and max_time remain those in the hash-pinned workload; actual samples and iterations are retained in each transcript",
+    "divan_exact_prefix": "composition::",
+    "gated_scenarios": [
+      "direct/1",
+      "nonmatching_scope/16",
+      "combine_arity/4",
+      "keyed_matching_route/100000",
+      "effect_map_depth/16",
+      "descendant_cancellation/10000",
+      "scoped_concurrent_senders_32",
+      "matching_scope/16",
+      "combine_arity/12"
+    ]
+  },
+  "compile": {
+    "pairs_per_order_stratum": 10,
+    "cargo_jobs": 1,
+    "incremental": false,
+    "fixtures": [
+      "direct",
+      "composed-manual",
+      "composed-macro",
+      "scoped"
+    ]
+  },
+  "confidence": {
+    "target_one_sided": 0.95,
+    "estimator": "geometric-mean-of-order-stratum-sample-medians",
+    "upper_bound": "geometric-mean-of-order-stratum-second-largest-ratios",
+    "observations_per_stratum": 10,
+    "upper_order_statistic_rank": 9,
+    "per_stratum_coverage": 0.9892578125,
+    "multiplicity_correction": "bonferroni-two-strata",
+    "finite_sample_joint_coverage": 0.978515625,
+    "assumptions": "independent observations within each order stratum, identically distributed within each stratum; continuous positive ratio distributions; target is the geometric mean of the two population medians, not a mean or pooled median"
+  },
+  "quiescence": {
+    "sample_interval_seconds": 5,
+    "consecutive_samples": 7,
+    "timeout_seconds": 300,
+    "maximum_cpu_used_percent": 5.0,
+    "maximum_load_average_1m": 2.0,
+    "sustained_checks": "initial and before each block; single sample around each process; failed idle samples restart sustained quiescence; active processes check competitors and warning history only",
+    "thermal_policy": "nsprocessinfo-nominal-and-pmset-no-recorded-warning",
+    "process_monitor_interval_seconds": 1,
+    "blocked_process_basenames": [
+      "cargo",
+      "cargo-nextest",
+      "rustc",
+      "rustdoc",
+      "sccache", "go", "compile", "link", "swift", "swiftc", "swift-frontend",
+      "clang", "clang++", "cc", "c++", "gcc", "g++", "ld",
+      "ninja", "make", "xcodebuild"
+    ],
+    "blocked_process_prefixes": [
+      "composition-"
+    ]
+  },
+  "resource_counters": {
+    "command": "/usr/bin/time -lp",
+    "required": [
+      "real_seconds",
+      "user_seconds",
+      "system_seconds",
+      "maximum_resident_set_bytes",
+      "page_reclaims",
+      "page_faults",
+      "swaps",
+      "block_input_operations",
+      "block_output_operations",
+      "voluntary_context_switches",
+      "involuntary_context_switches",
+      "instructions_retired",
+      "cycles_elapsed",
+      "peak_memory_footprint_bytes"
+    ]
+  },
+  "modes": [
+    "candidate-reference",
+    "reference-reference-aa"
+  ],
+  "absolute_compatibility": {
+    "method": "all timing gates use the twenty v2 subject-arm observations; historical capture supplies only allocation, binary and diagnostic evidence under the whole-run lock and active monitoring",
+    "runtime_observations_per_scenario": 20,
+    "clean_compile_observations_per_fixture": 20,
+    "diagnostic_full_transcripts": 10,
+    "diagnostic_compile_samples_per_fixture": 5,
+    "compile_fixtures": 4,
+    "budget_rows": 33,
+    "reference_only_source": "b9eb6e732d2b0cf6ce3cd7255a5958781587af6c",
+    "reference_only_mode": "reference-reference-aa",
+    "budget_changes_permitted": false
+  }
+}

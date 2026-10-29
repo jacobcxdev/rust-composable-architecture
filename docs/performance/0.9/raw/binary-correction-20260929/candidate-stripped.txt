@@ -1,0 +1,31 @@
+llvm-objcopy, compatible with GNU objcopy
+LLVM (http://llvm.org/):
+  LLVM version 22.1.8-rust-1.98.0-stable
+  Optimized build.
+SOURCE_REVISION=a20ca75971ba7746d847c9a598c2831cd9f62289
+SOURCE=preserved clean-build outputs; input hashes checked against original receipt
+binary=direct
+input_sha256=c64149e694fd3b44223e1dd13353bc2e0c1a4739938a6ebf3bb394cb61cbee2d
+bytes=452528
+sha256=2a3c677e1fae20c61a62d98236173fa5cdedf40c3f15dd1f90799334c517ee8a
+binary=composed-manual
+input_sha256=a18ad05f1cf37eb19be73a81ba139f02001c554ea659829b644d6718f77ae4c3
+bytes=502208
+sha256=68cd781d30afa636a42b5291a4053417e61ed8c366b304aff9ba9781320737db
+binary=composed-macro
+input_sha256=ae98570b6c8aeb2f6e73eec3ef4639bcd087ccd18fddaf02dc34fdaec36aa26f
+bytes=502208
+sha256=fac8b30770150f5de06d101d7ef1b4f60c038b6d0ab57ec1750ea6a10a29ab94
+binary=scoped
+input_sha256=651cd33805a0eb8ded29af13da95f0f2b1f014929517832957e0e40005770b52
+bytes=485616
+sha256=aa081c78711176941d3a24a33f3c68b8165b1f85ecc14ef8d2fb290ddac81ca3
+binary=deterministic-composition-test
+input_sha256=aac8c0afc3523903e540a7125ab39587d66d77731dd20dd18eb787dd65ab398b
+bytes=1133792
+sha256=4d369a7174b8018c824b4da79960e2e6c9254381f0192be48bf2b1883f8539f7
+binary=tokio-application
+input_sha256=ec21e179a7f17db5b99d2767e4ac12d13f61cdf0b3822fb3b3620d3ce9276a93
+bytes=750880
+sha256=cb4349a165f85ba97c6e7f2d4e31d016f8b53e2e244d95c109fa5e2f6410e34b
+EXIT=0

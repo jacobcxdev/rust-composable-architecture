@@ -1,0 +1,55 @@
+Phase 2 review-corrected lifecycle-drop characterisation
+Captured: 2026-08-30 Europe/London
+Baseline commit: f59578697b5d89cfeabc3ef06ab72f51b942a9ed
+Review diff SHA-256: f947a98b74e0cfb642782c87ff3e02702c271eaea49bacbf78cdc7f17512c35a
+Benchmark source SHA-256: 629f097fae2a6ef6f45ca2b4401fcf2c9010063f4eb0d9470c957f53faa99b25
+Transcript SHA-256 before this header: 3003a34348fbfb5981ded980353c3ac2edf159cf08f010fef76cfa4d97dce12e
+
+rustc 1.98.0 (88d9e12ae 2026-08-18)
+cargo 1.98.0 (797e8a9bc 2026-08-05)
+macOS 26.6.2 (25G83); Darwin 25.6.0; arm64
+Mac15,9; Apple M3 Max; 16 logical CPUs; 48 GiB memory
+AC attached; pmset powermode 2
+
+Review correction:
+optional_enter, optional_leave, case_switch, and descendant_cancellation now
+return their consuming fixture as benchmark output. Divan therefore defers
+Fixture::drop until after sample_end. skip_ext_time=true affects external
+minimum/maximum time accounting only.
+
+Command:
+stable_bin=$(dirname "$(rustup which --toolchain 1.98.0 cargo)")
+stable_root=$(dirname "$stable_bin")
+DYLD_LIBRARY_PATH="$stable_root/lib" PATH="$stable_bin:$PATH" \
+RUSTC="$stable_bin/rustc" RUSTDOC="$stable_bin/rustdoc" \
+CARGO_BUILD_JOBS=1 CARGO_TARGET_DIR=target/task5-keyed \
+CARGO_PROFILE_BENCH_LTO=false CARGO_PROFILE_BENCH_DEBUG=false \
+CARGO_PROFILE_BENCH_STRIP=true \
+"$stable_bin/cargo" bench -p rca-core --bench composition --locked -- \
+optional case descendant --color never
+
+    Finished `bench` profile [optimized] target(s) in 0.20s
+     Running benches/composition.rs (target/task5-keyed/release/deps/composition-4881258df0111245)
+Timer precision: 41 ns
+composition                 fastest       │ slowest       │ median        │ mean          │ samples │ iters
+├─ case_hit                 4.249 µs      │ 31.24 µs      │ 6.895 µs      │ 7.939 µs      │ 50      │ 50
+│                           235.3 Kitem/s │ 32 Kitem/s    │ 145 Kitem/s   │ 125.9 Kitem/s │         │
+├─ case_miss                6.333 µs      │ 20.29 µs      │ 6.936 µs      │ 8.645 µs      │ 50      │ 50
+│                           157.8 Kitem/s │ 49.28 Kitem/s │ 144.1 Kitem/s │ 115.6 Kitem/s │         │
+├─ case_switch              6.29 µs       │ 28.87 µs      │ 9.02 µs       │ 10.04 µs      │ 50      │ 50
+│                           158.9 Kitem/s │ 34.63 Kitem/s │ 110.8 Kitem/s │ 99.59 Kitem/s │         │
+├─ descendant_cancellation                │               │               │               │         │
+│  ├─ 1                     5.957 µs      │ 44.91 µs      │ 9.207 µs      │ 12.09 µs      │ 50      │ 50
+│  │                        167.8 Kitem/s │ 22.26 Kitem/s │ 108.6 Kitem/s │ 82.67 Kitem/s │         │
+│  ├─ 100                   29.79 µs      │ 115.3 µs      │ 47.56 µs      │ 51.52 µs      │ 50      │ 50
+│  │                        33.56 Kitem/s │ 8.67 Kitem/s  │ 21.02 Kitem/s │ 19.4 Kitem/s  │         │
+│  ╰─ 10000                 255.5 µs      │ 478.9 µs      │ 327.6 µs      │ 340.3 µs      │ 50      │ 50
+│                           3.913 Kitem/s │ 2.088 Kitem/s │ 3.052 Kitem/s │ 2.937 Kitem/s │         │
+├─ optional_enter           4.124 µs      │ 13.54 µs      │ 7.479 µs      │ 8.023 µs      │ 50      │ 50
+│                           242.4 Kitem/s │ 73.84 Kitem/s │ 133.7 Kitem/s │ 124.6 Kitem/s │         │
+├─ optional_hit             6.291 µs      │ 8.082 µs      │ 6.624 µs      │ 6.721 µs      │ 50      │ 50
+│                           158.9 Kitem/s │ 123.7 Kitem/s │ 150.9 Kitem/s │ 148.7 Kitem/s │         │
+├─ optional_leave           7.416 µs      │ 19.08 µs      │ 10.12 µs      │ 10.87 µs      │ 50      │ 50
+│                           134.8 Kitem/s │ 52.4 Kitem/s  │ 98.76 Kitem/s │ 91.91 Kitem/s │         │
+╰─ optional_miss            5.458 µs      │ 12.62 µs      │ 8.082 µs      │ 8.447 µs      │ 50      │ 50
+                            183.1 Kitem/s │ 79.2 Kitem/s  │ 123.7 Kitem/s │ 118.3 Kitem/s │         │
