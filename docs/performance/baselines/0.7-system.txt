@@ -1,0 +1,23 @@
+source-revision: c6200234cebbbd9b0009cd5788736c78a47f32b0
+source-equivalence: tracked runtime sources match v0.7.0
+rustc-path: /Users/jacob/.rustup/toolchains/1.98.0-aarch64-apple-darwin/bin/rustc
+cargo-path: /Users/jacob/.rustup/toolchains/1.98.0-aarch64-apple-darwin/bin/cargo
+rustc 1.98.0 (88d9e12ae 2026-08-18)
+binary: rustc
+commit-hash: 88d9e12ae178fab0fb5cc050a94da85685d449ea
+commit-date: 2026-08-18
+host: aarch64-apple-darwin
+release: 1.98.0
+LLVM version: 22.1.8
+cargo 1.98.0 (797e8a9bc 2026-08-05)
+release: 1.98.0
+commit-hash: 797e8a9bca276c1c9f9f738d2a20f484fa4eea9d
+commit-date: 2026-08-05
+host: aarch64-apple-darwin
+libgit2: 1.9.4 (sys:0.21.0 vendored)
+libcurl: 8.7.1 (sys:0.4.90+curl-8.21.0 system ssl:(SecureTransport) LibreSSL/3.3.6)
+ssl: OpenSSL 3.6.3 9 Jun 2026
+os: Mac OS 26.6.1 [64-bit]
+Darwin Mac.unifi.jacobcx.dev 25.6.0 Darwin Kernel Version 25.6.0: Sat Jul 11 15:27:26 PDT 2026; root:xnu-12377.161.13~4/RELEASE_ARM64_T6031 arm64
+Apple M3 Max
+51539607552

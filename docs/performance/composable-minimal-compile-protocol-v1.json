@@ -1,0 +1,23 @@
+{
+  "schema": "composable-minimal-compile-protocol-v1",
+  "target": "aarch64-apple-darwin",
+  "rust_toolchain": "1.98.0",
+  "runner": "mac15-9-m3-max-16c-48gb-macos27plus-ac-high",
+  "minimum_macos_major": 27,
+  "engines": ["composable", "rca-0.7", "rca"],
+  "orders": [["composable", "rca-0.7", "rca"], ["composable", "rca", "rca-0.7"], ["rca-0.7", "composable", "rca"], ["rca-0.7", "rca", "composable"], ["rca", "composable", "rca-0.7"], ["rca", "rca-0.7", "composable"]],
+  "workloads": ["check", "release"],
+  "repositories": {"composable": "https://github.com/bwoods/Architecture.git", "rca-0.7": "https://github.com/jacobcxdev/rust-composable-architecture.git"},
+  "pins": {"composable": "0b5baa80246a625c1bb886e6df20dae27fc97c97", "rca-0.7": "c6200234cebbbd9b0009cd5788736c78a47f32b0"},
+  "features": [],
+  "binary": "minimal-counter",
+  "expected_stdout": "42\n",
+  "process_timeout_seconds": 600,
+  "execution_timeout_seconds": 30,
+  "retry_failed_measurements": false,
+  "check_profile": {"CARGO_PROFILE_DEV_OPT_LEVEL": "0", "CARGO_PROFILE_DEV_DEBUG": "2", "CARGO_PROFILE_DEV_DEBUG_ASSERTIONS": "true", "CARGO_PROFILE_DEV_OVERFLOW_CHECKS": "true", "CARGO_PROFILE_DEV_LTO": "false", "CARGO_PROFILE_DEV_PANIC": "unwind", "CARGO_PROFILE_DEV_CODEGEN_UNITS": "256", "CARGO_PROFILE_DEV_RPATH": "false", "CARGO_PROFILE_DEV_STRIP": "none", "CARGO_PROFILE_DEV_INCREMENTAL": "false", "CARGO_PROFILE_DEV_SPLIT_DEBUGINFO": "off"},
+  "release_profile": {"CARGO_INCREMENTAL": "0", "CARGO_BUILD_JOBS": "1", "CARGO_PROFILE_RELEASE_OPT_LEVEL": "3", "CARGO_PROFILE_RELEASE_DEBUG": "false", "CARGO_PROFILE_RELEASE_DEBUG_ASSERTIONS": "false", "CARGO_PROFILE_RELEASE_OVERFLOW_CHECKS": "false", "CARGO_PROFILE_RELEASE_LTO": "false", "CARGO_PROFILE_RELEASE_PANIC": "unwind", "CARGO_PROFILE_RELEASE_CODEGEN_UNITS": "16", "CARGO_PROFILE_RELEASE_RPATH": "false", "CARGO_PROFILE_RELEASE_STRIP": "none", "CARGO_PROFILE_RELEASE_INCREMENTAL": "false", "CARGO_PROFILE_RELEASE_SPLIT_DEBUGINFO": "off"},
+  "quiescence": {"sample_interval_seconds": 5, "consecutive_samples": 7, "timeout_seconds": 300, "maximum_cpu_used_percent": 20, "maximum_load_average_1m": 6, "process_monitor_interval_seconds": 1, "thermal_policy": "nsprocessinfo-nominal-and-pmset-no-recorded-warning", "blocked_process_basenames": ["cargo", "cargo-nextest", "rustc", "rustdoc", "sccache", "go", "compile", "link", "swift", "swiftc", "swift-frontend", "clang", "clang++", "cc", "c++", "gcc", "g++", "ld", "ninja", "make", "xcodebuild"], "blocked_process_prefixes": ["composition-"]},
+  "qualified_comparison": false,
+  "regression_pass": false
+}
