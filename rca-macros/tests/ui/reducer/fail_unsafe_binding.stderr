@@ -1,0 +1,5 @@
+error: binding requires an ordinary synchronous Rust function
+  --> tests/ui/reducer/fail_unsafe_binding.rs:17:14
+   |
+17 |         bind(unsafe fn bind_child(child: Child)),
+   |              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^

@@ -1,0 +1,233 @@
+error: snapshot custom values must be owned; use an owned value or a manual implementation
+  --> tests/ui/snapshot/fail_capture_types.rs:32:63
+   |
+32 | struct BorrowedCustom(#[snapshot(with = wrong_return, value = &'static str)] usize);
+   |                                                               ^^^^^^^^^^^^
+
+error: snapshot custom values must be owned; use an owned value or a manual implementation
+  --> tests/ui/snapshot/fail_capture_types.rs:34:69
+   |
+34 | struct PointerCustom(#[snapshot(with = wrong_return, value = Option<*const usize>)] usize);
+   |                                                                     ^^^^^^^^^^^^
+
+error[E0277]: the trait bound `&'static str: Snapshot` is not satisfied
+ --> tests/ui/snapshot/fail_capture_types.rs:7:10
+  |
+7 | #[derive(Snapshot)]
+  |          ^^^^^^^^ the trait `Snapshot` is not implemented for `&'static str`
+  |
+help: the trait `Snapshot` is implemented for `String`
+ --> $WORKSPACE/rca-core/src/snapshot.rs
+  |
+  | impl Snapshot for String {
+  | ^^^^^^^^^^^^^^^^^^^^^^^^
+  = note: this error originates in the derive macro `Snapshot` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0277]: the trait bound `Rc<usize>: Snapshot` is not satisfied
+  --> tests/ui/snapshot/fail_capture_types.rs:11:10
+   |
+11 | #[derive(Snapshot)]
+   |          ^^^^^^^^ the trait `Snapshot` is not implemented for `Rc<usize>`
+   |
+   = help: the following other types implement trait `Snapshot`:
+             ()
+             (A, B)
+             (A, B, C)
+             (A, B, C, D)
+             (A,)
+             Box<T>
+             Duration
+             FunctionCustom
+           and $N others
+   = note: this error originates in the derive macro `Snapshot` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0277]: the trait bound `CloneOnly: Snapshot` is not satisfied
+  --> tests/ui/snapshot/fail_capture_types.rs:15:10
+   |
+15 | #[derive(Snapshot)]
+   |          ^^^^^^^^ unsatisfied trait bound
+   |
+help: the trait `Snapshot` is not implemented for `CloneOnly`
+  --> tests/ui/snapshot/fail_capture_types.rs:5:1
+   |
+ 5 | struct CloneOnly;
+   | ^^^^^^^^^^^^^^^^
+   = help: the following other types implement trait `Snapshot`:
+             ()
+             (A, B)
+             (A, B, C)
+             (A, B, C, D)
+             (A,)
+             Box<T>
+             Duration
+             FunctionCustom
+           and $N others
+   = note: required for `Vec<CloneOnly>` to implement `Snapshot`
+   = note: this error originates in the derive macro `Snapshot` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0277]: the trait bound `Rc<usize>: Snapshot` is not satisfied
+  --> tests/ui/snapshot/fail_capture_types.rs:13:12
+   |
+13 |     value: Rc<usize>,
+   |            ^^ the trait `Snapshot` is not implemented for `Rc<usize>`
+   |
+   = help: the following other types implement trait `Snapshot`:
+             ()
+             (A, B)
+             (A, B, C)
+             (A, B, C, D)
+             (A,)
+             Box<T>
+             Duration
+             FunctionCustom
+           and $N others
+
+error[E0277]: the trait bound `CloneOnly: Snapshot` is not satisfied
+  --> tests/ui/snapshot/fail_capture_types.rs:17:12
+   |
+17 |     value: Vec<CloneOnly>,
+   |            ^^^ unsatisfied trait bound
+   |
+help: the trait `Snapshot` is not implemented for `CloneOnly`
+  --> tests/ui/snapshot/fail_capture_types.rs:5:1
+   |
+ 5 | struct CloneOnly;
+   | ^^^^^^^^^^^^^^^^
+   = help: the following other types implement trait `Snapshot`:
+             ()
+             (A, B)
+             (A, B, C)
+             (A, B, C, D)
+             (A,)
+             Box<T>
+             Duration
+             FunctionCustom
+           and $N others
+   = note: required for `Vec<CloneOnly>` to implement `Snapshot`
+
+error[E0277]: the trait bound `&'static str: Snapshot` is not satisfied
+ --> tests/ui/snapshot/fail_capture_types.rs:9:12
+  |
+9 |     value: Borrowed,
+  |            ^^^^^^^^ the trait `Snapshot` is not implemented for `&'static str`
+  |
+help: the trait `Snapshot` is implemented for `String`
+ --> $WORKSPACE/rca-core/src/snapshot.rs
+  |
+  | impl Snapshot for String {
+  | ^^^^^^^^^^^^^^^^^^^^^^^^
+
+error[E0277]: the trait bound `Rc<usize>: Snapshot` is not satisfied
+  --> tests/ui/snapshot/fail_capture_types.rs:13:12
+   |
+13 |     value: Rc<usize>,
+   |            ^^^^^^^^^ the trait `Snapshot` is not implemented for `Rc<usize>`
+   |
+   = help: the following other types implement trait `Snapshot`:
+             ()
+             (A, B)
+             (A, B, C)
+             (A, B, C, D)
+             (A,)
+             Box<T>
+             Duration
+             FunctionCustom
+           and $N others
+
+error[E0308]: mismatched types
+  --> tests/ui/snapshot/fail_capture_types.rs:26:10
+   |
+26 | #[derive(Snapshot)]
+   |          ^^^^^^^^ expected `usize`, found `&usize`
+27 | struct WrongSignature(#[snapshot(with = wrong_signature, value = usize)] usize);
+   |                                         --------------- arguments to this function are incorrect
+   |
+note: function defined here
+  --> tests/ui/snapshot/fail_capture_types.rs:20:4
+   |
+20 | fn wrong_signature(_: usize) -> usize {
+   |    ^^^^^^^^^^^^^^^ --------
+   = note: this error originates in the derive macro `Snapshot` (in Nightly builds, run with -Z macro-backtrace for more info)
+help: consider using clone here
+   |
+26 | #[derive(Snapshot.clone())]
+   |                  ++++++++
+
+error[E0308]: mismatched types
+  --> tests/ui/snapshot/fail_capture_types.rs:29:20
+   |
+29 | struct WrongReturn(#[snapshot(with = wrong_return, value = usize)] usize);
+   |                    -^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |                    |
+   |                    expected `usize`, found `String`
+   |                    arguments to this function are incorrect
+   |
+help: the return type of this call is `String` due to the type of the argument passed
+  --> tests/ui/snapshot/fail_capture_types.rs:29:20
+   |
+29 | struct WrongReturn(#[snapshot(with = wrong_return, value = usize)] usize);
+   |                    ^-----------------------------
+   |                    |
+   |                    this argument influences the return type of `identity`
+note: function defined here
+  --> $RUST/core/src/convert/mod.rs
+   |
+   | pub const fn identity<T>(x: T) -> T {
+   |              ^^^^^^^^
+
+error[E0308]: mismatched types
+  --> tests/ui/snapshot/fail_capture_types.rs:36:23
+   |
+36 | struct FunctionCustom(#[snapshot(with = wrong_return, value = fn() -> usize)] usize);
+   |                       -^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |                       |
+   |                       expected fn pointer, found `String`
+   |                       arguments to this function are incorrect
+   |
+   = note: expected fn pointer `fn() -> usize`
+                  found struct `String`
+help: the return type of this call is `String` due to the type of the argument passed
+  --> tests/ui/snapshot/fail_capture_types.rs:36:23
+   |
+36 | struct FunctionCustom(#[snapshot(with = wrong_return, value = fn() -> usize)] usize);
+   |                       ^-----------------------------
+   |                       |
+   |                       this argument influences the return type of `identity`
+note: function defined here
+  --> $RUST/core/src/convert/mod.rs
+   |
+   | pub const fn identity<T>(x: T) -> T {
+   |              ^^^^^^^^
+
+error[E0308]: mismatched types
+  --> tests/ui/snapshot/fail_capture_types.rs:44:5
+   |
+44 |     #[snapshot(with = wrong_return, value = usize)]
+   |     -^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |     |
+   |     expected `usize`, found `String`
+   |     arguments to this function are incorrect
+   |
+help: the return type of this call is `String` due to the type of the argument passed
+  --> tests/ui/snapshot/fail_capture_types.rs:44:5
+   |
+44 |     #[snapshot(with = wrong_return, value = usize)]
+   |     ^-----------------------------
+   |     |
+   |     this argument influences the return type of `identity`
+note: function defined here
+  --> $RUST/core/src/convert/mod.rs
+   |
+   | pub const fn identity<T>(x: T) -> T {
+   |              ^^^^^^^^
+
+error[E0308]: mismatched types
+  --> tests/ui/snapshot/fail_capture_types.rs:44:5
+   |
+44 |     #[snapshot(with = wrong_return, value = usize)]
+   |     ^ expected `String`, found `usize`
+   |
+help: try using a conversion method
+   |
+44 |     #.to_string()[snapshot(with = wrong_return, value = usize)]
+   |      ++++++++++++

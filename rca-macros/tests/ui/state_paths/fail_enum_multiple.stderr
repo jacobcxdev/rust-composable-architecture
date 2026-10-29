@@ -1,0 +1,5 @@
+error: rca helper attributes on enum state belong on variants, not payload fields
+ --> tests/ui/state_paths/fail_enum_multiple.rs:7:14
+  |
+7 |     Multiple(#[rca(skip)] u8, u8),
+  |              ^^^^^^^^^^^^

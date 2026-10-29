@@ -1,0 +1,5 @@
+error[E0616]: field `field` of struct `SourceSnapshot` is private
+  --> tests/ui/snapshot/fail_private_value.rs:15:39
+   |
+15 |     let _ = private_field::captured().field;
+   |                                       ^^^^^ private field

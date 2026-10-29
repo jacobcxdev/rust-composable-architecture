@@ -1,0 +1,7 @@
+error: reducers! requires at least one reducer
+ --> tests/ui/reducers/fail_empty.rs:6:13
+  |
+6 |     let _ = reducers![];
+  |             ^^^^^^^^^^^
+  |
+  = note: this error originates in the macro `reducers` (in Nightly builds, run with -Z macro-backtrace for more info)

@@ -1,0 +1,23 @@
+error: duplicate rca option `optional`
+ --> tests/ui/state_paths/fail_raw_helpers.rs:6:13
+  |
+6 |     #[r#rca(r#optional)]
+  |             ^^^^^^^^^^
+
+error: rca helper attributes on enum state belong on variants, not payload fields
+  --> tests/ui/state_paths/fail_raw_helpers.rs:13:12
+   |
+13 |     Hidden(#[r#rca(r#required)] u8),
+   |            ^^^^^^^^^^^^^^^^^^^^
+
+error: rca helper attributes on enum state belong on variants, not payload fields
+  --> tests/ui/state_paths/fail_raw_helpers.rs:20:9
+   |
+20 |         #[r#rca(r#optional)]
+   |         ^^^^^^^^^^^^^^^^^^^^
+
+error: rca helper attributes are only supported on struct fields or enum variants
+  --> tests/ui/state_paths/fail_raw_helpers.rs:26:1
+   |
+26 | #[r#rca(r#skip)]
+   | ^^^^^^^^^^^^^^^^

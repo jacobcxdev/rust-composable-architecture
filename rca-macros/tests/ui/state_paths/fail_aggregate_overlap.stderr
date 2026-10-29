@@ -1,0 +1,9 @@
+error[E0499]: cannot borrow `root` as mutable more than once at a time
+  --> tests/ui/state_paths/fail_aggregate_overlap.rs:12:31
+   |
+11 |     let first = path.get_mut(&mut root).unwrap();
+   |                              --------- first mutable borrow occurs here
+12 |     let second = path.get_mut(&mut root).unwrap();
+   |                               ^^^^^^^^^ second mutable borrow occurs here
+13 |     first.0.push_str("first");
+   |     ------- first borrow later used here

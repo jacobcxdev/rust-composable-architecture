@@ -1,0 +1,5 @@
+error: supplied body cannot also select automatic child reduction
+ --> tests/ui/reducer/fail_supplied_automatic_replay.rs:6:5
+  |
+6 |     body: R,
+  |     ^^^^
