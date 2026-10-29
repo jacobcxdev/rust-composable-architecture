@@ -1,0 +1,3 @@
+# Default ownership includes this file and the release workflows.
+# Required approval depends on the repository's remote protection settings.
+* @jacobcxdev
