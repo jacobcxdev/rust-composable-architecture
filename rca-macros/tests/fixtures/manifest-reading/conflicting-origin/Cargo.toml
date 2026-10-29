@@ -1,0 +1,6 @@
+# Invalid origin input for the file-boundary helper, not a compiled Cargo fixture.
+[dependencies]
+rust-composable-architecture = "0.8"
+
+[target.'cfg(unix)'.dependencies]
+rust_composable_architecture = { package = "rust-composable-architecture", version = "0.8" }

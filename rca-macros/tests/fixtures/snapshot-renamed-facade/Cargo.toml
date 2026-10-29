@@ -1,0 +1,13 @@
+[package]
+name = "snapshot-renamed-facade"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[workspace]
+
+[features]
+extra = []
+
+[dependencies]
+architecture = { package = "rust-composable-architecture", path = "../../../../rca", default-features = false, features = ["macros"] }

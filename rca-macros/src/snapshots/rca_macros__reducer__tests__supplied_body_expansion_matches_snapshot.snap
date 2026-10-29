@@ -1,0 +1,6 @@
+---
+source: rca-macros/src/reducer.rs
+assertion_line: 226
+expression: expanded.to_string()
+---
+pub struct Feature < R > { pub body : R , } const _ : () = { # [allow (unused_imports , reason = "aliases shield generated bindings from caller constants")] use :: core :: mem :: { drop as __rca_state , drop as __rca_action , drop as __rca_context } ; macro_rules ! __rca_reducer_stage_0 { ([$ ($ bounds : tt) *] [$ ($ fields : ident ,) *]) => { __rca_reducer_stage_1 ! ([$ ($ bounds) * R : :: rca :: Reducer < State = State , Action = Action > ,] [$ ($ fields ,) * body ,]) ; } ; } macro_rules ! __rca_reducer_stage_1 { ([$ ($ bounds : tt) *] [$ ($ fields : ident ,) *]) => { # [automatically_derived] impl < R > :: rca :: Reducer for Feature < R > where $ ($ bounds) * { type State = State ; type Action = Action ; fn reduce (& mut self , __rca_state : & mut Self :: State , __rca_action : & Self :: Action , __rca_context : & mut :: rca :: ReduceContext < '_ >) -> :: rca :: Effect < Self :: Action > { let _ = (& __rca_state , & __rca_action , & __rca_context) ; $ (:: rca :: Reducer :: reduce (& mut self . $ fields , __rca_state , __rca_action , __rca_context)) * } } } ; } __rca_reducer_stage_0 ! ([] []) ; } ;

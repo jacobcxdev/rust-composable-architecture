@@ -1,0 +1,6 @@
+---
+source: rca-macros/src/state_paths.rs
+assertion_line: 620
+expression: actual.to_string()
+---
+# [automatically_derived] # [doc = r" Constructs borrowed field and enum-case paths for the source state."] # [derive (:: core :: fmt :: Debug)] pub struct StatePaths ; # [automatically_derived] impl StatePaths { # [doc = r" Returns a path that borrows the payload of this enum case."] pub fn r#gen () -> :: rca :: CaseStatePath < State , ChildState , impl for < '__rca > :: core :: ops :: Fn (& '__rca State) -> :: core :: option :: Option < & '__rca ChildState > , impl for < '__rca > :: core :: ops :: Fn (& '__rca mut State) -> :: core :: option :: Option < & '__rca mut ChildState > , > { # [allow (unused_imports , reason = "aliases shield generated bindings from caller constants")] use :: core :: mem :: { drop as state , drop as child } ; :: rca :: CaseStatePath :: new (| state : & State | { match state { State :: Gen (child) => :: core :: option :: Option :: Some (child) , } } , | state : & mut State | { match state { State :: Gen (child) => :: core :: option :: Option :: Some (child) , } } ,) } }

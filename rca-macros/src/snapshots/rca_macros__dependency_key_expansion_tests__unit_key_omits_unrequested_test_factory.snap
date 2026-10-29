@@ -1,0 +1,5 @@
+---
+source: rca-macros/src/lib.rs
+expression: "super::expand_dependency_key(&input).unwrap().to_string()"
+---
+impl :: rca :: DependencyKey for Key { type Value = String ; fn live_value () -> Self :: Value { String :: from ("live") } }
