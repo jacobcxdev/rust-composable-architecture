@@ -1,0 +1,76 @@
+# Modified for Rust Composable Architecture; see UPSTREAM.md.
+# The original upstream manifest is preserved in Cargo.toml.upstream.
+
+[package]
+edition = "2021"
+rust-version = "1.98.0"
+name = "rca-event-listener-strategy"
+version = "0.1.0"
+authors = ["John Nunley <dev@notgull.net>"]
+build = false
+exclude = ["/.*"]
+autolib = false
+autobins = false
+autoexamples = false
+autotests = false
+autobenches = false
+description = "RCA fork of event-listener-strategy"
+readme = "README.md"
+keywords = [
+    "condvar",
+    "envcount",
+    "wake",
+    "blocking",
+    "park",
+]
+categories = [
+    "asynchronous",
+    "concurrency",
+]
+license = "Apache-2.0 OR MIT"
+repository = "https://github.com/jacobcxdev/rust-composable-architecture"
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = [
+    "--cfg",
+    "docsrs",
+]
+
+[features]
+default = ["std"]
+loom = ["event-listener/loom"]
+portable-atomic = ["event-listener/portable-atomic"]
+std = ["event-listener/std"]
+
+[lib]
+name = "event_listener_strategy"
+path = "src/lib.rs"
+
+[[test]]
+name = "easy_wrapper"
+path = "tests/easy_wrapper.rs"
+
+[[test]]
+name = "public_contracts"
+path = "tests/public_contracts.rs"
+
+[dependencies.event-listener]
+package = "rca-event-listener"
+version = "=0.1.0"
+path = "../rca-event-listener"
+default-features = false
+
+[dependencies.pin-project-lite]
+version = "0.2.12"
+
+[dev-dependencies.futures-lite]
+version = "2.0.0"
+
+[target.'cfg(target_family = "wasm")'.dev-dependencies.wasm-bindgen-test]
+version = "0.3.37"
+
+[lints.rust.unexpected_cfgs]
+level = "warn"
+priority = 0
+check-cfg = ["cfg(wasm_bindgen_unstable_test_coverage)"]
