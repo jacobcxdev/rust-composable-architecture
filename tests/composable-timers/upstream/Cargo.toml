@@ -1,0 +1,10 @@
+[package]
+name = "composable-timers-upstream"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[dependencies]
+composable = { git = "https://github.com/bwoods/Architecture.git", rev = "0b5baa80246a625c1bb886e6df20dae27fc97c97" }
