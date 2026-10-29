@@ -1,0 +1,49 @@
+[package]
+name = "rca-test"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+description = "Deterministic testing for Rust Composable Architecture"
+
+[features]
+local = ["rca-core/local"]
+
+[package.metadata.cargo-udeps.ignore]
+# Loom qualification instruments host ownership and enables queue instrumentation
+# transitively used by `async-channel`.
+development = ["loom", "concurrent-queue"]
+
+[dependencies]
+async-channel.workspace = true
+event-listener.workspace = true
+futures-core.workspace = true
+futures-util.workspace = true
+parking_lot = "0.12.5"
+rca-core = { workspace = true, features = ["diagnostics", "test-util"] }
+
+[dev-dependencies]
+concurrent-queue = { workspace = true, features = ["loom"] }
+divan.workspace = true
+event-listener = { workspace = true, features = ["loom"] }
+futures-executor.workspace = true
+insta.workspace = true
+loom.workspace = true
+proptest.workspace = true
+ui_test.workspace = true
+rca-macros = { path = "../rca-macros", version = "=0.1.0" }
+
+[lints]
+workspace = true
+
+[[bench]]
+name = "deterministic"
+harness = false
+
+[[test]]
+name = "compiler_contracts"
+harness = false
