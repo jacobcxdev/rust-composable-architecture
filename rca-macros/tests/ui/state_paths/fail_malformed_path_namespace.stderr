@@ -1,0 +1,65 @@
+error: expected identifier, found reserved identifier `$crate`
+  --> tests/ui/state_paths/fail_malformed_path_namespace.rs:4:16
+   |
+ 4 |         struct $crate {
+   |                ^^^^^^ expected identifier, found reserved identifier
+...
+20 |     malformed_state!();
+   |     ------------------ in this macro invocation
+   |
+   = note: this error originates in the macro `malformed_state` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: StatePaths cannot derive a valid path namespace name
+  --> tests/ui/state_paths/fail_malformed_path_namespace.rs:4:16
+   |
+ 4 |         struct $crate {
+   |                ^^^^^^
+...
+20 |     malformed_state!();
+   |     ------------------ in this macro invocation
+   |
+   = note: this error originates in the macro `malformed_state` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: expected identifier, found reserved identifier `$crate`
+  --> tests/ui/state_paths/fail_malformed_path_namespace.rs:13:14
+   |
+13 |         enum $crate {
+   |              ^^^^^^ expected identifier, found reserved identifier
+...
+24 |     malformed_action!();
+   |     ------------------- in this macro invocation
+   |
+   = note: this error originates in the macro `malformed_action` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: ActionPaths cannot derive a valid path namespace name
+  --> tests/ui/state_paths/fail_malformed_path_namespace.rs:13:14
+   |
+13 |         enum $crate {
+   |              ^^^^^^
+...
+24 |     malformed_action!();
+   |     ------------------- in this macro invocation
+   |
+   = note: this error originates in the macro `malformed_action` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: expected identifier, found reserved identifier `$crate`
+  --> tests/ui/state_paths/fail_malformed_path_namespace.rs:30:14
+   |
+30 |         enum $crate {
+   |              ^^^^^^ expected identifier, found reserved identifier
+...
+37 |     malformed_descriptor!();
+   |     ----------------------- in this macro invocation
+   |
+   = note: this error originates in the macro `malformed_descriptor` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: CaseDescriptors cannot derive valid case names
+  --> tests/ui/state_paths/fail_malformed_path_namespace.rs:30:14
+   |
+30 |         enum $crate {
+   |              ^^^^^^
+...
+37 |     malformed_descriptor!();
+   |     ----------------------- in this macro invocation
+   |
+   = note: this error originates in the macro `malformed_descriptor` (in Nightly builds, run with -Z macro-backtrace for more info)

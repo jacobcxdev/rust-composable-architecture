@@ -1,0 +1,19 @@
+error: lifetime may not live long enough
+  --> tests/ui/reducer/pass_local_child_action.rs:25:1
+   |
+25 | / #[rca_macros::reducer(
+26 | |     state(supplied(usize)),
+27 | |     action(generated(enum Action<'a> { #[reducer(child = local)] Local(_) })),
+28 | |     body(supplied(local)),
+...  |
+32 | |         bind(fn bind_local<'a>(child: Child<'a>)),
+   | |                            -- lifetime `'a` defined here
+33 | |     ),
+34 | | )]
+   | |__^ returning this value requires that `'a` must outlive `'static`
+   |
+   = note: this error originates in the attribute macro `rca_macros::reducer` (in Nightly builds, run with -Z macro-backtrace for more info)
+help: to declare that `impl Reducer<State = usize, Action = Action<'a>>` captures data from argument `child`, you can add an explicit `'a` lifetime bound
+   |
+34 | )] + 'a
+   |    ++++

@@ -1,0 +1,57 @@
+error: expected identifier
+ --> tests/ui/snapshot/fail_syntax.rs:3:19
+  |
+3 | #[snapshot(name = "NotAnIdentifier")]
+  |                   ^^^^^^^^^^^^^^^^^
+
+error: snapshot `into` requires a named struct path, not a qualified associated type
+ --> tests/ui/snapshot/fail_syntax.rs:6:12
+  |
+6 | #[snapshot(into = <Source as Trait>::Value)]
+  |            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error: expected identifier
+  --> tests/ui/snapshot/fail_syntax.rs:11:34
+   |
+11 | struct Closure(#[snapshot(with = |x| x, value = usize)] usize);
+   |                                  ^
+
+error: expected `const` or `mut`
+  --> tests/ui/snapshot/fail_syntax.rs:13:52
+   |
+13 | struct BadType(#[snapshot(with = capture, value = *usize)] usize);
+   |                                                    ^^^^^
+
+error: duplicate snapshot option `redact`
+  --> tests/ui/snapshot/fail_syntax.rs:17:16
+   |
+17 |     #[snapshot(redact)]
+   |                ^^^^^^
+
+error: expected snapshot item option `name` or `into`
+  --> tests/ui/snapshot/fail_syntax.rs:21:12
+   |
+21 | #[snapshot(mystery)]
+   |            ^^^^^^^
+
+error: expected identifier, found reserved identifier `$crate`
+  --> tests/ui/snapshot/fail_syntax.rs:27:16
+   |
+27 |         struct $crate {
+   |                ^^^^^^ expected identifier, found reserved identifier
+...
+33 | malformed_snapshot!();
+   | --------------------- in this macro invocation
+   |
+   = note: this error originates in the macro `malformed_snapshot` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: Snapshot cannot derive a valid companion name
+  --> tests/ui/snapshot/fail_syntax.rs:27:16
+   |
+27 |         struct $crate {
+   |                ^^^^^^
+...
+33 | malformed_snapshot!();
+   | --------------------- in this macro invocation
+   |
+   = note: this error originates in the macro `malformed_snapshot` (in Nightly builds, run with -Z macro-backtrace for more info)

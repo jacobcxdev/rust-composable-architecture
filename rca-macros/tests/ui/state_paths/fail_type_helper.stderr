@@ -1,0 +1,5 @@
+error: rca helper attributes are only supported on struct fields or enum variants
+ --> tests/ui/state_paths/fail_type_helper.rs:6:1
+  |
+6 | #[rca(skip)]
+  | ^^^^^^^^^^^^

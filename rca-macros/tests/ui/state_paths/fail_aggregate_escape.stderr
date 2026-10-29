@@ -1,0 +1,11 @@
+error[E0597]: `root` does not live long enough
+  --> tests/ui/state_paths/fail_aggregate_escape.rs:12:47
+   |
+11 |         let mut root = State::Pair(String::from("local"), 1);
+   |             -------- binding `root` declared here
+12 |         borrowed = StatePaths::pair().get_mut(&mut root).unwrap();
+   |                                               ^^^^^^^^^ borrowed value does not live long enough
+13 |     }
+   |     - `root` dropped here while still borrowed
+14 |     borrowed.0.push_str("escaped");
+   |     ---------- borrow later used here
