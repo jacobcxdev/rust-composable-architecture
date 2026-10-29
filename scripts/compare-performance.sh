@@ -1,0 +1,382 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ $# -ne 2 ]]; then
+  echo "usage: $0 <baseline.json> <candidate.json>" >&2
+  exit 2
+fi
+
+requested_baseline=$1
+requested_candidate=$2
+regression_limit=1.10
+
+for command in basename dirname git jq mktemp shasum tr; do
+  if ! command -v "${command}" >/dev/null 2>&1; then
+    echo "required command not found: ${command}" >&2
+    exit 1
+  fi
+done
+
+baseline=$(cd "$(dirname "${requested_baseline}")" && pwd -P)/$(basename "${requested_baseline}")
+candidate=$(cd "$(dirname "${requested_candidate}")" && pwd -P)/$(basename "${requested_candidate}")
+comparison=${candidate%.json}-comparison.json
+if [[ "${baseline}" == "${candidate}" || "${baseline}" == "${comparison}" \
+  || "${candidate}" == "${comparison}" \
+  || ( -e "${comparison}" && "${comparison}" -ef "${baseline}" ) \
+  || ( -e "${comparison}" && "${comparison}" -ef "${candidate}" ) ]]; then
+  echo "performance input and output paths must be distinct" >&2
+  exit 1
+fi
+
+repo_root=$(git rev-parse --show-toplevel)
+head_revision=$(git rev-parse HEAD)
+revision_pin=${repo_root}/docs/performance/baseline-revision.txt
+baseline_lock=${repo_root}/docs/performance/baseline-Cargo.lock
+candidate_lock=${repo_root}/Cargo.lock
+protocol=${repo_root}/rca-tokio/benches/qualification.rs
+qualification_script=${repo_root}/scripts/qualify-performance.sh
+scenario_manifest=${repo_root}/docs/performance/scenarios.txt
+if [[ ! -f "${revision_pin}" || ! -f "${baseline_lock}" \
+  || ! -f "${candidate_lock}" || ! -f "${protocol}" \
+  || ! -f "${qualification_script}" || ! -f "${scenario_manifest}" ]]; then
+  echo "pinned performance inputs are missing" >&2
+  exit 1
+fi
+expected_reference_revision=$(tr -d '\n' < "${revision_pin}")
+expected_reference_lock_sha256=$(shasum -a 256 "${baseline_lock}" | awk '{print $1}')
+expected_candidate_lock_sha256=$(shasum -a 256 "${candidate_lock}" | awk '{print $1}')
+qualification_source_sha256=$(shasum -a 256 "${protocol}" | awk '{print $1}')
+expected_qualification_script_sha256=$(shasum -a 256 "${qualification_script}" | awk '{print $1}')
+expected_scenario_manifest_sha256=$(shasum -a 256 "${scenario_manifest}" | awk '{print $1}')
+expected_protocol_sha256=$(printf '%s\n' "${qualification_source_sha256}" \
+  "${expected_scenario_manifest_sha256}" "${expected_qualification_script_sha256}" \
+  | shasum -a 256 | awk '{print $1}')
+expected_scenarios=$(jq -R -s -c 'split("\n") | map(select(length > 0))' \
+  "${scenario_manifest}")
+
+for result in "${baseline}" "${candidate}"; do
+  if [[ ! -f "${result}" ]]; then
+    echo "performance result not found: ${result}" >&2
+    exit 1
+  fi
+  jq -e '
+    def expected_samples:
+      .samples == 10000;
+    def expected_allocation_samples:
+      if .scenario == "deterministic/budget" then .allocation_samples == 5
+      elif (.scenario | endswith("/1000")) then .allocation_samples == 200
+      elif ((.scenario | startswith("mailbox/"))
+        or (.scenario | startswith("shutdown/"))
+        or (.scenario | endswith("/64")))
+        then .allocation_samples == 500
+      else .allocation_samples == 1000
+      end;
+    def same_workload:
+      .candidate.scenario == .reference.scenario
+      and .candidate.samples == .reference.samples
+      and .candidate.operations == .reference.operations
+      and .candidate.repetition == .repetition
+      and .reference.repetition == .repetition
+      and .candidate.order == .order
+      and .reference.order == .order;
+    def valid_normal:
+      same_workload
+      and .candidate.throughput_per_second > 0
+      and .reference.throughput_per_second > 0
+      and .candidate.latency_ns.p50 > 0
+      and .reference.latency_ns.p50 > 0
+      and .candidate.latency_ns.p99 > 0
+      and .reference.latency_ns.p99 > 0
+      and .candidate.cpu_cycles > 0
+      and .reference.cpu_cycles > 0
+      and .candidate.task_wakes > 0
+      and .reference.task_wakes > 0
+      and .candidate.peak_resident_bytes > 0
+      and .reference.peak_resident_bytes > 0
+      and .candidate.peak_memory_footprint_bytes > 0
+      and .reference.peak_memory_footprint_bytes > 0;
+    def valid_allocation:
+      same_workload
+      and .candidate.allocations > 0
+      and .reference.allocations > 0
+      and .candidate.allocated_bytes > 0
+      and .reference.allocated_bytes > 0
+      and .candidate.peak_bytes > 0
+      and .reference.peak_bytes > 0;
+    .schema_version == 4
+    and .suite == "rca-performance-qualification"
+    and (.reference_kind == "paired-reference" or .reference_kind == "qualification")
+    and (.revision | type == "string" and length == 40)
+    and (.runner | type == "string" and length > 0)
+    and (.recorded_at == .metadata.cohort.recorded_at)
+    and (.runner == .metadata.cohort.runner)
+    and (.metadata.method.aggregation == "geometric mean of order-stratified paired medians")
+    and .metadata.method.normal_repetitions == 10
+    and .metadata.method.allocation_repetitions == 6
+    and (.metadata.method.pair.reference_revision | type == "string" and length == 40)
+    and (.metadata.method.pair.candidate_revision | type == "string" and length == 40)
+    and (.metadata.cohort.id | type == "string" and length == 64)
+    and (.metadata.cohort.protocol_sha256 | type == "string" and length == 64)
+    and (.metadata.cohort.qualification_source_sha256 | type == "string" and length == 64)
+    and (.metadata.cohort.qualification_script_sha256 | type == "string" and length == 64)
+    and (.metadata.cohort.scenario_manifest_sha256 | type == "string" and length == 64)
+    and (.metadata.cohort.candidate_lock_sha256 | type == "string" and length == 64)
+    and (.metadata.cohort.reference_lock_sha256 | type == "string" and length == 64)
+    and (.accepted_regressions | type == "array")
+    and (.rows | type == "array" and length == 50)
+    and ((.rows | map(.scenario)) == $expected_scenarios)
+    and ((.rows | map(.scenario) | unique | length) == (.rows | length))
+    and all(.rows[];
+      (.scenario | type == "string" and length > 0)
+      and expected_samples
+      and expected_allocation_samples
+      and (.revision == $revision)
+      and (.runner == $runner)
+      and (.samples > 0)
+      and (.operations > 0)
+      and (.normal_repetitions == 10)
+      and (.allocation_repetitions == 6)
+      and (.throughput_per_second > 0)
+      and (.latency_ns.p50 > 0)
+      and (.latency_ns.p95 > 0)
+      and (.latency_ns.p99 > 0)
+      and (.cpu_cycles > 0)
+      and (.allocations > 0)
+      and (.allocation_samples > 0)
+      and (.allocation_operations > 0)
+      and (.allocated_bytes > 0)
+      and (.task_wakes > 0)
+      and (.peak_bytes > 0)
+      and (.instructions_retired > 0)
+      and (.peak_resident_bytes > 0)
+      and (.peak_memory_footprint_bytes > 0)
+      and (.pairs.normal | length) == 10
+      and (.pairs.allocation | length) == 6
+      and ([.pairs.normal[].repetition] == [1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
+      and ([.pairs.allocation[].repetition] == [1, 2, 3, 4, 5, 6])
+      and ([.pairs.normal[].order] == [
+        "reference-candidate", "candidate-reference",
+        "reference-candidate", "candidate-reference",
+        "reference-candidate", "candidate-reference",
+        "reference-candidate", "candidate-reference",
+        "reference-candidate", "candidate-reference"
+      ])
+      and ([.pairs.allocation[].order] == [
+        "reference-candidate", "candidate-reference",
+        "reference-candidate", "candidate-reference",
+        "reference-candidate", "candidate-reference"
+      ])
+      and (. as $row | all(.pairs.normal[];
+        valid_normal
+        and .candidate.scenario == $row.scenario
+        and .candidate.samples == $row.samples
+        and .candidate.operations == $row.operations
+      ))
+      and (. as $row | all(.pairs.allocation[];
+        valid_allocation
+        and .candidate.scenario == $row.scenario
+        and .candidate.samples == $row.allocation_samples
+        and .candidate.operations == $row.allocation_operations
+      ))
+    )
+  ' \
+    --arg revision "$(jq -r '.revision' "${result}")" \
+    --arg runner "$(jq -r '.runner' "${result}")" \
+    --argjson expected_scenarios "${expected_scenarios}" \
+    "${result}" >/dev/null || {
+    echo "invalid performance result schema: ${result}" >&2
+    exit 1
+  }
+done
+
+candidate_revision=$(jq -r '.revision' "${candidate}")
+measured_paths=(
+  Cargo.lock
+  Cargo.toml
+  rca/Cargo.toml
+  rca/src
+  rca-core/Cargo.toml
+  rca-core/build.rs
+  rca-core/src
+  rca-macros/Cargo.toml
+  rca-macros/src
+  rca-test/Cargo.toml
+  rca-test/src
+  rca-tokio/Cargo.toml
+  rca-tokio/src
+  tests/size-probe/src
+)
+if ! git cat-file -e "${candidate_revision}^{commit}" 2>/dev/null \
+  || ! git merge-base --is-ancestor "${candidate_revision}" "${head_revision}"; then
+  echo "candidate evidence revision is not an ancestor of HEAD" >&2
+  exit 1
+fi
+if ! git diff --quiet "${candidate_revision}" "${head_revision}" -- "${measured_paths[@]}" \
+  || ! git diff --quiet -- "${measured_paths[@]}" \
+  || ! git diff --cached --quiet -- "${measured_paths[@]}"; then
+  echo "measured candidate inputs changed after qualification" >&2
+  exit 1
+fi
+
+if ! jq -e \
+  --arg revision "${candidate_revision}" \
+  --arg reference_revision "${expected_reference_revision}" \
+  --arg protocol_sha256 "${expected_protocol_sha256}" \
+  --arg qualification_source_sha256 "${qualification_source_sha256}" \
+  --arg qualification_script_sha256 "${expected_qualification_script_sha256}" \
+  --arg scenario_manifest_sha256 "${expected_scenario_manifest_sha256}" \
+  --arg candidate_lock_sha256 "${expected_candidate_lock_sha256}" \
+  --arg reference_lock_sha256 "${expected_reference_lock_sha256}" '
+    .revision == $revision
+    and .reference_kind == "qualification"
+    and .metadata.method.pair.candidate_revision == $revision
+    and .metadata.method.pair.reference_revision == $reference_revision
+    and .metadata.cohort.protocol_sha256 == $protocol_sha256
+    and .metadata.cohort.qualification_source_sha256 == $qualification_source_sha256
+    and .metadata.cohort.qualification_script_sha256 == $qualification_script_sha256
+    and .metadata.cohort.scenario_manifest_sha256 == $scenario_manifest_sha256
+    and .metadata.cohort.candidate_lock_sha256 == $candidate_lock_sha256
+    and .metadata.cohort.reference_lock_sha256 == $reference_lock_sha256
+  ' "${candidate}" >/dev/null; then
+  echo "candidate evidence does not match current revision, protocol, or lockfile" >&2
+  exit 1
+fi
+
+if ! jq -e \
+  --arg reference_revision "${expected_reference_revision}" \
+  --arg candidate_revision "${candidate_revision}" \
+  --arg protocol_sha256 "${expected_protocol_sha256}" \
+  --arg qualification_source_sha256 "${qualification_source_sha256}" \
+  --arg qualification_script_sha256 "${expected_qualification_script_sha256}" \
+  --arg scenario_manifest_sha256 "${expected_scenario_manifest_sha256}" \
+  --arg candidate_lock_sha256 "${expected_candidate_lock_sha256}" \
+  --arg reference_lock_sha256 "${expected_reference_lock_sha256}" '
+    .revision == $reference_revision
+    and .reference_kind == "paired-reference"
+    and .metadata.method.pair.reference_revision == $reference_revision
+    and .metadata.method.pair.candidate_revision == $candidate_revision
+    and .metadata.cohort.protocol_sha256 == $protocol_sha256
+    and .metadata.cohort.qualification_source_sha256 == $qualification_source_sha256
+    and .metadata.cohort.qualification_script_sha256 == $qualification_script_sha256
+    and .metadata.cohort.scenario_manifest_sha256 == $scenario_manifest_sha256
+    and .metadata.cohort.candidate_lock_sha256 == $candidate_lock_sha256
+    and .metadata.cohort.reference_lock_sha256 == $reference_lock_sha256
+  ' "${baseline}" >/dev/null; then
+  echo "reference evidence does not match pinned revision, protocol, or lockfiles" >&2
+  exit 1
+fi
+
+temporary=$(mktemp /tmp/rca-performance-comparison.XXXXXX)
+trap 'rm -f -- "${temporary}"' EXIT
+jq -n \
+  --slurpfile baseline "${baseline}" \
+  --slurpfile candidate "${candidate}" \
+  --argjson limit "${regression_limit}" '
+  def median:
+    sort as $values
+    | ($values | length) as $count
+    | if ($count % 2) == 1 then
+        $values[$count / 2 | floor]
+      else
+        (($values[$count / 2 - 1] + $values[$count / 2]) / 2)
+      end;
+  def stratified_ratio($pairs; metric):
+    ([$pairs[] | select(.order == "reference-candidate") | metric] | median) as $ab
+    | ([$pairs[] | select(.order == "candidate-reference") | metric] | median) as $ba
+    | (($ab * $ba) | sqrt);
+  def accepted($candidate; $id):
+    $id != null
+    and any($candidate.accepted_regressions[]?;
+      .id == $id
+      and (.review | type == "string" and length > 0)
+    );
+  $baseline[0] as $base
+  | $candidate[0] as $next
+  | if $base.metadata.cohort != $next.metadata.cohort
+      or $base.metadata.method.pair != $next.metadata.method.pair
+      or $base.recorded_at != $next.recorded_at
+    then error("results are not one qualification cohort")
+    else .
+    end
+  | if ($base.rows | length) != ($next.rows | length)
+    then error("scenario count mismatch")
+    else .
+    end
+  | [
+      $base.rows[] as $before
+      | ($next.rows | map(select(.scenario == $before.scenario))) as $matches
+      | if ($matches | length) != 1 then
+          error("candidate scenario missing or duplicated: \($before.scenario)")
+        else
+          $matches[0] as $after
+          | if $after.samples != $before.samples
+              or $after.operations != $before.operations
+              or $after.allocation_samples != $before.allocation_samples
+              or $after.allocation_operations != $before.allocation_operations
+              or $after.pairs != $before.pairs
+            then error("candidate and reference workload evidence differs: \($before.scenario)")
+            else {
+              scenario: $before.scenario,
+              median_ratio: stratified_ratio($after.pairs.normal;
+                .candidate.latency_ns.p50 / .reference.latency_ns.p50),
+              p99_ratio: stratified_ratio($after.pairs.normal;
+                .candidate.latency_ns.p99 / .reference.latency_ns.p99),
+              throughput_ratio: stratified_ratio($after.pairs.normal;
+                .reference.throughput_per_second / .candidate.throughput_per_second),
+              allocation_ratio: stratified_ratio($after.pairs.allocation;
+                .candidate.allocations / .reference.allocations),
+              allocated_bytes_ratio: stratified_ratio($after.pairs.allocation;
+                .candidate.allocated_bytes / .reference.allocated_bytes),
+              peak_memory_ratio: stratified_ratio($after.pairs.normal;
+                .candidate.peak_memory_footprint_bytes
+                  / .reference.peak_memory_footprint_bytes),
+              resident_memory_ratio: stratified_ratio($after.pairs.normal;
+                .candidate.peak_resident_bytes / .reference.peak_resident_bytes),
+              peak_live_heap_ratio: stratified_ratio($after.pairs.allocation;
+                .candidate.peak_bytes / .reference.peak_bytes),
+              cpu_cycles_ratio: stratified_ratio($after.pairs.normal;
+                .candidate.cpu_cycles / .reference.cpu_cycles),
+              task_wakes_ratio: stratified_ratio($after.pairs.normal;
+                .candidate.task_wakes / .reference.task_wakes),
+              rationale_id: ($after.rationale_id // null)
+            }
+            | .regressed = (
+                .median_ratio > $limit
+                or .p99_ratio > $limit
+                or .throughput_ratio > $limit
+                or .allocation_ratio > $limit
+                or .allocated_bytes_ratio > $limit
+                or .peak_memory_ratio > $limit
+                or .resident_memory_ratio > $limit
+                or .cpu_cycles_ratio > $limit
+                or .task_wakes_ratio > $limit
+              )
+            | .accepted = (if .regressed then accepted($next; .rationale_id) else false end)
+            end
+        end
+    ] as $comparisons
+  | {
+      schema_version: 4,
+      regression_limit: $limit,
+      cohort_id: $next.metadata.cohort.id,
+      aggregation: "geometric mean of order-stratified paired medians",
+      baseline: {revision: $base.revision, runner: $base.runner},
+      candidate: {revision: $next.revision, runner: $next.runner},
+      comparisons: $comparisons,
+      unexplained_regressions: [
+        $comparisons[] | select(.regressed and (.accepted | not)) | .scenario
+      ],
+      passed: all($comparisons[]; (.regressed | not) or .accepted)
+    }
+' > "${temporary}"
+
+mv "${temporary}" "${comparison}"
+
+if ! jq -e '.passed' "${comparison}" >/dev/null; then
+  echo "unexplained performance regressions:" >&2
+  jq -r '.unexplained_regressions[] | "  \(.)"' "${comparison}" >&2
+  echo "comparison: ${comparison}" >&2
+  exit 1
+fi
+
+echo "performance gate passed: ${comparison}"
