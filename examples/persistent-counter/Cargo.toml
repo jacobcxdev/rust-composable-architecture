@@ -1,0 +1,19 @@
+[package]
+name = "rca-example-persistent-counter"
+version = "0.0.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+rca-core.workspace = true
+rca-persistence = { workspace = true, features = ["file"] }
+rca-tokio = { path = "../../rca-tokio", version = "=0.1.0" }
+tokio.workspace = true
+
+[dev-dependencies]
+tempfile = "3.27.0"
+
+[lints]
+workspace = true

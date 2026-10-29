@@ -1,0 +1,18 @@
+[package]
+name = "rca-example-composition-search"
+version = "0.0.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+rca = { package = "rust-composable-architecture", path = "../../rca", version = "=0.1.0", features = ["macros", "tokio"] }
+tokio = { workspace = true, features = ["macros", "rt", "sync", "time"] }
+
+[dev-dependencies]
+rca = { package = "rust-composable-architecture", path = "../../rca", version = "=0.1.0", features = ["macros", "test-util"] }
+futures-executor.workspace = true
+
+[lints]
+workspace = true
