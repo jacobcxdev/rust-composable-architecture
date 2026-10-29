@@ -1,0 +1,25 @@
+[package]
+name = "composable-stream-candidate"
+default-run = "composable-stream-candidate"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[[bin]]
+name = "common-outcome-allocations"
+path = "src/bin/common_outcome_allocations.rs"
+required-features = ["allocation-measurement"]
+test = false
+bench = false
+
+[features]
+allocation-measurement = ["dep:dhat"]
+
+[dependencies]
+dhat = { version = "=0.3.3", optional = true }
+rca-core = { path = "../../../rca-core" }
+rca-tokio = { path = "../../../rca-tokio" }
+tokio = { version = "1.53.3", features = ["rt", "time"] }
+futures = "0.3"

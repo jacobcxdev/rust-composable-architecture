@@ -1,0 +1,17 @@
+[package]
+name = "composable-counter-historical"
+version = "0.0.0"
+edition = "2021"
+default-run = "composable-counter-historical"
+
+[workspace]
+
+[features]
+allocation-measurement = ["dep:dhat"]
+
+[dev-dependencies]
+serde_json = "1"
+
+[dependencies]
+dhat = { version = "=0.3.3", optional = true }
+composable = { git = "https://github.com/jacobcxdev/rust-composable-architecture.git", rev = "c6200234cebbbd9b0009cd5788736c78a47f32b0" }
