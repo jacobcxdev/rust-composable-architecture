@@ -1,0 +1,340 @@
+sample=1 phase=clean
+   Compiling proc-macro2 v1.0.107
+   Compiling unicode-ident v1.0.24
+   Compiling quote v1.0.47
+    Checking pin-project-lite v0.2.17
+   Compiling crossbeam-utils v0.8.22
+   Compiling syn v3.0.4
+    Checking futures-core v0.3.34
+    Checking parking v2.2.1
+    Checking event-listener v5.4.2
+   Compiling futures-macro v0.3.34
+    Checking slab v0.4.12
+    Checking futures-task v0.3.34
+    Checking futures-util v0.3.34
+    Checking concurrent-queue v2.5.0
+    Checking event-listener-strategy v0.5.4
+   Compiling rca-core v0.8.0-alpha.1 (<repo>/rca-core)
+    Checking equivalent v1.0.2
+    Checking hashbrown v0.17.1
+    Checking indexmap v2.14.1
+    Checking async-channel v2.5.0
+    Checking futures-executor v0.3.34
+    Checking rca-compile-fixture-support v0.0.0 (<repo>/benches/compile/support)
+    Checking rca-compile-direct v0.0.0 (<repo>/benches/compile/direct)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 5.91s
+real 5.92
+user 4.50
+sys 0.85
+           298287104  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+              306907  page reclaims
+                 521  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                   0  messages sent
+                   0  messages received
+                  10  signals received
+                 108  voluntary context switches
+                5482  involuntary context switches
+           572353440  instructions retired
+           273935382  cycles elapsed
+            14598744  peak memory footprint
+sample=1 phase=incremental
+    Checking rca-compile-direct v0.0.0 (<repo>/benches/compile/direct)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.10s
+real 0.11
+user 0.05
+sys 0.04
+            68550656  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+               15777  page reclaims
+                 132  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                   0  messages sent
+                   0  messages received
+                   1  signals received
+                   8  voluntary context switches
+                 207  involuntary context switches
+           269687590  instructions retired
+           110833351  cycles elapsed
+            14467624  peak memory footprint
+sample=2 phase=clean
+   Compiling proc-macro2 v1.0.107
+   Compiling quote v1.0.47
+   Compiling unicode-ident v1.0.24
+    Checking pin-project-lite v0.2.17
+   Compiling crossbeam-utils v0.8.22
+   Compiling syn v3.0.4
+    Checking futures-core v0.3.34
+    Checking parking v2.2.1
+    Checking event-listener v5.4.2
+   Compiling futures-macro v0.3.34
+    Checking slab v0.4.12
+    Checking futures-task v0.3.34
+    Checking futures-util v0.3.34
+    Checking concurrent-queue v2.5.0
+    Checking event-listener-strategy v0.5.4
+   Compiling rca-core v0.8.0-alpha.1 (<repo>/rca-core)
+    Checking hashbrown v0.17.1
+    Checking equivalent v1.0.2
+    Checking indexmap v2.14.1
+    Checking async-channel v2.5.0
+    Checking futures-executor v0.3.34
+    Checking rca-compile-fixture-support v0.0.0 (<repo>/benches/compile/support)
+    Checking rca-compile-direct v0.0.0 (<repo>/benches/compile/direct)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 6.01s
+real 6.02
+user 4.65
+sys 0.94
+           298516480  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+              307028  page reclaims
+                 522  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                   0  messages sent
+                   0  messages received
+                  10  signals received
+                 110  voluntary context switches
+                5370  involuntary context switches
+           572213434  instructions retired
+           289655670  cycles elapsed
+            14516824  peak memory footprint
+sample=2 phase=incremental
+    Checking rca-compile-direct v0.0.0 (<repo>/benches/compile/direct)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.09s
+real 0.10
+user 0.05
+sys 0.04
+            68534272  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+               15853  page reclaims
+                   1  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                   0  messages sent
+                   0  messages received
+                   1  signals received
+                   6  voluntary context switches
+                 169  involuntary context switches
+           270499669  instructions retired
+           112015322  cycles elapsed
+            13697552  peak memory footprint
+sample=3 phase=clean
+   Compiling proc-macro2 v1.0.107
+   Compiling unicode-ident v1.0.24
+   Compiling quote v1.0.47
+    Checking pin-project-lite v0.2.17
+   Compiling crossbeam-utils v0.8.22
+   Compiling syn v3.0.4
+    Checking parking v2.2.1
+    Checking futures-core v0.3.34
+    Checking event-listener v5.4.2
+   Compiling futures-macro v0.3.34
+    Checking slab v0.4.12
+    Checking futures-task v0.3.34
+    Checking futures-util v0.3.34
+    Checking concurrent-queue v2.5.0
+    Checking event-listener-strategy v0.5.4
+   Compiling rca-core v0.8.0-alpha.1 (<repo>/rca-core)
+    Checking hashbrown v0.17.1
+    Checking equivalent v1.0.2
+    Checking indexmap v2.14.1
+    Checking async-channel v2.5.0
+    Checking futures-executor v0.3.34
+    Checking rca-compile-fixture-support v0.0.0 (<repo>/benches/compile/support)
+    Checking rca-compile-direct v0.0.0 (<repo>/benches/compile/direct)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 6.02s
+real 6.03
+user 4.62
+sys 0.91
+           298631168  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+              307093  page reclaims
+                 522  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                   0  messages sent
+                   0  messages received
+                  10  signals received
+                  99  voluntary context switches
+                5388  involuntary context switches
+           574938501  instructions retired
+           288987496  cycles elapsed
+            15073832  peak memory footprint
+sample=3 phase=incremental
+    Checking rca-compile-direct v0.0.0 (<repo>/benches/compile/direct)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.09s
+real 0.10
+user 0.05
+sys 0.04
+            68517888  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+               15898  page reclaims
+                   1  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                   0  messages sent
+                   0  messages received
+                   1  signals received
+                   6  voluntary context switches
+                 162  involuntary context switches
+           270806065  instructions retired
+           112657285  cycles elapsed
+            14451264  peak memory footprint
+sample=4 phase=clean
+   Compiling proc-macro2 v1.0.107
+   Compiling unicode-ident v1.0.24
+   Compiling quote v1.0.47
+    Checking pin-project-lite v0.2.17
+   Compiling crossbeam-utils v0.8.22
+   Compiling syn v3.0.4
+    Checking parking v2.2.1
+    Checking futures-core v0.3.34
+    Checking event-listener v5.4.2
+   Compiling futures-macro v0.3.34
+    Checking futures-task v0.3.34
+    Checking slab v0.4.12
+    Checking futures-util v0.3.34
+    Checking concurrent-queue v2.5.0
+    Checking event-listener-strategy v0.5.4
+    Checking equivalent v1.0.2
+    Checking hashbrown v0.17.1
+   Compiling rca-core v0.8.0-alpha.1 (<repo>/rca-core)
+    Checking indexmap v2.14.1
+    Checking async-channel v2.5.0
+    Checking futures-executor v0.3.34
+    Checking rca-compile-fixture-support v0.0.0 (<repo>/benches/compile/support)
+    Checking rca-compile-direct v0.0.0 (<repo>/benches/compile/direct)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 6.00s
+real 6.01
+user 4.57
+sys 0.91
+           298582016  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+              307227  page reclaims
+                 654  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                   0  messages sent
+                   0  messages received
+                  10  signals received
+                 153  voluntary context switches
+                5476  involuntary context switches
+           574860040  instructions retired
+           293234884  cycles elapsed
+            14877224  peak memory footprint
+sample=4 phase=incremental
+    Checking rca-compile-direct v0.0.0 (<repo>/benches/compile/direct)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.09s
+real 0.10
+user 0.05
+sys 0.04
+            68468736  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+               15867  page reclaims
+                   2  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                   0  messages sent
+                   0  messages received
+                   1  signals received
+                   5  voluntary context switches
+                 167  involuntary context switches
+           270218949  instructions retired
+           112992294  cycles elapsed
+            14008848  peak memory footprint
+sample=5 phase=clean
+   Compiling proc-macro2 v1.0.107
+   Compiling quote v1.0.47
+   Compiling unicode-ident v1.0.24
+    Checking pin-project-lite v0.2.17
+   Compiling crossbeam-utils v0.8.22
+   Compiling syn v3.0.4
+    Checking futures-core v0.3.34
+    Checking parking v2.2.1
+    Checking event-listener v5.4.2
+   Compiling futures-macro v0.3.34
+    Checking slab v0.4.12
+    Checking futures-task v0.3.34
+    Checking futures-util v0.3.34
+    Checking concurrent-queue v2.5.0
+    Checking event-listener-strategy v0.5.4
+   Compiling rca-core v0.8.0-alpha.1 (<repo>/rca-core)
+    Checking hashbrown v0.17.1
+    Checking equivalent v1.0.2
+    Checking indexmap v2.14.1
+    Checking async-channel v2.5.0
+    Checking futures-executor v0.3.34
+    Checking rca-compile-fixture-support v0.0.0 (<repo>/benches/compile/support)
+    Checking rca-compile-direct v0.0.0 (<repo>/benches/compile/direct)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 6.42s
+real 6.43
+user 4.57
+sys 0.89
+           298483712  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+              307315  page reclaims
+                 523  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                   0  messages sent
+                   0  messages received
+                  10  signals received
+                 105  voluntary context switches
+                5426  involuntary context switches
+           573653212  instructions retired
+           290757689  cycles elapsed
+            14680616  peak memory footprint
+sample=5 phase=incremental
+    Checking rca-compile-direct v0.0.0 (<repo>/benches/compile/direct)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.08s
+real 0.09
+user 0.05
+sys 0.03
+            68534272  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+               15879  page reclaims
+                   1  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                   0  messages sent
+                   0  messages received
+                   1  signals received
+                   5  voluntary context switches
+                 158  involuntary context switches
+           269187449  instructions retired
+           104996385  cycles elapsed
+            14074408  peak memory footprint
