@@ -1,0 +1,29 @@
+error[E0277]: `Cell<u64>` cannot be shared between threads safely
+  --> tests/ui/rc04_id_non_sync.rs:32:29
+   |
+32 |     let _ = Reducer::reduce(&mut reducer, &mut state, &(), context);
+   |             --------------- ^^^^^^^^^^^^ `Cell<u64>` cannot be shared between threads safely
+   |             |
+   |             required by a bound introduced by this call
+   |
+   = help: within `Id`, the trait `Sync` is not implemented for `Cell<u64>`
+   = note: if you want to do aliasing and mutation between multiple threads, use `std::sync::RwLock` or `std::sync::atomic::AtomicU64` instead
+help: the trait `Reducer` is conditionally implemented for `ScopeIdentified<ParentState, ParentAction, Parent, Child, StatePath<ParentState, ChildState, Get, GetMut>, ActionPath<ParentAction, ChildAction, Extract, Embed>, Identity, Id>`
+  --> src/composition/scope.rs
+   |
+   | / impl<
+   | |     ParentState,
+   | |     ParentAction,
+   | |     Parent,
+...  |
+   | |     Identity: for<'a> Fn(&'a ChildState) -> &'a Id,
+   | |     Id: Eq + core::hash::Hash + Clone + Send + Sync + 'static,
+   | |________________________________________________----__________^
+   |                                                  |
+   |                                                  unsatisfied requirement introduced here: `Id: Sync`
+note: required because it appears within the type `Id`
+  --> tests/ui/rc04_id_non_sync.rs:8:8
+   |
+ 8 | struct Id(Cell<u64>);
+   |        ^^
+   = note: required for `ScopeIdentified<Id, (), Reduce<Id, (), {closure@$DIR/tests/ui/rc04_id_non_sync.rs:26:21: 26:44}>, Reduce<Id, (), {closure@$DIR/tests/ui/rc04_id_non_sync.rs:30:21: 30:44}>, StatePath<Id, Id, {closure@$DIR/tests/ui/rc04_id_non_sync.rs:27:24: 27:32}, {closure@$DIR/tests/ui/rc04_id_non_sync.rs:27:36: 27:48}>, ActionPath<(), (), {closure@$DIR/tests/ui/rc04_id_non_sync.rs:28:25: 28:33}, {closure@$DIR/tests/ui/rc04_id_non_sync.rs:28:43: 28:46}>, {closure@$DIR/tests/ui/rc04_id_non_sync.rs:29:9: 29:17}, Id>` to implement `Reducer`

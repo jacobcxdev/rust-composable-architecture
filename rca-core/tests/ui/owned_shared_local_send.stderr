@@ -1,0 +1,45 @@
+error[E0277]: `Rc<i32>` cannot be sent between threads safely
+ --> tests/ui/owned_shared_local_send.rs:6:24
+  |
+6 |       std::thread::spawn(move || {
+  |  _____------------------_^
+  | |     |
+  | |     required by a bound introduced by this call
+7 | |         drop(shared);
+8 | |     });
+  | |_____^ `Rc<i32>` cannot be sent between threads safely
+  |
+  = help: the trait `Send` is not implemented for `Rc<i32>`
+  = note: required for `std::sync::Mutex<Rc<i32>>` to implement `Sync`
+note: required because it appears within the type `rca_core::sharing::SharedReference<Rc<i32>>`
+ --> src/sharing.rs
+  |
+  | struct SharedReference<Value> {
+  |        ^^^^^^^^^^^^^^^
+  = note: required for `Arc<rca_core::sharing::SharedReference<Rc<i32>>>` to implement `Send`
+note: required because it appears within the type `SharedReader<Rc<i32>>`
+ --> src/sharing.rs
+  |
+  | pub struct SharedReader<Value> {
+  |            ^^^^^^^^^^^^
+  = note: required for `std::sync::Mutex<SharedReader<Rc<i32>>>` to implement `Sync`
+  = note: 1 redundant requirement hidden
+  = note: required for `Arc<std::sync::Mutex<SharedReader<Rc<i32>>>>` to implement `Send`
+note: required because it appears within the type `Shared<Rc<i32>>`
+ --> src/sharing.rs
+  |
+  | pub struct Shared<Value> {
+  |            ^^^^^^
+note: required because it's used within this closure
+ --> tests/ui/owned_shared_local_send.rs:6:24
+  |
+6 |     std::thread::spawn(move || {
+  |                        ^^^^^^^
+note: required by a bound in `std::thread::spawn`
+ --> $RUST/std/src/thread/functions.rs
+  |
+  | pub fn spawn<F, T>(f: F) -> JoinHandle<T>
+  |        ----- required by a bound in this function
+...
+  |     F: Send + 'static,
+  |        ^^^^ required by this bound in `spawn`

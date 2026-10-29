@@ -1,0 +1,22 @@
+error[E0277]: `Rc<Cell<usize>>` cannot be sent between threads safely
+  --> tests/ui/non_send_reducer_store.rs:18:27
+   |
+18 |     let _ = Store::new(0, Local(Rc::new(Cell::new(1))), runtime);
+   |             ----------    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `Rc<Cell<usize>>` cannot be sent between threads safely
+   |             |
+   |             required by a bound introduced by this call
+   |
+   = help: within `Local`, the trait `Send` is not implemented for `Rc<Cell<usize>>`
+note: required because it appears within the type `Local`
+  --> tests/ui/non_send_reducer_store.rs:5:8
+   |
+ 5 | struct Local(Rc<Cell<usize>>);
+   |        ^^^^^
+note: required by a bound in `Store::<State, Action>::new`
+  --> src/store/mod.rs
+   |
+   |     pub fn new<R>(state: State, reducer: R, runtime: Runtime) -> Self
+   |            --- required by a bound in this associated function
+...
+   |         R: Reducer<State = State, Action = Action> + Send + 'static,
+   |                                                      ^^^^ required by this bound in `Store::<State, Action>::new`

@@ -1,0 +1,18 @@
+error[E0597]: `value` does not live long enough
+  --> tests/ui/borrowed_reducer_store.rs:17:36
+   |
+16 |     let value = 1;
+   |         ----- binding `value` declared here
+17 |     let _ = Store::new(0, Borrowed(&value), runtime);
+   |             -----------------------^^^^^^-----------
+   |             |                      |
+   |             |                      borrowed value does not live long enough
+   |             argument requires that `value` is borrowed for `'static`
+18 | }
+   | - `value` dropped here while still borrowed
+   |
+note: requirement that the value outlives `'static` introduced here
+  --> src/store/mod.rs
+   |
+   |         R: Reducer<State = State, Action = Action> + Send + 'static,
+   |                                                             ^^^^^^^

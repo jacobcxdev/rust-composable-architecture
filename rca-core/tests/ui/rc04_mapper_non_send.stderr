@@ -1,0 +1,67 @@
+error[E0277]: `Rc<i32>` cannot be sent between threads safely
+  --> tests/ui/rc04_mapper_non_send.rs:18:29
+   |
+10 |             move |a| {
+   |             -------- within this `{closure@$DIR/tests/ui/rc04_mapper_non_send.rs:10:13: 10:21}`
+...
+18 |     let _ = Reducer::reduce(&mut reducer, &mut 0, &(), context);
+   |             --------------- ^^^^^^^^^^^^ `Rc<i32>` cannot be sent between threads safely
+   |             |
+   |             required by a bound introduced by this call
+   |
+   = help: within `{closure@$DIR/tests/ui/rc04_mapper_non_send.rs:10:13: 10:21}`, the trait `Send` is not implemented for `Rc<i32>`
+help: the trait `Reducer` is conditionally implemented for `ScopeIdentified<ParentState, ParentAction, Parent, Child, StatePath<ParentState, ChildState, Get, GetMut>, ActionPath<ParentAction, ChildAction, Extract, Embed>, Identity, Id>`
+  --> src/composition/scope.rs
+   |
+   | / impl<
+   | |     ParentState,
+   | |     ParentAction,
+   | |     Parent,
+...  |
+   | |     Embed: Fn(ChildAction) -> ParentAction + Clone + Send + Sync + 'static,
+   | |                                                      ----   ---- unsatisfied requirement introduced here: `{closure@$DIR/tests/ui/rc04_mapper_non_send.rs:10:13: 10:21}: Sync`
+   | |                                                      |
+   | |                                                      unsatisfied requirement introduced here: `{closure@$DIR/tests/ui/rc04_mapper_non_send.rs:10:13: 10:21}: Send`
+   | |     Identity: for<'a> Fn(&'a ChildState) -> &'a Id,
+   | |     Id: Eq + core::hash::Hash + Clone + Send + Sync + 'static,
+   | |______________________________________________________________^
+note: required because it's used within this closure
+  --> tests/ui/rc04_mapper_non_send.rs:10:13
+   |
+10 |             move |a| {
+   |             ^^^^^^^^
+   = note: required for `ScopeIdentified<u64, (), Reduce<u64, (), {closure@$DIR/tests/ui/rc04_mapper_non_send.rs:6:21: 6:45}>, Reduce<u64, (), {closure@$DIR/tests/ui/rc04_mapper_non_send.rs:16:21: 16:45}>, StatePath<u64, u64, {closure@$DIR/tests/ui/rc04_mapper_non_send.rs:7:24: 7:33}, {closure@$DIR/tests/ui/rc04_mapper_non_send.rs:7:37: 7:50}>, ActionPath<(), (), {closure@$DIR/tests/ui/rc04_mapper_non_send.rs:9:13: 9:21}, {closure@$DIR/tests/ui/rc04_mapper_non_send.rs:10:13: 10:21}>, {closure@$DIR/tests/ui/rc04_mapper_non_send.rs:15:9: 15:18}, u64>` to implement `Reducer`
+
+error[E0277]: `Rc<i32>` cannot be shared between threads safely
+  --> tests/ui/rc04_mapper_non_send.rs:18:29
+   |
+10 |             move |a| {
+   |             -------- within this `{closure@$DIR/tests/ui/rc04_mapper_non_send.rs:10:13: 10:21}`
+...
+18 |     let _ = Reducer::reduce(&mut reducer, &mut 0, &(), context);
+   |             --------------- ^^^^^^^^^^^^ `Rc<i32>` cannot be shared between threads safely
+   |             |
+   |             required by a bound introduced by this call
+   |
+   = help: within `{closure@$DIR/tests/ui/rc04_mapper_non_send.rs:10:13: 10:21}`, the trait `Sync` is not implemented for `Rc<i32>`
+help: the trait `Reducer` is conditionally implemented for `ScopeIdentified<ParentState, ParentAction, Parent, Child, StatePath<ParentState, ChildState, Get, GetMut>, ActionPath<ParentAction, ChildAction, Extract, Embed>, Identity, Id>`
+  --> src/composition/scope.rs
+   |
+   | / impl<
+   | |     ParentState,
+   | |     ParentAction,
+   | |     Parent,
+...  |
+   | |     Embed: Fn(ChildAction) -> ParentAction + Clone + Send + Sync + 'static,
+   | |                                                      ----   ---- unsatisfied requirement introduced here: `{closure@$DIR/tests/ui/rc04_mapper_non_send.rs:10:13: 10:21}: Sync`
+   | |                                                      |
+   | |                                                      unsatisfied requirement introduced here: `{closure@$DIR/tests/ui/rc04_mapper_non_send.rs:10:13: 10:21}: Send`
+   | |     Identity: for<'a> Fn(&'a ChildState) -> &'a Id,
+   | |     Id: Eq + core::hash::Hash + Clone + Send + Sync + 'static,
+   | |______________________________________________________________^
+note: required because it's used within this closure
+  --> tests/ui/rc04_mapper_non_send.rs:10:13
+   |
+10 |             move |a| {
+   |             ^^^^^^^^
+   = note: required for `ScopeIdentified<u64, (), Reduce<u64, (), {closure@$DIR/tests/ui/rc04_mapper_non_send.rs:6:21: 6:45}>, Reduce<u64, (), {closure@$DIR/tests/ui/rc04_mapper_non_send.rs:16:21: 16:45}>, StatePath<u64, u64, {closure@$DIR/tests/ui/rc04_mapper_non_send.rs:7:24: 7:33}, {closure@$DIR/tests/ui/rc04_mapper_non_send.rs:7:37: 7:50}>, ActionPath<(), (), {closure@$DIR/tests/ui/rc04_mapper_non_send.rs:9:13: 9:21}, {closure@$DIR/tests/ui/rc04_mapper_non_send.rs:10:13: 10:21}>, {closure@$DIR/tests/ui/rc04_mapper_non_send.rs:15:9: 15:18}, u64>` to implement `Reducer`
