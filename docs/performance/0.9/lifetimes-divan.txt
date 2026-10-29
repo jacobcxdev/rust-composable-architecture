@@ -1,0 +1,93 @@
+Task 5 local lifecycle characterisation
+Captured: 2026-08-29 Europe/London
+Base commit: 9ad4e5c5704420d637bf1f5de69cf6282ba3f55c
+Workload diff SHA-256: 77a61bfaee8e5326349d8d4e3760f491854be6a6e6ed4898b2e18bc3f60e864a
+Benchmark source SHA-256: 5e6d93172d9ec6ffee4cd0d63fa5d61e4fc3814f5767e023a91d1de70a7abdf2
+Cargo.toml SHA-256: 6d0ec2e639babb47f82b17f446c232669a3d43b56f3ea98bc5d33aa757fdd122
+Cargo.lock SHA-256: 64c66b5a68b673ec34a4a34364bd2f6444e18e0e40d9a1a6d94fe99913e0abb7
+
+Digest cwd: /Users/jacob/.codex/worktrees/rca-runtime-foundation
+Measurement-time state: HEAD was the base commit; workload files were dirty
+Measurement-time byte-stream and hash command:
+git diff --binary -- Cargo.toml Cargo.lock rca-core/benches/composition.rs rca-core/tests/lifecycle_properties.rs rca-test/src/conformance/lifecycle.rs | shasum -a 256
+Measurement-time result: 77a61bfaee8e5326349d8d4e3760f491854be6a6e6ed4898b2e18bc3f60e864a  -
+
+Stable committed-range reproduction command:
+git diff --binary --no-ext-diff 9ad4e5c5704420d637bf1f5de69cf6282ba3f55c ac131936ecd8c4b6e7411c6bf15bba264c16e430 -- Cargo.toml Cargo.lock rca-core/benches/composition.rs rca-test/src/conformance/lifecycle.rs | shasum -a 256
+Stable reproduction result: 77a61bfaee8e5326349d8d4e3760f491854be6a6e6ed4898b2e18bc3f60e864a  -
+
+The measurement-time Git pathspec order was Cargo.toml, Cargo.lock,
+rca-core/benches/composition.rs, rca-core/tests/lifecycle_properties.rs, then
+rca-test/src/conformance/lifecycle.rs. The property-model file was untracked at
+capture, so Git emitted no bytes for it; Cargo.lock was unchanged and likewise
+emitted no bytes. The untracked docs/performance/0.9/lifetimes.md,
+lifetimes-divan.txt, and lifetimes-allocation.txt evidence files were not
+pathspecs, so they were excluded and the digest is not self-referential. The
+stable command omits the now-tracked property-model file explicitly to recreate
+the original byte stream. This digest covers tracked benchmark,
+dependency-manifest, and shared-conformance changes, not the property model.
+
+rustc 1.98.0 (88d9e12ae 2026-08-18)
+binary: rustc
+commit-hash: 88d9e12ae178fab0fb5cc050a94da85685d449ea
+commit-date: 2026-08-18
+host: aarch64-apple-darwin
+release: 1.98.0
+LLVM version: 22.1.8
+cargo 1.98.0 (797e8a9bc 2026-08-05)
+macOS 26.6.2 (25G83); Darwin 25.6.0; arm64
+Mac15,9; Apple M3 Max; 16 logical CPUs; 51539607552 bytes memory
+AC attached; pmset powermode 2
+
+Command:
+toolchain_bin=$(dirname "$(rustup which --toolchain 1.98.0 cargo)")
+toolchain_root=$(dirname "$toolchain_bin")
+DYLD_LIBRARY_PATH="$toolchain_root/lib" RUSTC="$toolchain_bin/rustc" RUSTDOC="$toolchain_bin/rustdoc" CARGO_BUILD_JOBS=1 CARGO_TARGET_DIR=target/task5-bench CARGO_PROFILE_BENCH_LTO=false CARGO_PROFILE_BENCH_DEBUG=false CARGO_PROFILE_BENCH_STRIP=true "$toolchain_bin/cargo" bench -p rca-core --bench composition --locked 2>&1
+
+    Finished `bench` profile [optimized] target(s) in 0.06s
+     Running benches/composition.rs (target/task5-bench/release/deps/composition-fc712b635358f961)
+Timer precision: 41 ns
+composition                 fastest       │ slowest       │ median        │ mean          │ samples │ iters
+├─ case_hit                 4.124 µs      │ 29.37 µs      │ 6.583 µs      │ 7.568 µs      │ 50      │ 50
+│                           242.4 Kitem/s │ 34.04 Kitem/s │ 151.8 Kitem/s │ 132.1 Kitem/s │         │
+├─ case_miss                6.541 µs      │ 17.66 µs      │ 9.957 µs      │ 10.68 µs      │ 50      │ 50
+│                           152.8 Kitem/s │ 56.6 Kitem/s  │ 100.4 Kitem/s │ 93.62 Kitem/s │         │
+├─ case_switch              15.62 µs      │ 35.33 µs      │ 18.47 µs      │ 20.73 µs      │ 50      │ 50
+│                           64 Kitem/s    │ 28.3 Kitem/s  │ 54.11 Kitem/s │ 48.23 Kitem/s │         │
+├─ descendant_cancellation                │               │               │               │         │
+│  ├─ 1                     13.62 µs      │ 57.7 µs       │ 22.74 µs      │ 24.56 µs      │ 50      │ 50
+│  │                        73.39 Kitem/s │ 17.32 Kitem/s │ 43.95 Kitem/s │ 40.7 Kitem/s  │         │
+│  ├─ 100                   57.95 µs      │ 195.3 µs      │ 87.04 µs      │ 96.44 µs      │ 50      │ 50
+│  │                        17.25 Kitem/s │ 5.119 Kitem/s │ 11.48 Kitem/s │ 10.36 Kitem/s │         │
+│  ╰─ 10000                 2.933 ms      │ 5.822 ms      │ 3.572 ms      │ 3.682 ms      │ 50      │ 50
+│                           340.9 item/s  │ 171.7 item/s  │ 279.9 item/s  │ 271.5 item/s  │         │
+├─ direct                                 │               │               │               │         │
+│  ├─ 1                     4.957 µs      │ 46.62 µs      │ 7.958 µs      │ 9.548 µs      │ 50      │ 50
+│  │                        201.7 Kitem/s │ 21.44 Kitem/s │ 125.6 Kitem/s │ 104.7 Kitem/s │         │
+│  ├─ 4                     5.041 µs      │ 17.91 µs      │ 8.354 µs      │ 8.638 µs      │ 50      │ 50
+│  │                        198.3 Kitem/s │ 55.81 Kitem/s │ 119.6 Kitem/s │ 115.7 Kitem/s │         │
+│  ╰─ 16                    6.374 µs      │ 12.95 µs      │ 8.124 µs      │ 8.498 µs      │ 50      │ 50
+│                           156.8 Kitem/s │ 77.17 Kitem/s │ 123 Kitem/s   │ 117.6 Kitem/s │         │
+├─ map_none                 1.918 ns      │ 2.61 ns       │ 1.938 ns      │ 2.015 ns      │ 100     │ 204800
+├─ matching_scope                         │               │               │               │         │
+│  ├─ 1                     5.207 µs      │ 18.74 µs      │ 8.395 µs      │ 9.223 µs      │ 50      │ 50
+│  │                        192 Kitem/s   │ 53.33 Kitem/s │ 119.1 Kitem/s │ 108.4 Kitem/s │         │
+│  ├─ 4                     5.374 µs      │ 20.7 µs       │ 9.499 µs      │ 10.25 µs      │ 50      │ 50
+│  │                        186 Kitem/s   │ 48.28 Kitem/s │ 105.2 Kitem/s │ 97.52 Kitem/s │         │
+│  ╰─ 16                    6.374 µs      │ 16.66 µs      │ 8.603 µs      │ 9.022 µs      │ 50      │ 50
+│                           156.8 Kitem/s │ 59.99 Kitem/s │ 116.2 Kitem/s │ 110.8 Kitem/s │         │
+├─ nonmatching_scope                      │               │               │               │         │
+│  ├─ 1                     4.916 µs      │ 18.58 µs      │ 7.812 µs      │ 8.377 µs      │ 50      │ 50
+│  │                        203.3 Kitem/s │ 53.81 Kitem/s │ 128 Kitem/s   │ 119.3 Kitem/s │         │
+│  ├─ 4                     5.749 µs      │ 21.99 µs      │ 11.66 µs      │ 12.49 µs      │ 50      │ 50
+│  │                        173.9 Kitem/s │ 45.45 Kitem/s │ 85.71 Kitem/s │ 80.05 Kitem/s │         │
+│  ╰─ 16                    6.208 µs      │ 17.37 µs      │ 8.791 µs      │ 9.288 µs      │ 50      │ 50
+│                           161 Kitem/s   │ 57.55 Kitem/s │ 113.7 Kitem/s │ 107.6 Kitem/s │         │
+├─ optional_enter           14.62 µs      │ 35.66 µs      │ 21.79 µs      │ 22.67 µs      │ 50      │ 50
+│                           68.37 Kitem/s │ 28.03 Kitem/s │ 45.88 Kitem/s │ 44.1 Kitem/s  │         │
+├─ optional_hit             5.207 µs      │ 22.33 µs      │ 7.687 µs      │ 8.906 µs      │ 50      │ 50
+│                           192 Kitem/s   │ 44.77 Kitem/s │ 130 Kitem/s   │ 112.2 Kitem/s │         │
+├─ optional_leave           18.12 µs      │ 227 µs        │ 23.2 µs       │ 28.07 µs      │ 50      │ 50
+│                           55.17 Kitem/s │ 4.404 Kitem/s │ 43.08 Kitem/s │ 35.61 Kitem/s │         │
+╰─ optional_miss            5.166 µs      │ 18.83 µs      │ 7.312 µs      │ 8.838 µs      │ 50      │ 50
+                            193.5 Kitem/s │ 53.09 Kitem/s │ 136.7 Kitem/s │ 113.1 Kitem/s │         │

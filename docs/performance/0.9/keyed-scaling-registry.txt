@@ -1,0 +1,305 @@
+Task 4 corrected registry-only keyed-scaling evidence
+Captured: 2026-08-30 Europe/London
+
+This is local characterisation on one host, not canonical release
+qualification. The repaired revision contains the scope registry index, ordered
+iterative tree, and compact scope tokens, but no collection structural revision
+or unchanged-reconciliation fast path. The corrected resident-memory and heap
+gates pass. Commit b84dd0d's earlier failed one-pair result remains below as
+superseded historical evidence rather than being silently erased.
+
+Revisions and source identity:
+  workload baseline: 4a86e5eff3c81b97a8450f4f10f6a13e784cb05a
+  uncompacted registry head: a469e842624c3fd0b43fe0e139b09b25029ca7d1
+  repaired registry head: d70766c11c195a60650ab9d4d5e3636377f5fc06
+  benchmark source SHA-256 at baseline, uncompacted, and repaired revisions:
+    8e4b8360f764ee46d3579a262e63dca46f0d9a0934f3efb2b2c8aedcaadd7569
+  baseline-to-repaired diff names only:
+    docs/performance/0.9/keyed-scaling-baseline.txt
+    docs/performance/0.9/keyed-scaling-registry.txt
+    docs/performance/0.9/keyed-scaling.md
+    rca-core/src/store/scope.rs
+
+Environment and low-memory profile:
+  stable_bin=/Users/jacob/.rustup/toolchains/1.98.0-aarch64-apple-darwin/bin
+  rustc 1.98.0 (88d9e12ae 2026-08-18)
+  rustc commit-hash: 88d9e12ae178fab0fb5cc050a94da85685d449ea
+  rustc host: aarch64-apple-darwin; LLVM version: 22.1.8
+  macOS 26.6.2 (25G83); arm64; Apple M3 Max; 51,539,607,552 bytes memory
+  AC attached; pmset powermode 2
+  DYLD_LIBRARY_PATH=$stable_root/lib; PATH=$stable_bin:$PATH
+  RUSTC=$stable_bin/rustc; RUSTDOC=$stable_bin/rustdoc
+  CARGO_BUILD_JOBS=1
+  CARGO_PROFILE_DEV_DEBUG=0; CARGO_PROFILE_TEST_DEBUG=0
+  CARGO_PROFILE_DEV_STRIP=false; CARGO_PROFILE_TEST_STRIP=false
+  CARGO_PROFILE_BENCH_LTO=false; CARGO_PROFILE_BENCH_DEBUG=false
+  CARGO_PROFILE_BENCH_STRIP=true
+
+Repaired registry Divan cohort
+==============================
+
+Detached repaired worktree HEAD:
+  d70766c11c195a60650ab9d4d5e3636377f5fc06
+
+Command (the target directory was absent before this run):
+  CARGO_TARGET_DIR=/private/tmp/rca-task4-requal.wEUtpV/target-repaired-cohort \
+  "$stable_bin/cargo" bench -p rca-core --bench composition --locked -- \
+  keyed_initial_mount keyed_matching_route keyed_unrelated_reconciliation \
+  keyed_one_removal_cancellation keyed_remove_1_000_active_entries \
+  --color never
+
+Complete benchmark output after the fresh build:
+  Finished `bench` profile [optimized] target(s) in 1m 29s
+  Running benches/composition.rs (/private/tmp/rca-task4-requal.wEUtpV/target-repaired-cohort/release/deps/composition-4881258df0111245)
+Timer precision: 41 ns
+composition                           fastest       | slowest       | median        | mean          | samples | iters
+|- keyed_initial_mount                              |               |               |               |         |
+|  |- 10                              19.24 us      | 35.99 us      | 29.37 us      | 29.24 us      | 5       | 5
+|  |- 1000                            335.9 us      | 406.4 us      | 348 us        | 362.6 us      | 5       | 5
+|  `- 100000                          35.1 ms       | 40.71 ms      | 35.49 ms      | 36.46 ms      | 5       | 5
+|- keyed_matching_route                             |               |               |               |         |
+|  |- 10                              6.249 us      | 23.04 us      | 8.375 us      | 9.344 us      | 50      | 50
+|  |                                  160 Kitem/s   | 43.39 Kitem/s | 119.3 Kitem/s | 107 Kitem/s   |         |
+|  |- 1000                            27.37 us      | 44.74 us      | 32.33 us      | 32.87 us      | 50      | 50
+|  |                                  36.53 Kitem/s | 22.34 Kitem/s | 30.92 Kitem/s | 30.42 Kitem/s |         |
+|  `- 100000                          2.789 ms      | 4.755 ms      | 2.99 ms       | 3.108 ms      | 50      | 50
+|                                     358.4 item/s  | 210.3 item/s  | 334.3 item/s  | 321.6 item/s  |         |
+|- keyed_one_removal_cancellation                   |               |               |               |         |
+|  |- 10                              9.79 us       | 16.83 us      | 14.06 us      | 13.42 us      | 10      | 10
+|  |                                  102.1 Kitem/s | 59.4 Kitem/s  | 71.11 Kitem/s | 74.48 Kitem/s |         |
+|  |- 1000                            41.16 us      | 66.08 us      | 42.5 us       | 44.97 us      | 10      | 10
+|  |                                  24.29 Kitem/s | 15.13 Kitem/s | 23.52 Kitem/s | 22.23 Kitem/s |         |
+|  `- 100000                          3.505 ms      | 4.158 ms      | 3.868 ms      | 3.861 ms      | 10      | 10
+|                                     285.2 item/s  | 240.4 item/s  | 258.4 item/s  | 258.9 item/s  |         |
+|- keyed_remove_1_000_active_entries                |               |               |               |         |
+|  |- 1000                            220 us        | 256.2 us      | 239.7 us      | 239.9 us      | 10      | 10
+|  |                                  4.544 Mitem/s | 3.902 Mitem/s | 4.171 Mitem/s | 4.167 Mitem/s |         |
+|  `- 100000                          4.177 ms      | 4.92 ms       | 4.379 ms      | 4.431 ms      | 10      | 10
+|                                     239.3 Kitem/s | 203.2 Kitem/s | 228.3 Kitem/s | 225.6 Kitem/s |         |
+`- keyed_unrelated_reconciliation                   |               |               |               |         |
+   |- 10                              6.749 us      | 24.08 us      | 9.728 us      | 10.07 us      | 50      | 50
+   |                                  148.1 Kitem/s | 41.52 Kitem/s | 102.7 Kitem/s | 99.2 Kitem/s  |         |
+   |- 1000                            26.16 us      | 35.12 us      | 30.64 us      | 30.53 us      | 50      | 50
+   |                                  38.21 Kitem/s | 28.46 Kitem/s | 32.63 Kitem/s | 32.74 Kitem/s |         |
+   `- 100000                          2.85 ms       | 4.472 ms      | 3.015 ms      | 3.075 ms      | 50      | 50
+                                      350.7 item/s  | 223.6 item/s  | 331.5 item/s  | 325.1 item/s  |         |
+
+Corrected paired resident-memory procedure
+===========================================
+
+Detached worktrees used exact baseline and repaired revisions. Their benchmark
+source hashes matched the value above. Each revision had a separate target. The
+baseline target was prewarmed with:
+  CARGO_TARGET_DIR=/private/tmp/rca-task4-requal.wEUtpV/target-baseline \
+  "$stable_bin/cargo" bench -p rca-core --bench composition --locked -- --test
+
+The repaired target was built and prewarmed by the complete fresh-target cohort
+above. Executable discovery found exactly one executable in each target:
+  /private/tmp/rca-task4-requal.wEUtpV/target-baseline/release/deps/composition-4881258df0111245
+  /private/tmp/rca-task4-requal.wEUtpV/target-repaired-cohort/release/deps/composition-4881258df0111245
+
+The six pairs alternated which revision ran first. Every process used only:
+  /usr/bin/time -lp "$benchmark_binary" keyed_initial_mount --color never
+
+`script -q` wrapped each command only to persist its terminal transcript. The
+measured child remained the direct benchmark executable, not Cargo. The direct
+execution removes Cargo-wrapper and process-launch effects; the Divan harness
+remains inside the measured benchmark process. The direct filter executes all
+configured `keyed_initial_mount` arguments: 10, 1,000, and 100,000. RSS is
+therefore whole-process memory for that three-argument cohort, not an isolated
+100,000-entry allocation reading.
+
+Raw alternating process results:
+
+  pair  order                real   user   sys    maximum RSS   peak footprint
+  1     baseline, repaired   3.17   3.14  0.01    64,618,496 B   63,177,112 B
+                              0.08   0.07  0.00    47,251,456 B   45,826,432 B
+  2     repaired, baseline   0.08   0.07  0.00    47,824,896 B   46,416,280 B
+                              3.17   3.14  0.01    63,717,376 B   62,275,992 B
+  3     baseline, repaired   3.62   3.19  0.03    64,274,432 B   60,244,400 B
+                              0.08   0.07  0.00    49,020,928 B   47,612,312 B
+  4     repaired, baseline   0.08   0.07  0.00    47,808,512 B   46,383,488 B
+                              3.20   3.16  0.02    64,094,208 B   62,652,824 B
+  5     baseline, repaired   3.20   3.17  0.02    67,289,088 B   65,814,936 B
+                              0.09   0.08  0.00    49,397,760 B   47,989,144 B
+  6     repaired, baseline   0.09   0.08  0.00    49,528,832 B   48,120,216 B
+                              3.59   3.25  0.02    66,027,520 B   64,602,544 B
+
+Resident-memory gate:
+  baseline values:
+    64,618,496; 63,717,376; 64,274,432; 64,094,208; 67,289,088; 66,027,520 B
+  repaired values:
+    47,251,456; 47,824,896; 49,020,928; 47,808,512; 49,397,760; 49,528,832 B
+  baseline range: 63,717,376 to 67,289,088 B
+  repaired range: 47,251,456 to 49,528,832 B
+  baseline median: 64,446,464 B
+  repaired median: 48,422,912 B
+  median delta: -16,023,552 B
+  ratio: 0.751366468
+  change: -24.863353 percent
+  baseline +10 percent limit: 70,891,110 B
+  repaired headroom: 22,468,198 B
+  result: PASS
+
+Superseded one-pair result
+==========================
+
+Commit b84dd0d wrapped `cargo bench` in `/usr/bin/time` once per revision. It
+observed baseline 69,828,608 B and uncompacted registry 88,473,600 B, a
+26.701079 percent increase, and correctly recorded that observation as blocked.
+That command measured the Cargo wrapper, Divan harness, and child-process launch
+effects with only one pair. Six later alternating direct-binary pairs removed
+the Cargo wrapper and process-launch effects while retaining Divan inside each
+measured process. They found baseline median 64,561,152 B versus uncompacted
+registry median 63,848,448 B (-1.104 percent), showing the failed one-pair
+conclusion was Cargo/process-launch noise. The corrected repaired-head cohort
+above replaces that conclusion while preserving its exact values and reason for
+supersession.
+
+Private equivalent DHAT peak gate
+=================================
+
+The same private diagnostic test was inserted only into detached throwaway
+worktrees at the exact baseline and repaired revisions. It started DHAT before
+constructing a registry, mounted 100,000 distinct `u64` identities at one
+structural site, sampled the fully mounted registry, dropped it, and sampled
+final state. Diagnostic source never entered the shared worktree or commit.
+
+One canonical body, including its extraction markers, was applied verbatim to
+both detached revisions with `apply_patch`. This exact extraction command was
+run in each worktree:
+  awk '/TASK4_DHAT_DIAGNOSTIC_BEGIN/,/TASK4_DHAT_DIAGNOSTIC_END/' \
+    rca-core/src/store/scope.rs | shasum -a 256
+
+Both extractions returned:
+  08854ad8d8c7b0e540ad25117982cda2b091ed8107270d676bbe5b994741e04d
+
+`diff -u` over the two extracted streams exited zero. Canonical extracted
+source follows in full:
+
+    // TASK4_DHAT_DIAGNOSTIC_BEGIN
+    #[cfg(feature = "allocation-measurement")]
+    #[test]
+    fn diagnostic_registry_peak_for_100_000_identities() {
+        const IDENTITY_COUNT: u64 = 100_000;
+        const PEAK_BYTES_LIMIT: usize = 29_457_573;
+
+        let profiler = dhat::Profiler::builder().testing().build();
+        let mut registry = ScopeRegistry::new();
+        let root = registry.root();
+        let node = ScopeNodeId(1);
+        for identity in 0..IDENTITY_COUNT {
+            std::hint::black_box(registry.mount(root, node, ScopeIdentity::new(identity)));
+        }
+        let mounted = dhat::HeapStats::get();
+        drop(registry);
+        let finished = dhat::HeapStats::get();
+
+        eprintln!(
+            "registry_dhat mounted_live_blocks={} mounted_live_bytes={} total_blocks={} total_bytes={} final_live_blocks={} final_live_bytes={} peak_blocks={} peak_bytes={}",
+            mounted.curr_blocks,
+            mounted.curr_bytes,
+            finished.total_blocks,
+            finished.total_bytes,
+            finished.curr_blocks,
+            finished.curr_bytes,
+            finished.max_blocks,
+            finished.max_bytes
+        );
+        assert!(finished.max_bytes <= PEAK_BYTES_LIMIT);
+        drop(profiler);
+    }
+    // TASK4_DHAT_DIAGNOSTIC_END
+
+Exact command at each revision, with the full Rust 1.98.0 low-memory environment
+above and separate target directories:
+  baseline CARGO_TARGET_DIR:
+    /private/tmp/rca-task4-requal.wEUtpV/target-dhat-baseline
+  repaired CARGO_TARGET_DIR:
+    /private/tmp/rca-keyed-memory-dhat.WsGccN/target
+  "$stable_bin/cargo" test -p rca-core --lib \
+  --features allocation-measurement --locked \
+  store::scope::tests::diagnostic_registry_peak_for_100_000_identities -- \
+  --exact --nocapture --test-threads=1
+
+  measurement                 baseline             repaired
+  fully mounted live heap     100,005 blocks       100,004 blocks
+                               26,779,612 B          19,439,752 B
+  total allocation            100,065 blocks       100,034 blocks
+                               51,158,500 B          36,478,832 B
+  final live heap             0 blocks / 0 B       0 blocks / 0 B
+  maximum-byte instant        100,005 live blocks  57,349 live blocks
+    (`t-gmax`)                 26,779,612 B          24,707,472 B
+
+Peak-heap gate:
+  baseline peak: 26,779,612 B
+  repaired peak: 24,707,472 B
+  delta: -2,072,140 B (-7.737752 percent)
+  baseline +10 percent limit: 29,457,573 B
+  repaired headroom: 4,750,101 B
+  result: PASS
+
+DHAT's `t-gmax` block field is the number of live blocks at the maximum-byte
+instant, not an independent maximum block count. This is why repaired `t-gmax`
+reports 57,349 live blocks while the later fully mounted sample contains
+100,004. DHAT observes allocator heap inside one local test process; it does not
+measure RSS, operating-system allocations, or allocator fragmentation outside
+its accounting.
+
+Warmed allocation gate
+======================
+
+The repaired shared head ran the exact serial allocation test:
+  "$stable_bin/cargo" test -p rca-core --lib \
+  --features allocation-measurement --locked \
+  composition::keyed::allocation_tests::warmed_keyed_reconciliation_does_not_allocate \
+  -- --exact --nocapture --test-threads=1
+
+  keyed_reconcile/unrelated/10: blocks=0 bytes=0
+  keyed_reconcile/matching/10: blocks=0 bytes=0
+  keyed_reconcile/unrelated/1000: blocks=0 bytes=0
+  keyed_reconcile/matching/1000: blocks=0 bytes=0
+  keyed_reconcile/unrelated/100000: blocks=0 bytes=0
+  keyed_reconcile/matching/100000: blocks=0 bytes=0
+  test result: 1 passed; 0 failed; 60 filtered out
+
+Attribution and arithmetic
+==========================
+
+Independent `awk` calculations from raw values produced:
+  100,000 initial-mount speed-up = 3125 ms / 35.49 ms = 88.052973x
+  100,000 bulk-row speed-up = 163.5 ms / 4.379 ms = 37.337292x
+  repaired initial scale = 35,490 us / 348 us = 101.982759x
+  repaired bulk row ratio = 4.379 ms / 0.2397 ms = 18.268669x
+  RSS ratio = 48,422,912 / 64,446,464 = 0.751366468
+  RSS change = -16,023,552 * 100 / 64,446,464 = -24.863353 percent
+  DHAT peak change = -2,072,140 * 100 / 26,779,612 = -7.737752 percent
+
+Initial mounting n distinct identities is average O(n): each indexed lookup is
+average O(1) plus its selected collision chain, and the measured 100x input
+increase grew 101.98x. Registry invalidation of M siblings is average O(M)
+because unlink and traversal are average O(1) per invalidated node. The bulk
+benchmark still includes the keyed collection's O(n) before/after scans, so its
+two rows support the registry attribution but are not an isolated complexity
+proof. Collision lookup is O(c) for collision-chain length c, with concrete
+identity equality retained as authority. Matching, unrelated, and other
+unchanged keyed reconciliations remain O(n) until Task 6 adds the separately
+proved structural-stamp fast path.
+
+Raw local transcript hashes before temporary-worktree removal:
+  canonical filename-order concatenation of 12 RSS logs:
+    73a52f5f471c0ff0cbb6ac08ba3a30c878df8a43874118ab78c0e20e18425c63
+  canonical diagnostic source at baseline and repaired revisions:
+    08854ad8d8c7b0e540ad25117982cda2b091ed8107270d676bbe5b994741e04d
+  rerun baseline DHAT log:
+    42d918aa3e4baacff687eea29b575b00ffad24b705d5660f90e3504aa3049227
+  rerun repaired DHAT log:
+    49f8386ce9941def6e7752d10a84b37789312e98f6381cf5c286373283a4deb4
+  warmed allocation log:
+    28f6d4ebc926cce7ff7296239e4fcc4b6db9bed1ef16f471333f170e2d942d02
+
+These measurements are bounded local evidence from one host. Process RSS is
+whole-process and run-to-run sensitive; DHAT is allocator-specific; Divan
+executes the complete 10/1,000/100,000 argument set in each direct process.
+Canonical release budgets still require the alternating reference/candidate
+method in docs/performance/method.md.
