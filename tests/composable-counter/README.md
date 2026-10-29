@@ -55,6 +55,36 @@ calls, which have no intrinsic watchdog. A normal upstream suite stalled
 in the unchanged lifecycle teardown test during qualification; its 120-second
 timeout is retained in the instrumentation audit, not replaced by passing runs.
 
+## Failed upstream reference
+
+The upstream fixture pins Composable
+`0b5baa80246a625c1bb886e6df20dae27fc97c97`. Its shutdown can stall after completed
+counter work. The native adapter calls `Store::into_inner` without changing
+the upstream runtime.
+
+In [CI run 40850241800](https://github.com/jacobcxdev/rust-composable-architecture/actions/runs/40850241800/job/123367608381),
+13 counter tests passed. These two tests remained active until the two-minute
+deadline stopped the step:
+
+- `enqueue_only_control_is_rejected_at_return`
+- `extraction_observes_gated_reducer_teardown`
+
+The pinned channel wakes its receiver before the last sender releases its shared
+ownership. The receiver can observe that sender, wait again and receive no later
+wake. `Store::into_inner` then cannot join the worker. This race is consistent
+with the observed timeout. The hosted log does not identify its exact thread
+interleaving.
+
+CI retains upstream runtime outcomes as reference observations, not RCA acceptance
+gates. Counter suites, including allocation instrumentation, keep their external
+deadline and report their actual outcome. Formatting, lint and compilation remain
+required for all engines. RCA and historical runtime checks remain required.
+
+The upstream reference remains failed even when a later observation passes.
+No numerical comparison can depend on its successful completion without new
+qualification. The [qualification boundary](../../docs/qualification.md) applies
+to every fixture that uses this upstream runtime.
+
 ## Minimal application binaries
 
 Each package also provides `--bin minimal-counter`, a separate application for

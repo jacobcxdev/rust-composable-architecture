@@ -8,11 +8,13 @@
 //! `CARGO_NET_OFFLINE=true` also applies to the nested build and metadata calls;
 //! their locked dependency resolution fails if a required package is unavailable.
 
+#[cfg(not(miri))]
 use ui_test::dependencies::DependencyBuilder;
 
 /// Checks both fixture roots without recording diagnostics unless explicitly requested.
 ///
 /// Returns an error for invalid target paths, runner setup or failed contracts.
+#[cfg(not(miri))]
 fn main() -> ui_test::color_eyre::Result<()> {
     // Cargo runs integration tests from the package root, not the caller's directory.
     if let Some(target) = std::env::var_os("CARGO_TARGET_DIR") {
@@ -75,4 +77,10 @@ fn main() -> ui_test::color_eyre::Result<()> {
         ui_test::default_per_file_config,
         emitter,
     )
+}
+
+/// Leaves compiler subprocess checks to the native test jobs.
+#[cfg(miri)]
+fn main() {
+    eprintln!("compiler contracts skipped: Miri cannot launch rustc subprocesses");
 }
