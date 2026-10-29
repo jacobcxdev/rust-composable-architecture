@@ -1,0 +1,10 @@
+error[E0499]: cannot borrow `*state` as mutable more than once at a time
+  --> tests/ui/shared_overlapping_split.rs:19:35
+   |
+19 |         |state: &mut u64| (state, state),
+   |                 -         --------^^^^^-
+   |                 |         ||      |
+   |                 |         ||      second mutable borrow occurs here
+   |                 |         |first mutable borrow occurs here
+   |                 |         returning this value requires that `*state` is borrowed for `'1`
+   |                 let's call the lifetime of this reference `'1`

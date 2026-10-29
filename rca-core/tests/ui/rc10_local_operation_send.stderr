@@ -1,0 +1,187 @@
+error[E0277]: `Rc<(dyn rca_core::store::operation::local::OperationEndpoint + 'static)>` cannot be sent between threads safely
+ --> tests/ui/rc10_local_operation_send.rs:6:10
+  |
+6 |     send(operation);
+  |     ---- ^^^^^^^^^ `Rc<(dyn rca_core::store::operation::local::OperationEndpoint + 'static)>` cannot be sent between threads safely
+  |     |
+  |     required by a bound introduced by this call
+  |
+  = help: within `rca_core::local::Operation`, the trait `Send` is not implemented for `Rc<(dyn rca_core::store::operation::local::OperationEndpoint + 'static)>`
+note: required because it appears within the type `rca_core::local::Operation`
+ --> src/store/operation/local.rs
+  |
+  | pub struct Operation {
+  |            ^^^^^^^^^
+note: required by a bound in `send`
+ --> tests/ui/rc10_local_operation_send.rs:3:17
+  |
+3 | fn send(_: impl Send) {}
+  |                 ^^^^ required by this bound in `send`
+
+error[E0277]: `Rc<(dyn rca_core::store::operation::local::OperationEndpoint + 'static)>` cannot be sent between threads safely
+ --> tests/ui/rc10_local_operation_send.rs:9:10
+  |
+9 |     send(operation.status());
+  |     ---- ^^^^^^^^^^^^^^^^^^ `Rc<(dyn rca_core::store::operation::local::OperationEndpoint + 'static)>` cannot be sent between threads safely
+  |     |
+  |     required by a bound introduced by this call
+  |
+ ::: src/store/operation/local.rs
+  |
+  |     ) -> impl Future<Output = Result<OperationStatus, TaskAccessError>> + 'static {
+  |          ------------------------------------------------------------------------ within this `impl Future<Output = Result<OperationStatus, TaskAccessError>> + 'static`
+  |
+  = help: within `impl Future<Output = Result<OperationStatus, TaskAccessError>> + 'static`, the trait `Send` is not implemented for `Rc<(dyn rca_core::store::operation::local::OperationEndpoint + 'static)>`
+note: required because it's used within this `async` block
+ --> src/store/operation/local.rs
+  |
+  |         async move {
+  |         ^^^^^^^^^^
+note: required by a bound in `send`
+ --> tests/ui/rc10_local_operation_send.rs:3:17
+  |
+3 | fn send(_: impl Send) {}
+  |                 ^^^^ required by this bound in `send`
+
+error[E0277]: `dyn Future<Output = ()>` cannot be sent between threads safely
+ --> tests/ui/rc10_local_operation_send.rs:9:10
+  |
+9 |     send(operation.status());
+  |     ---- ^^^^^^^^^^^^^^^^^^ `dyn Future<Output = ()>` cannot be sent between threads safely
+  |     |
+  |     required by a bound introduced by this call
+  |
+  = help: the trait `Send` is not implemented for `dyn Future<Output = ()>`
+  = note: required for `std::ptr::Unique<dyn Future<Output = ()>>` to implement `Send`
+note: required because it appears within the type `Box<dyn Future<Output = ()>>`
+ --> $RUST/alloc/src/boxed.rs
+  |
+  | pub struct Box<
+  |            ^^^
+note: required because it appears within the type `Pin<Box<dyn Future<Output = ()>>>`
+ --> $RUST/core/src/pin.rs
+  |
+  | pub struct Pin<Ptr> {
+  |            ^^^
+note: required because it's used within this `async` block
+ --> src/store/operation/local.rs
+  |
+  |         async move {
+  |         ^^^^^^^^^^
+note: required by a bound in `send`
+ --> tests/ui/rc10_local_operation_send.rs:3:17
+  |
+3 | fn send(_: impl Send) {}
+  |                 ^^^^ required by this bound in `send`
+
+error[E0277]: `Rc<(dyn rca_core::store::operation::local::OperationEndpoint + 'static)>` cannot be sent between threads safely
+  --> tests/ui/rc10_local_operation_send.rs:12:10
+   |
+12 |     send(operation.capture());
+   |     ---- ^^^^^^^^^^^^^^^^^^^ `Rc<(dyn rca_core::store::operation::local::OperationEndpoint + 'static)>` cannot be sent between threads safely
+   |     |
+   |     required by a bound introduced by this call
+   |
+  ::: src/store/operation/local.rs
+   |
+   |     ) -> impl Future<Output = Result<OperationWait, TaskAccessError>> + 'static {
+   |          ---------------------------------------------------------------------- within this `impl Future<Output = Result<OperationWait, TaskAccessError>> + 'static`
+   |
+   = help: within `impl Future<Output = Result<OperationWait, TaskAccessError>> + 'static`, the trait `Send` is not implemented for `Rc<(dyn rca_core::store::operation::local::OperationEndpoint + 'static)>`
+note: required because it's used within this `async` block
+  --> src/store/operation/local.rs
+   |
+   |         async move {
+   |         ^^^^^^^^^^
+note: required by a bound in `send`
+  --> tests/ui/rc10_local_operation_send.rs:3:17
+   |
+ 3 | fn send(_: impl Send) {}
+   |                 ^^^^ required by this bound in `send`
+
+error[E0277]: `dyn Future<Output = ()>` cannot be sent between threads safely
+  --> tests/ui/rc10_local_operation_send.rs:12:10
+   |
+12 |     send(operation.capture());
+   |     ---- ^^^^^^^^^^^^^^^^^^^ `dyn Future<Output = ()>` cannot be sent between threads safely
+   |     |
+   |     required by a bound introduced by this call
+   |
+   = help: the trait `Send` is not implemented for `dyn Future<Output = ()>`
+   = note: required for `std::ptr::Unique<dyn Future<Output = ()>>` to implement `Send`
+note: required because it appears within the type `Box<dyn Future<Output = ()>>`
+  --> $RUST/alloc/src/boxed.rs
+   |
+   | pub struct Box<
+   |            ^^^
+note: required because it appears within the type `Pin<Box<dyn Future<Output = ()>>>`
+  --> $RUST/core/src/pin.rs
+   |
+   | pub struct Pin<Ptr> {
+   |            ^^^
+note: required because it's used within this `async` block
+  --> src/store/operation/local.rs
+   |
+   |         async move {
+   |         ^^^^^^^^^^
+note: required by a bound in `send`
+  --> tests/ui/rc10_local_operation_send.rs:3:17
+   |
+ 3 | fn send(_: impl Send) {}
+   |                 ^^^^ required by this bound in `send`
+
+error[E0277]: `Rc<(dyn rca_core::store::operation::local::OperationEndpoint + 'static)>` cannot be sent between threads safely
+  --> tests/ui/rc10_local_operation_send.rs:15:10
+   |
+15 |     send(operation.cancel());
+   |     ---- ^^^^^^^^^^^^^^^^^^ `Rc<(dyn rca_core::store::operation::local::OperationEndpoint + 'static)>` cannot be sent between threads safely
+   |     |
+   |     required by a bound introduced by this call
+   |
+  ::: src/store/operation/local.rs
+   |
+   |     pub fn cancel(&self) -> impl Future<Output = Result<(), TaskAccessError>> + 'static {
+   |                             ----------------------------------------------------------- within this `impl Future<Output = Result<(), TaskAccessError>> + 'static`
+   |
+   = help: within `impl Future<Output = Result<(), TaskAccessError>> + 'static`, the trait `Send` is not implemented for `Rc<(dyn rca_core::store::operation::local::OperationEndpoint + 'static)>`
+note: required because it's used within this `async` block
+  --> src/store/operation/local.rs
+   |
+   |         async move {
+   |         ^^^^^^^^^^
+note: required by a bound in `send`
+  --> tests/ui/rc10_local_operation_send.rs:3:17
+   |
+ 3 | fn send(_: impl Send) {}
+   |                 ^^^^ required by this bound in `send`
+
+error[E0277]: `dyn Future<Output = ()>` cannot be sent between threads safely
+  --> tests/ui/rc10_local_operation_send.rs:15:10
+   |
+15 |     send(operation.cancel());
+   |     ---- ^^^^^^^^^^^^^^^^^^ `dyn Future<Output = ()>` cannot be sent between threads safely
+   |     |
+   |     required by a bound introduced by this call
+   |
+   = help: the trait `Send` is not implemented for `dyn Future<Output = ()>`
+   = note: required for `std::ptr::Unique<dyn Future<Output = ()>>` to implement `Send`
+note: required because it appears within the type `Box<dyn Future<Output = ()>>`
+  --> $RUST/alloc/src/boxed.rs
+   |
+   | pub struct Box<
+   |            ^^^
+note: required because it appears within the type `Pin<Box<dyn Future<Output = ()>>>`
+  --> $RUST/core/src/pin.rs
+   |
+   | pub struct Pin<Ptr> {
+   |            ^^^
+note: required because it's used within this `async` block
+  --> src/store/operation/local.rs
+   |
+   |         async move {
+   |         ^^^^^^^^^^
+note: required by a bound in `send`
+  --> tests/ui/rc10_local_operation_send.rs:3:17
+   |
+ 3 | fn send(_: impl Send) {}
+   |                 ^^^^ required by this bound in `send`
