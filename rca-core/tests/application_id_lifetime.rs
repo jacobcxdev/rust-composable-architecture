@@ -131,6 +131,8 @@ fn run_repeated_id_scenario() {
     futures_executor::block_on(async {
         let old = store.scope_keyed(state_path, action_path, 7).await.unwrap();
         let started = old.send(ChildAction::Start).await.unwrap();
+        // The action receipt can precede acceptance of its single effect.
+        runtime.wait_for_queued_task();
         runtime.start_all();
         let old_sender = captured.recv().await.unwrap();
         store.send(Action::Remove).await.unwrap().finish().await;

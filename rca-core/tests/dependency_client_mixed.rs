@@ -166,6 +166,8 @@ fn cancelled_mixed_client_future_drops_input_and_rejects_stale_scoped_output() {
     runtime.start_all();
     futures_executor::block_on(async {
         let task = store.send(Action::Child(ChildAction::Start)).await.unwrap();
+        // The commit receipt can resolve before the actor queues this effect.
+        runtime.wait_for_queued_task();
         let mut effect = runtime.take_only_queued_task();
         let mut cx = Context::from_waker(Waker::noop());
         assert!(effect.as_mut().poll(&mut cx).is_pending());
