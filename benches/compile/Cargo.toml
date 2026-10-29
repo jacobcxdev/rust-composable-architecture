@@ -1,0 +1,27 @@
+[workspace]
+members = [
+    "support",
+    "direct",
+    "composed-manual",
+    "composed-macro",
+    "scoped",
+]
+resolver = "3"
+
+[workspace.package]
+edition = "2024"
+rust-version = "1.98"
+
+[workspace.dependencies]
+futures-executor = { version = "0.3.31", features = ["thread-pool"] }
+futures-util = "0.3.31"
+rca = { package = "rust-composable-architecture", path = "../../rca" }
+rca-core = { path = "../../rca-core" }
+rca-compile-fixture-support = { path = "support" }
+
+[profile.release]
+codegen-units = 1
+lto = "fat"
+opt-level = 3
+panic = "abort"
+strip = "symbols"

@@ -1,0 +1,11 @@
+[package]
+name = "rca-compile-fixture-support"
+version = "0.0.0"
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+futures-executor.workspace = true
+futures-util.workspace = true
+rca-core.workspace = true

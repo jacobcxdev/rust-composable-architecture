@@ -1,0 +1,11 @@
+[package]
+name = "rca-compile-scoped"
+version = "0.0.0"
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+futures-executor.workspace = true
+rca-compile-fixture-support.workspace = true
+rca-core.workspace = true

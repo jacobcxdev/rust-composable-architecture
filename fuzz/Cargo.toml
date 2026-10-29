@@ -1,0 +1,30 @@
+[package]
+name = "rca-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+rust-version = "1.98.0"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+async-channel = "2.5.0"
+futures-executor = "0.3.34"
+libfuzzer-sys = "0.4"
+rca-core = { path = "../rca-core", features = ["test-util"] }
+rca-test = { path = "../rca-test" }
+
+# Keep fuzz-only dependencies and nightly builds out of the release workspace.
+[workspace]
+members = ["."]
+
+[[bin]]
+name = "keyed_lifecycle"
+path = "fuzz_targets/keyed_lifecycle.rs"
+test = false
+doc = false
+bench = false
+
+[lints.rust]
+unsafe_code = "deny"
