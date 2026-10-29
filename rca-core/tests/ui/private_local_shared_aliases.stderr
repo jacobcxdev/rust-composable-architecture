@@ -1,0 +1,7 @@
+error[E0432]: unresolved imports `rca_core::local::InputGate`, `rca_core::local::RemovalOrigin`
+ --> tests/ui/private_local_shared_aliases.rs:1:23
+  |
+1 | use rca_core::local::{InputGate, RemovalOrigin};
+  |                       ^^^^^^^^^  ^^^^^^^^^^^^^ no `RemovalOrigin` in `local`
+  |                       |
+  |                       no `InputGate` in `local`

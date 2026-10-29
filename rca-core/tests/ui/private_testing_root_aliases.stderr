@@ -1,0 +1,14 @@
+error[E0432]: unresolved imports `rca_core::AssertionGate`, `rca_core::IssueRecorder`, `rca_core::TransactionGate`
+ --> tests/ui/private_testing_root_aliases.rs:1:16
+  |
+1 | use rca_core::{AssertionGate, IssueRecorder, TransactionGate};
+  |                ^^^^^^^^^^^^^  ^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^ no `TransactionGate` in the root
+  |                |              |
+  |                |              no `IssueRecorder` in the root
+  |                no `AssertionGate` in the root
+  |
+help: a similar name exists in the module
+  |
+1 - use rca_core::{AssertionGate, IssueRecorder, TransactionGate};
+1 + use rca_core::{AssertionGate, IssueReporter, TransactionGate};
+  |

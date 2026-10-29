@@ -1,0 +1,28 @@
+error: future cannot be sent between threads safely
+ --> tests/ui/cancellation_mutex_guard_await.rs
+  |
+  |       let _effect = Effect::<()>::run(|_sender| async move {
+  |  ___________________^
+  | |         let value = Mutex::new(0);
+  | |         let mut guard = value.lock().unwrap();
+  | |         std::future::pending::<()>().await;
+  | |         *guard += 1;
+  | |     });
+  | |______^ future created by async block is not `Send`
+  |
+  = help: within `{async block@$DIR/tests/ui/cancellation_mutex_guard_await.rs:6:47: 6:57}`, the trait `Send` is not implemented for `std::sync::MutexGuard<'_, i32>`
+note: future is not `Send` as this value is used across an await
+ --> tests/ui/cancellation_mutex_guard_await.rs
+  |
+  |         let mut guard = value.lock().unwrap();
+  |             --------- has type `std::sync::MutexGuard<'_, i32>` which is not `Send`
+  |         std::future::pending::<()>().await;
+  |                                      ^^^^^ await occurs here, with `mut guard` maybe used later
+note: required by a bound in `rca_core::Effect::<Action>::run`
+ --> src/effect/mod.rs
+  |
+  |     pub fn run<F, Fut>(operation: F) -> Self
+  |            --- required by a bound in this associated function
+...
+  |         Fut: Future<Output = ()> + Send + 'static,
+  |                                    ^^^^ required by this bound in `Effect::<Action>::run`

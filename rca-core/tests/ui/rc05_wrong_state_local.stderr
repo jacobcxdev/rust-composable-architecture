@@ -1,0 +1,15 @@
+error[E0308]: mismatched types
+ --> tests/ui/rc05_wrong_state.rs
+  |
+  |     context.task(Task::<String, ()>::run(|_| async {}));
+  |             ---- ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected `Task<usize, ()>`, found `Task<String, ()>`
+  |             |
+  |             arguments to this method are incorrect
+  |
+  = note: expected struct `rca_core::Task<usize, ()>`
+             found struct `rca_core::Task<String, ()>`
+note: method defined here
+ --> src/feature.rs
+  |
+  |     pub fn task(&mut self, task: Task<S, A>) {
+  |            ^^^^

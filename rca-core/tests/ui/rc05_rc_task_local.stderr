@@ -1,0 +1,51 @@
+error[E0277]: `Rc<i32>` cannot be sent between threads safely
+ --> tests/ui/rc05_rc_task.rs
+  |
+  |       let _ = Task::<usize, ()>::run(move |_| async move {
+  |               ---------------------- ^-------
+  |               |                      |
+  |  _____________|______________________within this `{closure@$DIR/tests/ui/rc05_rc_task.rs:5:36: 5:44}`
+  | |             |
+  | |             required by a bound introduced by this call
+  | |         drop(value);
+  | |     });
+  | |_____^ `Rc<i32>` cannot be sent between threads safely
+  |
+  = help: within `{closure@$DIR/tests/ui/rc05_rc_task.rs:5:36: 5:44}`, the trait `Send` is not implemented for `Rc<i32>`
+note: required because it's used within this closure
+ --> tests/ui/rc05_rc_task.rs
+  |
+  |     let _ = Task::<usize, ()>::run(move |_| async move {
+  |                                    ^^^^^^^^
+note: required by a bound in `rca_core::Task::<S, A>::run`
+ --> src/store/task_context.rs
+  |
+  |     pub fn run<F, Fut>(run: F) -> Self
+  |            --- required by a bound in this associated function
+  |     where
+  |         F: FnOnce(TaskContext<S, A>) -> Fut + Send + 'static,
+  |                                               ^^^^ required by this bound in `Task::<S, A>::run`
+
+error: future cannot be sent between threads safely
+ --> tests/ui/rc05_rc_task.rs
+  |
+  |       let _ = Task::<usize, ()>::run(move |_| async move {
+  |  _____________^
+  | |         drop(value);
+  | |     });
+  | |______^ future created by async block is not `Send`
+  |
+  = help: within `{async block@$DIR/tests/ui/rc05_rc_task.rs:5:45: 5:55}`, the trait `Send` is not implemented for `Rc<i32>`
+note: captured value is not `Send`
+ --> tests/ui/rc05_rc_task.rs
+  |
+  |         drop(value);
+  |              ^^^^^ has type `Rc<i32>` which is not `Send`
+note: required by a bound in `rca_core::Task::<S, A>::run`
+ --> src/store/task_context.rs
+  |
+  |     pub fn run<F, Fut>(run: F) -> Self
+  |            --- required by a bound in this associated function
+...
+  |         Fut: Future<Output = ()> + Send + 'static,
+  |                                    ^^^^ required by this bound in `Task::<S, A>::run`

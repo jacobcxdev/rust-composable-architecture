@@ -1,0 +1,18 @@
+error[E0308]: mismatched types
+  --> tests/ui/for_each_path_mismatch.rs:62:41
+   |
+56 |         |action: &ParentAction| match action {
+   |         ----------------------- the found closure
+...
+62 |     let _ = ForEach::new(Parent, state, action, Child);
+   |             ------------                ^^^^^^ expected `KeyedActionPath<_, u8, _, _, _>`, found `KeyedActionPath<..., u16, ..., ..., ...>`
+   |             |
+   |             arguments to this function are incorrect
+   |
+   = note: expected struct `KeyedActionPath<_, u8, _, _, _>`
+              found struct `KeyedActionPath<ParentAction, u16, ChildAction, {closure@$DIR/tests/ui/for_each_path_mismatch.rs:56:9: 56:32}, fn(KeyedAction<u16, ChildAction>) -> ParentAction {ParentAction::Child}>`
+note: associated function defined here
+  --> src/composition/keyed.rs
+   |
+   |     pub fn new(
+   |            ^^^

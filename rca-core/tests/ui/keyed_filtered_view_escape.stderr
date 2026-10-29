@@ -1,0 +1,11 @@
+error[E0597]: `states` does not live long enough
+ --> tests/ui/keyed_filtered_view_escape.rs:7:20
+  |
+6 |         let states: KeyedState<_, _> = [(1, String::from("one"))].into_iter().collect();
+  |             ------ binding `states` declared here
+7 |         selected = states.try_filter(|_, _| Ok::<_, ()>(true)).unwrap();
+  |                    ^^^^^^ borrowed value does not live long enough
+8 |     }
+  |     - `states` dropped here while still borrowed
+9 |     println!("{}", selected[0].1);
+  |                    -------- borrow later used here

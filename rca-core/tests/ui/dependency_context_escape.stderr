@@ -1,0 +1,27 @@
+error: lifetime may not live long enough
+  --> tests/ui/dependency_context_escape.rs:27:85
+   |
+27 |           let _escaped = context.with_dependency_override::<ValueKey, _>(1, |context| async move {
+   |  ____________________________________________________________________________--------_^
+   | |                                                                            |      |
+   | |                                                                            |      return type of closure `{async block@$DIR/tests/ui/dependency_context_escape.rs:27:85: 27:95}` contains a lifetime `'2`
+   | |                                                                            has type `&'1 mut ReduceContext<'_>`
+28 | |             std::hint::black_box(context.dependency::<ValueKey>());
+29 | |         });
+   | |_________^ returning this value requires that `'1` must outlive `'2`
+
+error: lifetime may not live long enough
+  --> tests/ui/dependency_context_escape.rs:27:85
+   |
+27 |           let _escaped = context.with_dependency_override::<ValueKey, _>(1, |context| async move {
+   |  ____________________________________________________________________________--------_^
+   | |                                                                            |      |
+   | |                                                                            |      return type of closure `{async block@$DIR/tests/ui/dependency_context_escape.rs:27:85: 27:95}` contains a lifetime `'4`
+   | |                                                                            has type `&mut ReduceContext<'3>`
+28 | |             std::hint::black_box(context.dependency::<ValueKey>());
+29 | |         });
+   | |_________^ returning this value requires that `'3` must outlive `'4`
+   |
+   = note: requirement occurs because of a mutable reference to `ReduceContext<'_>`
+   = note: mutable references are invariant over their type parameter
+   = help: see <https://doc.rust-lang.org/nomicon/subtyping.html> for more information about variance

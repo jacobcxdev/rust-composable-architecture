@@ -1,0 +1,21 @@
+error[E0271]: type mismatch resolving `<Settings as Reducer>::Action == DetailAction`
+  --> tests/ui/if_case_path_mismatch.rs:70:60
+   |
+70 |     let _ = if_case(Parent, settings_state, detail_action, Settings);
+   |             -------                                        ^^^^^^^^ type mismatch resolving `<Settings as Reducer>::Action == DetailAction`
+   |             |
+   |             required by a bound introduced by this call
+   |
+note: expected this to be `DetailAction`
+  --> tests/ui/if_case_path_mismatch.rs:39:19
+   |
+39 |     type Action = SettingsAction;
+   |                   ^^^^^^^^^^^^^^
+note: required by a bound in `rca_core::if_case`
+  --> src/composition/lifecycle.rs
+   |
+   | pub const fn if_case<
+   |              ------- required by a bound in this function
+...
+   |     Child: Reducer<State = ChildState, Action = ChildAction>,
+   |                                        ^^^^^^^^^^^^^^^^^^^^ required by this bound in `if_case`

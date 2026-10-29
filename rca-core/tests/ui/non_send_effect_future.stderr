@@ -1,0 +1,27 @@
+error: future cannot be sent between threads safely
+  --> tests/ui/non_send_effect_future.rs:8:19
+   |
+ 8 |       let _effect = Effect::<()>::run(|_sender| async move {
+   |  ___________________^
+ 9 | |         let value = Rc::new(());
+10 | |         std::future::pending::<()>().await;
+11 | |         drop(value);
+12 | |     });
+   | |______^ future created by async block is not `Send`
+   |
+   = help: within `{async block@$DIR/tests/ui/non_send_effect_future.rs:8:47: 8:57}`, the trait `Send` is not implemented for `Rc<()>`
+note: future is not `Send` as this value is used across an await
+  --> tests/ui/non_send_effect_future.rs:10:38
+   |
+ 9 |         let value = Rc::new(());
+   |             ----- has type `Rc<()>` which is not `Send`
+10 |         std::future::pending::<()>().await;
+   |                                      ^^^^^ await occurs here, with `value` maybe used later
+note: required by a bound in `Effect::<Action>::run`
+  --> src/effect/mod.rs
+   |
+   |     pub fn run<F, Fut>(operation: F) -> Self
+   |            --- required by a bound in this associated function
+...
+   |         Fut: Future<Output = ()> + Send + 'static,
+   |                                    ^^^^ required by this bound in `Effect::<Action>::run`
