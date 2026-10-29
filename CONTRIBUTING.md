@@ -162,6 +162,17 @@ affected integration boundaries. CI adds feature, platform, compiler-contract an
 dependency checks. Release qualification also requires applicable performance and
 100% executable-production coverage evidence. Test-only code has a separate audit scope.
 
+The full Python tooling suite includes a real performance-tool preflight.
+It requires `cargo-bloat` 0.12.1 in the checkout's local tool directory.
+From the repository root, install that prerequisite before running the suite:
+
+```sh
+rustup run 1.98.0 cargo install cargo-bloat --version 0.12.1 --locked --root target/task4-tools
+PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s scripts/tests
+```
+
+The prerequisite check does not run a performance capture or establish a timing baseline.
+
 If a check cannot run, report the missing evidence and its cause. Do not replace
 an unmet requirement with a completion claim.
 
