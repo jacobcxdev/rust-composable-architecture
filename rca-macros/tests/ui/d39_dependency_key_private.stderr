@@ -1,0 +1,11 @@
+error[E0603]: struct `Key` is private
+ --> tests/ui/d39_dependency_key_private.rs:8:22
+  |
+8 |     let _ = <domain::Key as rca::DependencyKey>::live_value();
+  |                      ^^^ private struct
+  |
+note: the struct `Key` is defined here
+ --> tests/ui/d39_dependency_key_private.rs:5:5
+  |
+5 |     struct Key;
+  |     ^^^^^^^^^^^

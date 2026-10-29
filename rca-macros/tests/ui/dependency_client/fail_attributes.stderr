@@ -1,0 +1,29 @@
+error: dependency client options belong on fields
+ --> tests/ui/dependency_client/fail_attributes.rs:5:1
+  |
+5 | #[dependency(test = ())]
+  | ^^^^^^^^^^^^^^^^^^^^^^^^
+
+error: duplicate `test` option
+  --> tests/ui/dependency_client/fail_attributes.rs:11:42
+   |
+11 |     #[dependency(test = Arc::new(|| ()), test = Arc::new(|| ()))]
+   |                                          ^^^^
+
+error: duplicate `dependency` attribute
+  --> tests/ui/dependency_client/fail_attributes.rs:17:5
+   |
+17 |     #[dependency(test = Arc::new(|| ()))]
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error: unknown dependency client option; expected `test` or `member`
+  --> tests/ui/dependency_client/fail_attributes.rs:22:18
+   |
+22 |     #[dependency(live = Arc::new(|| ()))]
+   |                  ^^^^
+
+error: missing `test` or `member` dependency client option
+  --> tests/ui/dependency_client/fail_attributes.rs:27:5
+   |
+27 |     #[dependency()]
+   |     ^^^^^^^^^^^^^^^

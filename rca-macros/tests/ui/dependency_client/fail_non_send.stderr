@@ -1,0 +1,16 @@
+error[E0277]: `std::sync::MutexGuard<'_, usize>` cannot be sent between threads safely
+  --> tests/ui/dependency_client/fail_non_send.rs:13:15
+   |
+13 |         call: Arc::new(move || *value),
+   |               ^^^^^^^^^-------^^^^^^^^
+   |               |        |
+   |               |        within this `{closure@$DIR/tests/ui/dependency_client/fail_non_send.rs:13:24: 13:31}`
+   |               `std::sync::MutexGuard<'_, usize>` cannot be sent between threads safely
+   |
+   = help: within `{closure@$DIR/tests/ui/dependency_client/fail_non_send.rs:13:24: 13:31}`, the trait `Send` is not implemented for `std::sync::MutexGuard<'_, usize>`
+note: required because it's used within this closure
+  --> tests/ui/dependency_client/fail_non_send.rs:13:24
+   |
+13 |         call: Arc::new(move || *value),
+   |                        ^^^^^^^
+   = note: required for the cast from `Arc<{closure@$DIR/tests/ui/dependency_client/fail_non_send.rs:13:24: 13:31}>` to `Arc<(dyn Fn() -> usize + Send + Sync + 'static)>`

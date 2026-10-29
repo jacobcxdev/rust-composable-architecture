@@ -1,0 +1,5 @@
+error: expected `=`
+ --> tests/ui/malformed_test.rs:4:40
+  |
+4 | #[dependency(value = u8, live = 1, test)]
+  |                                        ^

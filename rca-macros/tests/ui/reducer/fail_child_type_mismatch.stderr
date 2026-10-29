@@ -1,0 +1,8 @@
+error[E0308]: mismatched types
+  --> tests/ui/reducer/fail_child_type_mismatch.rs:15:28
+   |
+12 |     child(child, reducer = Child, kind = required,
+   |                            ----- expected due to this
+...
+15 |         bind(fn bind_child(child: usize)),
+   |                            ^^^^^ expected `Child`, found `usize`

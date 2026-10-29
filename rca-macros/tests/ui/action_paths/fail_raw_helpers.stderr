@@ -1,0 +1,17 @@
+error: duplicate rca option `keyed`
+ --> tests/ui/action_paths/fail_raw_helpers.rs:5:18
+  |
+5 |     #[rca(keyed, r#keyed)]
+  |                  ^^^^^^^
+
+error: rca helper attributes are only supported on ActionPaths enum variants
+  --> tests/ui/action_paths/fail_raw_helpers.rs:10:1
+   |
+10 | #[r#rca(skip)]
+   | ^^^^^^^^^^^^^^
+
+error: rca helper attributes are only supported on ActionPaths enum variants
+  --> tests/ui/action_paths/fail_raw_helpers.rs:19:9
+   |
+19 |         #[r#rca(keyed)]
+   |         ^^^^^^^^^^^^^^^

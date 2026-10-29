@@ -1,0 +1,8 @@
+error[E0515]: cannot return value referencing local variable `event`
+  --> tests/ui/case_descriptors/fail_escape.rs:10:5
+   |
+10 |     EventCases::project(&event)
+   |     ^^^^^^^^^^^^^^^^^^^^------^
+   |     |                   |
+   |     |                   `event` is borrowed here
+   |     returns a value referencing data owned by the current function

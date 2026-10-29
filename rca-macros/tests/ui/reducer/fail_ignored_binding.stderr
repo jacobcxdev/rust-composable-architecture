@@ -1,0 +1,5 @@
+error: ignored/data policy cannot select a binding or reduction
+ --> tests/ui/reducer/fail_ignored_binding.rs:5:25
+  |
+5 |     case(info, policy = ignored, action = empty, bind(fn bind_info(parent: usize))),
+  |                         ^^^^^^^

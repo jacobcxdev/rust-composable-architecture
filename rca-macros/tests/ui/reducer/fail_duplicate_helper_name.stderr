@@ -1,0 +1,5 @@
+error: duplicate binding helper name
+ --> tests/ui/reducer/fail_duplicate_helper_name.rs:4:96
+  |
+4 |     child(second, reducer = usize, kind = required, state = missing, action = missing, bind(fn same(child: usize))),
+  |                                                                                                ^^^^
