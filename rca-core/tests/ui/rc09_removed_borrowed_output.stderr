@@ -1,0 +1,19 @@
+error[E0521]: borrowed data escapes outside of function
+  --> tests/ui/rc09_removed_borrowed_output.rs:9:5
+   |
+ 3 |   fn transfer<'turn, 'borrow>(
+   |                      ------- lifetime `'borrow` defined here
+...
+ 6 |       output: &Output<&'borrow str>,
+   |       ------ `output` is a reference that is only valid in the function body
+...
+ 9 | /     removed
+10 | |         .into_output(context, output, move |_| text, |_| {})
+   | |                                                            ^
+   | |                                                            |
+   | |____________________________________________________________`output` escapes the function body here
+   |                                                              argument requires that `'borrow` must outlive `'static`
+   |
+   = note: requirement occurs because of the type `rca_core::Output<&str>`, which makes the generic argument `&str` invariant
+   = note: the struct `rca_core::Output<O>` is invariant over the parameter `O`
+   = help: see <https://doc.rust-lang.org/nomicon/subtyping.html> for more information about variance

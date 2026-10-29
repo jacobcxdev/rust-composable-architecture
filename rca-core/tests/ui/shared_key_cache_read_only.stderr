@@ -1,0 +1,56 @@
+error[E0277]: the trait bound `ReadOnly: SharedKey` is not satisfied
+  --> tests/ui/shared_key_cache_read_only.rs:33:26
+   |
+33 |     let _ = cache.shared(ReadOnly, || 0);
+   |                   ------ ^^^^^^^^ unsatisfied trait bound
+   |                   |
+   |                   required by a bound introduced by this call
+   |
+help: the trait `SharedKey` is not implemented for `ReadOnly`
+  --> tests/ui/shared_key_cache_read_only.rs:7:1
+   |
+ 7 | struct ReadOnly;
+   | ^^^^^^^^^^^^^^^
+note: required by a bound in `SharedKeyCache::shared`
+  --> src/sharing/cache.rs
+   |
+   |     pub async fn shared<Key: SharedKey>(
+   |                              ^^^^^^^^^ required by this bound in `SharedKeyCache::shared`
+
+error[E0277]: the trait bound `ReadOnly: SharedKey` is not satisfied
+  --> tests/ui/shared_key_cache_read_only.rs:34:27
+   |
+34 |     let _ = cache.require(ReadOnly);
+   |                   ------- ^^^^^^^^ unsatisfied trait bound
+   |                   |
+   |                   required by a bound introduced by this call
+   |
+help: the trait `SharedKey` is not implemented for `ReadOnly`
+  --> tests/ui/shared_key_cache_read_only.rs:7:1
+   |
+ 7 | struct ReadOnly;
+   | ^^^^^^^^^^^^^^^
+note: required by a bound in `SharedKeyCache::require`
+  --> src/sharing/cache.rs
+   |
+   |     pub async fn require<Key: SharedKey>(
+   |                               ^^^^^^^^^ required by this bound in `SharedKeyCache::require`
+
+error[E0277]: the trait bound `ReadOnly: SharedKey` is not satisfied
+  --> tests/ui/shared_key_cache_read_only.rs:35:33
+   |
+35 |     let _ = cache.load(&shared, ReadOnly, |value| *value);
+   |                   ----          ^^^^^^^^ unsatisfied trait bound
+   |                   |
+   |                   required by a bound introduced by this call
+   |
+help: the trait `SharedKey` is not implemented for `ReadOnly`
+  --> tests/ui/shared_key_cache_read_only.rs:7:1
+   |
+ 7 | struct ReadOnly;
+   | ^^^^^^^^^^^^^^^
+note: required by a bound in `SharedKeyCache::load`
+  --> src/sharing/cache.rs
+   |
+   |     pub async fn load<Key: SharedKey>(
+   |                            ^^^^^^^^^ required by this bound in `SharedKeyCache::load`
