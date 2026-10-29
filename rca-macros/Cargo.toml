@@ -1,0 +1,32 @@
+[package]
+name = "rca-macros"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+description = "Optional syntax for Rust Composable Architecture"
+
+[lib]
+proc-macro = true
+
+[dependencies]
+heck = "0.5.0"
+proc-macro-crate = "3.5.0"
+proc-macro2.workspace = true
+quote.workspace = true
+syn = { workspace = true, features = ["visit-mut"] }
+toml_edit = { version = "0.25.0", default-features = false, features = ["parse"] }
+
+[dev-dependencies]
+futures-executor.workspace = true
+insta.workspace = true
+rca = { package = "rca-core", path = "../rca-core", version = "=0.1.0" }
+rca-test.workspace = true
+trybuild.workspace = true
+
+[lints]
+workspace = true

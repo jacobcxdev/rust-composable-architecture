@@ -1,0 +1,14 @@
+[package]
+name = "d54-renamed-umbrella"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[workspace]
+
+[dependencies]
+architecture = { package = "rust-composable-architecture", path = "../../../../rca", default-features = false, features = ["macros"] }
+
+[dev-dependencies]
+rca-test = { path = "../../../../rca-test" }
+futures-executor = "0.3.34"
