@@ -1,0 +1,36 @@
+[package]
+name = "rca-tokio"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+description = "Tokio runtime adapter for Rust Composable Architecture"
+
+[features]
+qualification-dhat = []
+
+[dependencies]
+rca-core.workspace = true
+tokio.workspace = true
+
+[dev-dependencies]
+dhat.workspace = true
+divan.workspace = true
+rca-test.workspace = true
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "test-util"] }
+tokio-metrics.workspace = true
+
+[lints]
+workspace = true
+
+[[bench]]
+name = "runtime"
+harness = false
+
+[[bench]]
+name = "qualification"
+harness = false
