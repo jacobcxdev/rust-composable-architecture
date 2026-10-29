@@ -1,0 +1,15 @@
+warning: unused `TestActionTask` that must be used
+ --> tests/compiler/pass/task_warning.rs:7:5
+  |
+7 |     store.send(()).await.unwrap();
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: dropping a test action task does not cancel causal work
+  = note: `#[warn(unused_must_use)]` (part of `#[warn(unused)]`) on by default
+help: use `let _ = ...` to ignore the resulting value
+  |
+7 |     let _ = store.send(()).await.unwrap();
+  |     +++++++
+
+warning: 1 warning emitted
+
