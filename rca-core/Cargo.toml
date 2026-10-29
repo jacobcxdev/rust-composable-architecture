@@ -1,0 +1,76 @@
+[package]
+name = "rca-core"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+description = "Runtime-neutral core for Rust Composable Architecture"
+exclude = ["/dhat-heap.json"]
+
+[package.metadata.cargo-udeps.ignore]
+# `loom` is loaded only when qualification sets `RUSTFLAGS=--cfg loom`.
+development = ["loom"]
+
+[features]
+default = []
+allocation-measurement = []
+diagnostics = []
+futures-stream = ["dep:futures-core"]
+local = []
+test-util = []
+
+[dependencies]
+async-channel.workspace = true
+crossbeam-utils = { version = "0.8.22", default-features = false }
+event-listener.workspace = true
+futures-channel.workspace = true
+futures-core = { workspace = true, optional = true }
+futures-util.workspace = true
+indexmap.workspace = true
+parking_lot = "0.12.5"
+pin-project-lite = "0.2.17"
+
+[dev-dependencies]
+rca-macros = { path = "../rca-macros", version = "=0.1.0" }
+divan.workspace = true
+concurrent-queue = { workspace = true, features = ["loom"] }
+dhat.workspace = true
+event-listener = { workspace = true, features = ["loom"] }
+futures-executor.workspace = true
+loom.workspace = true
+proptest.workspace = true
+trybuild.workspace = true
+ui_test.workspace = true
+
+[lints]
+workspace = true
+
+[[test]]
+name = "compiler_contracts"
+harness = false
+
+[[test]]
+name = "core_allocations"
+path = "src/allocation_main.rs"
+harness = false
+required-features = ["allocation-measurement"]
+
+[[bench]]
+name = "composition"
+harness = false
+
+[[bench]]
+name = "store_actor"
+harness = false
+
+[[bench]]
+name = "effects"
+harness = false
+
+[[bench]]
+name = "observation"
+harness = false
