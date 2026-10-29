@@ -943,6 +943,8 @@ fn queued_stale_send_and_read_do_not_execute_or_commit() {
             .await
             .unwrap();
         let _ = store.send(AppAction::StartRemoval).await.unwrap();
+        // The action receipt can precede acceptance of the removal effect.
+        runtime.wait_for_queued_task();
         runtime.start_all();
         gate.wait_for_pending().await;
 
@@ -1010,6 +1012,8 @@ fn admitted_try_send_is_coarsely_rejected_after_prior_removal() {
             .await
             .unwrap();
         let _ = store.send(AppAction::StartRemoval).await.unwrap();
+        // The action receipt can precede acceptance of the removal effect.
+        runtime.wait_for_queued_task();
         runtime.start_all();
         gate.wait_for_pending().await;
         assert_eq!(

@@ -545,6 +545,9 @@ fn typed_context_keeps_override_precedence_and_none_reaction_output_is_intention
             })
             .await
             .unwrap();
+        // The receipt confirms the reduction, not acceptance of its effect.
+        // Wait for the descendant before starting this host's next task batch.
+        runtime.wait_for_queued_task();
         runtime.start_all();
         task.finish().await;
         assert_eq!(mapped.load(std::sync::atomic::Ordering::SeqCst), 0);
