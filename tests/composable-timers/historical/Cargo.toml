@@ -1,0 +1,10 @@
+[package]
+name = "composable-timers-historical"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[dependencies]
+composable = { git = "https://github.com/jacobcxdev/rust-composable-architecture.git", rev = "c6200234cebbbd9b0009cd5788736c78a47f32b0" }
