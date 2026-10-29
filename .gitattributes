@@ -1,0 +1,2 @@
+# Compiler diagnostics retain rustc's final blank line for exact comparison.
+*.stderr whitespace=-blank-at-eof
