@@ -35,10 +35,12 @@ release actions.
 ## Toolchain and formatting
 
 The repository pins Rust, rustfmt and Clippy through `rust-toolchain.toml`.
-The current toolchain is Rust 1.98.0. A system installation of Cargo can bypass
-rustup and ignore this file. The commands here select the pinned tools explicitly.
+The current toolchain is Rust 1.98.0. System installations of Cargo or rustc can
+bypass rustup and ignore this file. Put the pinned tools first in `PATH`, so
+nested compiler processes also use the correct version.
 
 ```sh
+export PATH="$(dirname "$(rustup which --toolchain 1.98.0 cargo)"):$PATH"
 rustup run 1.98.0 rustc --version
 python3 scripts/check_rust_format.py
 rustup run 1.98.0 cargo clippy --locked --workspace --all-targets --all-features -- -D warnings
@@ -148,7 +150,12 @@ unless the implementation adds a distinct requirement. Existing Errors, Panics,
 Safety and empty-documentation checks remain necessary. Empty section headings
 can satisfy a lint, but cannot satisfy a contract review.
 
+The independent consumer fixtures run Cargo offline with their own lockfiles.
+Before the workspace tests, download those dependencies:
+
 ```sh
+rustup run 1.98.0 cargo fetch --locked --manifest-path rca-core/tests/fixtures/modular-dependencies/Cargo.toml
+rustup run 1.98.0 cargo fetch --locked --manifest-path rca-core/tests/fixtures/rc07-owned-snapshot/Cargo.toml
 rustup run 1.98.0 cargo test --locked --workspace --all-features
 rustup run 1.98.0 cargo test --locked --workspace --all-features --doc
 export RUSTDOCFLAGS='-D warnings'

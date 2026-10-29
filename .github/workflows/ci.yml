@@ -53,7 +53,12 @@ jobs:
               run: cargo clippy --workspace --all-targets --all-features -- -D warnings
 
             - name: Test workspace
-              run: cargo test --workspace --all-features
+              # These independent lockfiles can differ from the workspace lockfile.
+              # Download their dependencies before the tests run Cargo offline.
+              run: |
+                  cargo fetch --locked --manifest-path rca-core/tests/fixtures/modular-dependencies/Cargo.toml
+                  cargo fetch --locked --manifest-path rca-core/tests/fixtures/rc07-owned-snapshot/Cargo.toml
+                  cargo test --locked --workspace --all-features
 
             - name: Verify compiler contracts without Local
               run: |
@@ -80,7 +85,9 @@ jobs:
     comparison-correctness:
         name: Comparison correctness (${{ matrix.engine }})
         runs-on: ubuntu-24.04
-        timeout-minutes: 15
+        # Six upstream observations can each reach their two-minute deadline.
+        # Leave time for required builds, lint checks and the outcome summary.
+        timeout-minutes: ${{ matrix.engine == 'upstream' && 25 || 15 }}
         strategy:
             fail-fast: false
             matrix:
@@ -104,12 +111,30 @@ jobs:
             - name: Lint allocation instrumentation
               run: cargo clippy --locked --manifest-path tests/composable-counter/${{ matrix.engine }}/Cargo.toml --features allocation-measurement --all-targets -- -D warnings
 
+            - name: Build upstream reference tests
+              if: matrix.engine == 'upstream'
+              # Runtime observations must not conceal compiler or linker failures.
+              run: |
+                  cargo test --locked --manifest-path tests/composable-counter/upstream/Cargo.toml --no-run
+                  cargo test --locked --manifest-path tests/composable-counter/upstream/Cargo.toml --features allocation-measurement --no-run
+                  cargo test --locked --manifest-path tests/composable-stream/upstream/Cargo.toml --no-run
+                  cargo test --locked --manifest-path tests/composable-stream/upstream/Cargo.toml --features allocation-measurement --test outcome --no-run
+                  cargo test --locked --manifest-path tests/composable-timers/upstream/Cargo.toml --no-run
+                  cargo test --locked --manifest-path tests/composable-observation/upstream/Cargo.toml --all-features --no-run
+
             - name: Test counter fixture
+              id: counter-fixture
               timeout-minutes: 2
+              # Upstream runtime results are observations of a failed reference.
+              # Its lint/build checks and every RCA/historical check stay required.
+              # See tests/composable-counter/README.md#failed-upstream-reference.
+              continue-on-error: ${{ matrix.engine == 'upstream' }}
               run: cargo test --locked --manifest-path tests/composable-counter/${{ matrix.engine }}/Cargo.toml
 
             - name: Test allocation instrumentation
+              id: counter-allocations
               timeout-minutes: 2
+              continue-on-error: ${{ matrix.engine == 'upstream' }}
               run: cargo test --locked --manifest-path tests/composable-counter/${{ matrix.engine }}/Cargo.toml --features allocation-measurement
 
             - name: Check stream fixture formatting
@@ -126,15 +151,10 @@ jobs:
               continue-on-error: ${{ matrix.engine == 'upstream' }}
               run: cargo test --locked --manifest-path tests/composable-stream/${{ matrix.engine }}/Cargo.toml
 
-            - name: Report upstream stream reference outcome
-              if: ${{ always() && matrix.engine == 'upstream' && steps.stream-fixture.outcome != 'skipped' }}
-              env:
-                  REFERENCE_OUTCOME: ${{ steps.stream-fixture.outcome }}
-              run: |
-                  printf 'Upstream stream observation: %s. The pinned reference remains a failed baseline; this run does not authorise numerical comparisons that depend on successful completion.\n' "$REFERENCE_OUTCOME" >> "$GITHUB_STEP_SUMMARY"
-
             - name: Test common-outcome allocation instrumentation
+              id: stream-allocations
               timeout-minutes: 2
+              continue-on-error: ${{ matrix.engine == 'upstream' }}
               run: cargo test --locked --manifest-path tests/composable-stream/${{ matrix.engine }}/Cargo.toml --features allocation-measurement --test outcome
 
             - name: Test stream evidence validator
@@ -152,7 +172,9 @@ jobs:
               run: cargo clippy --locked --manifest-path tests/composable-timers/${{ matrix.engine }}/Cargo.toml --all-targets -- -D warnings
 
             - name: Test timer fixture
+              id: timer-fixture
               timeout-minutes: 2
+              continue-on-error: ${{ matrix.engine == 'upstream' }}
               run: cargo test --locked --manifest-path tests/composable-timers/${{ matrix.engine }}/Cargo.toml
 
             - name: Check publication fixture formatting
@@ -162,8 +184,32 @@ jobs:
               run: cargo clippy --locked --manifest-path tests/composable-observation/${{ matrix.engine }}/Cargo.toml --all-targets --all-features -- -D warnings
 
             - name: Test publication fixture
+              id: publication-fixture
               timeout-minutes: 2
+              continue-on-error: ${{ matrix.engine == 'upstream' }}
               run: cargo test --locked --manifest-path tests/composable-observation/${{ matrix.engine }}/Cargo.toml --all-features
+
+            - name: Report failed upstream reference observations
+              if: ${{ always() && matrix.engine == 'upstream' }}
+              env:
+                  COUNTER_OUTCOME: ${{ steps.counter-fixture.outcome }}
+                  COUNTER_ALLOCATION_OUTCOME: ${{ steps.counter-allocations.outcome }}
+                  STREAM_OUTCOME: ${{ steps.stream-fixture.outcome }}
+                  STREAM_ALLOCATION_OUTCOME: ${{ steps.stream-allocations.outcome }}
+                  TIMER_OUTCOME: ${{ steps.timer-fixture.outcome }}
+                  PUBLICATION_OUTCOME: ${{ steps.publication-fixture.outcome }}
+              run: |
+                  {
+                      printf '## Failed upstream reference\n\n'
+                      printf 'Runtime results are observations, not release gates. The pinned reference remains a failed baseline even when a rerun passes. Do not use these results for numerical comparisons that require successful completion. Lint and build failures remain blocking.\n\n'
+                      printf '| Fixture | Outcome |\n| --- | --- |\n'
+                      printf '| Counter | %s |\n' "$COUNTER_OUTCOME"
+                      printf '| Counter allocations | %s |\n' "$COUNTER_ALLOCATION_OUTCOME"
+                      printf '| Stream | %s |\n' "$STREAM_OUTCOME"
+                      printf '| Stream allocations | %s |\n' "$STREAM_ALLOCATION_OUTCOME"
+                      printf '| Timer | %s |\n' "$TIMER_OUTCOME"
+                      printf '| Publication | %s |\n' "$PUBLICATION_OUTCOME"
+                  } >> "$GITHUB_STEP_SUMMARY"
 
     keyed-policy-comparison:
         name: Keyed policy comparison (${{ matrix.engine }})

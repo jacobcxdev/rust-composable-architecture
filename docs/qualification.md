@@ -70,10 +70,16 @@ The Tokio conformance tests live in `rca-tokio/src/lib.rs`.
 The package-consumer runner is [verify-packaged-downstream.sh](../scripts/verify-packaged-downstream.sh).
 
 Performance comparisons need matching workloads and applicable measurement conditions.
-The pinned upstream Composable stream reference can hang during shutdown.
+The pinned upstream Composable runtime can hang during shutdown.
 It remains a failed reference baseline, not an RCA failure or a valid numerical comparison.
 RCA's own correctness, coverage and performance requirements remain unchanged.
-See [the stream fixture](../tests/composable-stream/README.md) for that boundary.
+CI reports upstream runtime observations without using them as RCA acceptance gates.
+Formatting, lint and compilation remain required for all reference fixtures.
+RCA and historical runtime checks remain required. A later passing upstream
+observation does not qualify that reference or erase its recorded failures.
+The [counter](../tests/composable-counter/README.md#failed-upstream-reference),
+[stream](../tests/composable-stream/README.md) and
+[publication](../tests/composable-observation/README.md) fixtures record this boundary.
 
 Older performance instructions can name unpublished development revisions.
 Those comparisons require the retained local history and cannot run from a fresh

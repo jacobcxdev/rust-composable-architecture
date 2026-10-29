@@ -17,6 +17,18 @@ waits are bounded, and each adapter test waits at most ten seconds for its worke
 worker bound detects a stuck host but cannot terminate a native worker thread;
 the outer process deadline remains necessary.
 
+The pinned upstream reference has a known shutdown race. On 29 October 2026,
+its all-feature suite failed locally with Rust 1.99.0 after three tests passed. The
+`previous_value_publication_is_rejected` and `omitted_unregistration_is_rejected`
+tests reported `publication host must finish: Timeout`.
+The adapter received no result from its worker before the ten-second deadline.
+A later run with pinned Rust 1.98.0 passed all 14 tests.
+
+These failures remain part of the reference record, even when later runs pass.
+CI reports upstream runtime outcomes separately from RCA acceptance gates.
+The [failed-reference policy](../../docs/qualification.md) prohibits numerical
+comparisons that depend on successful upstream completion.
+
 The literal publication trace is initial `0`, then `3, 1, 1, 4`. Registration
 must publish the existing state. Each update commits and its publication is
 consumed before sending the next update; the repeated `1` must still publish.
