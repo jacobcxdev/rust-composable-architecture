@@ -1,0 +1,14 @@
+[package]
+name = "rca-example-timer"
+version = "0.0.0"
+edition = "2024"
+rust-version = "1.98.0"
+publish = false
+
+[dependencies]
+rca = { package = "rust-composable-architecture", version = "=0.1.0", registry = "rca-local", features = ["tokio"] }
+tokio = { version = "1.53.3", features = ["macros", "rt", "time"] }
+
+[dev-dependencies]
+rca = { package = "rust-composable-architecture", version = "=0.1.0", registry = "rca-local", features = ["test-util"] }
+futures-executor = "0.3.34"

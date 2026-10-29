@@ -1,0 +1,55 @@
+[package]
+name = "rca-performance-profile"
+version = "0.0.0"
+edition = "2024"
+rust-version = "1.98.0"
+publish = false
+license = "MIT OR Apache-2.0"
+description = "Exact-work standalone RCA profiling harness"
+repository = "https://github.com/jacobcxdev/rust-composable-architecture"
+readme = "README.md"
+keywords = ["profiling"]
+categories = ["development-tools::profiling"]
+
+[workspace]
+
+[features]
+default = []
+deterministic = ["dep:rca-test", "dep:futures-executor"]
+local = ["deterministic", "rca-core/local", "rca-test/local"]
+diagnostics = ["rca-core/diagnostics"]
+allocations = ["dep:dhat", "dep:serde_json"]
+persistence = ["dep:rca-persistence"]
+
+[dependencies]
+async-channel = "=2.5.0"
+rca-core = { path = "../../rca-core" }
+rca-persistence = { path = "../../rca-persistence", optional = true, default-features = false }
+rca-test = { path = "../../rca-test", optional = true }
+rca-tokio = { path = "../../rca-tokio" }
+futures-executor = { version = "=0.3.34", optional = true }
+tokio = { version = "=1.53.3", features = ["rt", "time"] }
+dhat = { version = "=0.3.3", optional = true }
+serde_json = { version = "=1.0.151", optional = true }
+
+[dev-dependencies]
+serde_json = "=1.0.151"
+
+[profile.release]
+opt-level = 3
+codegen-units = 1
+incremental = false
+lto = "fat"
+debug = true
+strip = false
+
+[profile.bench]
+inherits = "release"
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+cargo = { level = "warn", priority = -1 }
