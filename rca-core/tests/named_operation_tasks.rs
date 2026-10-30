@@ -18,7 +18,8 @@ use std::task::{Context, Poll, Waker};
 
 use rca_core::{
     Effect, Feature, FeatureContext, MountIdentity, Operation, OperationPolicy, OptionalMount,
-    RootMount, RuntimeFuture, SelfWait, Store, Task, TaskAccessReason, TaskContext, TaskProgress,
+    OutputDelivery, OutputFlow, RootMount, RuntimeFuture, SelfWait, Store, Task, TaskAccessReason,
+    TaskContext, TaskProgress,
 };
 
 /// Polls one selected future without running other captured work.
@@ -36,6 +37,295 @@ fn ordered<T>(actor: &mut RuntimeFuture, request: impl Future<Output = T>) -> T 
         assert!(poll(actor.as_mut()).is_pending());
     }
     panic!("ordered request did not finish within its finite actor schedule");
+}
+
+/// Distinguishes lazy factory entry from physical destruction after cancellation.
+#[derive(Default)]
+struct TaskObservation {
+    /// Counts factory calls independently of registered operation generations.
+    starts: AtomicUsize,
+    /// Counts captures released by either skipped or previously polled factories.
+    drops: AtomicUsize,
+}
+
+/// Records destruction even when cancellation prevents the factory from running.
+struct TaskCapture(Arc<TaskObservation>);
+
+impl Drop for TaskCapture {
+    fn drop(&mut self) {
+        self.0.drops.fetch_add(1, Ordering::SeqCst);
+    }
+}
+
+/// Keeps declared work pending so each test controls its cancellation boundary.
+fn replacement_task(
+    observation: Arc<TaskObservation>,
+    policy: Option<OperationPolicy>,
+) -> Task<(), ReplacementAction> {
+    let capture = TaskCapture(observation);
+    let run = move |_| {
+        capture.0.starts.fetch_add(1, Ordering::SeqCst);
+        async move {
+            let _capture = capture;
+            std::future::pending::<()>().await;
+        }
+    };
+    match policy {
+        Some(policy) => Task::run_named("work", policy, run),
+        None => Task::run(run),
+    }
+}
+
+/// Changes action cases while addressing the same named operation.
+enum ReplacementAction {
+    /// Starts an existing generation before the replacement transaction.
+    Seed,
+    /// Declares unnamed work followed by two explicitly governed named tasks.
+    Pair([OperationPolicy; 2]),
+    /// Replaces work last declared by an output handler.
+    Restart,
+}
+
+/// Supplies one independently observed capture for each ordered declaration.
+struct ReplacementTasks {
+    /// Supplies each declaration with a distinct externally observed lifetime.
+    observations: std::vec::IntoIter<Arc<TaskObservation>>,
+}
+
+impl Feature for ReplacementTasks {
+    type State = ();
+    type Action = ReplacementAction;
+
+    fn reduce(
+        &mut self,
+        (): &mut (),
+        action: &Self::Action,
+        context: &mut FeatureContext<'_, (), Self::Action>,
+    ) {
+        let policies: &[_] = match action {
+            ReplacementAction::Seed => &[Some(OperationPolicy::Coexist)],
+            ReplacementAction::Pair(policies) => &[None, Some(policies[0]), Some(policies[1])],
+            ReplacementAction::Restart => &[Some(OperationPolicy::Replace)],
+        };
+        for &policy in policies {
+            context.task(replacement_task(self.observations.next().unwrap(), policy));
+        }
+    }
+}
+
+/// Every replacement applies in declaration order, including within one turn.
+#[test]
+fn typed_task_replacement_is_per_declaration_and_leaves_unnamed_work_alone() {
+    use OperationPolicy::{Coexist, Replace};
+
+    for (policies, cancelled, active) in [
+        ([Coexist, Coexist], [false, false], 3),
+        ([Coexist, Replace], [true, true], 1),
+        ([Replace, Coexist], [true, false], 2),
+        ([Replace, Replace], [true, true], 1),
+    ] {
+        let host = support::ManualRuntime::new();
+        let observations: [_; 4] = std::array::from_fn(|_| Arc::new(TaskObservation::default()));
+        let store = Store::feature_builder(
+            (),
+            ReplacementTasks {
+                observations: Vec::from(observations.clone()).into_iter(),
+            },
+            host.runtime(),
+        )
+        .build()
+        .unwrap();
+        let operation = store.operation("work");
+        let mut actor = host.take_only_queued_task();
+        let first_receipt = ordered(&mut actor, store.send(ReplacementAction::Seed)).unwrap();
+        let mut first = host.take_only_queued_task();
+        assert!(poll(first.as_mut()).is_pending());
+        let mut first_wait = Box::pin(ordered(&mut actor, operation.capture()).unwrap());
+
+        let receipt = ordered(&mut actor, store.send(ReplacementAction::Pair(policies))).unwrap();
+        let mut bodies = host.take_queued_tasks();
+        assert_eq!(bodies.len(), 3);
+        let mut captured = Box::pin(ordered(&mut actor, operation.capture()).unwrap());
+        assert!(poll(first_wait.as_mut()).is_pending());
+        assert!(poll(captured.as_mut()).is_pending());
+        assert!(!first_receipt.is_finished());
+
+        assert_eq!(poll(first.as_mut()).is_ready(), cancelled[0]);
+        assert!(
+            poll(bodies[0].as_mut()).is_pending(),
+            "unnamed work survives"
+        );
+        assert_eq!(poll(bodies[1].as_mut()).is_ready(), cancelled[1]);
+        assert!(poll(bodies[2].as_mut()).is_pending());
+        assert_eq!(poll(first_wait.as_mut()).is_ready(), cancelled[0]);
+        assert_eq!(
+            observations
+                .each_ref()
+                .map(|item| item.starts.load(Ordering::SeqCst)),
+            [1, 1, usize::from(!cancelled[1]), 1]
+        );
+        assert_eq!(
+            observations
+                .each_ref()
+                .map(|item| item.drops.load(Ordering::SeqCst)),
+            [usize::from(cancelled[0]), 0, usize::from(cancelled[1]), 0]
+        );
+        assert_eq!(
+            ordered(&mut actor, operation.status())
+                .unwrap()
+                .active_count(),
+            active
+        );
+        assert_eq!(first_receipt.is_finished(), cancelled[0]);
+
+        ordered(&mut actor, operation.cancel()).unwrap();
+        assert!(poll(captured.as_mut()).is_pending());
+        if !cancelled[0] {
+            assert!(poll(first.as_mut()).is_ready());
+        }
+        if !cancelled[1] {
+            assert!(poll(bodies[1].as_mut()).is_ready());
+        }
+        assert!(poll(bodies[2].as_mut()).is_ready());
+        assert_eq!(poll(first_wait.as_mut()), Poll::Ready(Ok(())));
+        assert_eq!(poll(captured.as_mut()), Poll::Ready(Ok(())));
+        assert!(poll(bodies[0].as_mut()).is_pending());
+        assert!(
+            !receipt.is_finished(),
+            "unnamed work retains its causal receipt"
+        );
+        assert_eq!(
+            ordered(&mut actor, operation.status())
+                .unwrap()
+                .active_count(),
+            0
+        );
+
+        drop(store);
+        assert!(poll(actor.as_mut()).is_ready());
+        assert!(poll(bodies[0].as_mut()).is_ready());
+        assert!(receipt.is_finished());
+        assert_eq!(
+            observations
+                .each_ref()
+                .map(|item| item.drops.load(Ordering::SeqCst)),
+            [1, 1, 1, 1]
+        );
+    }
+}
+
+/// Gives an output a strict child source without declaring any child-owned work.
+struct ReplacementOutputSource;
+
+impl Feature for ReplacementOutputSource {
+    type State = ();
+    type Action = ();
+
+    fn reduce(&mut self, (): &mut (), (): &(), _: &mut FeatureContext<'_, (), ()>) {}
+}
+
+/// The same root operation spans reducer and output-handler transactions.
+#[test]
+fn typed_task_replacement_crosses_action_and_output_handler_boundaries() {
+    let host = support::ManualRuntime::new();
+    let observations: [_; 3] = std::array::from_fn(|_| Arc::new(TaskObservation::default()));
+    let (builder, source_site) = Store::feature_builder(
+        (),
+        ReplacementTasks {
+            observations: vec![Arc::clone(&observations[0]), Arc::clone(&observations[2])]
+                .into_iter(),
+        },
+        host.runtime(),
+    )
+    .mount_with_site(OptionalMount::new(
+        |state: &()| Some(state),
+        |state: &mut ()| Some(state),
+        |()| {
+            Some(MountIdentity {
+                key: (),
+                replacement: 0,
+                configuration: 0,
+            })
+        },
+        |()| ReplacementOutputSource,
+    ));
+    let (builder, output) = builder.output::<Arc<TaskObservation>>(&source_site, |handlers| {
+        handlers.at_root(|(), observation, context| {
+            context.task(replacement_task(
+                observation,
+                Some(OperationPolicy::Replace),
+            ));
+            OutputFlow::Consumed
+        });
+    });
+    let store = builder.build().unwrap();
+    let mut actor = host.take_only_queued_task();
+    ordered(&mut actor, store.ready()).unwrap();
+    let source = ordered(&mut actor, store.acquire(&source_site))
+        .unwrap()
+        .unwrap();
+    let operation = store.operation("work");
+    let first_receipt = ordered(&mut actor, store.send(ReplacementAction::Seed)).unwrap();
+    let mut first = host.take_only_queued_task();
+    assert!(poll(first.as_mut()).is_pending());
+    let mut first_wait = Box::pin(ordered(&mut actor, operation.capture()).unwrap());
+
+    let OutputDelivery::Consumed {
+        task: output_receipt,
+    } = ordered(
+        &mut actor,
+        source.output(&output, Arc::clone(&observations[1])),
+    )
+    .unwrap()
+    else {
+        panic!("the root output handler must consume its child's output");
+    };
+    let mut output_body = host.take_only_queued_task();
+    assert!(poll(first_wait.as_mut()).is_pending());
+    assert!(poll(first.as_mut()).is_ready());
+    assert_eq!(poll(first_wait.as_mut()), Poll::Ready(Ok(())));
+    assert!(poll(output_body.as_mut()).is_pending());
+    let mut output_wait = Box::pin(ordered(&mut actor, operation.capture()).unwrap());
+    assert!(first_receipt.is_finished());
+    assert_eq!(
+        ordered(&mut actor, operation.status())
+            .unwrap()
+            .active_count(),
+        1
+    );
+
+    let final_receipt = ordered(&mut actor, store.send(ReplacementAction::Restart)).unwrap();
+    let mut final_body = host.take_only_queued_task();
+    assert!(poll(output_wait.as_mut()).is_pending());
+    assert!(poll(output_body.as_mut()).is_ready());
+    assert_eq!(poll(output_wait.as_mut()), Poll::Ready(Ok(())));
+    assert!(poll(final_body.as_mut()).is_pending());
+    assert_eq!(
+        ordered(&mut actor, operation.status())
+            .unwrap()
+            .active_count(),
+        1
+    );
+    assert!(output_receipt.is_finished());
+    ordered(&mut actor, operation.cancel()).unwrap();
+    assert!(!final_receipt.is_finished());
+    assert!(poll(final_body.as_mut()).is_ready());
+    assert!(poll(actor.as_mut()).is_pending());
+    assert!(final_receipt.is_finished());
+    assert_eq!(
+        observations
+            .each_ref()
+            .map(|item| item.starts.load(Ordering::SeqCst)),
+        [1, 1, 1]
+    );
+    assert_eq!(
+        observations
+            .each_ref()
+            .map(|item| item.drops.load(Ordering::SeqCst)),
+        [1, 1, 1]
+    );
+    drop(store);
+    assert!(poll(actor.as_mut()).is_ready());
 }
 
 /// Holds either a passive wait or its cancel-on-drop wrapper without changing pins.

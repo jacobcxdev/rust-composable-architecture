@@ -112,6 +112,10 @@ fn stale(driver: &Driver, child: &TaskContext<Cell<usize>, ChildAction>, selecti
 
 // Catches configuration refresh replacing F, old authority revival, and stale selection.
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "One actor schedule distinguishes refresh, queued replacement, removal and stale authority."
+)]
 fn leaf_and_root_configuration_refresh_retain_cache_and_permanently_retire_authority() {
     let driver = Driver::default();
     let selections = Arc::new(AtomicUsize::new(0));
@@ -190,7 +194,20 @@ fn leaf_and_root_configuration_refresh_retain_cache_and_permanently_retire_autho
     );
     let _ = finish(&driver, store.send(Action::Policy(12))).unwrap();
     assert_eq!(finish(&driver, current.read(Cell::get)).unwrap(), 12);
-    let _ = finish(&driver, store.send(Action::Replace)).unwrap();
+    // Both requests enter the mailbox while the original child is live. The
+    // earlier parent transaction must retire its authority before child entry.
+    let mut replace = Box::pin(store.send(Action::Replace));
+    assert!(poll(replace.as_mut()).is_pending());
+    let mut queued = Box::pin(current.send(ChildAction::BumpCache));
+    assert!(poll(queued.as_mut()).is_pending());
+    assert_eq!(constructions.load(Ordering::SeqCst), 1);
+    let _ = finish(&driver, replace).unwrap();
+    assert!(matches!(
+        finish(&driver, queued),
+        Err(TaskSendError::Rejected { action: ChildAction::BumpCache, error })
+            if error.reason() == TaskAccessReason::ScopeEnded
+                && error.progress() == TaskProgress::NotStarted
+    ));
     stale(&driver, &current, &selections);
     assert_eq!(constructions.load(Ordering::SeqCst), 2);
     assert_eq!(initials.load(Ordering::SeqCst), 2);
@@ -198,7 +215,18 @@ fn leaf_and_root_configuration_refresh_retain_cache_and_permanently_retire_autho
     let replacement = finish(&driver, store.acquire(&site)).unwrap().unwrap();
     let _ = finish(&driver, replacement.send(ChildAction::ReportCache)).unwrap();
     assert_eq!(finish(&driver, replacement.read(Cell::get)).unwrap(), 0);
-    let _ = finish(&driver, store.send(Action::Remove)).unwrap();
+    let mut remove = Box::pin(store.send(Action::Remove));
+    assert!(poll(remove.as_mut()).is_pending());
+    let mut queued = Box::pin(replacement.send(ChildAction::ReportCache));
+    assert!(poll(queued.as_mut()).is_pending());
+    assert_eq!(drops.load(Ordering::SeqCst), 1);
+    let _ = finish(&driver, remove).unwrap();
+    assert!(matches!(
+        finish(&driver, queued),
+        Err(TaskSendError::Rejected { action: ChildAction::ReportCache, error })
+            if error.reason() == TaskAccessReason::ScopeEnded
+                && error.progress() == TaskProgress::NotStarted
+    ));
     stale(&driver, &replacement, &selections);
     assert_eq!(drops.load(Ordering::SeqCst), 2);
     selections.store(0, Ordering::SeqCst);

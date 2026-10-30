@@ -774,6 +774,68 @@ fn scope_runs_child_then_parent_without_cloning_action() {
 }
 
 #[test]
+fn scope_routes_to_state_replaced_by_an_earlier_reducer() {
+    let runtime = ManualRuntime::new();
+    let replace = rca_core::Reduce::new(
+        |state: &mut ScopedAppState, _: &ScopedAppAction, _: &mut ReduceContext<'_>| {
+            assert_eq!((state.child.bytes_seen, state.child.calls), (9, 4));
+            state.child = ScopedChildState {
+                bytes_seen: 0,
+                calls: 0,
+            };
+            Effect::none()
+        },
+    );
+    let child = Scope::new(
+        StatePath::new(
+            |state: &ScopedAppState| &state.child,
+            |state: &mut ScopedAppState| &mut state.child,
+        ),
+        ActionPath::new(
+            |action: &ScopedAppAction| match action {
+                ScopedAppAction::Child(action) => Some(action),
+                ScopedAppAction::Parent => None,
+            },
+            ScopedAppAction::Child,
+        ),
+        ScopedChild,
+    );
+    // An ordinary root action follows explicit combine order. Unlike a
+    // captured mounted-child context, it does not target an old incarnation.
+    let store = Store::new(
+        ScopedAppState {
+            child: ScopedChildState {
+                bytes_seen: 9,
+                calls: 4,
+            },
+            parent_saw: false,
+        },
+        combine((replace, child, ScopedParent)),
+        runtime.runtime(),
+    );
+    runtime.start_all();
+
+    futures_executor::block_on(async {
+        store
+            .send(ScopedAppAction::Child(ScopedChildAction::Data(vec![
+                1, 2, 3,
+            ])))
+            .await
+            .unwrap()
+            .finish()
+            .await;
+        assert_eq!(
+            store
+                .read(|state| (state.child.bytes_seen, state.child.calls, state.parent_saw))
+                .await
+                .unwrap(),
+            (3, 1, true)
+        );
+        store.shutdown().await.unwrap();
+    });
+}
+
+#[test]
 fn scope_nonmatch_skips_child() {
     let runtime = ManualRuntime::new();
     let reducer = Scope::new(

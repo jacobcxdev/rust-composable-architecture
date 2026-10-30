@@ -329,7 +329,30 @@ fn local_required_child_identity_replacement_resets_private_state() {
     );
     assert_eq!(*trace.borrow(), [("make", 0)]);
 
-    drop(driver.finish(store.send(ParentAction::Replace)).unwrap());
+    // Queue replacement before the old child's input without advancing the
+    // actor. Admission cannot transfer the captured route to the successor.
+    let mut replace = Box::pin(store.send(ParentAction::Replace));
+    assert!(
+        replace
+            .as_mut()
+            .poll(&mut Context::from_waker(Waker::noop()))
+            .is_pending()
+    );
+    let mut queued = Box::pin(current.send(PrivateAction::Bump));
+    assert!(
+        queued
+            .as_mut()
+            .poll(&mut Context::from_waker(Waker::noop()))
+            .is_pending()
+    );
+    assert_eq!(*trace.borrow(), [("make", 0)]);
+    drop(driver.finish(replace).unwrap());
+    assert!(matches!(
+        driver.finish(queued),
+        Err(rca_core::TaskSendError::Rejected { action: PrivateAction::Bump, error })
+            if error.reason() == rca_core::TaskAccessReason::ScopeEnded
+                && error.progress() == rca_core::TaskProgress::NotStarted
+    ));
     assert_eq!(*trace.borrow(), [("make", 0), ("drop", 1), ("make", 0)]);
     for old in [&original, &current] {
         let error = driver
