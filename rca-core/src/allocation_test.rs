@@ -160,6 +160,22 @@ const CASES: &[(&str, fn())] = &[
         "composition::path::tests::keyed_path_operations_do_not_allocate",
         crate::composition::keyed_path_operations_do_not_allocate,
     ),
+    (
+        "live_cache_hits_allocate_only_the_requested_identity",
+        crate::sharing::cache::allocation_tests::live_cache_hits_allocate_only_the_requested_identity,
+    ),
+    (
+        "shared_key_error_debug_formats_without_allocating",
+        crate::sharing::cache::allocation_tests::shared_key_error_debug_formats_without_allocating,
+    ),
+    (
+        "cold_publication_keeps_its_required_construction_allocations",
+        crate::sharing::cache::allocation_tests::cold_publication_keeps_its_required_construction_allocations,
+    ),
+    (
+        "losing_publication_does_not_clone_winner_metadata",
+        crate::sharing::cache::allocation_tests::losing_publication_does_not_clone_winner_metadata,
+    ),
     #[cfg(feature = "diagnostics")]
     (
         "diagnostics::diff::tests::rendered_lines_need_no_scratch_allocations",
@@ -404,6 +420,10 @@ mod runner_tests {
             "composition::keyed::operations::tests::merge_result_capacity_tracks_conflicts_instead_of_all_inputs",
             "composition::keyed::operations::tests::sort_reuses_completed_scratch_storage",
             "composition::path::tests::keyed_path_operations_do_not_allocate",
+            "live_cache_hits_allocate_only_the_requested_identity",
+            "shared_key_error_debug_formats_without_allocating",
+            "cold_publication_keeps_its_required_construction_allocations",
+            "losing_publication_does_not_clone_winner_metadata",
             #[cfg(feature = "diagnostics")]
             "diagnostics::diff::tests::rendered_lines_need_no_scratch_allocations",
         ];

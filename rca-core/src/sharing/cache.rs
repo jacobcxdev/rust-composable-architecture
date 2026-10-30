@@ -45,6 +45,9 @@ use std::sync::{Arc, Mutex, Weak};
 
 use super::{Shared, SharedAccessError, SharedReader, SharedReference, try_lock};
 
+#[cfg(all(test, feature = "allocation-measurement"))]
+pub(crate) mod allocation_tests;
+
 /// Identifies a resource and its codec configuration within one cache namespace.
 #[derive(Clone, Eq, PartialEq)]
 pub struct SharedKeyIdentity {
