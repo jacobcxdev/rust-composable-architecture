@@ -4,21 +4,19 @@ RCA is a Rust library for composable, exhaustively testable application logic.
 It takes architectural ideas from Point-Free's Composable Architecture and
 adapts them to Rust ownership, traits and explicit runtimes.
 
-A `Reducer` changes state synchronously and returns `Effect` values for further
-work. A `Feature` also supports typed tasks, installed children, private commands
-and declared outputs. The Store owns state and processes each change in order.
-Applications select the runtime and supply external services.
+A `Feature` defines application behaviour. A `Reducer` is a feature that returns
+`Effect` values for follow-up work. Reducers become features automatically, without
+an adapter. Direct feature implementations can also start typed tasks that read
+or update state through the Store. Both forms use the same store constructors
+and support installed children, private commands and declared outputs.
+
+The Store owns state and processes each change in order. Applications select the
+runtime and supply external services.
 
 RCA is headless-first: it supplies no UI framework, renderer or native event-loop
 adapter. A native UI can use RCA application logic through host-owned integration.
 RCA does not require UI concepts in a service, worker or command-line application.
 See the [integration boundaries](docs/integration-boundaries.md) for the host's responsibilities.
-
-RCA 0.1.0 is an unpublished development candidate. Local release-readiness
-qualification and hosted CI passed for recorded revisions.
-See the [qualification status](docs/support.md#qualification-status) for
-the evidence boundary. RCA does not claim universal superiority over Composable
-or Swift TCA.
 
 Rust-specific design choices include:
 
@@ -36,12 +34,14 @@ contain unsafe implementations with separate ownership and concurrency contracts
 
 ## Quick start
 
-The manifests describe the intended package identity, which is not yet available
-on crates.io. The [packaged-consumer check](scripts/verify-packaged-downstream.sh)
-runs both examples against a temporary local registry.
+From the repository root, run the counter example:
 
-After publication, copy this manifest into `Cargo.toml`.
-Copy the Rust code into `src/main.rs`. Run `cargo run`.
+```sh
+rustup run 1.98.0 cargo run --manifest-path examples/counter/Cargo.toml
+```
+
+The following manifest and source show a standalone Tokio application.
+Repository checks run the README examples against locally packaged RCA crates.
 RCA uses the caller's Tokio runtime. It does not create one.
 
 ```toml
@@ -90,8 +90,7 @@ effects with `TestStore`. Identity paths select the entire root collection.
 The Tokio runtime only runs the async entry point. RCA's deterministic runtime
 drives the test work.
 
-After publication, copy this manifest and source into the same locations as the
-first example. Run `cargo run`.
+The standalone test application uses this manifest and source.
 
 ```toml
 [package]
@@ -202,23 +201,22 @@ Executable examples include [counter](examples/counter), [search](examples/searc
 The [owned-resource guide](docs/guides/owned-resources.md) explains move-only
 payloads and client cleanup responsibilities.
 
-## Status
+## Requirements and compatibility
 
-The development candidate is `0.1.0` and requires Rust 1.98.0.
-The public API can change before stable 1.0. This is the first RCA package line,
-not an update to a supported Composable release.
-The support policy distinguishes required qualification from completed platform support.
+RCA 0.1.0 requires Rust 1.98.0. The public API can change before version 1.0.
+The [support policy](docs/support.md) defines platform requirements and compatibility rules.
+The [qualification guide](docs/qualification.md) explains how to assess test and performance evidence for a specific revision.
 
 ## Relationship to Swift TCA
 
 RCA follows TCA's approach to state, effects, cancellation, dependencies,
-composition and exhaustive testing. TCA26 also informs its installed Features,
-typed tasks and lifetime-bound access. Rust ownership, traits and thread bounds
-determine how RCA expresses those ideas. The
+composition and exhaustive testing. Rust ownership, traits and thread bounds
+determine how RCA expresses those ideas. Installed Features, typed tasks and
+lifetime-bound access support headless application logic. The
 [structural Feature guide](docs/structural-features.md) explains RCA's current
 ownership and task contracts.
 
-These projects are design references, not source-level compatibility targets.
+TCA is a design reference, not a source-level compatibility target.
 RCA does not reproduce SwiftUI bindings or promise every Swift API in Rust.
 
 ## Licence
@@ -229,8 +227,7 @@ Distributed under MIT or Apache-2.0. See [LICENSE-MIT](LICENSE-MIT.md) and
 ## Acknowledgements
 
 RCA owes its architectural foundation to [Point-Free](https://www.pointfree.co),
-[The Composable Architecture](https://github.com/pointfreeco/swift-composable-architecture)
-and [TCA26](https://github.com/pointfreeco/TCA26) (restricted access).
+especially [The Composable Architecture](https://github.com/pointfreeco/swift-composable-architecture).
 Thank you to their authors and contributors for the designs, explanations and
 tests that inform this project.
 

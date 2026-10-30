@@ -34,10 +34,10 @@ certification capabilities. It has no encryption or authentication capability.
 The workflow pins the full fingerprint and checks a signature before publication.
 Both the author and committer use this identity.
 
-The protected environment and both signing secrets are configured. GitHub holds
-the public key under the owner's account. The registered fingerprint matches the
-workflow. The first hosted publication with this signer remains unverified.
-Local checks do not establish a verified GitHub commit or successful hosted publication.
+GitHub must hold the public key under the owner's account.
+The registered fingerprint must match the workflow.
+A successful publication requires a valid commit signature and accessible hosted pages.
+Local checks do not establish that hosted publication succeeded.
 
 ## Secret boundary
 
@@ -61,19 +61,17 @@ The environment requires approval from `jacobcxdev`, with administrator bypass
 disabled. It accepts only `main` and `v*` tags. Self-review remains
 available so that the owner can approve runs from the owner's own pushes.
 
-## First publication requires owner approval
+## Publish documentation
 
 1. Check the public key fingerprint against this document and the workflow.
 2. Check the protection and both signing secrets in the `documentation` environment.
 3. Check access to the private action and index repository.
-4. Obtain approval for the first live publication.
+4. Obtain owner approval for the publication run.
 5. Check the resulting commit signature, channel path, licences and hosted pages.
 
-The owner approved key registration, environment protection and secret configuration.
-That approval does not authorise code pushes or publication.
-The initial private key and provisioning passphrase remain in an owner-only
-directory outside the checkout. Because they are adjacent, encryption does not
-provide independent protection against access to that directory.
+Approval for key registration or secret configuration does not authorise publication.
+Keep recovery copies of the private key and passphrase outside the checkout.
+Storing them together does not provide independent protection against access to that location.
 
 Before key expiry, prepare and approve a replacement identity. Update the pinned
 fingerprint and secrets together. Check a signed publication before revoking the

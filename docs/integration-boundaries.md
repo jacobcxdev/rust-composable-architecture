@@ -1,10 +1,8 @@
 # Headless integration boundaries
 
-RCA owns serial state transitions and the lifetime of admitted work, not rendering
-or external services. The accepted headless core capabilities remain part of the
-unpublished `0.1.0` candidate; they are not deferred until a second application
-exists. This guide defines integration boundaries, not completed release
-qualification or a promise of the services below.
+RCA owns serial state transitions and the lifetime of admitted work.
+Applications own rendering and external services. This guide defines that boundary
+and the checks needed for host and provider integrations.
 
 ## Choose imports and host explicitly
 
@@ -44,7 +42,7 @@ reacquire by business ID or forward through the root to bypass that rejection.
 
 Wire rendering observations separately; select only the projection needed and
 expect coalescing, not a lossless event log. The
-[legacy scoped projection contract](composition.md#scoped-store-handles) is not
+[scoped projection contract](composition.md#scoped-store-handles) is not
 mounted-incarnation authority: `Store::scope` shares root lifetime, and selector
 identity is not the mounted declaration's replacement/configuration fence. An
 acquired context itself is neither a renderer nor a native observation adapter.

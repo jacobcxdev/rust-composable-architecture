@@ -24,12 +24,10 @@ This project does not promise a response deadline, bounty or backport to every v
 
 ## Supported versions
 
-RCA 0.1.0 is an unpublished candidate, not a stable release. Local
-release-readiness qualification and hosted CI passed for recorded revisions.
-Reports about the candidate are welcome. The
-[support policy](docs/support.md) defines intended platforms, features,
-compatibility and the qualification boundary.
-Historical Composable releases and retired prototypes are not the current RCA candidate.
+Security reports are welcome for RCA 0.1.x and the current development branch.
+Include the affected version or commit so that the maintainer can reproduce the problem.
+The [support policy](docs/support.md) defines platforms, features and compatibility rules.
+This policy covers RCA, not other projects or retired prototypes.
 
 Release qualification includes dependency advisory checks. A passing check does not
 establish that RCA or its dependencies have no vulnerabilities.

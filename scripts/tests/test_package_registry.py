@@ -1023,7 +1023,7 @@ printf '%s\\n' "$qualification_root" > "$TEST_ROOT/allocated-root"
         support = (self.repo_root / "docs/support.md").read_text(encoding="utf-8")
         prose = " ".join(support.split())
 
-        self.assertIn("Local release-readiness qualification was completed", prose)
+        self.assertIn("Release qualification covers", prose)
         self.assertIn(
             "Each result applies to the source, dependencies, toolchain and environment it covers.",
             prose,
@@ -1031,31 +1031,23 @@ printf '%s\\n' "$qualification_root" > "$TEST_ROOT/allocated-root"
         self.assertIn(
             "Local results do not establish that hosted checks passed.", prose
         )
-        self.assertIn(
-            "All 18 hosted checks passed for "
-            "`796032f234095596c822ba48f4a54e96d5c3c67a` on 30 October 2026.",
-            prose,
-        )
-        self.assertIn(
-            "[recorded run](https://github.com/jacobcxdev/"
-            "rust-composable-architecture/actions/runs/40994124660) "
-            "qualifies that revision.",
-            prose,
-        )
+        self.assertIn("for the exact commit under review.", prose)
         self.assertIn("Later changes require their own applicable checks.", prose)
         self.assertIn(
-            "[review PR](https://github.com/jacobcxdev/"
-            "rust-composable-architecture/pull/1) records the current head and its results.",
+            "[CI runs](https://github.com/jacobcxdev/"
+            "rust-composable-architecture/actions/workflows/ci.yml)",
             prose,
         )
-        self.assertIn("RCA 0.1.0 remains unpublished.", prose)
         self.assertIn(
-            "Qualification does not establish a stable-support promise or publication receipt.",
+            "Passing checks do not publish packages or establish support beyond the tested configurations.",
             prose,
         )
 
         targets = support.split("## Targets\n", 1)[1].split("## Features\n", 1)[0]
-        self.assertIn("| Hosted CI at `796032f` |", targets)
+        self.assertIn(
+            "The table defines required checks, not the result of any particular run.",
+            " ".join(targets.split()),
+        )
         rows = [
             [cell.strip() for cell in line.strip("|").split("|")]
             for line in targets.splitlines()
@@ -1064,15 +1056,15 @@ printf '%s\\n' "$qualification_root" > "$TEST_ROOT/allocated-root"
         self.assertEqual(
             rows,
             [
-                ["`x86_64-unknown-linux-gnu`", "Required", "Required", "Passed"],
-                ["`aarch64-unknown-linux-gnu`", "Required", "Required", "Passed"],
+                ["`x86_64-unknown-linux-gnu`", "Required", "Required"],
+                ["`aarch64-unknown-linux-gnu`", "Required", "Required"],
                 [
                     "`x86_64-apple-darwin`", "Required, compile-only",
-                    "Required, compile-only", "Passed",
+                    "Required, compile-only",
                 ],
-                ["`aarch64-apple-darwin`", "Required", "Required", "Passed"],
-                ["`x86_64-pc-windows-msvc`", "Required", "Required", "Passed"],
-                ["`wasm32-unknown-unknown`", "Required", "Not applicable", "Passed"],
+                ["`aarch64-apple-darwin`", "Required", "Required"],
+                ["`x86_64-pc-windows-msvc`", "Required", "Required"],
+                ["`wasm32-unknown-unknown`", "Required", "Not applicable"],
             ],
         )
 
