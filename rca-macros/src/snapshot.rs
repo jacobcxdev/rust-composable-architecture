@@ -13,7 +13,7 @@ use syn::{
 };
 
 use crate::state_paths::{fresh_binding, source_generics, source_type, type_arguments};
-use crate::{canonical_ident, path_is_ident, rca_path};
+use crate::{canonical_ident, path_is_ident, rca_path, type_reference};
 
 /// Stores location-checked helper syntax without resolving caller types or functions.
 #[derive(Default)]
@@ -192,66 +192,6 @@ fn combine(errors: &mut Option<syn::Error>, error: syn::Error) {
     }
 }
 
-/// Renames only the impl type parameter that hides the source declaration.
-///
-/// Item, field and variant names, absolute paths and bare value paths stay unchanged.
-struct ParameterRename<'a> {
-    /// Canonical type-parameter name that also names the source declaration.
-    from: &'a str,
-    /// Fresh replacement used within the generated implementation.
-    to: Ident,
-}
-
-impl ParameterRename<'_> {
-    /// Rewrites the head of a relative type or associated-function path.
-    fn path_head(&self, path: &mut Path) {
-        if path.leading_colon.is_none() {
-            // Paths originate in parsed Rust syntax and always have a first segment.
-            let first = &mut path.segments[0];
-            if canonical_ident(&first.ident) == self.from {
-                first.ident = self.to.clone();
-            }
-        }
-    }
-
-    /// Rewrites type references in helper syntax without renaming bare capture functions.
-    fn options(&mut self, options: &mut Options) {
-        if let Some(destination) = &mut options.into {
-            self.visit_type_path_mut(destination);
-        }
-        if let Some(value) = &mut options.value {
-            self.visit_type_mut(value);
-        }
-        if let Some(function) = &mut options.with {
-            if function.segments.len() > 1 {
-                self.path_head(function);
-            }
-            self.visit_path_mut(function);
-        }
-    }
-}
-
-impl VisitMut for ParameterRename<'_> {
-    fn visit_type_param_mut(&mut self, i: &mut syn::TypeParam) {
-        if canonical_ident(&i.ident) == self.from {
-            i.ident = self.to.clone();
-        }
-        visit_mut::visit_type_param_mut(self, i);
-    }
-
-    fn visit_type_path_mut(&mut self, i: &mut TypePath) {
-        if i.qself.is_none() {
-            self.path_head(&mut i.path);
-        }
-        visit_mut::visit_type_path_mut(self, i);
-    }
-
-    fn visit_expr_mut(&mut self, _: &mut syn::Expr) {
-        // Stable const expressions in types cannot use outer type parameters.
-        // Preserve their independent item, import and value namespaces.
-    }
-}
-
 /// Links one retained source field to its generated value and pattern binding.
 struct CapturedField<'a> {
     /// Original declaration, retained for visibility, attributes and diagnostic spans.
@@ -266,7 +206,7 @@ struct CapturedField<'a> {
     options: Options,
     /// Custom output type or the source field's associated snapshot value type.
     value: Type,
-    /// Source field type after `Self` substitution and type-parameter renaming.
+    /// Source field type after `Self` substitution.
     source: Type,
 }
 
@@ -300,7 +240,7 @@ fn copied_attributes(attributes: &[Attribute]) -> Vec<&Attribute> {
 /// describe captured values, so source lifetimes and unused bounds do not leak.
 pub(crate) fn expand(input: &DeriveInput) -> syn::Result<TokenStream> {
     let mut errors = None;
-    let mut opts = match options(&input.attrs, Location::Item) {
+    let opts = match options(&input.attrs, Location::Item) {
         Ok(options) => options,
         Err(error) => {
             combine(&mut errors, error);
@@ -334,19 +274,12 @@ pub(crate) fn expand(input: &DeriveInput) -> syn::Result<TokenStream> {
         .generics
         .type_params()
         .any(|p| canonical_ident(&p.ident) == canonical_name);
-    let mut rename = source_shadowed.then(|| ParameterRename {
-        from: &canonical_name,
-        to: fresh_binding(input, "__RcaSnapshotSource"),
-    });
-    let mut source_parameters = input.generics.clone();
-    if let Some(rename) = &mut rename {
-        rename.visit_generics_mut(&mut source_parameters);
-        rename.options(&mut opts);
-    }
-    let source_arguments = type_arguments(&source_parameters);
-    let source: Type = syn::parse_quote!(#name #source_arguments);
+    let (source_reference, source_alias) =
+        type_reference(input, &input.generics, &input.generics, name, "Snapshot");
+    let source_arguments = type_arguments(&input.generics);
+    let source: Type = syn::parse_quote!(#source_reference #source_arguments);
     let rca = rca_path()?;
-    let mut generics = source_generics(&source_parameters, &source);
+    let mut generics = source_generics(&input.generics, &source);
     let mut shapes = Vec::new();
     let mut count = 0;
     let mut omission_docs = Vec::new();
@@ -358,7 +291,7 @@ pub(crate) fn expand(input: &DeriveInput) -> syn::Result<TokenStream> {
         }
         let mut captured = Vec::new();
         for (index, field) in fields.iter().enumerate() {
-            let mut options = match options(&field.attrs, Location::Field) {
+            let options = match options(&field.attrs, Location::Field) {
                 Ok(options) => options,
                 Err(error) => {
                     combine(&mut errors, error);
@@ -390,14 +323,9 @@ pub(crate) fn expand(input: &DeriveInput) -> syn::Result<TokenStream> {
                     ),
                 );
             }
-            let mut field_type = field.ty.clone();
-            if let Some(rename) = &mut rename {
-                rename.visit_type_mut(&mut field_type);
-                rename.options(&mut options);
-            }
-            let source = source_type(&field_type, &source);
+            let field_source = source_type(&field.ty, &source);
             let value = if let Some(value) = &options.value {
-                source_type(value, &syn::parse_quote!(#name #source_arguments))
+                source_type(value, &source)
             } else {
                 let mut checker = TypeCheck {
                     source: Some(&canonical_name),
@@ -413,12 +341,11 @@ pub(crate) fn expand(input: &DeriveInput) -> syn::Result<TokenStream> {
                 // A redundant concrete where-bound makes rustc report only the
                 // derive invocation instead of the unsupported field.
                 if !input.generics.params.is_empty() {
-                    generics
-                        .make_where_clause()
-                        .predicates
-                        .push(syn::parse_quote_spanned!(field.ty.span()=> #source: #rca::Snapshot));
+                    generics.make_where_clause().predicates.push(
+                        syn::parse_quote_spanned!(field.ty.span()=> #field_source: #rca::Snapshot),
+                    );
                 }
-                syn::parse_quote_spanned!(field.ty.span()=> <#source as #rca::Snapshot>::Value)
+                syn::parse_quote_spanned!(field.ty.span()=> <#field_source as #rca::Snapshot>::Value)
             };
             let parameter = fresh_binding(input, &format!("__RcaSnapshotField{count}"));
             let binding = fresh_binding(input, &format!("__rca_snapshot_field{count}"));
@@ -434,7 +361,7 @@ pub(crate) fn expand(input: &DeriveInput) -> syn::Result<TokenStream> {
                 parameter,
                 options,
                 value,
-                source,
+                source: field_source,
             });
         }
         shapes.push(Shape {
@@ -463,26 +390,49 @@ pub(crate) fn expand(input: &DeriveInput) -> syn::Result<TokenStream> {
     for parameter in &parameters {
         output_generics.params.push(syn::parse_quote!(#parameter));
     }
+    let (output_reference, output_alias) = if opts.into.is_none() {
+        type_reference(
+            input,
+            &input.generics,
+            &output_generics,
+            &output,
+            "Snapshot",
+        )
+    } else {
+        (output.clone(), TokenStream::new())
+    };
     let output_type = if let Some(destination) = &opts.into {
         quote!(#destination)
     } else {
-        quote!(#output #output_generics)
+        quote!(#output_reference #output_generics)
     };
     let associated_type = if opts.into.is_some() {
         output_type.clone()
     } else if parameters.is_empty() {
-        quote!(#output)
+        quote!(#output_reference)
     } else {
-        quote!(#output<#(#values),*>)
+        quote!(#output_reference<#(#values),*>)
     };
     let (impl_generics, _, where_clause) = generics.split_for_impl();
-    let capture = capture_body(&shapes, opts.into.as_ref(), &output, &rca);
+    let capture = capture_body(
+        &shapes,
+        opts.into.as_ref(),
+        &output_reference,
+        !output_alias.is_empty(),
+        &rca,
+    );
     let shielded = all_fields.iter().map(|field| &field.binding);
+    let copied_parameter_allow = source_shadowed.then(|| quote! {
+        #[allow(non_camel_case_types, reason = "the source declaration governs copied type parameter names")]
+    });
     let implementation = quote! {
         const _: () = {
+            #source_alias
+            #output_alias
             #[allow(unused_imports, reason = "aliases shield generated bindings from caller constants")]
             use ::core::mem::{#(drop as #shielded),*};
-            impl #impl_generics #rca::Snapshot for #name #source_arguments #where_clause {
+            #copied_parameter_allow
+            impl #impl_generics #rca::Snapshot for #source_reference #source_arguments #where_clause {
                 type Value = #associated_type;
                 #(#[doc = #omission_docs])*
                 fn snapshot(&self) -> <Self as #rca::Snapshot>::Value {
@@ -601,6 +551,7 @@ fn capture_body(
     shapes: &[Shape<'_>],
     destination: Option<&TypePath>,
     output: &Ident,
+    aliased_output: bool,
     rca: &TokenStream,
 ) -> TokenStream {
     let arms = shapes.iter().map(|shape| {
@@ -618,7 +569,7 @@ fn capture_body(
         } else {
             quote!(#output)
         };
-        let fields = shape.captured.iter().map(|f| {
+        let fields = shape.captured.iter().enumerate().map(|(index, f)| {
             let member = &f.member;
             let binding = &f.binding;
             let receiver = if variant.is_some() {
@@ -635,11 +586,15 @@ fn capture_body(
             };
             if matches!(shape.fields, Fields::Named(_)) {
                 quote!(#member: #expression)
+            } else if aliased_output && variant.is_none() {
+                let index = syn::Index::from(index);
+                quote!(#index: #expression)
             } else {
                 expression
             }
         });
         let construct = match shape.fields {
+            _ if aliased_output && variant.is_none() => quote!(#constructor { #(#fields),* }),
             Fields::Named(_) => quote!(#constructor { #(#fields),* }),
             Fields::Unnamed(_) => quote!(#constructor ( #(#fields),* )),
             Fields::Unit => constructor,
@@ -740,8 +695,7 @@ fn debug_implementation(
 
 #[cfg(test)]
 mod tests {
-    use quote::{ToTokens, quote};
-    use syn::visit_mut::VisitMut;
+    use quote::ToTokens;
 
     #[test]
     fn copied_attributes_preserve_raw_documentation_and_configuration_only() {
@@ -1023,7 +977,8 @@ mod tests {
         let syntax: syn::File = syn::parse2(super::expand(&input).expect("valid expansion"))
             .expect("parseable expansion");
         let implementation = snapshot_impl(&syntax);
-        let expected_source: syn::Type = syn::parse_quote!(Projected<__RcaSnapshotSource, Other>);
+        let expected_source: syn::Type =
+            syn::parse_quote!(__RcaSnapshotProjected<Projected, Other>);
         assert_eq!(
             implementation.self_ty.to_token_stream().to_string(),
             expected_source.to_token_stream().to_string(),
@@ -1034,7 +989,7 @@ mod tests {
                 .type_params()
                 .map(|parameter| parameter.ident.to_string())
                 .collect::<Vec<_>>(),
-            ["__RcaSnapshotSource", "Other"],
+            ["Projected", "Other"],
         );
         let associated = implementation
             .items
@@ -1044,57 +999,61 @@ mod tests {
                 _ => None,
             })
             .expect("captured value type exists");
-        let expected_value: syn::Type =
-            syn::parse_quote!(History<<__RcaSnapshotSource as Trait>::Value>);
+        let expected_value: syn::Type = syn::parse_quote!(History<<Projected as Trait>::Value>);
         assert_eq!(
             associated.ty.to_token_stream().to_string(),
             expected_value.to_token_stream().to_string(),
         );
 
-        let mut rename = super::ParameterRename {
-            from: "Projected",
-            to: syn::parse_quote!(__RcaSnapshotSource),
-        };
-        let mut options = super::Options {
-            into: Some(syn::parse_quote!(History<<Projected as Trait>::Value>)),
-            with: Some(syn::parse_quote!(Projected::capture)),
-            value: Some(syn::parse_quote!(::core::marker::PhantomData<Projected>)),
-            ..super::Options::default()
-        };
-        rename.options(&mut options);
-        let expected_destination: syn::TypePath =
-            syn::parse_quote!(History<<__RcaSnapshotSource as Trait>::Value>);
-        assert_eq!(
-            options.into.unwrap().to_token_stream().to_string(),
-            expected_destination.to_token_stream().to_string(),
-        );
-        let expected_value: syn::Type =
-            syn::parse_quote!(::core::marker::PhantomData<__RcaSnapshotSource>);
-        assert_eq!(
-            options.value.unwrap().to_token_stream().to_string(),
-            expected_value.to_token_stream().to_string(),
-        );
-        let expected_function: syn::Path = syn::parse_quote!(__RcaSnapshotSource::capture);
-        assert_eq!(
-            options.with.unwrap().to_token_stream().to_string(),
-            expected_function.to_token_stream().to_string(),
-        );
-        let mut bare = super::Options {
-            with: Some(syn::parse_quote!(Projected)),
-            ..super::Options::default()
-        };
-        rename.options(&mut bare);
-        assert_eq!(
-            bare.with.unwrap().to_token_stream().to_string(),
-            "Projected"
-        );
+        let expansion = implementation.to_token_stream().to_string();
+        assert!(expansion.contains("Projected :: capture"));
+        assert!(expansion.contains(":: core :: marker :: PhantomData < Other >"));
+        assert!(expansion.contains("bare"));
+    }
 
-        let mut array: syn::Type = syn::parse_quote!([Other; Projected]);
-        rename.visit_type_mut(&mut array);
-        assert_eq!(
-            array.to_token_stream().to_string(),
-            quote!([Other; Projected]).to_string()
-        );
+    #[test]
+    fn aliased_tuple_companions_construct_compacted_fields() {
+        for (source, expected) in [
+            (
+                "struct Tuple<TupleSnapshot>(u8, #[snapshot(omit = \"marker\")] PhantomData<TupleSnapshot>, TupleSnapshot);",
+                vec![
+                    syn::Member::Unnamed(0.into()),
+                    syn::Member::Unnamed(1.into()),
+                ],
+            ),
+            (
+                "struct Empty<EmptySnapshot>(#[snapshot(omit = \"marker\")] PhantomData<EmptySnapshot>);",
+                Vec::new(),
+            ),
+        ] {
+            let input = syn::parse_str(source).unwrap();
+            let syntax: syn::File = syn::parse2(super::expand(&input).unwrap()).unwrap();
+            let implementation = snapshot_impl(&syntax);
+            let method = implementation
+                .items
+                .iter()
+                .find_map(|item| match item {
+                    syn::ImplItem::Fn(method) => Some(method),
+                    _ => None,
+                })
+                .unwrap();
+            let Some(syn::Stmt::Expr(syn::Expr::Struct(constructor), None)) =
+                method.block.stmts.last()
+            else {
+                panic!("an aliased tuple companion requires a brace constructor");
+            };
+            assert_eq!(
+                constructor
+                    .fields
+                    .iter()
+                    .map(|field| field.member.to_token_stream().to_string())
+                    .collect::<Vec<_>>(),
+                expected
+                    .iter()
+                    .map(|member| member.to_token_stream().to_string())
+                    .collect::<Vec<_>>()
+            );
+        }
     }
 
     #[test]

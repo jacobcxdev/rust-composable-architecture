@@ -25,8 +25,15 @@ pub(crate) fn expand(attribute: TokenStream, input: TokenStream) -> syn::Result<
     let arguments = syn::parse2::<Arguments>(attribute)?;
     let mut storage = syn::parse2::<ItemStruct>(input)?;
     let rca = rca_path()?;
-    let (state, state_items) = domain::expand(&arguments.state, &arguments, true, &rca)?;
-    let (action, action_items) = domain::expand(&arguments.action, &arguments, false, &rca)?;
+    let (state, state_items) =
+        domain::expand(&arguments.state, &arguments, true, &rca, &storage.generics)?;
+    let (action, action_items) = domain::expand(
+        &arguments.action,
+        &arguments,
+        false,
+        &rca,
+        &storage.generics,
+    )?;
     let (fields, selection_errors) = select_fields(&mut storage, &arguments)?;
     let implementation = implementation(&storage, &arguments.body, &fields, &state, &action, &rca);
     let helpers = arguments
@@ -232,7 +239,13 @@ fn implementation(
         current = next;
     }
     let terminal = current;
-    let name = &storage.ident;
+    let (name, alias) = crate::type_reference(
+        storage,
+        &storage.generics,
+        &storage.generics,
+        &storage.ident,
+        "Reducer",
+    );
     let (impl_generics, type_generics, _) = storage.generics.split_for_impl();
     let mut predicates = storage
         .generics
@@ -254,6 +267,7 @@ fn implementation(
     // The anonymous const keeps staging names private and independent across expansions.
     quote! {
         const _: () = {
+            #alias
             #[allow(unused_imports, reason = "aliases shield generated bindings from caller constants")]
             use ::core::mem::{drop as #state_value, drop as #action_value, drop as #context};
             #(#definitions)*

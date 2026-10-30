@@ -16,6 +16,7 @@ use crate::{
         fresh_binding, generic_namespace, projection_lifetime, source_generics, source_type,
         type_arguments,
     },
+    type_reference,
 };
 
 /// Selects a variant adapter instead of the ordinary payload projection.
@@ -39,16 +40,18 @@ impl Projection {
 
 /// Expands a derive input after rustc has applied its conditional attributes.
 pub(crate) fn expand(input: &DeriveInput) -> syn::Result<TokenStream> {
-    Ok(expand_parts(input, None)?.into_tokens())
+    Ok(expand_parts(input, None, input)?.into_tokens())
 }
 
 /// Separates the namespace, aggregate views and constructors for reducer output.
 ///
 /// `enum_fallback` replaces variant-count inference when the reducer still has
 /// conditional variants that rustc has not removed.
+/// Alias names use the whole declaration, even when only one member is lowered.
 pub(crate) fn expand_parts(
     input: &DeriveInput,
     enum_fallback: Option<&TokenStream>,
+    declaration: &DeriveInput,
 ) -> syn::Result<PathExpansion> {
     validate_type_attributes(&input.attrs)?;
     let Data::Enum(data) = &input.data else {
@@ -59,8 +62,21 @@ pub(crate) fn expand_parts(
     };
 
     let rca = rca_path()?;
-    let action = &input.ident;
-    let paths = paths_ident(action)?;
+    let paths = paths_ident(&input.ident)?;
+    let (action, action_alias) = type_reference(
+        declaration,
+        &input.generics,
+        &input.generics,
+        &input.ident,
+        "ActionPaths",
+    );
+    let (paths_reference, paths_alias) = type_reference(
+        declaration,
+        &input.generics,
+        &input.generics,
+        &paths,
+        "ActionPaths",
+    );
     let visibility = &input.vis;
     let generics = &input.generics;
     let lifetime = projection_lifetime(input);
@@ -80,6 +96,7 @@ pub(crate) fn expand_parts(
         &lifetime,
         &rca,
         input,
+        &action,
         &fallback,
     )?;
     let (impl_generics, _, where_clause) = rewritten_generics.split_for_impl();
@@ -104,15 +121,16 @@ pub(crate) fn expand_parts(
         )
     };
 
+    let constructors = quote! {
+        #[automatically_derived]
+        impl #impl_generics #paths_reference #type_generics #where_clause {
+            #(#constructors)*
+        }
+    };
     Ok(PathExpansion {
-        namespace: quote!(#[automatically_derived] #namespace),
+        namespace: quote!(#action_alias #paths_alias #[automatically_derived] #namespace),
         cases,
-        constructors: quote! {
-            #[automatically_derived]
-            impl #impl_generics #paths #type_generics #where_clause {
-                #(#constructors)*
-            }
-        },
+        constructors,
     })
 }
 
@@ -123,6 +141,7 @@ fn expand_variants(
     lifetime: &Lifetime,
     rca: &TokenStream,
     input: &DeriveInput,
+    root: &Ident,
     fallback: &TokenStream,
 ) -> syn::Result<(Vec<TokenStream>, Vec<[TokenStream; 2]>)> {
     let mut constructors = Vec::new();
@@ -132,6 +151,7 @@ fn expand_variants(
         let Some((method, constructor, case)) = expand_variant(
             &VariantContext {
                 input,
+                root,
                 variant,
                 fallback,
             },
@@ -172,7 +192,7 @@ fn expand_variant(
     let input = context.input;
     let variant = context.variant;
     let fallback = context.fallback;
-    let action_ident = &input.ident;
+    let action_ident = context.root;
     let visibility = &input.vis;
     let projection = projection(&variant.attrs)?;
     validate_field_attributes(&variant.fields)?;
@@ -547,6 +567,7 @@ mod tests {
         let (method, constructor, case) = super::expand_variant(
             &super::VariantContext {
                 input: &input,
+                root: &input.ident,
                 variant: &data.variants[0],
                 fallback: &proc_macro2::TokenStream::new(),
             },
@@ -608,7 +629,8 @@ mod tests {
                 Bytes([u8; PacketPaths]),
             }
         };
-        let parts = super::expand_parts(&input, None).expect("const-only expansion succeeds");
+        let parts =
+            super::expand_parts(&input, None, &input).expect("const-only expansion succeeds");
         let namespace: syn::ItemStruct =
             syn::parse2(parts.namespace).expect("const-only path namespace");
         assert_eq!(namespace.ident, "PacketPaths");

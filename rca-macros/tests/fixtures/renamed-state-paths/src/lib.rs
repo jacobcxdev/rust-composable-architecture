@@ -8,6 +8,11 @@ pub struct Exported<T> {
 }
 
 #[derive(StatePaths)]
+pub struct Shadowed<Shadowed> {
+    pub value: Shadowed,
+}
+
+#[derive(StatePaths)]
 pub enum Aggregate<T> {
     Tuple(T, String),
     Named { value: T, label: String },
@@ -16,6 +21,7 @@ pub enum Aggregate<T> {
 
 pub fn aggregate_paths_compile() {
     use_paths();
+    assert_eq!(ShadowedPaths::value().get(&Shadowed { value: 5 }), &5);
     assert_eq!(RenamedDependencyKey::live_value(), 7);
     let source = String::from("local");
     let path = AggregatePaths::<&str>::tuple();

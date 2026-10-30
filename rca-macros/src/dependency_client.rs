@@ -80,9 +80,15 @@ pub(crate) fn expand(input: &DeriveInput) -> syn::Result<TokenStream> {
         };
         values.push(quote!(#name: #value));
     }
-    let ident = &input.ident;
+    let (ident, alias) = crate::type_reference(
+        input,
+        &input.generics,
+        &input.generics,
+        &input.ident,
+        "DependencyClient",
+    );
     let (impl_generics, type_generics, where_clause) = input.generics.split_for_impl();
-    Ok(quote! {
+    let implementation = quote! {
         impl #impl_generics #ident #type_generics #where_clause {
             /// Constructs explicit endpoint test defaults without using production values.
             ///
@@ -99,7 +105,12 @@ pub(crate) fn expand(input: &DeriveInput) -> syn::Result<TokenStream> {
                 Self { #(#values),* }
             }
         }
-    })
+    };
+    if alias.is_empty() {
+        Ok(implementation)
+    } else {
+        Ok(quote!(const _: () = { #alias #implementation };))
+    }
 }
 
 /// Parses a field's explicit value and whether it bypasses endpoint validation.

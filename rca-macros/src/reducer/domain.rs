@@ -63,6 +63,7 @@ pub(super) fn expand(
     arguments: &Arguments,
     is_state: bool,
     rca: &TokenStream,
+    storage_generics: &syn::Generics,
 ) -> syn::Result<(Type, TokenStream)> {
     let item = match domain {
         Domain::Supplied(ty) => return Ok((ty.as_ref().clone(), TokenStream::new())),
@@ -112,12 +113,35 @@ pub(super) fn expand(
             ));
         }
     }
-    let name = &declaration.ident;
+    // The same domain appears in the storage impl and in free binding helpers.
+    // Each helper owns its generic scope, independently of the storage type.
+    let mut scopes = storage_generics.clone();
+    let where_clause = &storage_generics.where_clause;
+    let mut scope_tokens = quote!(#declaration #storage_generics #where_clause);
+    for binding in arguments.children.iter().map(|child| &child.binding).chain(
+        arguments
+            .cases
+            .iter()
+            .filter_map(|case| case.reduction.as_ref().map(|reduction| &reduction.binding)),
+    ) {
+        let signature = &binding.signature;
+        scope_tokens.extend(quote!(#signature));
+        scopes
+            .params
+            .extend(binding.signature.generics.params.iter().cloned());
+    }
+    let (name, alias) = crate::type_reference(
+        &scope_tokens,
+        &scopes,
+        &declaration.generics,
+        &declaration.ident,
+        "ReducerDomain",
+    );
     let type_arguments = state_paths::type_arguments(&declaration.generics);
     let ty = syn::parse_quote!(#name #type_arguments);
     let paths = paths(&declaration, is_state)?;
     strip_helpers(&mut declaration);
-    Ok((ty, quote!(#declaration #paths)))
+    Ok((ty, quote!(#declaration #alias #paths)))
 }
 
 /// Replaces inferred payload types without entering embedded Rust expressions.
@@ -201,9 +225,9 @@ fn replace(
 fn paths(declaration: &DeriveInput, is_state: bool) -> syn::Result<TokenStream> {
     let expand = |input: &DeriveInput, fallback: Option<&TokenStream>| {
         if is_state {
-            state_paths::expand_parts(input, fallback)
+            state_paths::expand_parts(input, fallback, declaration)
         } else {
-            action_paths::expand_parts(input, fallback)
+            action_paths::expand_parts(input, fallback, declaration)
         }
     };
     let conditional = |attributes: &[Attribute]| {
@@ -675,7 +699,14 @@ mod contract_tests {
         let arguments = arguments();
         for (is_state, expected) in [(true, "()"), (false, "::core::convert::Infallible")] {
             let domain: Domain = syn::parse_str("empty").unwrap();
-            let (ty, items) = expand(&domain, &arguments, is_state, &quote!(::rca)).unwrap();
+            let (ty, items) = expand(
+                &domain,
+                &arguments,
+                is_state,
+                &quote!(::rca),
+                &syn::Generics::default(),
+            )
+            .unwrap();
             let expected: Type = syn::parse_str(expected).unwrap();
             assert_eq!(
                 ty.to_token_stream().to_string(),
@@ -685,6 +716,80 @@ mod contract_tests {
                 items.is_empty(),
                 "empty domains do not declare generated items"
             );
+        }
+    }
+
+    #[test]
+    fn generated_domain_aliases_include_storage_parameters_and_all_members() {
+        let arguments = arguments();
+        for (source, is_state, storage, expected) in [
+            (
+                "struct State<State> { #[cfg(all())] value: State, #[cfg(all())] other: [State; __RcaStatePathsState] }",
+                true,
+                "<State>",
+                "__RcaReducerDomainState<State>",
+            ),
+            (
+                "enum Action<Action> { #[cfg(all())] Value(Action), #[cfg(all())] Pair(Action, [Action; __RcaActionPathsAction]) }",
+                false,
+                "<Action>",
+                "__RcaReducerDomainAction<Action>",
+            ),
+            (
+                "struct State<T> { value: T }",
+                true,
+                "<State, T>",
+                "__RcaReducerDomainState<T>",
+            ),
+        ] {
+            let domain: Domain = syn::parse_str(&format!("generated({source})")).unwrap();
+            let generics = syn::parse_str(storage).unwrap();
+            let (ty, expanded) =
+                expand(&domain, &arguments, is_state, &quote!(::rca), &generics).unwrap();
+            let expected: Type = syn::parse_str(expected).unwrap();
+            assert_eq!(
+                ty.to_token_stream().to_string(),
+                expected.to_token_stream().to_string()
+            );
+            let _: syn::File = syn::parse2(expanded).unwrap();
+        }
+    }
+
+    #[test]
+    fn generated_domains_avoid_independent_binding_generics() {
+        for selection in [
+            "child(child, reducer = Child, kind = required, state = state_path,
+                action = action_path,
+                bind(fn bind_child<State, Action, __RcaReducerDomainState>(child: Child)))",
+            "case(alert, policy = ephemeral, action = supplied(AlertAction),
+                state_path = state_path, action_path = action_path,
+                identity = identity, predicate = predicate,
+                bind(fn bind_alert<State, Action, __RcaReducerDomainState>(parent: Parent)))",
+            "child(child, reducer = Child, kind = required, state = state_path,
+                action = action_path,
+                bind(fn bind_child<State, Action>(child: Child)
+                    where State: Into<__RcaReducerDomainState>))",
+        ] {
+            let arguments: Arguments = syn::parse_str(&format!(
+                "state(empty), action(empty), body(generated), {selection}"
+            ))
+            .unwrap();
+            for (source, is_state, expected) in [
+                ("struct State {}", true, "__RcaReducerDomainState_"),
+                ("enum Action {}", false, "__RcaReducerDomainAction"),
+            ] {
+                let domain: Domain = syn::parse_str(&format!("generated({source})")).unwrap();
+                let (ty, expanded) = expand(
+                    &domain,
+                    &arguments,
+                    is_state,
+                    &quote!(::rca),
+                    &syn::Generics::default(),
+                )
+                .unwrap();
+                assert_eq!(ty.to_token_stream().to_string(), expected);
+                let _: syn::File = syn::parse2(expanded).unwrap();
+            }
         }
     }
 
@@ -879,9 +984,15 @@ mod contract_tests {
         ] {
             let domain: Domain =
                 syn::parse_str(&format!("generated({source})")).expect("parseable generated item");
-            let error = expand(&domain, &arguments, is_state, &quote!(::rca))
-                .err()
-                .expect("invalid generated domain");
+            let error = expand(
+                &domain,
+                &arguments,
+                is_state,
+                &quote!(::rca),
+                &syn::Generics::default(),
+            )
+            .err()
+            .expect("invalid generated domain");
             assert_eq!(error.to_string(), diagnostic, "{source}");
         }
     }
@@ -966,7 +1077,14 @@ mod contract_tests {
             ),
         ] {
             let domain: Domain = syn::parse_str(&format!("generated({source})")).unwrap();
-            let (ty, expanded) = expand(&domain, &arguments, is_state, &quote!(::rca)).unwrap();
+            let (ty, expanded) = expand(
+                &domain,
+                &arguments,
+                is_state,
+                &quote!(::rca),
+                &syn::Generics::default(),
+            )
+            .unwrap();
             let expanded: syn::File = syn::parse2(expanded).expect("valid generated Rust");
             let expected: syn::Item = syn::parse_str(expected).unwrap();
             assert_eq!(

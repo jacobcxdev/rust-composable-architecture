@@ -235,11 +235,155 @@ mod dependency_key_expansion_tests {
 
 #[cfg(test)]
 mod identifier_tests {
+    use quote::ToTokens;
+
     use super::{
         CrateOrigin, IdentifierClass, classify_identifier, dependency_origin,
         public_library_target, rust_ident,
     };
     use toml_edit::DocumentMut;
+
+    #[test]
+    fn type_references_alias_only_shadowing_type_parameters() {
+        for declaration in [
+            "struct Source;",
+            "struct Source<Other>(Other);",
+            "struct Source<const Source: usize>;",
+        ] {
+            let input: syn::DeriveInput = syn::parse_str(declaration).unwrap();
+            let (reference, alias) = super::type_reference(
+                &input,
+                &input.generics,
+                &input.generics,
+                &input.ident,
+                "Test",
+            );
+            assert_eq!(reference, input.ident);
+            assert!(alias.is_empty());
+        }
+        for declaration in [
+            "struct Source<Source>(Source);",
+            "struct r#Source<Source>(Source);",
+            "struct Source<r#Source>(Source);",
+        ] {
+            let input: syn::DeriveInput = syn::parse_str(declaration).unwrap();
+            let (reference, alias) = super::type_reference(
+                &input,
+                &input.generics,
+                &input.generics,
+                &input.ident,
+                "Test",
+            );
+            assert_eq!(reference, "__RcaTestSource");
+            let alias: syn::ItemType = syn::parse2(alias).unwrap();
+            assert_eq!(alias.ident, reference);
+            assert_eq!(
+                alias.generics.type_params().next().unwrap().ident,
+                "__RcaTestSourceType0"
+            );
+            let name = &input.ident;
+            let expected: syn::Type = syn::parse_quote!(#name<__RcaTestSourceType0>);
+            assert_eq!(
+                alias.ty.to_token_stream().to_string(),
+                expected.to_token_stream().to_string()
+            );
+        }
+        let input: syn::DeriveInput = syn::parse_quote! {
+            struct Source<Source, __RcaTestSource>(Source, __RcaTestSource);
+        };
+        let (reference, _) = super::type_reference(
+            &input,
+            &input.generics,
+            &input.generics,
+            &input.ident,
+            "Test",
+        );
+        assert_eq!(reference, "__RcaTestSource_");
+        let (other, _) = super::type_reference(
+            &input,
+            &input.generics,
+            &input.generics,
+            &input.ident,
+            "Other",
+        );
+        assert_eq!(other, "__RcaOtherSource");
+    }
+
+    #[test]
+    fn type_aliases_preserve_arguments_without_copying_bounds_or_defaults() {
+        let input: syn::DeriveInput = syn::parse_quote! {
+            struct Source<'a: 'b, 'b, Source: Trait = DefaultValue, const N: usize = WIDTH>
+            where Source: OtherTrait {
+                value: &'a Source,
+                bytes: &'b [u8; N],
+                collision: __RcaTestSourceType2,
+            }
+        };
+        let (_, alias) = super::type_reference(
+            &input,
+            &input.generics,
+            &input.generics,
+            &input.ident,
+            "Test",
+        );
+        let alias: syn::ItemType = syn::parse2(alias).unwrap();
+        let expected: syn::ItemType = syn::parse_quote! {
+            #[doc(hidden)]
+            type __RcaTestSource<'a, 'b, __RcaTestSourceType2_, const N: usize> =
+                Source<'a, 'b, __RcaTestSourceType2_, { N }>;
+        };
+        assert_eq!(
+            alias.to_token_stream().to_string(),
+            expected.to_token_stream().to_string()
+        );
+        let (_, alias) = super::type_reference(
+            &input,
+            &input.generics,
+            &syn::Generics::default(),
+            &input.ident,
+            "Test",
+        );
+        let alias: syn::ItemType = syn::parse2(alias).unwrap();
+        assert!(alias.generics.params.is_empty());
+        let expected: syn::Type = syn::parse_quote!(Source);
+        assert_eq!(
+            alias.ty.to_token_stream().to_string(),
+            expected.to_token_stream().to_string()
+        );
+    }
+
+    #[test]
+    fn shadowed_types_keep_expansions_parseable_without_rewriting_input() {
+        type Expander = fn(&syn::DeriveInput) -> syn::Result<proc_macro2::TokenStream>;
+        let cases: [(&str, Expander); 5] = [
+            (
+                "struct State<State, StatePaths> { value: identity!(State), other: StatePaths }",
+                super::state_paths::expand,
+            ),
+            (
+                "enum Action<Action, ActionPaths> { Value(Action), Pair(Action, ActionPaths) }",
+                super::action_paths::expand,
+            ),
+            (
+                "enum Event<Event, EventCase, EventCaseRef, EventCases> { Value(Event), Pair(EventCase, EventCaseRef, EventCases) }",
+                super::case_descriptors::expand,
+            ),
+            (
+                "struct Source<Source, SourceSnapshot> { value: identity!(Source), other: SourceSnapshot }",
+                super::snapshot::expand,
+            ),
+            (
+                "struct Client<Client> { #[dependency(member = ::core::marker::PhantomData)] marker: ::core::marker::PhantomData<Client> }",
+                super::dependency_client::expand,
+            ),
+        ];
+        for (source, expand) in cases {
+            let input: syn::DeriveInput = syn::parse_str(source).unwrap();
+            let original = input.to_token_stream().to_string();
+            let _: syn::File = syn::parse2(expand(&input).unwrap()).unwrap();
+            assert_eq!(input.to_token_stream().to_string(), original);
+        }
+    }
 
     #[test]
     fn classifies_generated_identifiers_without_overescaping_contextual_words() {
@@ -390,6 +534,24 @@ mod identifier_tests {
             }
             let expected = match case.as_str() {
                 "missing" => {
+                    type Expander = fn(&syn::DeriveInput) -> syn::Result<proc_macro2::TokenStream>;
+                    let cases: [(&str, Expander); 3] = [
+                        ("struct State<State>(State);", super::state_paths::expand),
+                        (
+                            "enum Action<Action> { Value(Action) }",
+                            super::action_paths::expand,
+                        ),
+                        ("struct State<State>(State);", super::snapshot::expand),
+                    ];
+                    for (source, expand) in cases {
+                        let input = syn::parse_str(source).unwrap();
+                        assert_eq!(
+                            expand(&input)
+                                .expect_err("aliases cannot bypass dependency resolution")
+                                .to_string(),
+                            "RCA macros require `rust-composable-architecture` or `rca-core` in Cargo dependencies",
+                        );
+                    }
                     let error = super::reducer::expand(
                         quote::quote!(state(empty), action(empty), body(generated)),
                         quote::quote!(
@@ -1189,6 +1351,55 @@ pub(crate) fn canonical_ident(ident: &syn::Ident) -> String {
         name.replace_range(..2, "");
     }
     name
+}
+
+/// Shields generated type references without rewriting caller-owned generic syntax.
+///
+/// Fresh alias parameters leave caller bounds, payload macros and value paths
+/// untouched. Type aliases avoid import ambiguity with crate names, including
+/// function-local declarations. Target parameters can differ from emitted scopes.
+pub(crate) fn type_reference(
+    input: &impl quote::ToTokens,
+    generics: &syn::Generics,
+    target_generics: &syn::Generics,
+    name: &syn::Ident,
+    context: &str,
+) -> (syn::Ident, proc_macro2::TokenStream) {
+    let canonical = canonical_ident(name);
+    if !generics
+        .type_params()
+        .any(|parameter| canonical_ident(&parameter.ident) == canonical)
+    {
+        return (name.clone(), proc_macro2::TokenStream::new());
+    }
+    let alias = state_paths::fresh_binding(input, &format!("__Rca{context}{canonical}"));
+    let mut parameters = syn::Generics::default();
+    for (index, parameter) in target_generics.params.iter().enumerate() {
+        parameters.params.push(match parameter {
+            syn::GenericParam::Lifetime(parameter) => {
+                let lifetime = &parameter.lifetime;
+                syn::parse_quote!(#lifetime)
+            }
+            syn::GenericParam::Type(_) => {
+                let ident = state_paths::fresh_binding(
+                    input,
+                    &format!("__Rca{context}{canonical}Type{index}"),
+                );
+                syn::parse_quote!(#ident)
+            }
+            syn::GenericParam::Const(parameter) => {
+                let ident = &parameter.ident;
+                let ty = &parameter.ty;
+                syn::parse_quote!(const #ident: #ty)
+            }
+        });
+    }
+    let arguments = state_paths::type_arguments(&parameters);
+    let declaration = quote! {
+        #[doc(hidden)]
+        type #alias #parameters = #name #arguments;
+    };
+    (alias, declaration)
 }
 
 /// Converts case names to methods without discarding valid identifier-only spellings.

@@ -7,11 +7,11 @@ use proc_macro2::TokenStream;
 use quote::quote;
 use syn::{Data, DeriveInput, Fields, Type};
 
-use crate::canonical_ident;
 use crate::state_paths::{
     declaration_generics, fresh_binding, generic_namespace, projection_lifetime, source_generics,
     source_type, type_arguments,
 };
+use crate::{canonical_ident, type_reference};
 
 /// Emits the tag, view and catalogue together so their case order stays aligned.
 ///
@@ -38,6 +38,27 @@ pub(crate) fn expand(input: &DeriveInput) -> syn::Result<TokenStream> {
     tag.set_span(root.span());
     let view = syn::Ident::new(&format!("{name}CaseRef"), root.span());
     let namespace = syn::Ident::new(&format!("{name}Cases"), root.span());
+    let (root, root_alias) = type_reference(
+        input,
+        &input.generics,
+        &input.generics,
+        root,
+        "CaseDescriptors",
+    );
+    let (tag_reference, tag_alias) = type_reference(
+        input,
+        &input.generics,
+        &syn::Generics::default(),
+        &tag,
+        "CaseDescriptors",
+    );
+    let (namespace_reference, namespace_alias) = type_reference(
+        input,
+        &input.generics,
+        &input.generics,
+        &namespace,
+        "CaseDescriptors",
+    );
     let visibility = &input.vis;
     let root_arguments = type_arguments(&input.generics);
     let root_type: Type = syn::parse_quote!(#root #root_arguments);
@@ -53,6 +74,13 @@ pub(crate) fn expand(input: &DeriveInput) -> syn::Result<TokenStream> {
     if borrowed {
         view_generics.params.insert(0, syn::parse_quote!(#lifetime));
     }
+    let (view_reference, view_alias) = type_reference(
+        input,
+        &input.generics,
+        &view_generics,
+        &view,
+        "CaseDescriptors",
+    );
     let (view_declaration, view_where) = declaration_generics(&view_generics, &root_type);
     let view_arguments = type_arguments(&view_generics);
     let (view_impl_generics, _, view_impl_where) = view_generics.split_for_impl();
@@ -101,13 +129,13 @@ pub(crate) fn expand(input: &DeriveInput) -> syn::Result<TokenStream> {
             Fields::Unit => (
                 quote!(#case),
                 quote!(#root::#case),
-                quote!(#view::#case),
+                quote!(#view_reference::#case),
                 quote!(Self::#case),
             ),
             Fields::Unnamed(_) => (
                 quote!(#case(#(&#lifetime #types),*)),
                 quote!(#root::#case(#(#bindings),*)),
-                quote!(#view::#case(#(#bindings),*)),
+                quote!(#view_reference::#case(#(#bindings),*)),
                 quote!(Self::#case(..)),
             ),
             Fields::Named(fields) => {
@@ -119,15 +147,15 @@ pub(crate) fn expand(input: &DeriveInput) -> syn::Result<TokenStream> {
                 (
                     quote!(#case { #(#names: &#lifetime #types),* }),
                     quote!(#root::#case { #(#names: #bindings),* }),
-                    quote!(#view::#case { #(#names: #bindings),* }),
+                    quote!(#view_reference::#case { #(#names: #bindings),* }),
                     quote!(Self::#case { .. }),
                 )
             }
         };
         tags.push(quote!(#(#attributes)* #case));
         members.push(quote!(#(#attributes)* #member));
-        catalogue.push(quote!(#(#attributes)* #tag::#case));
-        cases.push(quote!(#(#attributes)* #pattern => #tag::#case));
+        catalogue.push(quote!(#(#attributes)* #tag_reference::#case));
+        cases.push(quote!(#(#attributes)* #pattern => #tag_reference::#case));
         projections.push(quote!(#(#attributes)* #pattern => #projected));
         labels.push(quote!(#(#attributes)* Self::#case => ::core::option::Option::Some(#label)));
         debug.push(quote!(#(#attributes)* #debug_pattern => #formatter.write_str(#debug_label)));
@@ -154,6 +182,10 @@ pub(crate) fn expand(input: &DeriveInput) -> syn::Result<TokenStream> {
         quote!(self)
     };
     Ok(quote! {
+        #root_alias
+        #tag_alias
+        #view_alias
+        #namespace_alias
         /// Identifies a case independently of payloads and diagnostic labels.
         #[derive(
             ::core::fmt::Debug,
@@ -194,7 +226,7 @@ pub(crate) fn expand(input: &DeriveInput) -> syn::Result<TokenStream> {
         const _: () = {
             #[allow(unused_imports, reason = "aliases shield generated bindings from caller constants")]
             use ::core::mem::{#(drop as #shielded),*};
-            impl #view_impl_generics ::core::fmt::Debug for #view #view_arguments #view_impl_where {
+            impl #view_impl_generics ::core::fmt::Debug for #view_reference #view_arguments #view_impl_where {
                 fn fmt(&self, #formatter: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
                     match #match_debug {
                         #(#debug),*
@@ -206,11 +238,11 @@ pub(crate) fn expand(input: &DeriveInput) -> syn::Result<TokenStream> {
         const _: () = {
             #[allow(unused_imports, reason = "aliases shield generated bindings from caller constants")]
             use ::core::mem::{#(drop as #shielded),*};
-            impl #impl_generics #namespace #arguments #where_clause {
+            impl #impl_generics #namespace_reference #arguments #where_clause {
                 /// Lists enabled cases in source declaration order.
-                #visibility const ALL: &'static [#tag] = &[#(#catalogue),*];
+                #visibility const ALL: &'static [#tag_reference] = &[#(#catalogue),*];
                 /// Identifies the actual case without comparing its payload.
-                #visibility fn case(#source: &#root_type) -> #tag {
+                #visibility fn case(#source: &#root_type) -> #tag_reference {
                     match #match_source {
                         #(#cases),*
                     }
@@ -218,7 +250,7 @@ pub(crate) fn expand(input: &DeriveInput) -> syn::Result<TokenStream> {
                 /// Projects typed references to the original case fields.
                 #visibility fn project #project_generics (
                     #source: #source_reference
-                ) -> #view #view_arguments {
+                ) -> #view_reference #view_arguments {
                     match #match_source {
                         #(#projections),*
                     }
