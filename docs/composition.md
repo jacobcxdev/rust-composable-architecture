@@ -4,6 +4,39 @@ RCA composes reducers with borrowing paths, ordered tuples, and Store-owned
 child lifetimes. Required, optional, enum-case, and keyed composition work
 without macros from `rca-core` and the umbrella `rca` crate.
 
+## Choose the smallest composition model
+
+When child work returns actions through effects, start with reducer composition.
+Each child borrows its part of the parent state during a synchronous call.
+This is *static composition*: Rust knows the reducer types and routes at compile time.
+It does not mean that state, child membership or asynchronous work must be static.
+
+| State relationship | Use | Lifetime decision |
+| --- | --- | --- |
+| One required child field | `scope` | The child shares its parent's lifetime. |
+| A required child that can be replaced | `scope_identified` | A changed identity ends the previous child lifetime. |
+| An optional child | `if_some` | Absence ends the child lifetime. Use `if_some_identified` for replacement while still present. |
+| One active enum case | `if_case` | Leaving the case ends its lifetime. Use `if_case_identified` for replacement within the same case. |
+| Independently removable children with stable IDs | `KeyedState` and `for_each` | Moving an entry preserves it. Removal and reinsertion create a new lifetime. |
+| One ordered path whose removal discards a suffix | `StackState` and `stack` | Use a stack only when suffix removal matches the domain. See [recursive jobs](recursive-jobs.md). |
+
+Some children need their own Feature instance, typed task access, commands,
+outputs or fold contributions. Use [installed children](structural-features.md)
+for those capabilities.
+An installation is a Store-owned instance with a tracked lifetime, not another actor.
+Both models share the parent state and serial transaction order. Both support
+asynchronous work and reject output from ended child lifetimes.
+
+`for_each` reuses one child reducer across all entries. Put per-entry domain values
+in child state, not mutable fields on that shared reducer.
+An `EntryMount` can instead construct a separate Feature instance for each entry.
+Choose that form for per-instance captures or installed capabilities, not merely
+because the application has multiple children.
+
+The [keyed policy tests](../rca-test/tests/keyed_policy.rs) show the shared-reducer
+choice. The [installed roster tests](../rca-core/tests/fold_keyed.rs) show separate
+entry instances, retained order and replacement.
+
 ## Contracts
 
 Store ingress owns each action. During one serial reduction transaction, the
@@ -15,6 +48,10 @@ therefore observe the same value without requiring `Action: Clone`, `Sync`,
 their effects in that order. Tuple arities 1 through 12 are implemented. Every
 member must have exactly the same State and Action domains; there is no arity
 zero because an empty tuple cannot establish those domains.
+
+This order controls synchronous state changes and effect declarations. It does
+not make asynchronous effects finish in that order. If later work depends on
+earlier completion, use explicit sequencing.
 
 `scope(state_path, action_path, child)` lifts one required child reducer into a
 parent domain. On a matching action it borrows the child state, runs the child,
@@ -75,6 +112,12 @@ does not expose parent State or Action types. Its `send`, `try_send`, `read`,
 `scope_case_identified`, and `scope_keyed` register the current child generation
 at their mailbox position. These registered constructors are async because the
 root actor is the identity authority.
+
+The free `scope(...)` function composes behaviour. `Store::scope(...)` only creates
+a handle that routes calls to behaviour already present in the Store.
+Creating that handle does not install a reducer or add child-lifetime tracking.
+Use a registered scoped constructor for a replaceable static child. Use
+`Store::acquire` with a mount site for an [installed child](structural-features.md#install-once-then-acquire-the-installed-instance).
 
 Optional, case, identified, and keyed handles end permanently when their child
 is removed or its identity changes. Reinsertion creates another generation and

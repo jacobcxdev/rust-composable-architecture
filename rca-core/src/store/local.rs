@@ -1843,6 +1843,10 @@ impl<S: 'static, A: 'static> crate::effect::map::MapLeaves<S, A, LocalEffects, L
 /// Blocking reduction prevents cancellation and other work on that thread.
 ///
 /// Every reducer also implements [`Feature`], so Stores accept reducers directly.
+/// Start with this trait for action-based inputs and results, including
+/// asynchronous effects. Use [`Feature`] directly when [`Task`] work needs
+/// typed reads or updates of current state between awaits. This choice is
+/// separate from the choice of owner-thread execution.
 pub trait Reducer {
     /// Actor-owned state.
     type State;
@@ -1903,6 +1907,14 @@ where
 /// [`Reducer`] implements this trait automatically for action-and-effect logic.
 /// A direct implementation can also declare tasks with typed state access.
 /// Implement either trait on a type, not both. Both use the same Store constructors.
+///
+/// Start with [`Reducer`] when effects return result actions. Use this trait
+/// directly when a task needs current state between awaits. Reads and updates
+/// still run through the owner-thread actor and can fail after authority ends.
+/// Neither callback can suspend or retain borrowed state across an await.
+/// Reducer-only combinators require [`Reducer`]; installed children accept
+/// either form. Non-`Send` captures do not remove the owned `'static` bounds
+/// on work retained by a Store.
 pub trait Feature {
     /// Actor-owned state.
     type State;

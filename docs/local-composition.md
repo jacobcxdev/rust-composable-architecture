@@ -2,6 +2,25 @@
 
 Synchronous composition accepts local state and callbacks without requiring a local asynchronous runtime.
 
+## Two different meanings of local
+
+Borrowed synchronous composition and owner-thread execution solve different needs.
+
+| Need | Surface | Ownership boundary |
+| --- | --- | --- |
+| Compose reducers over borrowed or non-`Send` values during a synchronous call | The ordinary composition functions described here | Borrowing ends when the call returns. Returned effects retain their own bounds. |
+| Keep non-`Send` state, actions or future captures across asynchronous suspension | `rca::local` with the `local` feature | The owner thread must poll and destroy the work. Stored values still need `'static`. |
+| Run ordinary `Send` state and work on a current-thread Tokio runtime | The shared `Store` and `TokioRuntime` | Choosing one executor thread does not remove the shared API's transport bounds. |
+
+`'static` does not mean that a value lives forever. It means that the stored
+value cannot depend on a shorter-lived borrowed reference. An owned `Rc` can
+satisfy this bound. A reference into a caller's temporary stack frame cannot.
+
+Local execution does not remove every bound from every API. Dependency keys and
+values still use `DependencyValues` and its `Send + Sync + 'static` contract.
+Synchronous action embedding and identity metadata have the separate requirements
+listed below. Use their actual signatures, not the word "local", to decide eligibility.
+
 `SharedScope`, `ScopeIdentified`, `IfSome`, `IfSomeIdentified`, `IfCase` and
 `IfCaseIdentified` can call their children with borrowed or non-`Send` state.
 Their projection, split, extraction and identity callbacks may also borrow
@@ -9,9 +28,9 @@ local data or own non-`Send` captures. The parent and child reducers are called
 synchronously; their concrete stored fields determine their own lifetimes and
 auto traits.
 
-This is the same separation already used by ordinary `Scope`. It does not
-introduce `LocalStore`, a new effect carrier or asynchronous local execution.
-RCA also provides a separate owner-local asynchronous surface. See the
+This is the same separation already used by ordinary `Scope`. These synchronous
+adapters do not create an actor or choose an asynchronous runtime.
+RCA provides owner-local asynchronous execution through `rca::local::Store`. See the
 [structural Feature guide](structural-features.md#keep-thread-affine-work-on-its-owner)
 for that route. The bounds in this guide describe synchronous composition only.
 

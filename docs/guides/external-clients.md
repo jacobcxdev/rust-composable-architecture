@@ -9,6 +9,26 @@ The executable recipe is [`rca-test/tests/external_clients.rs`](../../rca-test/t
 It uses the public `rca-core` and `rca-test` APIs, a deterministic runtime and
 controlled endpoints. It never performs network requests or opens URLs.
 
+## Choose a dependency or a captured value
+
+Use an action payload for the input to one operation, such as a search query.
+Use state for domain information that changes through RCA transactions.
+Use a dependency for an application-owned capability, such as a network client
+or file service. A dependency is not another mutable state store.
+
+If the library cannot choose a safe provider, use an interface-only `DependencyKey`
+and explicit client injection. A live default suits an intentional
+application default, not an implicit provider selected by RCA. TestStore uses
+test defaults for missing keys and never falls back implicitly to live defaults.
+Explicit test injection can still select a live client, so tests must choose it
+deliberately. See [testing](testing.md#make-dependencies-and-progress-explicit).
+
+A captured client or request keeps the inputs selected at capture time. It does
+not refresh itself after a dependency or state change. Use a current actor read
+for current policy, and check commit-sensitive policy inside the update itself.
+The [session-refresh tests](../../rca-test/tests/session_client_refresh.rs)
+distinguish captured clients, current services and request identity.
+
 ## Define the boundary in the application
 
 The recipe's `ClientsKey` is interface-only: its `DependencyKey` implementation
@@ -55,6 +75,10 @@ return Effect::run(move |sender| async move {
 });
 ```
 
+Creating a provider future can itself run synchronous provider code. Its actual
+I/O and cancellation behaviour belong to that provider's contract. RCA does not
+make an arbitrary client lazy or undo work that the client already started.
+
 For events, poll the owned stream and send each typed item through that same
 sender. Stop forwarding when output is rejected. In the fixture a cancelled
 stream sends one distinct cancellation action and stops; graceful end-of-stream
@@ -83,6 +107,12 @@ Store shutdown revokes output authority, but a cancellation receipt is not a
 synchronous destructor fence for suspended work. The shutdown witness drives
 `DeterministicRuntime::run_until_stalled()` after shutdown before checking that
 request/URL completions and event admission reject dropped receivers.
+
+Use a controlled client to test RCA routing and ownership without real I/O.
+Use a real provider test to establish sockets, permissions, provider cancellation
+and background-worker cleanup. Neither test replaces the other. A client with
+timeouts must use an injected RCA clock for deterministic TestStore advancement.
+An unrelated timer or real service will not advance with that virtual clock.
 
 ## Respect child lifetime, without revoking fresh root input
 

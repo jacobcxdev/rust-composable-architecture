@@ -17,6 +17,19 @@ tied to that installation.
 The parent owns the child State. Input routing does not transfer that ownership.
 RCA supplies no renderer or native event-loop adapter.
 
+Use the [composition decision table](composition.md#choose-the-smallest-composition-model)
+before adding mounts. Ordinary reducer composition already supplies child lifetimes
+and cancellation. Mounts add installed instances and their typed capabilities.
+
+## Terms used in this guide
+
+- **State** holds the domain values that the parent owns. A child borrows only its selected part during a transaction.
+- **Feature instance** holds behaviour and private captures. Those captures are not automatically part of a TestStore state assertion.
+- **Declaration** describes how the Store selects, constructs and connects a child.
+- **Installation** is one live instance created from that declaration. An *incarnation* means one such lifetime, including its replacement identity.
+- **Authority** is permission to access that captured installation. It ends when the relevant Store, installation or configuration ends.
+- **Mount site** names a declaration without keeping its callbacks or child alive. Acquisition resolves the current installation into a typed context.
+
 Import shared authoring types directly from `rca`, or from `rca_core` in a
 runtime-neutral integration crate. This includes `Feature`, `EntryMount`,
 `Fold`, `InputGate` and `RemovalSite`. Owner-thread alternatives live under
@@ -34,6 +47,13 @@ runtime-neutral integration crate. This includes `Feature`, `EntryMount`,
 | Read contributions from installed descendants | `Fold<R, K>` | The committed roster determines membership and order. The read does not dispatch actions. |
 | Wait for a named set of tasks | `Operation::capture` returns an `OperationWait` | The captured wait excludes later generations. The reusable operation handle can capture again. |
 
+These routes are alternatives for specific needs, not a checklist for every feature.
+A root action is appropriate when the root owns the domain decision.
+A private child command avoids adding ancestor action cases solely to transport that input.
+An output transfers an owned result along its declared ancestor route.
+A fold answers a question about current descendants, such as their available capacity.
+Neither an output nor a fold creates a second state owner.
+
 The [uploader](../examples/composition-search/docs/uploader.md) uses one task for
 fetch, processing and upload. Progress uses serial updates. Domain completion
 uses an owned outcome. Separate actions for every internal task step are not
@@ -49,6 +69,18 @@ contributions. `RootMount` provides explicit root installation hooks.
 configuration identity. Replacement creates a new installation. Configuration
 changes invalidate previously acquired authority without necessarily rebuilding
 the Feature. Keyed reordering preserves the retained entries.
+
+| Change | Identity to use | Result |
+| --- | --- | --- |
+| The same worker moves within a list | Keep its business key and entry | The existing installation remains live. A list position is not its identity. |
+| A different business entity occupies the slot | Change `key` | The previous installation ends. |
+| A worker restarts with the same business ID | Change `replacement` | The Store constructs a fresh Feature instance. Old contexts cannot reach it. |
+| Policy changes, but the Feature's private cache must survive | Change `configuration` | The Feature stays installed, but old contexts lose authority. New work needs fresh acquisition. |
+
+The markers describe domain events, not every state edit. Leave them unchanged
+for ordinary progress updates. For an optional child, removing and restoring an
+equal value inside one callback is not visible as two separate transactions.
+If that sequence must represent a new lifetime, change its replacement marker.
 
 After `Store::ready`, `Store::acquire(&site)` returns the current child context
 or absence. The context stays bound to that installation and configuration.
@@ -93,6 +125,30 @@ selection from the previous and current selections of a changed transaction.
 [Reaction tests](../rca-core/tests/changed_reactions.rs)
 describe the exact pairing and callback order.
 
+## Choose a reaction, an observation or an explicit update
+
+Use the current reducer or Feature callback for a state change caused directly
+by its input. Use `TaskContext::update` for a later change made by that task.
+Both preserve the Store's serial transaction boundary.
+
+When follow-up work depends on changes from several input routes, use `on_change`.
+It compares selected values across a transaction, not one particular action. For example, a worker can
+react to a changed endpoint regardless of which command changed it.
+The selector must return an independent value. A cloned mutable handle does not
+preserve the value from before the transaction.
+
+Use `on_initial` for work tied to a new installation. If an `on_change` registration
+also needs one initial call, select `InitialPolicy::Run`.
+`InitialPolicy::Skip` limits that registration to later unequal transaction endpoints.
+If one transaction changes a value and restores it, `on_change` sees no change.
+Configuration refresh does not replay initial work.
+
+Use `observe` or `observe_distinct` to deliver current values to an external
+consumer, such as a status display. Slow consumers can miss intermediate values.
+Neither observation nor a reaction is an audit log of every assignment.
+Use TestStore transaction assertions for exhaustive tests. Use a domain-owned
+event log when the application must retain every business event.
+
 ## Keep input admission, outcomes and reads separate
 
 A `CommandPort` captures send-only authority. `try_send` succeeds at queue
@@ -122,6 +178,34 @@ The [fold tests](../rca-core/tests/fold.rs) and
 [shape tests](../rca-core/tests/fold_shape.rs) show the actual ordering.
 The [capacity fixture](../rca-core/tests/fold_input_gate.rs) checks the literal
 `5 → 3 → 0` result as domain values change while both declarations stay installed.
+
+## Choose input closure, removal or owned extraction
+
+Close an input gate to stop ordinary new commands while retaining the child,
+its state, tasks and fold contribution. Remove the child from parent state when
+its lifetime must end. Neither operation proves that an external service stopped.
+
+For removal that must return the exact owned child, declare a removable child
+and retain its `RemovalSite`. The surviving parent's `TaskContext::remove_child`
+also requires the captured child context. This prevents a delayed removal from
+selecting a replacement merely because it has the same key.
+
+The `before` callback borrows the still-owned child. After retirement, the `after`
+callback receives `RemovedChild` and the surviving parent context.
+Use `into_inner` to retain plain owned data. This discards the special transfer
+authority, not the data. Use `into_output` inside that callback to declare an
+owned outcome through an eligible parent-sourced output route.
+The removed child's old context cannot send that outcome instead.
+
+The `RemovedChild` capability cannot cross an await or escape the synchronous
+callback. `into_output` declares follow-up work, not successful delivery.
+Its delivery callback and the provider's cleanup still need their own handling.
+Checked stack removal through `stack_removable` accepts only the last entry,
+unlike the suffix removal of `StackAction::PopFrom`.
+
+The [owned removal tests](../rca-core/tests/removed_child.rs) exercise exact payload
+ownership, stale targets, parent-owned output and rejected transfer. The
+[Local tests](../rca-core/tests/local_removed_child.rs) cover non-`Send` values.
 
 ## Keep thread-affine work on its owner
 

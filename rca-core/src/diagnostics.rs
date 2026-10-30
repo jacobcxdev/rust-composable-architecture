@@ -19,7 +19,7 @@
 //! [`LifecycleEvent`], [`LifecycleKind`] and [`CancellationCause`] describe lifecycle
 //! facts without retaining State, routes, tasks or completion leases. Register a
 //! callback with [`StoreBuilder::with_lifecycle_diagnostics`] or the corresponding
-//! Feature/local builder method. Unlike change tracing,
+//! owner-thread Store builder method. Unlike change tracing,
 //! lifecycle delivery runs in both debug and release builds. It reports actual
 //! installation, retirement, configuration, cancellation and normal-stop facts,
 //! not value differences or work completion. No logger or history is retained.

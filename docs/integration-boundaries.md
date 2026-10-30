@@ -28,6 +28,43 @@ restart its former tasks: decide explicitly which jobs to launch after loading.
 Inject clients per Store or TestStore as shown in the
 [dependency guide](runtime.md#dependencies); no global test mode is needed.
 
+## Choose shared state or persistence
+
+Shared state and saved state solve different problems. A shared in-memory value
+lets several consumers access one resource. It does not survive process exit
+unless an explicit provider saves it.
+
+| Requirement | Starting point | Boundary to retain |
+| --- | --- | --- |
+| Share one in-memory value | `Shared` or read-only `SharedReader` | Shared access does not imply persistence |
+| Load or subscribe to a provider resource through a cache | `SharedReaderKey` or `SharedKey` | The provider defines loading, delivery and save guarantees |
+| Connect raw storage and a codec to that cache | `BackendKey` | Saves are explicit, with no document flush barrier or watcher |
+| Coordinate one actor-owned document with edits and acknowledgements | `Document` | Its state and reducer form one lifetime |
+| Connect document coordination to cached shared values | `SharedDocument` with `DocumentKey` | Retain the owned session through physical cleanup |
+| Reject writes that conflict with another writer | `SharedDocument::revisioned` with `RevisionBackend` | The backend must provide genuine atomic compare-and-save |
+
+For a single-writer saved document without shared-cache integration, start with
+`Document`. `BackendKey` is a smaller adapter, not a document
+coordinator: a save does not refresh existing cached values. Reload explicitly.
+`SharedDocument::new` is unversioned and does not detect external write conflicts.
+
+Document revision, backend revision and schema version are different identities.
+A document revision counts local edits. A backend revision identifies a storage
+version for atomic comparison. The codec defines the schema version.
+File replacement alone does not supply conflict detection. The supplied file
+backend does not implement `RevisionBackend` for arbitrary external writers.
+
+Before adding revision-aware storage, choose an explicit conflict policy.
+The revisioned shared document retains local and external evidence on a conflict
+instead of silently overwriting newer data. RCA does not choose a merge policy.
+Application code owns recovery and any caller decision. The
+[shared-document tests](../rca-persistence/tests/shared_document.rs) cover conflict,
+failed saves, superseded loads and retained backend sessions.
+
+The [persistent counter](../examples/persistent-counter/README.md) separates a
+successful save acknowledgement from backend cleanup and Store shutdown.
+Neither a state snapshot nor a finished action task proves durable storage.
+
 ## Native controls belong to the host
 
 A taskbar, window or native control owns rendering, activation and platform

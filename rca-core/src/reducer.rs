@@ -6,6 +6,21 @@ use crate::{Effect, ReduceContext};
 
 /// Mutates feature state and returns follow-up work.
 ///
+/// Start with `Reducer` when actions describe the inputs and results of your
+/// feature. Returned [`Effect`] values can perform asynchronous work and send
+/// more actions. A network request alone does not require a direct
+/// [`crate::Feature`] implementation. [`Reduce::new`] wraps a small closure
+/// without a named trait implementation.
+///
+/// Use [`crate::Feature::update`] directly when a typed [`crate::Task`] needs
+/// to read or update current state between asynchronous steps. Both callbacks
+/// are synchronous: neither can retain borrowed state across an await.
+///
+/// [`crate::combine`], [`crate::scope`] and [`crate::for_each`] require reducers.
+/// They route borrowed state and actions and map returned effects. Installed
+/// children instead accept either reducers or direct Features. The choice of
+/// trait does not decide whether a child can have its own lifetime.
+///
 /// Synchronous reduction may use borrowed or non-`Send` values. Actor-backed
 /// [`crate::Store`] construction requires the reducer, state and action to be
 /// `Send + 'static`; asynchronous effects retain their owned capture bounds.
@@ -16,8 +31,8 @@ use crate::{Effect, ReduceContext};
 /// borrowed actions do not, even when the child returns no effects.
 ///
 /// Every reducer also implements [`crate::Feature`] without an adapter.
-/// Both forms use the same Store and `TestStore` constructors. Implement
-/// `Feature` directly when the callback needs tasks with typed state access.
+/// Both forms use the same Store and `TestStore` constructors. Implement one
+/// trait explicitly per type, not both: the automatic implementation would conflict.
 pub trait Reducer {
     /// State exclusively borrowed during one reduction.
     type State;

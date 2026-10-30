@@ -10,6 +10,12 @@ an adapter. Direct feature implementations can also start typed tasks that read
 or update state through the Store. Both forms use the same store constructors
 and support installed children, private commands and declared outputs.
 
+Start with `Reducer` for action-based inputs and results, including asynchronous
+effects. Use direct `Feature` implementations when tasks need typed reads or
+updates of current State between awaits. Neither callback itself is asynchronous.
+The [authoring choices](docs/guides/authoring.md#choose-an-authoring-form) explain
+the trade-offs, composition rules and examples.
+
 The Store owns state and processes each change in order. Applications select the
 runtime and supply external services.
 
@@ -188,7 +194,11 @@ The [persistent counter](examples/persistent-counter) demonstrates this sequence
 
 Start with the [authoring guide](docs/guides/authoring.md) for a workflow that
 covers state, effects, dependencies, child identity and exhaustive tests.
+Its [decision index](docs/guides/authoring.md#find-a-decision) links common API choices.
 
+- [Testing](docs/guides/testing.md) explains assertions, snapshots, virtual time and controlled clients.
+- [Dependencies and shared state](docs/guides/dependencies-and-shared-state.md) explains where data belongs and how overrides work.
+- [Diagnostics](docs/guides/diagnostics.md) distinguishes change tracing, lifecycle facts and application logging.
 - [Runtime contracts](docs/runtime.md) and [receipt lifetimes](docs/receipt-lifetimes.md) explain scheduling, cancellation and completion.
 - [Reducer composition](docs/composition.md) and [structural Features](docs/structural-features.md) explain the two composition routes.
 - [Headless integration boundaries](docs/integration-boundaries.md) describe native hosts and external services.

@@ -6,8 +6,19 @@
 //! Shared APIs use root imports such as [`Store`], [`Feature`] and [`Runtime`].
 //! A [`Reducer`] changes state synchronously and returns [`Effect`] values.
 //! [`combine`], [`scope`] and [`for_each`] compose reducers, including keyed child instances.
-//! [`Feature`] also supports typed [`Task`] values and mounted child features.
+//! Every reducer implements [`Feature`] automatically. Both forms support mounted children.
+//! A direct `Feature` implementation can also declare typed [`Task`] values.
 //! The caller supplies the runtime. RCA installs no executor or UI framework.
+//!
+//! # Choosing an authoring form
+//!
+//! Start with [`Reduce::new`] or [`Reducer`] when inputs and asynchronous results
+//! pass through actions. Use [`Feature`] directly when tasks need typed reads
+//! or updates of current State between awaits. Both callbacks are synchronous.
+//! Both use the same [`Store::new`] and [`Store::builder`] constructors.
+//! Reducer-only combinators require `Reducer`; installed children accept either form.
+//! A type implements one trait explicitly, not both. See [`Feature`] for the
+//! ownership and testing consequences.
 //!
 //! # Features
 //!
