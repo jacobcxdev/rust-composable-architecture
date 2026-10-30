@@ -811,7 +811,7 @@ impl SharedKeyCache {
     /// Losing candidates and displaced weak entries are destroyed after unlocking.
     fn publish<Key: SharedReaderKey>(
         &self,
-        compatibility: Compatibility,
+        mut compatibility: Compatibility,
         candidate: Arc<SharedReference<Key::Value>>,
     ) -> Result<SharedReader<Key::Value>, SharedKeyError<Key::Error>> {
         let erased: Arc<dyn Any + Send + Sync> = Arc::clone(&candidate) as Arc<_>;
@@ -827,10 +827,10 @@ impl SharedKeyCache {
                 });
             let previous = if winner.is_none() {
                 entries.insert(
-                    compatibility.identity.address.into_boxed_str(),
+                    take_compact(&mut compatibility.identity.address),
                     Entry {
                         codec: compatibility.identity.codec,
-                        configuration: compatibility.identity.configuration.into_boxed_str(),
+                        configuration: take_compact(&mut compatibility.identity.configuration),
                         reference: Arc::downgrade(&erased),
                     },
                 )
@@ -855,6 +855,16 @@ impl SharedKeyCache {
         Ok(SharedReader {
             reference: candidate,
         })
+    }
+}
+
+/// Moves compact text or copies it without releasing its excess capacity.
+fn take_compact(text: &mut String) -> Box<str> {
+    if text.len() == text.capacity() {
+        std::mem::take(text).into_boxed_str()
+    } else {
+        // The caller releases the original buffer after the cache lock.
+        Box::from(text.as_str())
     }
 }
 
@@ -1061,6 +1071,47 @@ fn poisoned<Cause>() -> SharedKeyError<Cause> {
 ordinary_test_items! {
     mod tests {
         use super::*;
+
+        /// Checks that the result owns each non-empty, exact-sized buffer.
+        #[test]
+        fn take_compact_transfers_exact_capacity_buffers() {
+            for expected in ["", "shared-profile"] {
+                let mut text = Box::<str>::from(expected).into_string();
+                let pointer = text.as_ptr();
+                assert_eq!(text.capacity(), text.len());
+
+                let compact = take_compact(&mut text);
+
+                assert_eq!(compact.as_ref(), expected);
+                if !expected.is_empty() {
+                    assert_eq!(compact.as_ptr(), pointer);
+                }
+                assert!(text.is_empty());
+                assert_eq!(text.capacity(), 0);
+            }
+        }
+
+        /// Checks that copies leave oversized buffers with the caller.
+        #[test]
+        fn take_compact_preserves_buffers_with_spare_capacity() {
+            for expected in ["", "shared-profile"] {
+                let mut text = String::with_capacity(expected.len() + 16);
+                text.push_str(expected);
+                let pointer = text.as_ptr();
+                let capacity = text.capacity();
+                assert!(capacity > text.len());
+
+                let compact = take_compact(&mut text);
+
+                assert_eq!(compact.as_ref(), expected);
+                assert_eq!(text, expected);
+                assert_eq!(text.as_ptr(), pointer);
+                assert_eq!(text.capacity(), capacity);
+                if !expected.is_empty() {
+                    assert_ne!(compact.as_ptr(), pointer);
+                }
+            }
+        }
 
         // Diagnostic formatting must neither require Debug on values nor disclose them.
         #[test]
