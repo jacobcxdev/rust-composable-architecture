@@ -1,21 +1,15 @@
 //! Measures cache construction, live-hit and error-formatting allocations in isolated tests.
-
-#![cfg(feature = "allocation-measurement")]
-
-#[path = "../src/allocation_test/child.rs"]
-mod allocation_test;
+//!
+//! The dedicated allocation host runs each case without a concurrent libtest thread.
 
 use std::convert::Infallible;
 use std::hint::black_box;
 
-use rca_core::{
+use crate::allocation_test;
+use crate::{
     SharedKeyCache, SharedKeyIdentity, SharedLoadContext, SharedReaderKey, SharedSubscribeContext,
     SharedSubscriber,
 };
-
-/// Records allocation events inside each isolated test's profiler interval.
-#[global_allocator]
-static ALLOCATOR: dhat::Alloc = dhat::Alloc;
 
 /// Allows initial construction but rejects provider work during a live cache hit.
 struct Key {
@@ -50,8 +44,11 @@ impl SharedReaderKey for Key {
     }
 }
 
-#[test]
-fn live_cache_hits_allocate_only_the_requested_identity() {
+/// Checks that live hits allocate only the caller's requested identity.
+///
+/// # Panics
+/// Panics if a live hit constructs a provider or exceeds its allocation budget.
+pub(crate) fn live_cache_hits_allocate_only_the_requested_identity() {
     if allocation_test::run_in_child("live_cache_hits_allocate_only_the_requested_identity") {
         return;
     }
@@ -84,8 +81,11 @@ fn live_cache_hits_allocate_only_the_requested_identity() {
     assert_eq!(bytes, 24_576);
 }
 
-#[test]
-fn shared_key_error_debug_formats_without_allocating() {
+/// Checks that both debug formats write directly into fixed storage.
+///
+/// # Panics
+/// Panics if formatting changes, fails or allocates.
+pub(crate) fn shared_key_error_debug_formats_without_allocating() {
     use std::fmt::{self, Write as _};
 
     /// Holds formatted bytes without adding destination allocations to the measurement.
@@ -304,8 +304,11 @@ fn publication_allocations(late_winner: bool) -> u64 {
     after.total_blocks - before.total_blocks
 }
 
-#[test]
-fn cold_publication_keeps_its_required_construction_allocations() {
+/// Checks the construction budget and ownership of a cold publication.
+///
+/// # Panics
+/// Panics if construction, cleanup or the allocation budget changes.
+pub(crate) fn cold_publication_keeps_its_required_construction_allocations() {
     if allocation_test::run_in_child("cold_publication_keeps_its_required_construction_allocations")
     {
         return;
@@ -314,8 +317,11 @@ fn cold_publication_keeps_its_required_construction_allocations() {
     assert_eq!(publication_allocations(false), 8);
 }
 
-#[test]
-fn losing_publication_does_not_clone_winner_metadata() {
+/// Checks that a losing publication reuses the winner's existing metadata.
+///
+/// # Panics
+/// Panics if construction, cleanup or the allocation budget changes.
+pub(crate) fn losing_publication_does_not_clone_winner_metadata() {
     if allocation_test::run_in_child("losing_publication_does_not_clone_winner_metadata") {
         return;
     }
