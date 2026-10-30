@@ -673,7 +673,7 @@ class PairedComparisonTests(unittest.TestCase):
 
     def test_frozen_protocol_has_balanced_seeded_order(self):
         protocol = composition_performance.load_protocol(
-            REPO_ROOT / "docs/performance/composition/composition-protocol-v5.json"
+            REPO_ROOT / "docs/performance/composition/composition-protocol-v6.json"
         )
 
         schedule = composition_performance.seeded_order_schedule(protocol)
@@ -702,7 +702,7 @@ class PairedComparisonTests(unittest.TestCase):
 
     def test_distribution_free_upper_bound_exceeds_95_percent_joint_coverage(self):
         protocol = composition_performance.load_protocol(
-            REPO_ROOT / "docs/performance/composition/composition-protocol-v5.json"
+            REPO_ROOT / "docs/performance/composition/composition-protocol-v6.json"
         )
         schedule = composition_performance.seeded_order_schedule(protocol)
         repetitions = []
@@ -734,7 +734,7 @@ class PairedComparisonTests(unittest.TestCase):
 
     def test_upper_bound_rejects_ten_percent_point_estimate_with_noisy_tail(self):
         protocol = composition_performance.load_protocol(
-            REPO_ROOT / "docs/performance/composition/composition-protocol-v5.json"
+            REPO_ROOT / "docs/performance/composition/composition-protocol-v6.json"
         )
         schedule = composition_performance.seeded_order_schedule(protocol)
         repetitions = []
@@ -765,7 +765,7 @@ class PairedComparisonTests(unittest.TestCase):
 
     def test_upper_bound_rejects_missing_order_stratum_observation(self):
         protocol = composition_performance.load_protocol(
-            REPO_ROOT / "docs/performance/composition/composition-protocol-v5.json"
+            REPO_ROOT / "docs/performance/composition/composition-protocol-v6.json"
         )
         schedule = composition_performance.seeded_order_schedule(protocol)
         repetitions = [
@@ -785,14 +785,14 @@ class PairedComparisonTests(unittest.TestCase):
 
     def test_measurement_plan_is_frozen_before_results(self):
         protocol = composition_performance.load_protocol(
-            REPO_ROOT / "docs/performance/composition/composition-protocol-v5.json"
+            REPO_ROOT / "docs/performance/composition/composition-protocol-v6.json"
         )
 
         plan = composition_performance.measurement_plan(
             protocol, "candidate-reference"
         )
 
-        self.assertEqual(plan["method_version"], "composition-paired-v5")
+        self.assertEqual(plan["method_version"], "composition-paired-v6")
         self.assertEqual(plan["protocol_sha256"], composition_performance.PROTOCOL_SHA256)
         self.assertEqual(len(plan["runtime"]), 20 * 9)
         self.assertEqual(len(plan["compile"]), 20 * 4)
@@ -801,7 +801,7 @@ class PairedComparisonTests(unittest.TestCase):
 
     def test_aa_plan_uses_two_independent_reference_roles(self):
         protocol = composition_performance.load_protocol(
-            REPO_ROOT / "docs/performance/composition/composition-protocol-v5.json"
+            REPO_ROOT / "docs/performance/composition/composition-protocol-v6.json"
         )
 
         plan = composition_performance.measurement_plan(
@@ -834,7 +834,7 @@ class PairedComparisonTests(unittest.TestCase):
 
     def test_loads_twenty_isolated_pairs_and_parsed_resources(self):
         protocol = composition_performance.load_protocol(
-            REPO_ROOT / "docs/performance/composition/composition-protocol-v5.json"
+            REPO_ROOT / "docs/performance/composition/composition-protocol-v6.json"
         )
         schedule = composition_performance.seeded_order_schedule(protocol)
         with tempfile.TemporaryDirectory() as directory:
@@ -856,7 +856,7 @@ class PairedComparisonTests(unittest.TestCase):
 
     def test_rejects_missing_per_process_resource_counters(self):
         protocol = composition_performance.load_protocol(
-            REPO_ROOT / "docs/performance/composition/composition-protocol-v5.json"
+            REPO_ROOT / "docs/performance/composition/composition-protocol-v6.json"
         )
         with tempfile.TemporaryDirectory() as directory:
             root = pathlib.Path(directory)
@@ -880,7 +880,7 @@ class PairedComparisonTests(unittest.TestCase):
 
     def test_loads_contemporaneous_clean_compile_pairs(self):
         protocol = composition_performance.load_protocol(
-            REPO_ROOT / "docs/performance/composition/composition-protocol-v5.json"
+            REPO_ROOT / "docs/performance/composition/composition-protocol-v6.json"
         )
         with tempfile.TemporaryDirectory() as directory:
             root = pathlib.Path(directory)
@@ -905,7 +905,7 @@ class PairedComparisonTests(unittest.TestCase):
     def test_evaluates_isolated_runtime_and_clean_compile_ucbs(self):
         budget_path = REPO_ROOT / "docs/performance/composition/composition-budgets.json"
         protocol = composition_performance.load_protocol(
-            REPO_ROOT / "docs/performance/composition/composition-protocol-v5.json"
+            REPO_ROOT / "docs/performance/composition/composition-protocol-v6.json"
         )
         with tempfile.TemporaryDirectory() as directory:
             root = pathlib.Path(directory)
@@ -943,7 +943,7 @@ class PairedComparisonTests(unittest.TestCase):
     def test_evaluates_reference_aa_without_candidate_identity(self):
         budget_path = REPO_ROOT / "docs/performance/composition/composition-budgets.json"
         protocol = composition_performance.load_protocol(
-            REPO_ROOT / "docs/performance/composition/composition-protocol-v5.json"
+            REPO_ROOT / "docs/performance/composition/composition-protocol-v6.json"
         )
         with tempfile.TemporaryDirectory() as directory:
             root = pathlib.Path(directory)
@@ -977,7 +977,7 @@ class PairedComparisonTests(unittest.TestCase):
 class AbsoluteBudgetTests(unittest.TestCase):
     def test_current_absolute_uses_isolated_reference_arm_not_historical_timings(self):
         budget = REPO_ROOT / "docs/performance/composition/composition-budgets.json"
-        protocol = composition_performance.load_protocol(REPO_ROOT / "docs/performance/composition/composition-protocol-v5.json")
+        protocol = composition_performance.load_protocol(REPO_ROOT / "docs/performance/composition/composition-protocol-v6.json")
         with tempfile.TemporaryDirectory() as directory:
             root = pathlib.Path(directory)
             subject, control, plan = PairedComparisonTests()._write_protocol_pair_fixture(root, protocol, "reference-reference-aa")
@@ -992,14 +992,25 @@ class AbsoluteBudgetTests(unittest.TestCase):
                     (raw / path.name).symlink_to(path)
             environment = (REPO_ROOT / "scripts/tests/fixtures/composition-performance/raw/environment.txt").read_text()
             current_environment = environment.replace("os_version=26.6.2", "os_version=27.0").replace("os_build=25G83", "os_build=26A428")
+            workload_hashes = {row["workload_source"]: row["workload_source_hash"]
+                               for row in composition_performance.validate_budget_document(budget)["rows"]}
+            report["metadata"]["workload_provenance"] = {"subject": {"effective": workload_hashes}}
+            report["metadata"]["zero_host_sha256"] = "1" * 64
+            current_environment += "zero_host_sha256=" + "1" * 64 + "\n"
             (raw / "environment.txt").write_text(current_environment)
             absolute = composition_performance.evaluate_absolute(budget, raw, composition_performance.REFERENCE_REVISION, timing_report=report)
             timing = [row for row in absolute["rows"] if row["scenario"].startswith(("runtime/", "compile/"))]
             self.assertEqual(len(absolute["rows"]), 33)
+            self.assertEqual(absolute["timing_method"], "composition-paired-v6-subject-arm")
             self.assertEqual(len(timing), 14)
             self.assertTrue(all(len(row["process_values"]) == 20 for row in timing))
             direct = next(row for row in timing if row["scenario"] == "runtime/direct/1")
             self.assertEqual(direct["measured_value"], 100)
+            self.assertEqual(direct["baseline_workload_source_sha256"], workload_hashes["rca-core/benches/composition.rs"])
+            zero = next(row for row in absolute["rows"] if row["scenario"] == "allocation/direct_warmed_synchronous")
+            self.assertEqual(zero["workload_source"], "rca-core/tests/composition_qualification/main.rs")
+            self.assertEqual(zero["workload_source_sha256"], "1" * 64)
+            self.assertEqual(zero["product_source_sha256"], workload_hashes[zero["baseline_workload_source"]])
             self.assertEqual(direct["raw_evidence"][0], str(subject / "runtime/direct__1/block-01.txt"))
             self.assertEqual(absolute["runner"], "mac15-9-m3-max-16c-48gb-macos27plus-ac-high")
             self.assertEqual(absolute["baseline_runner"], "mac15-9-m3-max-16c-48gb-macos26-ac-high")
@@ -1199,7 +1210,7 @@ class ProtocolEvidenceTests(unittest.TestCase):
 
     def test_rejects_nonfinite_pair_values(self):
         protocol = composition_performance.load_protocol(
-            REPO_ROOT / "docs/performance/composition/composition-protocol-v5.json"
+            REPO_ROOT / "docs/performance/composition/composition-protocol-v6.json"
         )
         for invalid in (float("nan"), float("inf"), True, "1"):
             pairs = [dict(block=i, order=order, subject=1.0, control=1.0)
@@ -1216,7 +1227,7 @@ class ProtocolEvidenceTests(unittest.TestCase):
         )
 
     def test_quiescence_rejects_nonfinite_and_out_of_range_telemetry(self):
-        protocol = composition_performance.load_protocol(REPO_ROOT / "docs/performance/composition/composition-protocol-v5.json")
+        protocol = composition_performance.load_protocol(REPO_ROOT / "docs/performance/composition/composition-protocol-v6.json")
         for cpu, load in ((float("nan"), 0), (-1, 0), (0, -1), (0, float("nan"))):
             with self.subTest(cpu=cpu, load=load), self.assertRaises(ValueError):
                 composition_performance.validate_quiescence_sample(
@@ -1249,7 +1260,7 @@ CPU usage: 10.0% user, 4.0% sys, 86.0% idle
                 str(MODULE_PATH),
                 "measurement-plan",
                 "--protocol",
-                str(REPO_ROOT / "docs/performance/composition/composition-protocol-v5.json"),
+                str(REPO_ROOT / "docs/performance/composition/composition-protocol-v6.json"),
                 "--mode",
                 "candidate-reference",
             ],
@@ -1351,7 +1362,7 @@ sys 0.02
 
     def test_quiescence_uses_frozen_cpu_load_and_thermal_thresholds(self):
         protocol = composition_performance.load_protocol(
-            REPO_ROOT / "docs/performance/composition/composition-protocol-v5.json"
+            REPO_ROOT / "docs/performance/composition/composition-protocol-v6.json"
         )
         thermal = """Note: No thermal warning level has been recorded
 Note: No performance warning level has been recorded

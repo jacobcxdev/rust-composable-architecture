@@ -34,7 +34,7 @@ ALLOCATION_MANIFEST_SHA256 = (
     "95a9e2ee87deaa3046d4a51893efe164282d51aef6a3b3eec61e9f1ca0b3bf32"
 )
 PROTOCOL_SHA256 = (
-    "fac5bec6d0d2c982a220ca85c176a94bb03a87df1b2c1cb44942489b80396826"
+    "956d2264039c6f71412309dfd7c6765cb667cc0bb965ebdee41b807741d92332"
 )
 DEFAULT_ALLOCATION_MANIFEST = pathlib.Path(__file__).with_name(
     "composition-allocation-workloads.tsv"
@@ -735,7 +735,7 @@ def load_protocol(path: pathlib.Path) -> dict[str, Any]:
         raise ValueError("composition protocol file hash is invalid")
     required = {
         "schema_version": 1,
-        "method_version": "composition-paired-v5",
+        "method_version": "composition-paired-v6",
         "status": "frozen-before-measurement",
         "runner": RUNNER,
         "minimum_macos_major": MINIMUM_MACOS_MAJOR,
@@ -1538,7 +1538,60 @@ def _load_protocol_metadata(
     ):
         if not _HASH.fullmatch(str(metadata.get(field, ""))):
             raise ValueError(f"paired protocol metadata hash is invalid: {field}")
+    if metadata["workload_sha256"] != protocol["common_workloads"]["files"][
+        "rca-core/benches/composition.rs"]["sha256"]:
+        raise ValueError("paired common benchmark hash differs from the protocol")
+    workload_paths = {row["workload_source"] for row in validate_budget_document(
+        pathlib.Path(__file__).resolve().parents[1] / "docs/performance/composition/composition-budgets.json")["rows"]}
+    for role in ("subject", "control"):
+        provenance = metadata.get("workload_provenance", {}).get(role, {})
+        for kind in ("original", "effective"):
+            hashes = provenance.get(kind, {})
+            if set(hashes) != workload_paths or any(not _HASH.fullmatch(str(value)) for value in hashes.values()):
+                raise ValueError(f"paired workload provenance is incomplete: {role} {kind}")
+        if not _HASH.fullmatch(str(provenance.get("receipt_sha256", ""))):
+            raise ValueError(f"paired source receipt hash is invalid: {role}")
+    if metadata.get("zero_host_sha256") != protocol["common_workloads"]["files"][
+        "rca-core/tests/composition_qualification/main.rs"]["sha256"]:
+        raise ValueError("paired zero host hash differs from the protocol")
     return metadata
+
+
+def validate_protocol_sources(directory: pathlib.Path, metadata: dict[str, Any], protocol: dict[str, Any]) -> None:
+    """Authenticate source receipts without requiring disposable source archives to remain."""
+    files = protocol["common_workloads"]["files"]
+    allowed = files.keys() | {"rca-core/Cargo.toml"}
+    for role in ("subject", "control"):
+        path = directory / "sources" / f"{role}.json"
+        declared = metadata["workload_provenance"][role]
+        if _sha256(path) != declared["receipt_sha256"]:
+            raise ValueError(f"paired source receipt hash mismatch: {role}")
+        receipt = json.loads(path.read_text())
+        if (receipt.get("revision") != metadata[f"{role}_revision"]
+                or not _REVISION.fullmatch(str(receipt.get("tree", "")))
+                or receipt.get("common_workloads") != files):
+            raise ValueError(f"paired source identity mismatch: {role}")
+        expected_adapters = ["external-zero-host-v1"]
+        if receipt["revision"] != REFERENCE_REVISION:
+            expected_adapters.append("unit-projection-constructor-v1")
+        if receipt.get("adapters") != expected_adapters:
+            raise ValueError(f"paired source adapters mismatch: {role}")
+        for kind in ("original", "effective"):
+            hashes = receipt.get(kind, {})
+            if any(not _HASH.fullmatch(str(value)) for value in hashes.values()) or any(
+                hashes.get(name) != digest for name, digest in declared[kind].items()
+            ):
+                raise ValueError(f"paired source provenance mismatch: {role} {kind}")
+        changed = {name for name in receipt["original"].keys() | receipt["effective"].keys()
+                   if receipt["original"].get(name) != receipt["effective"].get(name)}
+        if changed - allowed:
+            raise ValueError(f"paired source replaced product implementation: {role}")
+        for name, row in files.items():
+            expected = row["sha256"]
+            if name == "examples/composition-search/tests/app.rs" and receipt["revision"] != REFERENCE_REVISION:
+                expected = protocol["common_workloads"]["candidate_app_sha256"]
+            if receipt["effective"].get(name) != expected:
+                raise ValueError(f"paired effective workload hash mismatch: {role} {name}")
 
 
 def _direction(row: dict[str, Any]) -> str:
@@ -1907,7 +1960,7 @@ def evaluate_absolute(
             raise ValueError("absolute timing report revision mismatch")
         if (
             timing_report.get("protocol_sha256") != PROTOCOL_SHA256
-            or timing_report.get("method_version") != "composition-paired-v5"
+            or timing_report.get("method_version") != "composition-paired-v6"
             or timing_report.get("runner") != RUNNER
         ):
             raise ValueError("absolute timing report protocol mismatch")
@@ -1937,8 +1990,12 @@ def evaluate_absolute(
             for row in document["rows"]
             if row["workload_source"] == source
         }
+        if paired_host is not None:
+            expected_hashes = {paired_host["workload_provenance"]["subject"]["effective"][source]}
         if len(expected_hashes) != 1 or environment[environment_key] not in expected_hashes:
             raise ValueError(f"absolute capture workload hash mismatch: {source}")
+    if paired_host is not None and environment.get("zero_host_sha256") != paired_host["zero_host_sha256"]:
+        raise ValueError("absolute capture zero host hash mismatch")
     timing_rows = {}
     if timing_report is not None:
         for row in timing_report["rows"]:
@@ -2027,6 +2084,19 @@ def evaluate_absolute(
             "absolute_budget": budget_row["absolute_budget"],
             "passed": _passes(value, float(budget_row["absolute_budget"]), direction),
         }
+        if paired_host is not None:
+            result["baseline_workload_source"] = result["workload_source"]
+            result["baseline_workload_source_sha256"] = result["workload_source_sha256"]
+            result["workload_source_sha256"] = paired_host["workload_provenance"]["subject"][
+                "effective"][budget_row["workload_source"]]
+            if category == "allocation" and name in {
+                "direct_warmed_synchronous", "required_scope_warmed_synchronous",
+                "combine_empty_effect_arities_1_through_12"
+            }:
+                result["product_source_sha256"] = result["workload_source_sha256"]
+                result["workload_source"] = "rca-core/tests/composition_qualification/main.rs"
+                result["workload_source_sha256"] = paired_host["zero_host_sha256"]
+                result["zero_host_sha256"] = paired_host["zero_host_sha256"]
         if samples is not None:
             result["process_values"] = samples
         if category in ("runtime", "compile") and timing_report is not None:
@@ -2054,7 +2124,7 @@ def evaluate_absolute(
     return {
         "schema_version": 1,
         "suite": "rca-composition-absolute-budgets",
-        "timing_method": "composition-paired-v5-subject-arm" if timing_report is not None else "historical-task4",
+        "timing_method": "composition-paired-v6-subject-arm" if timing_report is not None else "historical-task4",
         "candidate_revision": revision,
         "reference_revision": document["measured_revision"],
         "runner": RUNNER if timing_report is not None else document["runner_cohort"],
@@ -2244,6 +2314,7 @@ def _command_parse_time(arguments: argparse.Namespace) -> int:
 def _command_evaluate_protocol(arguments: argparse.Namespace) -> int:
     protocol = load_protocol(arguments.protocol)
     metadata = _load_protocol_metadata(arguments.metadata, protocol, arguments.plan)
+    validate_protocol_sources(arguments.metadata.parent, metadata, protocol)
     subject, control, comparison = evaluate_protocol_paired(
         arguments.budget,
         protocol,

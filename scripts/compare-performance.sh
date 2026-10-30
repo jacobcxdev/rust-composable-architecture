@@ -1,6 +1,55 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Original product identities remain separate from the effective common harness.
+check_source_identity() {
+  local result=$1 candidate_revision=$2 reference_revision=$3
+  local candidate_tree reference_tree candidate_manifest reference_manifest candidate_harness reference_harness
+  candidate_tree=$(git rev-parse "${candidate_revision}^{tree}")
+  reference_tree=$(git rev-parse "${reference_revision}^{tree}")
+  candidate_manifest=$(git show "${candidate_revision}:Cargo.toml" | shasum -a 256 | awk '{print $1}')
+  reference_manifest=$(git show "${reference_revision}:Cargo.toml" | shasum -a 256 | awk '{print $1}')
+  candidate_harness=$(git show "${candidate_revision}:rca-tokio/benches/qualification.rs" \
+    | shasum -a 256 | awk '{print $1}')
+  reference_harness=$(git show "${reference_revision}:rca-tokio/benches/qualification.rs" \
+    | shasum -a 256 | awk '{print $1}')
+  if ! jq -e --arg candidate_tree "${candidate_tree}" --arg reference_tree "${reference_tree}" \
+    --arg candidate_manifest "${candidate_manifest}" --arg reference_manifest "${reference_manifest}" \
+    --arg candidate_harness "${candidate_harness}" --arg reference_harness "${reference_harness}" '
+      .metadata.cohort.candidate_source_tree == $candidate_tree
+      and .metadata.cohort.reference_source_tree == $reference_tree
+      and .metadata.cohort.candidate_manifest_sha256 == $candidate_manifest
+      and .metadata.cohort.reference_manifest_sha256 == $reference_manifest
+      and .metadata.cohort.candidate_original_harness_sha256 == $candidate_harness
+      and .metadata.cohort.reference_original_harness_sha256 == $reference_harness
+    ' "${result}" >/dev/null; then
+    echo "source identity does not match the recorded product revisions" >&2
+    return 1
+  fi
+}
+
+# Cover both paired workloads and the candidate's supporting workspace captures.
+check_measured_inputs() {
+  local candidate_revision=$1 head_revision=$2
+  local measured_paths=(
+    Cargo.lock Cargo.toml rust-toolchain.toml .cargo dependencies
+    rca/Cargo.toml rca/build.rs rca/src
+    rca-core/Cargo.toml rca-core/build.rs rca-core/src rca-core/benches
+    rca-macros/Cargo.toml rca-macros/build.rs rca-macros/src
+    rca-persistence/Cargo.toml rca-persistence/build.rs rca-persistence/src
+    rca-test/Cargo.toml rca-test/build.rs rca-test/src rca-test/benches
+    rca-tokio/Cargo.toml rca-tokio/build.rs rca-tokio/src rca-tokio/benches
+    examples tests/size-probe
+  )
+  if ! git diff --quiet "${candidate_revision}" "${head_revision}" -- "${measured_paths[@]}" \
+    || ! git diff --quiet -- "${measured_paths[@]}" \
+    || ! git diff --cached --quiet "${head_revision}" -- "${measured_paths[@]}" \
+    || [[ -n "$(git ls-files --others --exclude-standard -- "${measured_paths[@]}")" ]]; then
+    echo "measured candidate inputs changed after qualification" >&2
+    return 1
+  fi
+}
+
 if [[ $# -ne 2 ]]; then
   echo "usage: $0 <baseline.json> <candidate.json>" >&2
   exit 2
@@ -190,33 +239,14 @@ for result in "${baseline}" "${candidate}"; do
 done
 
 candidate_revision=$(jq -r '.revision' "${candidate}")
-measured_paths=(
-  Cargo.lock
-  Cargo.toml
-  rca/Cargo.toml
-  rca/src
-  rca-core/Cargo.toml
-  rca-core/build.rs
-  rca-core/src
-  rca-macros/Cargo.toml
-  rca-macros/src
-  rca-test/Cargo.toml
-  rca-test/src
-  rca-tokio/Cargo.toml
-  rca-tokio/src
-  tests/size-probe/src
-)
 if ! git cat-file -e "${candidate_revision}^{commit}" 2>/dev/null \
   || ! git merge-base --is-ancestor "${candidate_revision}" "${head_revision}"; then
   echo "candidate evidence revision is not an ancestor of HEAD" >&2
   exit 1
 fi
-if ! git diff --quiet "${candidate_revision}" "${head_revision}" -- "${measured_paths[@]}" \
-  || ! git diff --quiet -- "${measured_paths[@]}" \
-  || ! git diff --cached --quiet -- "${measured_paths[@]}"; then
-  echo "measured candidate inputs changed after qualification" >&2
-  exit 1
-fi
+check_measured_inputs "${candidate_revision}" "${head_revision}"
+check_source_identity "${candidate}" "${candidate_revision}" "${expected_reference_revision}"
+check_source_identity "${baseline}" "${candidate_revision}" "${expected_reference_revision}"
 
 if ! jq -e \
   --arg revision "${candidate_revision}" \

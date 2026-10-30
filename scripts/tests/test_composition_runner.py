@@ -16,6 +16,95 @@ import composition_performance as evaluator  # noqa: E402
 
 
 class RunnerTests(unittest.TestCase):
+    def test_common_harness_keeps_product_bytes_and_records_both_inputs(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            controller, product = root / "controller", root / "product"
+            controller.mkdir()
+            product.mkdir()
+            (controller / "workload.rs").write_text("common measured work\n")
+            (product / "bench.rs").write_text("old measured work\n")
+            (product / "product.rs").write_text("unchanged product\n")
+            files = {"bench.rs": {"source": "workload.rs", "sha256": evaluator._sha256(controller / "workload.rs")}}
+            with patch.object(runner, "COMMON_HARNESS_FILES", {"bench.rs": "workload.rs"}):
+                receipt = runner.apply_common_harness(controller, product, files)
+            self.assertEqual((product / "bench.rs").read_text(), "common measured work\n")
+            self.assertEqual((product / "product.rs").read_text(), "unchanged product\n")
+            self.assertNotEqual(receipt["original"]["bench.rs"], receipt["effective"]["bench.rs"])
+            self.assertEqual(receipt["original"]["product.rs"], receipt["effective"]["product.rs"])
+
+    def test_common_harness_rejects_unpinned_work_and_product_overlays(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            controller, product = root / "controller", root / "product"
+            controller.mkdir()
+            product.mkdir()
+            (controller / "workload.rs").write_text("changed measured work\n")
+            with patch.object(runner, "COMMON_HARNESS_FILES", {"bench.rs": "workload.rs"}):
+                with self.assertRaisesRegex(ValueError, "hash"):
+                    runner.apply_common_harness(controller, product, {
+                        "bench.rs": {"source": "workload.rs", "sha256": "0" * 64}})
+                with self.assertRaisesRegex(ValueError, "allowlist"):
+                    runner.apply_common_harness(controller, product, {
+                        "rca-core/src/composition/scope.rs": {
+                            "source": "workload.rs", "sha256": evaluator._sha256(controller / "workload.rs")}})
+            self.assertEqual(list(product.iterdir()), [])
+
+    def test_staged_source_rejects_product_replacement_even_with_updated_receipt(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            product = root / "product"
+            product.mkdir()
+            source = product / "product.rs"
+            source.write_text("original implementation\n")
+            original = evaluator._sha256(source)
+            source.write_text("replacement implementation\n")
+            receipt = root / "source.json"
+            runner.write_json(receipt, {"root": str(product), "original": {"product.rs": original},
+                                       "effective": {"product.rs": evaluator._sha256(source)}})
+            with self.assertRaisesRegex(ValueError, "product implementation"):
+                runner.validate_staged_source(receipt)
+
+    def test_staged_source_rejects_files_changed_after_staging(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            product = root / "product"
+            product.mkdir()
+            source = product / "product.rs"
+            source.write_text("frozen implementation\n")
+            hashes = runner.source_hashes(product)
+            receipt = root / "source.json"
+            runner.write_json(receipt, {"root": str(product), "original": hashes, "effective": hashes})
+            runner.validate_staged_source(receipt)
+            source.write_text("changed implementation\n")
+            with self.assertRaisesRegex(ValueError, "source changed"):
+                runner.validate_staged_source(receipt)
+
+    def test_failed_compile_retains_transcript_and_owned_target(self):
+        protocol = {"runtime": {"gated_scenarios": []}, "compile": {"fixtures": ["direct"]}}
+
+        class Monitor:
+            def idle(self, *args, **kwargs):
+                pass
+
+            def run(self, command, destination, cwd, env, timed=True):
+                target = Path(env["CARGO_TARGET_DIR"])
+                target.mkdir(parents=True)
+                (target / "artifact").write_text("failed build output")
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                destination.write_text("compiler failed")
+                raise subprocess.CalledProcessError(1, command)
+
+        with tempfile.TemporaryDirectory() as tmp, patch.object(
+            evaluator, "seeded_order_schedule", return_value=["subject-control"]
+        ):
+            root = Path(tmp)
+            with self.assertRaises(subprocess.CalledProcessError):
+                runner.execute_pairs(protocol, {"subject": root, "control": root}, {},
+                                     root / "targets", root / "paired", "/cargo", {}, Monitor())
+            self.assertEqual((root / "targets/compile-direct-01-subject/artifact").read_text(), "failed build output")
+            self.assertEqual((root / "paired/subject/compile/direct/block-01.txt").read_text(), "compiler failed")
+
     def test_cleanup_accepts_only_verified_dead_process_group_after_reaping(self):
         from types import SimpleNamespace
         process = SimpleNamespace(pid=12345, poll=lambda: 0, wait=lambda timeout: 0)
@@ -621,7 +710,7 @@ class RunnerTests(unittest.TestCase):
         script = SCRIPTS / "capture-composition-performance.sh"
         source = script.read_text()
         start = source.index("runner_source_sha256=")
-        end = source.index('if [[ -n "$(git status', start)
+        end = source.index('if [[ -z "${source_receipt}"', start)
         with tempfile.TemporaryDirectory() as tmp:
             subprocess.run(["git", "init", "-q", tmp], check=True)
             result = subprocess.run(
@@ -644,7 +733,7 @@ class RunnerTests(unittest.TestCase):
         evidence = Mock()
         context = {
             "ROOT": Path("/controller"),
-            "subject_root": Path("/reference"),
+            "roots": {"subject": Path("/reference")},
             "targets": Path("/targets"),
             "staging": Path("/staging"),
             "env": {},
@@ -736,6 +825,27 @@ class RunnerTests(unittest.TestCase):
                         runner.ROOT / "scripts/composition_performance.py"
                     ),
                 }
+                workload_hashes = {row["workload_source"]: row["workload_source_hash"]
+                                   for row in evaluator.validate_budget_document(runner.BUDGET)["rows"]}
+                effective = {**workload_hashes, **{name: row["sha256"]
+                             for name, row in protocol["common_workloads"]["files"].items()}}
+                (directory / "sources").mkdir()
+                for role in ("subject", "control"):
+                    runner.write_json(directory / "sources" / f"{role}.json", {
+                        "revision": evaluator.REFERENCE_REVISION, "tree": "2" * 40,
+                        "common_workloads": protocol["common_workloads"]["files"],
+                        "original": workload_hashes, "effective": effective,
+                        "adapters": ["external-zero-host-v1"],
+                    })
+                metadata.update(
+                    workload_sha256=protocol["common_workloads"]["files"]["rca-core/benches/composition.rs"]["sha256"],
+                    zero_host_sha256=protocol["common_workloads"]["files"]["rca-core/tests/composition_qualification/main.rs"]["sha256"],
+                    workload_provenance={role: {
+                        "original": workload_hashes,
+                        "effective": {name: effective[name] for name in workload_hashes},
+                        "receipt_sha256": evaluator._sha256(directory / "sources" / f"{role}.json")}
+                        for role in ("subject", "control")},
+                )
                 runner.write_json(directory / "metadata.json", metadata)
                 runner.write_json(
                     directory / "inputs.json",
@@ -801,6 +911,12 @@ class RunnerTests(unittest.TestCase):
                     self.assertEqual(
                         receipt["sha256"]["protocol.json"], evaluator.PROTOCOL_SHA256
                     )
+                    source_path = directory / "sources/subject.json"
+                    original_source = source_path.read_text()
+                    source_path.write_text(original_source.replace('"tree": "222', '"tree": "333'))
+                    with self.assertRaisesRegex(ValueError, "source receipt hash"):
+                        runner.validate_aa_evidence(directory, protocol, controller, host)
+                    source_path.write_text(original_source)
                     (directory / "protocol.json").write_bytes(
                         (runner.ROOT / "scripts/tests/fixtures/composition-performance/composition-protocol-v3.json").read_bytes()
                     )
@@ -1017,7 +1133,7 @@ class RunnerTests(unittest.TestCase):
             output = Path(tmp) / "parsed.json"
             output.write_text(json.dumps(counters))
             protocol = evaluator.load_protocol(
-                SCRIPTS.parent / "docs/performance/composition/composition-protocol-v5.json"
+                SCRIPTS.parent / "docs/performance/composition/composition-protocol-v6.json"
             )
             self.assertEqual(
                 evaluator._load_resource_counters(output, protocol), counters
@@ -1038,7 +1154,7 @@ class RunnerTests(unittest.TestCase):
 
     def test_resource_counter_rejects_nonfinite_bool_and_fractional_counts(self):
         protocol = evaluator.load_protocol(
-            SCRIPTS.parent / "docs/performance/composition/composition-protocol-v5.json"
+            SCRIPTS.parent / "docs/performance/composition/composition-protocol-v6.json"
         )
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "counters.json"
@@ -1143,7 +1259,7 @@ class RunnerTests(unittest.TestCase):
 
     def test_pair_execution_uses_exact_filters_seed_and_unique_clean_targets(self):
         protocol = evaluator.load_protocol(
-            SCRIPTS.parent / "docs/performance/composition/composition-protocol-v5.json"
+            SCRIPTS.parent / "docs/performance/composition/composition-protocol-v6.json"
         )
         calls = []
 
@@ -1203,7 +1319,7 @@ class RunnerTests(unittest.TestCase):
 
     def test_invalid_isolated_output_stops_before_next_measurement(self):
         protocol = evaluator.load_protocol(
-            SCRIPTS.parent / "docs/performance/composition/composition-protocol-v5.json"
+            SCRIPTS.parent / "docs/performance/composition/composition-protocol-v6.json"
         )
         calls = []
 
@@ -1230,6 +1346,36 @@ class RunnerTests(unittest.TestCase):
                     Monitor(),
                 )
         self.assertEqual(len(calls), 1)
+
+    def test_completed_compile_targets_are_removed_between_samples(self):
+        protocol = {"runtime": {"gated_scenarios": []}, "compile": {"fixtures": ["direct"]}}
+        observed = []
+
+        class Monitor:
+            def idle(self, *args, **kwargs):
+                pass
+
+            def run(self, command, destination, cwd, env, timed=True):
+                target = Path(env["CARGO_TARGET_DIR"])
+                self_test.assertFalse(any(target.parent.glob("compile-*")))
+                target.mkdir(parents=True)
+                (target / "artifact").write_text("disposable")
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                destination.write_text("completed compile transcript")
+                observed.append((target, destination))
+
+        self_test = self
+        with tempfile.TemporaryDirectory() as tmp, patch.object(
+            evaluator, "seeded_order_schedule", return_value=["subject-control", "control-subject"]
+        ):
+            root = Path(tmp)
+            runner.execute_pairs(protocol, {"subject": root, "control": root}, {},
+                                 root / "targets", root / "paired", "/cargo", {}, Monitor())
+            self.assertEqual(len(observed), 4)
+            self.assertEqual(len({target for target, _ in observed}), 4)
+            for target, transcript in observed:
+                self.assertFalse(target.exists())
+                self.assertEqual(transcript.read_text(), "completed compile transcript")
 
     def test_reference_identity_checks_git_not_supplied_role(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -1305,7 +1305,8 @@ fn deterministic(kind: &str, samples: usize) -> Measurement {
             .expect_err("infinite wake exhausts budget");
         assert_eq!(error.polls(), DEFAULT_STEP_BUDGET);
         assert_eq!(error.step_budget(), DEFAULT_STEP_BUDGET);
-        assert_eq!(error.live_task_ids().len(), 1);
+        // The archived reference exposes ready IDs, but not the live-ID snapshot.
+        // Candidate live-ID correctness remains covered by deadline_draining tests.
         assert_eq!(error.ready_task_ids().len(), 1);
         error.polls() as u64
     })
