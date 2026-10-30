@@ -72,4 +72,4 @@ its own synchronous or asynchronous cleanup contract.
 
 RCA provides no consuming-reducer phase or generic one-shot payload wrapper.
 A wrapper alone cannot enforce exclusive use across reducers.
-See the [qualification summary](../qualification.md) for the candidate evidence boundary.
+See the [qualification summary](../qualification.md) for the scope of recorded evidence.

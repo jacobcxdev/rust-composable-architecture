@@ -1,12 +1,13 @@
 # RCA 0.1.0 qualification
 
-RCA 0.1.0 is an unpublished candidate. This document separates local qualification,
-hosted CI and publication. None of these establishes that software has no defects.
+This guide separates local qualification, hosted CI and publication.
+Results apply only to their recorded source and configuration.
+None of these checks establishes that software has no defects.
 
-## Recorded local results
+## Historical local results
 
 Local release-readiness qualification completed on 29 October 2026 for the recorded
-source candidate. The retained source envelope identifies it as
+source. The retained source envelope identifies it as
 `58e860271a7a88b079274541956ddd5100244c69c5dc4b9399bdff6aadbf8cd2`.
 This identifier is a source-record identifier, not a public Git commit.
 
@@ -34,14 +35,10 @@ These hashes identify local records. They do not substitute for accessible logs 
 
 ## Public snapshot boundary
 
-The initial public snapshot preserves the implementation from the qualified candidate.
-Publication preparation updates repository guidance, metadata checks and the explicit
-nightly selection in the Miri workflow. It does not change executable Rust implementation.
-
-The README examples retain their qualified source and manifests.
-README prose changes mean that earlier package archives are not byte-identical to
-packages produced from the public snapshot. Earlier results must not be presented
-as exact-archive verification of later package bytes.
+The first public snapshot preserved the locally qualified implementation.
+Later changes require checks for the affected source and contracts.
+Changes to README prose also change package archive bytes.
+Earlier results do not establish that later package archives passed their checks.
 
 Raw profiles, temporary agent records and private upstream research remain outside
 the public repository. Historical local audit receipts are not public reproduction
@@ -56,11 +53,11 @@ it from earlier public Git commits.
 
 ## Later regression and macro changes
 
-The 30 October changes add child-routing and named-task regressions without changing
-runtime implementation. They check replacement before routing, rejection of old child
+The 30 October regression changes added child-routing and named-task checks without
+runtime changes. They check replacement before routing, rejection of old child
 authority, private child-state lifetimes and task replacement across handlers.
 Both Shared and Local paths retain their existing contracts. Each explicit replacement
-still replaces earlier work; coexistence remains a separate choice.
+still replaces earlier work. Coexistence remains a separate choice.
 
 Macro fixes prevent caller type parameters from hiding source types or generated
 companion types. Private type aliases preserve caller bounds, embedded type macros
@@ -71,7 +68,7 @@ Existing non-colliding expansion snapshots remain unchanged.
 These changes require their own focused tests, compiler checks, strict lint,
 independent review and coverage evidence. The earlier coverage counts above remain
 historical, not a recalculated total for the amended source. Unchanged runtime
-performance evidence retains its original scope; no new speed claim is made.
+performance evidence retains its original scope. These changes make no new speed claim.
 The pull request records the checks for the delivered head.
 
 ## Hosted checks and publication
@@ -80,9 +77,9 @@ Hosted CI is a separate requirement. A local result does not establish that GitH
 Actions passed for the public commit. The pull request records its current CI status.
 See the [support policy](support.md#qualification-status) for the target matrix.
 
-The initial review does not publish packages, create a release tag or publish the
-documentation site. Documentation publication requires its protected environment
-and signing configuration. See [documentation publication](documentation-publishing.md).
+Merging a pull request, publishing packages and publishing documentation are separate actions.
+Documentation publication requires its protected environment and signing configuration.
+See [documentation publication](documentation-publishing.md).
 
 Before release, package verification must cover the exact release source and archive bytes.
 Any remaining hosted or publication check must retain its actual status.
@@ -109,4 +106,4 @@ The [counter](../tests/composable-counter/README.md#failed-upstream-reference),
 
 The public benchmark tooling does not maintain retired Composable releases.
 Archived comparisons retain their original revisions and limits outside the
-maintained tree. They are not evidence for a later candidate.
+maintained tree. They are not evidence for later source revisions.

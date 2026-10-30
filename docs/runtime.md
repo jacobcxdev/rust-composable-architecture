@@ -5,11 +5,23 @@ This document defines observable core runtime behaviour. The
 `rca-core` owns no executor, reactor, wall clock, UI loop, global Store, or
 thread-local authority.
 
+## Feature execution
+
+The Store actor owns state and its `Feature`. The feature callback runs
+synchronously with borrowed state and action values. It cannot suspend.
+Its declared effects and typed tasks start after the transaction commits.
+
+Every `Reducer` implements `Feature` automatically. Reducers return action-based
+effects. Direct `Feature::update` implementations can also declare typed tasks
+that access state through the actor. Both use the same Store constructors and
+runtime contracts. See [structural features](structural-features.md) for typed
+tasks, mounted children and installation lifetimes.
+
 ## Reducer transaction
 
-One Store actor exclusively owns state, reducer, dependency values, effect
-registry, timers, and observation registry. It processes one command at a time.
-For each action it:
+For action-based reducers, the actor exclusively owns state, reducer, dependency
+values, effect registry, timers and observation registry. It processes one command
+at a time. For each action it:
 
 1. records action provenance and cancellation generation;
 2. invokes reducer synchronously with `&mut State`, `&Action`, and

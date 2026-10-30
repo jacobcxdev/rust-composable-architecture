@@ -35,17 +35,28 @@ before choosing a wait.
 
 ## 2. Model domain changes and child identity
 
-Keep synchronous decisions in a `Reducer` or `Feature`. Use a `Reducer` returning
-`Effect` for action-based composition. Use a `Feature` when installation, typed
-tasks, private commands or declared outputs fit the domain. Do not add an action
-for every internal async step solely to imitate another language's architecture.
+Every application component is a `Feature`. Implement `Reducer` when follow-up
+work returns actions through `Effect`. Every reducer is a Feature automatically,
+without a wrapper. Both use `Store::new`, `Store::builder` and the corresponding
+`TestStore` constructors.
+
+Implement `Feature::update` directly when the callback needs typed tasks that
+read or update state through the actor. Both forms can start asynchronous work.
+They differ in how that work accesses the feature, not whether it is asynchronous.
+Do not add an action for every internal asynchronous step solely to imitate
+another language's architecture.
+
+Implement either `Reducer` or `Feature` for a type, not both. The automatic
+implementation conflicts with a second explicit implementation.
+Use separate wrapper types when the same data needs different behaviours.
+The same rule applies to `local::Reducer` and `local::Feature`.
 
 For reducer composition, use `combine`, `scope`, optional/case composition and
 `for_each` as described in [manual composition](../composition.md). Keyed State
 needs stable business IDs. Reordering and replacing a child are different events.
 Do not use a row position as identity when rows can move.
 
-For installed Features, use the [structural Feature guide](../structural-features.md).
+Installed children accept either form. Use the [structural Feature guide](../structural-features.md).
 `MountIdentity` separates business, replacement and configuration identity.
 After `Store::ready`, acquire the installed context through its typed mount site.
 Handle absence or rejected acquisition explicitly. Retain that context for its

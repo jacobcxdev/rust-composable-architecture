@@ -3,8 +3,17 @@
 For the end-to-end workflow, start with the [RCA authoring guide](guides/authoring.md).
 This page explains the detailed installation, routing and ownership contracts.
 
-A Feature owns synchronous domain behaviour. A mounted Feature also has an
-installation identity, private captures and work tied to that installation.
+A Feature defines synchronous domain behaviour and declares follow-up work.
+Every `Reducer` is a Feature automatically. Both use `Store::new`, `Store::builder`
+and the corresponding `TestStore` constructors. `Reducer::reduce` returns effects.
+Direct `Feature::update` implementations can also declare tasks with typed state access.
+
+Static composition, such as `Scope` and `for_each`, requires the narrower `Reducer`
+contract. Its state and selectors can borrow local values during reduction.
+Installed children accept either form and keep their own task lifetime.
+
+A mounted Feature also has an installation identity, private captures and work
+tied to that installation.
 The parent owns the child State. Input routing does not transfer that ownership.
 RCA supplies no renderer or native event-loop adapter.
 
@@ -12,7 +21,7 @@ Import shared authoring types directly from `rca`, or from `rca_core` in a
 runtime-neutral integration crate. This includes `Feature`, `EntryMount`,
 `Fold`, `InputGate` and `RemovalSite`. Owner-thread alternatives live under
 `local`; shared policy and identity types remain at the root. See the
-[API path guide](support.md#public-api-paths-in-010) when updating older imports.
+[API path guide](support.md#public-api-paths-in-010) for supported import paths.
 
 ## Choose the route that matches the work
 
@@ -53,12 +62,12 @@ polls them. Loading saved State does not resume former asynchronous work.
 
 The [startup order tests](../rca-core/tests/mount_acquisition/initial_order.rs)
 exercise these boundaries. The [keyed roster tests](../rca-core/tests/fold_keyed.rs)
-exercise reordering and replacement. Legacy
+exercise reordering and replacement.
 [`Store::scope`](composition.md#scoped-store-handles) is a projection with root
 lifetime, not an equivalent installation handle.
 
 The [compatibility tests](../rca-test/tests/legacy_feature_compatibility.rs)
-exercise both routes without treating legacy scopes as mounted authority.
+exercise both routes without treating static scopes as mounted authority.
 The [five-level plugin fixture](../rca-core/tests/depth_five_plugins.rs) sends
 10,000 private commands without adding ancestor action cases. The
 [recursive jobs guide](recursive-jobs.md) compares recursive and flat ownership.

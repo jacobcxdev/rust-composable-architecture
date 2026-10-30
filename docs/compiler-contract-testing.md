@@ -127,18 +127,17 @@ Copy its small [harness](../tests/downstream-composition/tests/compiler_contract
 and adapt fixtures to your own public feature or wrapper. Keep compiler tooling in
 development dependencies; do not re-export it from runtime libraries.
 
-RCA 0.1.0 is not published yet. This consumer uses the disposable `rca-local`
-registry, so direct invocation without that registry is unsupported. From the
-repository root, the existing workflow stages actual archives, verifies provenance
-and runs this sample with the other consumers:
+This repository fixture uses a disposable `rca-local` registry. Direct invocation
+requires that registry. From the repository root, run the packaged-consumer check:
 
 ```sh
 rustup run 1.98.0 bash scripts/verify-packaged-downstream.sh
 ```
 
-The script removes its temporary registry and does not publish packages or alter
-personal Cargo/Git configuration. After publication, consumers use the public
-package normally and run `cargo test --test compiler_contracts -- --check`.
+The script stages package archives, verifies their source and runs the consumers.
+It removes its temporary registry and does not publish packages or alter personal
+Cargo/Git configuration. Applications that use the registry package run
+`cargo test --test compiler_contracts -- --check` in their own checkout.
 
 ## Required ownership
 

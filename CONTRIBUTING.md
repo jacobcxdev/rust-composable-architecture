@@ -26,6 +26,10 @@ Use the [pull-request template](.github/pull_request_template.md) to record the
 reason, compatibility effects and checks. State exactly which checks did not run.
 Assign pull requests to `jacobcxdev`.
 
+Before each push, compare the README, repository guidance, examples and workflow
+documentation with the code. Correct obsolete instructions, versions and links.
+Keep private repository references and temporary development-status notes out of public documentation.
+
 The [CODEOWNERS file](.github/CODEOWNERS) names the responsible reviewer.
 It does not establish required approval or branch protection. Maintainers must
 check those remote settings separately before release. Local test results do not
