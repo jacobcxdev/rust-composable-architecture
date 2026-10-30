@@ -8,6 +8,7 @@ from contextlib import contextmanager
 import ctypes
 from datetime import datetime, timezone
 import json
+import io
 import os
 from pathlib import Path
 import signal
@@ -26,7 +27,7 @@ import common_outcome_allocations as common_outcome_evidence  # noqa: E402
 
 
 ROOT = Path(__file__).resolve().parents[1]
-PROTOCOL = ROOT / "docs/performance/composition/composition-protocol-v5.json"
+PROTOCOL = ROOT / "docs/performance/composition/composition-protocol-v6.json"
 BUDGET = ROOT / "docs/performance/composition/composition-budgets.json"
 EVIDENCE_ROOT = ROOT / "target/qualification-evidence/0.1.0/composition"
 LOCK = Path("/tmp/rca-composition-performance.machine.lock")
@@ -39,6 +40,95 @@ AA_RECEIPT_FILES = (
     "absolute.json",
     "complete.json",
 )
+
+# Only consumer workloads and their test-only support can replace archived inputs.
+COMMON_HARNESS_FILES = {
+    path: path for path in (
+        "rca-core/benches/composition.rs",
+        "benches/compile/direct/src/main.rs",
+        "benches/compile/composed-manual/src/main.rs",
+        "benches/compile/composed-macro/src/main.rs",
+        "benches/compile/scoped/src/main.rs",
+        "benches/compile/support/src/lib.rs",
+        "examples/composition-search/src/main.rs",
+        "examples/composition-search/src/lib.rs",
+    )
+} | {
+    "examples/composition-search/tests/app.rs": "scripts/fixtures/composition-app.rs",
+    "rca-core/tests/composition_qualification/main.rs": "scripts/fixtures/composition-zero.rs",
+    "rca-core/tests/composition_qualification/composition-zero-runner.rs": "rca-core/src/allocation_test/runner.rs",
+}
+
+
+def source_hashes(root):
+    """Identify every staged input; Cargo outputs live outside this source directory."""
+    return {str(path.relative_to(root)): evidence._sha256(path)
+            for path in sorted(root.rglob("*"))
+            if path.is_file()}
+
+
+def apply_common_harness(controller, product, files):
+    """Copy the reviewed workload allowlist without replacing product implementation."""
+    if set(files) != set(COMMON_HARNESS_FILES) or any(
+        row.get("source") != COMMON_HARNESS_FILES.get(name) for name, row in files.items()
+    ):
+        raise ValueError("common workload allowlist differs from the reviewed protocol")
+    for row in files.values():
+        source = controller / row["source"]
+        if source.is_symlink() or evidence._sha256(source) != row["sha256"]:
+            raise ValueError(f"common workload source hash mismatch: {source}")
+    original = source_hashes(product)
+    for name, row in files.items():
+        destination = product / name
+        if destination.is_symlink() or not destination.resolve().is_relative_to(product.resolve()):
+            raise ValueError("common workload destination escapes the staged source")
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(controller / row["source"], destination)
+    return {"original": original, "effective": source_hashes(product)}
+
+
+def stage_source(source, identity, destination, protocol):
+    """Archive one exact revision and add only the frozen consumer harness and adapters."""
+    destination.mkdir()
+    archive = subprocess.check_output(["git", "archive", "--format=tar", identity["revision"]], cwd=source)
+    with tarfile.open(fileobj=io.BytesIO(archive)) as stream:
+        stream.extractall(destination, filter="data")
+    receipt = apply_common_harness(ROOT, destination, protocol["common_workloads"]["files"])
+    manifest = destination / "rca-core/Cargo.toml"
+    with manifest.open("a", encoding="utf-8") as stream:
+        stream.write('\n[[test]]\nname = "composition_zero"\npath = "tests/composition_qualification/main.rs"\n'
+                     'harness = false\nrequired-features = ["allocation-measurement"]\n')
+    adapters = ["external-zero-host-v1"]
+    if identity["revision"] != evidence.REFERENCE_REVISION:
+        fixture = destination / "examples/composition-search/tests/app.rs"
+        text = fixture.read_text()
+        old = "TestStore::builder(initial_state(), reducer)"
+        if text.count(old) != 1:
+            raise ValueError("common example constructor adapter input differs")
+        text = text.replace(old, "TestStore::projected_builder(initial_state(), reducer, |_| ())")
+        old_bound = "R: rca::Reducer<State = rca_example_composition_search::AppState, Action = AppAction>,"
+        if text.count(old_bound) != 1:
+            raise ValueError("common example reducer adapter input differs")
+        fixture.write_text(text.replace(old_bound, old_bound[:-1] + " + Send + 'static,"))
+        adapters.append("unit-projection-constructor-v1")
+    receipt.update(root=str(destination), revision=identity["revision"],
+                   tree=identity["tree"], adapters=adapters,
+                   common_workloads=protocol["common_workloads"]["files"],
+                   effective=source_hashes(destination))
+    return receipt
+
+
+def validate_staged_source(receipt_path):
+    """Reject changed staged inputs before capture and before accepting its evidence."""
+    receipt = json.loads(Path(receipt_path).read_text())
+    root = Path(receipt["root"])
+    changed = {name for name in receipt["original"].keys() | receipt["effective"].keys()
+               if receipt["original"].get(name) != receipt["effective"].get(name)}
+    if changed - (COMMON_HARNESS_FILES.keys() | {"rca-core/Cargo.toml"}):
+        raise ValueError("staged source replaced product implementation")
+    if source_hashes(root) != receipt["effective"]:
+        raise ValueError("staged composition source changed")
+    return receipt
 
 
 def read(command, cwd=None, env=None, timeout=30):
@@ -139,6 +229,7 @@ def validate_aa_evidence(value, protocol, controller, host):
     metadata = evidence._load_protocol_metadata(
         path / "metadata.json", protocol, path / "plan.json"
     )
+    evidence.validate_protocol_sources(path, metadata, protocol)
     inputs = receipts["inputs.json"]
     comparison = receipts["comparison.json"]
     absolute = receipts["absolute.json"]
@@ -312,7 +403,8 @@ def source_identity(root, reference=False):
     for name in sorted(files):
         read(["git", "ls-files", "--error-unmatch", name], cwd=root)
         hashes[name] = evidence._sha256(root / name)
-    return {"root": str(root), "revision": revision, "hashes": hashes}
+    return {"root": str(root), "revision": revision,
+            "tree": read(["git", "rev-parse", "HEAD^{tree}"], cwd=root), "hashes": hashes}
 
 
 def canonical_host():
@@ -614,6 +706,12 @@ def execute_pairs(protocol, roots, executables, targets, paired, cargo, env, mon
                     roots[role],
                     {**env, "CARGO_TARGET_DIR": str(target), "CARGO_INCREMENTAL": "0"},
                 )
+                # The completed transcript owns the measurements, not this check-only target.
+                # Each next sample still receives a distinct, initially absent directory.
+                if target.is_symlink():
+                    raise ValueError("compile target became a symlink")
+                if target.exists():
+                    shutil.rmtree(target)
 
 
 def benchmark(root, target, role, staging, tools, env, monitor):
@@ -675,11 +773,10 @@ def qualify(output, staging, reference, mode, aa_evidence=None):
     )
     subject_root = ROOT if mode == "candidate-reference" else reference
     subject = source_identity(subject_root, reference=mode != "candidate-reference")
-    capture_tool = check_capture_tool(subject_root, tools["cargo"], env)
+    capture_tool = check_capture_tool(ROOT, tools["cargo"], env)
     budget = evidence.validate_budget_document(
         BUDGET,
         expected_reference=evidence.REFERENCE_REVISION,
-        candidate_root=subject_root,
         reference_root=reference,
     )
     if (
@@ -690,17 +787,6 @@ def qualify(output, staging, reference, mode, aa_evidence=None):
     if mode == "candidate-reference":
         if subject["revision"] == control["revision"]:
             raise ValueError("candidate and reference revisions must differ")
-        subprocess.run(
-            [
-                "git",
-                "merge-base",
-                "--is-ancestor",
-                control["revision"],
-                subject["revision"],
-            ],
-            cwd=ROOT,
-            check=True,
-        )
     evidence.validate_allocation_manifest(evidence.DEFAULT_ALLOCATION_MANIFEST)
     pinned_files = [
         PROTOCOL,
@@ -709,6 +795,7 @@ def qualify(output, staging, reference, mode, aa_evidence=None):
         Path(__file__),
         ROOT / "scripts/composition_performance.py",
         ROOT / "scripts/qualify-composition-performance.sh",
+        *(ROOT / item["source"] for item in protocol["common_workloads"]["files"].values()),
         capture_tool,
         *(Path(path) for path in tools.values()),
     ]
@@ -742,9 +829,18 @@ def qualify(output, staging, reference, mode, aa_evidence=None):
         CARGO_PROFILE_BENCH_STRIP="true",
     )
     # Only owned build targets are temporary. Logs and failed evidence remain in staging.
-    with tempfile.TemporaryDirectory(prefix="rca-composition-v4.") as temporary:
+    with tempfile.TemporaryDirectory(prefix="rca-composition-v6.") as temporary:
         targets = Path(temporary)
-        roots = {"subject": subject_root, "control": reference}
+        identities = {"subject": subject, "control": control}
+        original_roots = {"subject": subject_root, "control": reference}
+        roots = {role: targets / f"source-{role}" for role in original_roots}
+        sources = {
+            role: stage_source(original_roots[role], identities[role], roots[role], protocol)
+            for role in roots
+        }
+        (staging / "sources").mkdir()
+        for role, receipt in sources.items():
+            write_json(staging / "sources" / f"{role}.json", receipt)
         executables = {
             role: benchmark(
                 roots[role], targets / role, role, staging, tools, env, monitor
@@ -790,7 +886,17 @@ def qualify(output, staging, reference, mode, aa_evidence=None):
             "capture_script_sha256": controller["hashes"][
                 "scripts/capture-composition-performance.sh"
             ],
-            "workload_sha256": subject["hashes"]["rca-core/benches/composition.rs"],
+            "workload_sha256": sources["subject"]["effective"]["rca-core/benches/composition.rs"],
+            "zero_host_sha256": sources["subject"]["effective"]["rca-core/tests/composition_qualification/main.rs"],
+            "workload_provenance": {
+                role: {
+                    **{kind: {name: receipt[kind][name] for name in {
+                        row["workload_source"] for row in budget["rows"]}}
+                       for kind in ("original", "effective")},
+                    "adapters": receipt["adapters"],
+                    "receipt_sha256": evidence._sha256(staging / "sources" / f"{role}.json"),
+                } for role, receipt in sources.items()
+            },
             "benchmark_list_sha256": evidence._sha256(
                 staging / "builds/subject-list.txt"
             ),
@@ -800,6 +906,7 @@ def qualify(output, staging, reference, mode, aa_evidence=None):
             },
         }
         write_json(staging / "metadata.json", metadata)
+        evidence.validate_protocol_sources(staging, metadata, protocol)
         execute_pairs(
             protocol,
             roots,
@@ -846,9 +953,10 @@ def qualify(output, staging, reference, mode, aa_evidence=None):
             [
                 str(ROOT / "scripts/capture-composition-performance.sh"),
                 str(raw),
+                str(staging / "sources/subject.json"),
             ],
             staging / "absolute-capture.txt",
-            subject_root,
+            roots["subject"],
             capture_env,
         )
         absolute = evidence.evaluate_absolute(
@@ -872,6 +980,11 @@ def qualify(output, staging, reference, mode, aa_evidence=None):
             if evidence._sha256(executable) != metadata[f"{role}_executable_sha256"]:
                 raise ValueError("benchmark executable changed during capture")
         reports["absolute.json"] = absolute
+        for role in roots:
+            if evidence._sha256(staging / "sources" / f"{role}.json") != metadata[
+                "workload_provenance"][role]["receipt_sha256"]:
+                raise ValueError("staged composition source receipt changed")
+            validate_staged_source(staging / "sources" / f"{role}.json")
     check_host_unchanged(host, monitor)
     if (
         source_identity(ROOT) != controller
@@ -1873,6 +1986,7 @@ def main():
         default="candidate-reference",
     )
     parser.add_argument("--check-prerequisites", action="store_true")
+    parser.add_argument("--check-staged-source")
     parser.add_argument("--aa-evidence")
     parser.add_argument("--check-publication")
     parser.add_argument("--check-lock", nargs=2, metavar=("PATH", "SECONDS"))
@@ -1880,6 +1994,9 @@ def main():
     parser.add_argument("reference", nargs="?")
     args = parser.parse_args()
     try:
+        if args.check_staged_source:
+            print(json.dumps(validate_staged_source(args.check_staged_source)))
+            return 0
         if args.check_prerequisites:
             tool_environment()
             print("cargo-bloat 0.12.1 is available through pinned Cargo")

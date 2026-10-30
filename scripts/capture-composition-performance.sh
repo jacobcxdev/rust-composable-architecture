@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-if [[ $# -ne 1 ]]; then
-  echo "usage: $0 <new-raw-output-directory>" >&2
+if [[ $# -lt 1 || $# -gt 2 ]]; then
+  echo "usage: $0 <new-raw-output-directory> [verified-staged-source.json]" >&2
   exit 2
 fi
 
@@ -15,11 +15,21 @@ done
 
 runner_source_sha256=$(shasum -a 256 "$0" | sed 's/[[:space:]].*//')
 script_dir=$(cd "$(dirname "$0")" && pwd)
-repo_root=$(git rev-parse --show-toplevel)
+source_receipt=${2:-}
+zero_test_target=core_allocations
+if [[ -n "${source_receipt}" ]]; then
+  python3 "${script_dir}/composition_runner.py" --check-staged-source "${source_receipt}" >/dev/null
+  repo_root=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["root"])' "${source_receipt}")
+  revision=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["revision"])' "${source_receipt}")
+  zero_test_target=composition_zero
+else
+  repo_root=$(git rev-parse --show-toplevel)
+  revision=$(git rev-parse HEAD)
+fi
 cd "${repo_root}"
 allocation_manifest=${script_dir}/composition-allocation-workloads.tsv
 evaluator=${script_dir}/composition_performance.py
-if [[ -n "$(git status --porcelain=v1 --untracked-files=all)" ]]; then
+if [[ -z "${source_receipt}" && -n "$(git status --porcelain=v1 --untracked-files=all)" ]]; then
   echo "composition qualification requires a clean checkout" >&2
   exit 1
 fi
@@ -56,8 +66,8 @@ if ! "${objcopy_bin}" --version >/dev/null 2>&1; then
   echo "pinned rust-objcopy must run before binary-size qualification" >&2
   exit 1
 fi
-export PATH="${repo_root}/target/task4-tools/bin:${toolchain_dir}:${PATH}"
-if [[ ! -x "${repo_root}/target/task4-tools/bin/cargo-bloat" \
+export PATH="${script_dir}/../target/task4-tools/bin:${toolchain_dir}:${PATH}"
+if [[ ! -x "${script_dir}/../target/task4-tools/bin/cargo-bloat" \
   || "$(cargo bloat --version 2>/dev/null)" != "0.12.1" ]]; then
   echo "pinned cargo-bloat 0.12.1 is required under target/task4-tools" >&2
   exit 1
@@ -131,7 +141,6 @@ validate_verbose_toolchain() {
   fi
 }
 
-revision=$(git rev-parse HEAD)
 recorded_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 {
   echo "measured_revision=${revision}"
@@ -172,6 +181,10 @@ recorded_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
   echo "benchmark_source_sha256=$(shasum -a 256 rca-core/benches/composition.rs | sed 's/[[:space:]].*//')"
   echo "scope_zero_test_source_sha256=$(shasum -a 256 rca-core/src/composition/scope.rs | sed 's/[[:space:]].*//')"
   echo "combine_zero_test_source_sha256=$(shasum -a 256 rca-core/src/composition/combine.rs | sed 's/[[:space:]].*//')"
+  if [[ -n "${source_receipt}" ]]; then
+    echo "zero_host_sha256=$(shasum -a 256 rca-core/tests/composition_qualification/main.rs | sed 's/[[:space:]].*//')"
+    echo "staged_source_receipt_sha256=$(shasum -a 256 "${source_receipt}" | sed 's/[[:space:]].*//')"
+  fi
   echo "runner_source_sha256=${runner_source_sha256}"
   echo "allocation_manifest_sha256=$(shasum -a 256 "${allocation_manifest}" | sed 's/[[:space:]].*//')"
   echo "transcript_normalisation=paths,terminal-padding,trailing-blank-lines"
@@ -191,7 +204,7 @@ cat >"${output_dir}/commands.txt" <<'COMMANDS'
 Runtime build: cargo bench -p rca-core --bench composition --locked -j 1 --no-run --message-format=json
 Runtime samples: execute the built composition benchmark with --bench ten independent times (01 through 10)
 Allocation: one direct execution per named scenario of the allocation-measurement benchmark binary
-Zero gates: cargo test -p rca-core --test core_allocations --features allocation-measurement <exact-test> --locked -j 1
+Zero gates: cargo test -p rca-core --test <core_allocations or staged composition_zero> --features allocation-measurement <exact-test> --locked -j 1
 Compile: /usr/bin/time -lp cargo check --manifest-path benches/compile/Cargo.toml -p <fixture> --locked -j 1
 Binary: cargo build --release, plus cargo test --release --test app --no-run, with isolated targets
 Symbols: cargo bloat 0.12.1 --release --locked --crates -n 20 -j 1 with strip=false
@@ -235,12 +248,12 @@ fi
 
 capture "${output_dir}/zero-direct-scope.txt" \
   env CARGO_PROFILE_TEST_DEBUG=0 CARGO_PROFILE_TEST_OPT_LEVEL=1 \
-  "${cargo_bin}" test -p rca-core --test core_allocations --features allocation-measurement \
+  "${cargo_bin}" test -p rca-core --test "${zero_test_target}" --features allocation-measurement \
   composition::scope::allocation_tests::scope_none_paths_do_not_allocate_after_warm_up \
   --locked -j 1 -- --exact --nocapture
 capture "${output_dir}/zero-combine.txt" \
   env CARGO_PROFILE_TEST_DEBUG=0 CARGO_PROFILE_TEST_OPT_LEVEL=1 \
-  "${cargo_bin}" test -p rca-core --test core_allocations --features allocation-measurement \
+  "${cargo_bin}" test -p rca-core --test "${zero_test_target}" --features allocation-measurement \
   composition::combine::tests::combine_all_none_widths_do_not_allocate \
   --locked -j 1 -- --exact --nocapture
 
@@ -280,7 +293,9 @@ while read -r fixture package source; do
       "${cargo_bin}" check --manifest-path benches/compile/Cargo.toml \
       -p "${package}" --locked -j 1
     cat "${temporary}/timed.txt" >>"${output_dir}/compile-${fixture}.txt"
+    rm -R -- "${sample_target}"
   done
+  rm -R -- "${warm_target}"
 done <<'FIXTURES'
 direct rca-compile-direct benches/compile/direct/src/main.rs
 composed-manual rca-compile-composed-manual benches/compile/composed-manual/src/main.rs
@@ -354,3 +369,6 @@ capture "${output_dir}/symbols-tokio-application.txt" env \
   --bin rca-example-composition-search --release --locked --crates -n 20 -j 1
 
 echo "completed_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >>"${output_dir}/environment.txt"
+if [[ -n "${source_receipt}" ]]; then
+  python3 "${script_dir}/composition_runner.py" --check-staged-source "${source_receipt}" >/dev/null
+fi

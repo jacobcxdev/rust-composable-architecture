@@ -4,13 +4,19 @@ RCA performance evidence is a release gate, not an informal benchmark snapshot. 
 
 ## Canonical runner
 
-The `mac15-9-m3-max-16c-48gb-macos26-ac-high` runner is:
+The `mac15-9-m3-max-16c-48gb-macos27-ac-high` runner is:
 
 - `Mac15,9`, Apple M3 Max, 16 logical CPUs, and 48 GiB memory;
-- macOS 26 on AC power with high-power mode selected; and
+- macOS 27 on AC power with high-power mode selected; and
 - exact Rust and Cargo 1.98.0.
 
 `scripts/qualify-performance.sh` validates this cohort, a clean checkout, release-profile settings, and absence of another RCA benchmark process. Results from a different runner are not comparable. New runner cohorts require a separately reviewed baseline instead of relabelling existing evidence.
+
+On 30 October 2026, the canonical runner changed to the installed macOS 27 host.
+The first host version is macOS 27.0, build `26A428`. Hardware and toolchain requirements remain unchanged.
+New qualification must capture both pinned revisions on this runner. The reference source revision, scenario list, sample counts and regression limits remain unchanged.
+Retain macOS 26 evidence under its original runner and protocol identities. It does not qualify a macOS 27 pair.
+The qualifier's new source hash gives this cohort a new protocol identity. The comparator rejects evidence with the previous protocol hash.
 
 ## Commands
 
@@ -32,11 +38,32 @@ rows or cohort metadata. Qualification stages all four artefacts and refuses
 existing or aliased output paths. Failure removes only artefacts published by
 that invocation.
 
-Reference worktree must be clean and checked out at revision recorded by `docs/performance/baseline-revision.txt`. Its ignored `Cargo.lock` must byte-match `docs/performance/baseline-Cargo.lock`; candidate uses tracked root `Cargo.lock`. Every Cargo invocation uses `--locked`. Qualification also requires exact ordered scenario manifest in `docs/performance/scenarios.txt` and rejects changed candidate/reference workload sources before measurement. Protocol identity hashes benchmark source, scenario manifest, and qualification script together, so sample or capture-policy changes invalidate stale evidence.
+The reference argument accepts a clean worktree or the exact revision from `docs/performance/baseline-revision.txt`.
+For either argument, the controller repository must contain that archived Git object. This requirement lets the comparator check provenance without an external worktree.
+For a worktree argument, its ignored `Cargo.lock` must match `docs/performance/baseline-Cargo.lock` exactly.
+The candidate uses its tracked root `Cargo.lock`. Every Cargo command uses `--locked`.
+
+The qualifier exports each exact product tree into a temporary directory.
+It preserves each product's manifests and dependency lockfile, then copies the controller's qualification harness into both directories.
+The original worktrees remain unchanged. Staging rejects links, submodules, wrong hashes and unexpected source changes.
+Before measurement and publication, the qualifier checks the staged product files, lockfiles and common harness again.
+
+Both results record the original product trees, manifest hashes and original harness hashes.
+`qualification_source_sha256` identifies the common harness that actually ran.
+Build metadata records each temporary source directory and its normal and DHAT executables. These directories are removed after capture.
+The comparator checks original identities against the archived Git objects and checks the common harness against the current controller.
+Protocol identity includes this harness, the exact ordered scenario manifest and the qualification script.
+Changes to measurement boundaries or capture policy require fresh paired evidence, not new labels on historical captures.
+
+The common harness retains the current mailbox admission and final-state checks.
+Its poll counts exclude native warm-up and final processing, as documented in the harness.
+The budget row checks the exact poll budget and one ready task on both products.
+The reference has no public live-task snapshot API. Candidate tests separately check live-task diagnostics in `rca-test/tests/deadline_draining.rs`.
+These workload changes require a fresh pair. They do not change the 50 scenarios or numerical gates.
 
 That reference belongs to RCA's archived development history, not the public
 repository. A clean public clone cannot reproduce this paired gate without
-the exact reference checkout from the retained archive. The revision pin and
+the exact reference objects from the retained archive. The revision pin and
 lockfile remain public because the qualifier and comparator validate them.
 Do not substitute a different baseline or treat parser tests as candidate
 performance evidence. Replacing the reference requires a reviewed method and
@@ -125,7 +152,11 @@ Profile before changing a hot path. If safe implementation remains within budget
 
 ## Regression gate
 
-`scripts/compare-performance.sh` requires the measured candidate revision to be an ancestor of the review checkout and rejects any committed, staged, or unstaged change since that revision to runtime source, runtime manifests, workspace release profile, lockfile, or size-probe source. This lets evidence and release documentation be committed without falsely relabelling later runtime code as measured. The comparator also rejects evidence not matching the tracked candidate lockfile, pinned baseline revision and lockfile, current workload protocol, exact 50-scenario manifest, or identical cohort metadata. It rejects changed samples, operations, allocation samples and operations, raw pairs, exact alternating order, or repetition counts.
+`scripts/compare-performance.sh` requires the measured candidate revision to be an ancestor of the review checkout.
+It rejects later changes to measured source, manifests, maintained transport forks, examples, benchmark sources, build configuration, lockfiles and the size probe.
+It also rejects new untracked files within those input paths. Unrelated root documentation can change without invalidating the measurements.
+Both evidence files must match the original product identities, current common harness, protocol, lockfiles and exact scenario manifest.
+The comparator rejects changed samples, operations, allocation samples and operations, raw pairs, alternating order or repetition counts.
 
 Comparator joins rows by scenario and rejects order-stratified paired ratios above `1.10` for median latency, p99 latency, inverted throughput, allocations, allocated bytes, peak memory footprint, maximum resident memory, CPU cycles, or task wakes. Throughput is inverted so every ratio uses same direction: greater than one is worse. Comparison also reports DHAT peak-live-heap ratio without using it for release acceptance.
 

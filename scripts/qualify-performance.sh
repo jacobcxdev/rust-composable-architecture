@@ -1,19 +1,84 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+require_reference_object() {
+  if ! git -C "$1" cat-file -e "$2^{commit}" 2>/dev/null; then
+    echo "archived reference object is missing from the controller repository" >&2
+    return 1
+  fi
+}
+
+# The separate index lets Git check exported files without touching either checkout.
+check_staged_source() {
+  local source=$1 revision=$2 lock_hash=$3 harness_hash=$4 destination=$5
+  if [[ -L "${destination}/Cargo.lock" || -L "${destination}/rca-tokio/benches/qualification.rs" \
+    || "$(shasum -a 256 "${destination}/Cargo.lock" | awk '{print $1}')" != "${lock_hash}" \
+    || "$(shasum -a 256 "${destination}/rca-tokio/benches/qualification.rs" | awk '{print $1}')" != "${harness_hash}" ]] \
+    || ! GIT_INDEX_FILE="${destination}.index" git -C "${source}" --work-tree="${destination}" \
+      diff --quiet "${revision}" -- . ':(exclude)Cargo.lock' ':(exclude)rca-tokio/benches/qualification.rs' \
+    || [[ -n "$(GIT_INDEX_FILE="${destination}.index" git -C "${source}" --work-tree="${destination}" \
+      ls-files --others --exclude-standard -- . ':(exclude)Cargo.lock')" ]]; then
+    echo "staged source changed outside the common harness and pinned lockfile" >&2
+    return 1
+  fi
+}
+
+# Only the benchmark source is replaced. Library source and manifests stay exact.
+stage_source() {
+  local source=$1 revision=$2 tree=$3 lock=$4 lock_hash=$5 harness=$6 harness_hash=$7 destination=$8
+  if [[ "$(git -C "${source}" rev-parse "${revision}^{tree}")" != "${tree}" ]]; then
+    echo "source tree does not match the recorded revision" >&2
+    return 1
+  fi
+  if [[ "$(shasum -a 256 "${lock}" | awk '{print $1}')" != "${lock_hash}" \
+    || "$(shasum -a 256 "${harness}" | awk '{print $1}')" != "${harness_hash}" ]]; then
+    echo "staging input hash mismatch" >&2
+    return 1
+  fi
+  if git -C "${source}" cat-file -e "${revision}:Cargo.lock" 2>/dev/null \
+    && [[ "$(git -C "${source}" show "${revision}:Cargo.lock" | shasum -a 256 | awk '{print $1}')" != "${lock_hash}" ]]; then
+    echo "tracked source lockfile differs from the supplied lockfile" >&2
+    return 1
+  fi
+  if git -C "${source}" ls-tree -r "${revision}" | awk '
+    $1 == "120000" || $1 == "160000" {found = 1} END {exit !found}
+  '; then
+    echo "source tree contains a link or submodule" >&2
+    return 1
+  fi
+  if [[ -e "${destination}" || -L "${destination}" \
+    || -e "${destination}.index" || -L "${destination}.index" \
+    || -e "${destination}.tar" || -L "${destination}.tar" ]]; then
+    echo "staging destination already exists" >&2
+    return 1
+  fi
+  mkdir "${destination}"
+  git -C "${source}" archive --output="${destination}.tar" "${revision}"
+  tar -x -f "${destination}.tar" -C "${destination}"
+  rm -- "${destination}.tar"
+  GIT_INDEX_FILE="${destination}.index" git -C "${source}" read-tree "${revision}"
+  cp "${lock}" "${destination}/Cargo.lock"
+  cp "${harness}" "${destination}/rca-tokio/benches/qualification.rs"
+  check_staged_source "${source}" "${revision}" "${lock_hash}" "${harness_hash}" "${destination}"
+}
+
 if [[ $# -ne 3 ]]; then
-  echo "usage: $0 <candidate.json> <reference-worktree> <reference.json>" >&2
+  echo "usage: $0 <candidate.json> <reference-worktree-or-revision> <reference.json>" >&2
   exit 2
 fi
 
 requested_output=$1
-reference_root=$(git -C "$2" rev-parse --show-toplevel)
+reference_input=$2
+reference_root=
+if [[ ! "${reference_input}" =~ ^[0-9a-f]{40}$ ]]; then
+  reference_root=$(git -C "${reference_input}" rev-parse --show-toplevel)
+fi
 requested_reference_output=$3
 output_dir=$(dirname "${requested_output}")
 reference_output_dir=$(dirname "${requested_reference_output}")
-canonical_runner=mac15-9-m3-max-16c-48gb-macos26-ac-high
+canonical_runner=mac15-9-m3-max-16c-48gb-macos27-ac-high
 
-for command in awk basename cmp env git grep jq mktemp pgrep rustup shasum tr; do
+for command in awk basename cmp cp env git grep jq mktemp pgrep rustup shasum tar tr; do
   if ! command -v "${command}" >/dev/null 2>&1; then
     echo "required command not found: ${command}" >&2
     exit 1
@@ -36,7 +101,8 @@ if [[ -n "$(git status --porcelain=v1 --untracked-files=all)" ]]; then
   echo "performance qualification requires a clean candidate checkout" >&2
   exit 1
 fi
-if [[ -n "$(git -C "${reference_root}" status --porcelain=v1 --untracked-files=all)" ]]; then
+if [[ -n "${reference_root}" \
+  && -n "$(git -C "${reference_root}" status --porcelain=v1 --untracked-files=all)" ]]; then
   echo "performance qualification requires a clean reference checkout" >&2
   exit 1
 fi
@@ -101,7 +167,7 @@ if [[ "$(uname -m)" != "arm64" \
   || "${cpu_model}" != "Apple M3 Max" \
   || "${logical_cpus}" != "16" \
   || "${memory_bytes}" != "51539607552" \
-  || "${os_version%%.*}" != "26" \
+  || "${os_version%%.*}" != "27" \
   || "${power_source}" != *"AC Power"* \
   || "${power_mode}" != "2" ]]; then
   echo "host does not match pinned runner ${canonical_runner}" >&2
@@ -133,15 +199,13 @@ if ! grep -q '^\[profile.release\]$' Cargo.toml \
   echo "canonical release profile is missing" >&2
   exit 1
 fi
-if ! grep -q '^\[profile.release\]$' "${reference_root}/Cargo.toml" \
-  || ! grep -q '^codegen-units = 1$' "${reference_root}/Cargo.toml" \
-  || ! grep -q '^lto = "fat"$' "${reference_root}/Cargo.toml"; then
-  echo "reference release profile is missing" >&2
-  exit 1
-fi
-
+repo_root=$(pwd -P)
 revision=$(git rev-parse HEAD)
-reference_revision=$(git -C "${reference_root}" rev-parse HEAD)
+reference_repository=${reference_root:-${repo_root}}
+reference_revision=${reference_input}
+if [[ -n "${reference_root}" ]]; then
+  reference_revision=$(git -C "${reference_root}" rev-parse HEAD)
+fi
 if [[ "${revision}" == "${reference_revision}" ]]; then
   echo "candidate and reference revisions must differ" >&2
   exit 1
@@ -152,41 +216,51 @@ if ! grep -Eq '^[0-9a-f]{40}$' docs/performance/baseline-revision.txt; then
 fi
 expected_reference_revision=$(tr -d '\n' < docs/performance/baseline-revision.txt)
 if [[ "${reference_revision}" != "${expected_reference_revision}" ]]; then
-  echo "reference checkout does not match performance baseline revision" >&2
+  echo "reference does not match performance baseline revision" >&2
+  exit 1
+fi
+require_reference_object "${repo_root}" "${reference_revision}"
+git -C "${reference_repository}" cat-file -e "${reference_revision}^{commit}"
+reference_manifest=$(git -C "${reference_repository}" show "${reference_revision}:Cargo.toml")
+if ! grep -q '^\[profile.release\]$' <<< "${reference_manifest}" \
+  || ! grep -q '^codegen-units = 1$' <<< "${reference_manifest}" \
+  || ! grep -q '^lto = "fat"$' <<< "${reference_manifest}"; then
+  echo "reference release profile is missing" >&2
   exit 1
 fi
 if ! git ls-files --error-unmatch Cargo.lock >/dev/null 2>&1; then
   echo "candidate Cargo.lock must be tracked" >&2
   exit 1
 fi
-if [[ ! -f "${reference_root}/Cargo.lock" \
-  || ! -f docs/performance/baseline-Cargo.lock \
+if [[ ! -f docs/performance/baseline-Cargo.lock \
   || ! -f docs/performance/scenarios.txt ]]; then
   echo "candidate and reference lockfiles are required" >&2
   exit 1
 fi
-if ! cmp -s "${reference_root}/Cargo.lock" docs/performance/baseline-Cargo.lock; then
+if [[ -n "${reference_root}" ]] \
+  && ! cmp -s "${reference_root}/Cargo.lock" docs/performance/baseline-Cargo.lock; then
   echo "reference Cargo.lock does not match pinned baseline lockfile" >&2
   exit 1
 fi
-if ! cmp -s rca-tokio/benches/qualification.rs \
-  "${reference_root}/rca-tokio/benches/qualification.rs"; then
-  echo "candidate and reference qualification workloads differ" >&2
-  exit 1
-fi
 candidate_lock_sha256=$(shasum -a 256 Cargo.lock | awk '{print $1}')
-reference_lock_sha256=$(shasum -a 256 "${reference_root}/Cargo.lock" | awk '{print $1}')
+reference_lock_sha256=$(shasum -a 256 docs/performance/baseline-Cargo.lock | awk '{print $1}')
+candidate_source_tree=$(git rev-parse "${revision}^{tree}")
+reference_source_tree=$(git -C "${reference_repository}" rev-parse "${reference_revision}^{tree}")
+candidate_manifest_sha256=$(git show "${revision}:Cargo.toml" | shasum -a 256 | awk '{print $1}')
+reference_manifest_sha256=$(git -C "${reference_repository}" show "${reference_revision}:Cargo.toml" \
+  | shasum -a 256 | awk '{print $1}')
+candidate_original_harness_sha256=$(git show "${revision}:rca-tokio/benches/qualification.rs" \
+  | shasum -a 256 | awk '{print $1}')
+reference_original_harness_sha256=$(git -C "${reference_repository}" \
+  show "${reference_revision}:rca-tokio/benches/qualification.rs" | shasum -a 256 | awk '{print $1}')
 qualification_source_sha256=$(shasum -a 256 rca-tokio/benches/qualification.rs | awk '{print $1}')
 scenario_manifest_sha256=$(shasum -a 256 docs/performance/scenarios.txt | awk '{print $1}')
 qualification_script_sha256=$(shasum -a 256 scripts/qualify-performance.sh | awk '{print $1}')
 protocol_sha256=$(printf '%s\n' "${qualification_source_sha256}" \
   "${scenario_manifest_sha256}" "${qualification_script_sha256}" \
   | shasum -a 256 | awk '{print $1}')
-"${cargo}" metadata --locked --manifest-path "${reference_root}/Cargo.toml" \
-  --no-deps --format-version 1 >/dev/null
 recorded_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 rustc_commit=$("${rustc}" --version --verbose | awk '/^commit-hash:/ {print $2}')
-repo_root=$(pwd -P)
 if [[ "${repo_root}" == *'"'* ]]; then
   echo "repository path cannot contain a quote" >&2
   exit 1
@@ -229,17 +303,33 @@ cleanup() {
 trap cleanup EXIT
 trap 'echo "qualification failed during ${stage} at line ${LINENO}" >&2' ERR
 
+stage="source-staging"
+candidate_build_root=${temporary}/candidate-source
+reference_build_root=${temporary}/reference-source
+stage_source "${repo_root}" "${revision}" "${candidate_source_tree}" \
+  "${repo_root}/Cargo.lock" "${candidate_lock_sha256}" \
+  "${repo_root}/rca-tokio/benches/qualification.rs" "${qualification_source_sha256}" "${candidate_build_root}"
+stage_source "${reference_repository}" "${reference_revision}" "${reference_source_tree}" \
+  "${repo_root}/docs/performance/baseline-Cargo.lock" "${reference_lock_sha256}" \
+  "${repo_root}/rca-tokio/benches/qualification.rs" "${qualification_source_sha256}" "${reference_build_root}"
+"${cargo}" metadata --locked --manifest-path "${reference_build_root}/Cargo.toml" \
+  --no-deps --format-version 1 >/dev/null
+
 normal_build=${temporary}/normal-build.jsonl
 allocation_build=${temporary}/allocation-build.jsonl
 stage=benchmark-build
-"${cargo}" bench --locked -p rca-tokio --bench qualification --no-run --message-format=json \
+"${cargo}" bench --locked --manifest-path "${candidate_build_root}/Cargo.toml" \
+  --target-dir "${candidate_build_root}/target" \
+  -p rca-tokio --bench qualification --no-run --message-format=json \
   > "${normal_build}"
 normal_executable=$(jq -r '
   select(.reason == "compiler-artifact" and .target.name == "qualification")
   | .executable // empty
 ' "${normal_build}" | tail -1)
 
-"${cargo}" bench --locked -p rca-tokio --bench qualification --features qualification-dhat \
+"${cargo}" bench --locked --manifest-path "${candidate_build_root}/Cargo.toml" \
+  --target-dir "${candidate_build_root}/target" \
+  -p rca-tokio --bench qualification --features qualification-dhat \
   --no-run --message-format=json > "${allocation_build}"
 allocation_executable=$(jq -r '
   select(.reason == "compiler-artifact" and .target.name == "qualification")
@@ -248,7 +338,8 @@ allocation_executable=$(jq -r '
 
 reference_normal_build=${temporary}/reference-normal-build.jsonl
 reference_allocation_build=${temporary}/reference-allocation-build.jsonl
-"${cargo}" bench --locked --manifest-path "${reference_root}/Cargo.toml" \
+"${cargo}" bench --locked --manifest-path "${reference_build_root}/Cargo.toml" \
+  --target-dir "${reference_build_root}/target" \
   -p rca-tokio --bench qualification --no-run --message-format=json \
   > "${reference_normal_build}"
 reference_normal_executable=$(jq -r '
@@ -256,7 +347,8 @@ reference_normal_executable=$(jq -r '
   | .executable // empty
 ' "${reference_normal_build}" | tail -1)
 
-"${cargo}" bench --locked --manifest-path "${reference_root}/Cargo.toml" \
+"${cargo}" bench --locked --manifest-path "${reference_build_root}/Cargo.toml" \
+  --target-dir "${reference_build_root}/target" \
   -p rca-tokio --bench qualification --features qualification-dhat \
   --no-run --message-format=json > "${reference_allocation_build}"
 reference_allocation_executable=$(jq -r '
@@ -277,6 +369,11 @@ if [[ "${normal_executable}" == "${allocation_executable}" \
   echo "candidate, reference, normal, and DHAT builds must be distinct" >&2
   exit 1
 fi
+
+check_staged_source "${repo_root}" "${revision}" "${candidate_lock_sha256}" \
+  "${qualification_source_sha256}" "${candidate_build_root}"
+check_staged_source "${reference_repository}" "${reference_revision}" "${reference_lock_sha256}" \
+  "${qualification_source_sha256}" "${reference_build_root}"
 
 scenarios=()
 while IFS= read -r scenario; do
@@ -796,6 +893,18 @@ jq -n \
   --arg scenario_manifest_sha256 "${scenario_manifest_sha256}" \
   --arg candidate_lock_sha256 "${candidate_lock_sha256}" \
   --arg reference_lock_sha256 "${reference_lock_sha256}" \
+  --arg candidate_source_tree "${candidate_source_tree}" \
+  --arg reference_source_tree "${reference_source_tree}" \
+  --arg candidate_manifest_sha256 "${candidate_manifest_sha256}" \
+  --arg reference_manifest_sha256 "${reference_manifest_sha256}" \
+  --arg candidate_original_harness_sha256 "${candidate_original_harness_sha256}" \
+  --arg reference_original_harness_sha256 "${reference_original_harness_sha256}" \
+  --arg candidate_build_root "${candidate_build_root}" \
+  --arg reference_build_root "${reference_build_root}" \
+  --arg normal_executable "${normal_executable}" \
+  --arg allocation_executable "${allocation_executable}" \
+  --arg reference_normal_executable "${reference_normal_executable}" \
+  --arg reference_allocation_executable "${reference_allocation_executable}" \
   --arg normal_command "${normal_command}" \
   --arg allocation_command "${allocation_command}" \
   --arg divan_command "${divan_command}" \
@@ -847,7 +956,13 @@ jq -n \
           qualification_script_sha256: $qualification_script_sha256,
           scenario_manifest_sha256: $scenario_manifest_sha256,
           candidate_lock_sha256: $candidate_lock_sha256,
-          reference_lock_sha256: $reference_lock_sha256
+          reference_lock_sha256: $reference_lock_sha256,
+          candidate_source_tree: $candidate_source_tree,
+          reference_source_tree: $reference_source_tree,
+          candidate_manifest_sha256: $candidate_manifest_sha256,
+          reference_manifest_sha256: $reference_manifest_sha256,
+          candidate_original_harness_sha256: $candidate_original_harness_sha256,
+          reference_original_harness_sha256: $reference_original_harness_sha256
         },
         method: {
           aggregation: "geometric mean of order-stratified paired medians",
@@ -859,9 +974,23 @@ jq -n \
           }
         },
         commands: {
+          staged_build: "cargo bench --locked --manifest-path <subject>/Cargo.toml --target-dir <subject>/target -p rca-tokio --bench qualification --no-run --message-format=json",
+          allocation_build_feature: "qualification-dhat",
           latency: $normal_command,
           allocation: $allocation_command,
           divan: $divan_command
+        },
+        staged_builds: {
+          candidate: {
+            root: $candidate_build_root,
+            normal_executable: $normal_executable,
+            allocation_executable: $allocation_executable
+          },
+          reference: {
+            root: $reference_build_root,
+            normal_executable: $reference_normal_executable,
+            allocation_executable: $reference_allocation_executable
+          }
         }
       },
       supporting_metrics: {
@@ -923,6 +1052,23 @@ printf '%s\n' \
   > "${profile_report}"
 
 stage=evidence-finalisation
+check_staged_source "${repo_root}" "${revision}" "${candidate_lock_sha256}" \
+  "${qualification_source_sha256}" "${candidate_build_root}"
+check_staged_source "${reference_repository}" "${reference_revision}" "${reference_lock_sha256}" \
+  "${qualification_source_sha256}" "${reference_build_root}"
+if [[ "$(git rev-parse HEAD)" != "${revision}" \
+  || -n "$(git status --porcelain=v1 --untracked-files=all)" \
+  || "$(shasum -a 256 Cargo.lock | awk '{print $1}')" != "${candidate_lock_sha256}" ]]; then
+  echo "candidate checkout changed during qualification" >&2
+  exit 1
+fi
+if [[ -n "${reference_root}" ]] \
+  && { [[ "$(git -C "${reference_root}" rev-parse HEAD)" != "${reference_revision}" \
+    || -n "$(git -C "${reference_root}" status --porcelain=v1 --untracked-files=all)" ]] \
+    || ! cmp -s "${reference_root}/Cargo.lock" docs/performance/baseline-Cargo.lock; }; then
+  echo "reference checkout changed during qualification" >&2
+  exit 1
+fi
 if [[ -e "${output}" || -e "${reference_output}" \
   || -e "${profile_output}" || -e "${divan_output}" ]]; then
   echo "qualification evidence path appeared during qualification" >&2

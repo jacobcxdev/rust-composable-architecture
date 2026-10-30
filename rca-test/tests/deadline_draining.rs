@@ -149,9 +149,11 @@ fn self_waking_work_exhausts_total_poll_budget_without_advancing_time() {
     assert_eq!(error.polls(), 3);
     assert_eq!(error.deadline_batches(), 0);
     assert_eq!(error.ready_task_ids(), [0]);
+    assert_eq!(error.live_task_ids(), [0]);
     assert_eq!(host.now(), MonotonicInstant::ZERO);
     let ready_only_error = host.run_until_stalled().unwrap_err();
     assert!(ready_only_error.is_step_budget_exhausted());
+    assert_eq!(ready_only_error.live_task_ids(), [0]);
     assert_eq!(ready_only_error.deadline_budget(), None);
     assert!(
         ready_only_error
