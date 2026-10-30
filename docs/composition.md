@@ -147,6 +147,23 @@ the composition wrapper to panic immediately without reducing child or base.
 TestStore installs a required recorder: consume the issue with
 `expect_issue(|issue| issue.code == "rca.missing_child").await` before `finish`.
 
+The optional and case diagnostic uses this message:
+
+```text
+{combinator} received child action `{ChildAction}` in parent action `{ParentAction}` while child state `{ChildState}` was absent from parent state `{ParentState}`
+```
+
+The keyed diagnostic uses this message:
+
+```text
+ForEach received keyed child action `{ChildAction}` with ID type `{Id}` in parent action `{ParentAction}` while child state `{ChildState}` was absent from KeyedState in parent state `{ParentState}`
+```
+
+The diagnostic names the relevant Rust types and composition wrapper.
+These messages also identify `FailFast` panics.
+Each policy panic closes the Store. A scoped handle rejects an ended child
+before reducer entry instead of triggering a missing-child diagnostic.
+
 A queued output from an old child generation is different: the Store rejects
 it before reducer entry, without a missing-child issue or base reduction, and
 remains usable. The [policy tests](../rca-test/tests/missing_children.rs) cover
@@ -301,9 +318,20 @@ through `scope`, `if_some`, and `for_each` without `Action: Clone`. See
 `examples/composition-search` for one trace exercised against both forms,
 including Store-scoped keyed read/send/distinct-observe/closure flow.
 
-For a source migration from older prototype-style code, including exact
-missing-child root-send diagnostics, see `docs/migration-0.9.md`. This is the
-composition contract for candidate package version `0.1.0`.
+Constructible path namespaces implement `Debug` without bounds on domain types.
+Namespaces with type parameters are aliases to isolated, uninhabited marker types.
+They have no values or `Debug` implementation. Their associated path methods,
+generic defaults and domain-derived variance do not require domain `Debug`,
+`Send` or `Sync` bounds.
+
+Use their associated methods rather than tuple construction
+or patterns. The derives reserve sibling modules beginning `__rca_path_namespace_`
+for private storage. Application code must not depend on that storage.
+
+An action variant supports `#[rca(keyed)]`, not `#[rca(optional)]`.
+Optional annotations belong on state fields. The
+[owned-resource guide](guides/owned-resources.md) explains resources carried by
+borrowed actions and one-shot payload slots.
 
 ## Keyed example
 
@@ -347,8 +375,7 @@ Structural keyed reconciliation remains O(n), while unchanged matching and
 unrelated reconciliation use O(1) stamp checks. Scope lookup is average O(1)
 plus collision-chain length; concrete identity equality remains authoritative.
 Leaving M registry nodes is average O(M) with deterministic iterative postorder.
-Local three-cohort evidence and limits are in
-`docs/performance/0.9/keyed-scaling.md`.
+These are algorithmic bounds, not a numerical performance comparison.
 
 This guide describes reducer composition, not the full capability set.
 Stack and presentation state, persistence, owner-local Stores, debounce and
@@ -357,7 +384,6 @@ maps mounted child input, task updates, ancestor output and folds to their
 intended uses. Native UI and networking policy remain application or provider
 responsibilities. State mutation stays serial within each Store.
 
-Scoped Store and dependency measurements are in
-`docs/performance/0.9/scoped-store.md`. Local single-host measurements do not
-qualify the current release gate; canonical paired evidence and later
-composition phases remain required.
+Performance measurements need matching workloads, source revisions and host
+conditions. Historical local timings do not qualify a later release.
+See the [qualification summary](qualification.md) for the current evidence boundary.

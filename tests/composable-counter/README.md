@@ -1,4 +1,10 @@
-# Counter allocation instrumentation
+# Counter comparison fixtures
+
+The two locked workspaces exercise current RCA and upstream Composable
+`0b5baa80246a625c1bb886e6df20dae27fc97c97`. The retired RCA fork is not a supported
+comparison target.
+
+## Allocation instrumentation
 
 Build a fixture with `--features allocation-measurement` and run its binary
 with `--measure-allocations`. Without the feature this mode is rejected.
@@ -78,7 +84,7 @@ interleaving.
 CI retains upstream runtime outcomes as reference observations, not RCA acceptance
 gates. Counter suites, including allocation instrumentation, keep their external
 deadline and report their actual outcome. Formatting, lint and compilation remain
-required for all engines. RCA and historical runtime checks remain required.
+required for both engines. RCA runtime checks remain required.
 
 The upstream reference remains failed even when a later observation passes.
 No numerical comparison can depend on its successful completion without new
@@ -95,7 +101,7 @@ state extraction and owned-host teardown. Legacy applications use native
 `Store::sync` and `into_inner`; RCA awaits committed sends, extracts with
 `shutdown_into_state`, then drops its current-thread Tokio runtime.
 
-The upstream and historical application sources are identical. Their tests run
+The application tests run
 the native workload, reject omitted/duplicate inputs, and check reducer release
 using a witness compiled only for tests. That witness is not an independent
 host-thread join proof. Existing gated benchmark proofs remain unchanged and
@@ -103,20 +109,7 @@ are not direct tests of these separate applications. Tests have a ten-second
 result deadline; retain an external process deadline for the whole suite.
 No build-time or binary-size qualification follows from adding these binaries.
 
-Each package retains its original benchmark as `default-run`; select the new
+Each package retains its benchmark as `default-run`; select the minimal
 application explicitly with `cargo run --locked --bin minimal-counter
 --manifest-path tests/composable-counter/<fixture>/Cargo.toml`. The existing
 measurement controller also selects its original binary explicitly.
-
-Verification on 2026-09-30: all three standalone default suites passed 20 tests
-each; all-feature suites passed 27 each. Formatting and strict all-target Clippy
-passed with explicit Rust 1.98.0. Each normal application printed `42\n`, and
-bare `cargo run -- --invalid` still reached the original CLI and exited one.
-The first Clippy attempt selected Rust 1.94 and failed the candidate's MSRV;
-the pinned rerun passed. Independent source review found no actionable issues.
-The workload checks a sum, not action ordering or general application costs.
-
-The controller's binary-selection regressions failed before the change and
-passed afterwards; all 188 Python tests passed. Receipts:
-`/tmp/rca-minimal-{red,tests,cli-fmt,clippy,clippy-pinned-cli,allfeatures}.log`
-and `/tmp/rca-minimal-{bin-selection-red,bin-selection-green,controller-suite}.log`.

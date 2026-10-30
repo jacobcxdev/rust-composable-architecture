@@ -55,7 +55,7 @@ fn capture(run: impl FnOnce() -> Result<Work, &'static str>) -> Result<Measureme
 }
 
 pub fn run(engine: &str) -> Result<String, &'static str> {
-    if !matches!(engine, "composable" | "rca-0.7" | "rca") {
+    if !matches!(engine, "composable" | "rca") {
         return Err("invalid common-outcome engine");
     }
     let measurement = capture(|| {
@@ -102,6 +102,11 @@ pub fn main(engine: &str) {
 mod tests {
     use super::*;
     use std::hint::black_box;
+
+    #[test]
+    fn retired_engine_is_rejected_before_capture() {
+        assert_eq!(run("rca-0.7"), Err("invalid common-outcome engine"));
+    }
 
     fn empty_work() -> Work {
         Work {
@@ -198,7 +203,6 @@ mod tests {
         let engine = match env!("CARGO_PKG_NAME") {
             "composable-stream-candidate" => "rca",
             "composable-stream-upstream" => "composable",
-            "composable-stream-historical" => "rca-0.7",
             _ => unreachable!(),
         };
         let output = run(engine).unwrap();

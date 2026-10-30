@@ -26,8 +26,8 @@ import common_outcome_allocations as common_outcome_evidence  # noqa: E402
 
 
 ROOT = Path(__file__).resolve().parents[1]
-PROTOCOL = ROOT / "docs/performance/0.9/composition-protocol-v5.json"
-BUDGET = ROOT / "docs/performance/0.9/composition-budgets.json"
+PROTOCOL = ROOT / "docs/performance/composition/composition-protocol-v5.json"
+BUDGET = ROOT / "docs/performance/composition/composition-budgets.json"
 EVIDENCE_ROOT = ROOT / "target/qualification-evidence/0.1.0/composition"
 LOCK = Path("/tmp/rca-composition-performance.machine.lock")
 AA_RECEIPT_FILES = (
@@ -902,7 +902,7 @@ COUNTER_LIFECYCLE_PROTOCOL = ROOT / "docs/performance/composable-counter-lifecyc
 COUNTER_ALLOCATION_PROTOCOL = ROOT / "docs/performance/composable-counter-allocation-protocol-v1.json"
 READY_FUTURE_ALLOCATION_PROTOCOL = ROOT / "docs/performance/composable-ready-future-allocation-protocol-v1.json"
 COMMON_OUTCOME_ALLOCATION_PROTOCOL = ROOT / "docs/performance/composable-common-outcome-allocation-protocol-v1.json"
-COUNTER_FIXTURES = {"composable": "upstream", "rca-0.7": "historical", "rca": "candidate"}
+COUNTER_FIXTURES = {"composable": "upstream", "rca": "candidate"}
 COUNTER_RELEASE_ENV = {
     "CARGO_INCREMENTAL": "0", "CARGO_BUILD_JOBS": "1",
     "CARGO_PROFILE_RELEASE_OPT_LEVEL": "3", "CARGO_PROFILE_RELEASE_DEBUG": "false",

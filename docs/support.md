@@ -12,22 +12,25 @@ performance checks, documentation, package consumers and retained platform
 evidence. Each result applies to the source, dependencies, toolchain and
 environment it covers. Changes to those inputs require an applicability check
 and, where affected, new verification.
+Local results do not establish that hosted checks passed.
 
-Hosted PR CI has not yet run for this candidate. Its results remain a separate
-release gate. RCA 0.1.0 is unpublished; local qualification is not a stable-support
-promise, a successful hosted run or a publication receipt. Historical development
-evidence is retained separately with its original revisions and limits.
+All 18 hosted checks passed for `796032f234095596c822ba48f4a54e96d5c3c67a` on
+30 October 2026. The [recorded run](https://github.com/jacobcxdev/rust-composable-architecture/actions/runs/40994124660)
+qualifies that revision. Later changes require their own applicable checks.
+The [review PR](https://github.com/jacobcxdev/rust-composable-architecture/pull/1)
+records the current head and its results. RCA 0.1.0 remains unpublished.
+Qualification does not establish a stable-support promise or publication receipt.
 
 ## Targets
 
-| Target | Core and umbrella gate | Tokio adapter gate | Hosted candidate CI |
+| Target | Core and umbrella gate | Tokio adapter gate | Hosted CI at `796032f` |
 | --- | --- | --- | --- |
-| `x86_64-unknown-linux-gnu` | Required | Required | Pending |
-| `aarch64-unknown-linux-gnu` | Required | Required | Pending |
-| `x86_64-apple-darwin` | Required, compile-only | Required, compile-only | Pending |
-| `aarch64-apple-darwin` | Required | Required | Pending |
-| `x86_64-pc-windows-msvc` | Required | Required | Pending |
-| `wasm32-unknown-unknown` | Required | Not applicable | Pending |
+| `x86_64-unknown-linux-gnu` | Required | Required | Passed |
+| `aarch64-unknown-linux-gnu` | Required | Required | Passed |
+| `x86_64-apple-darwin` | Required, compile-only | Required, compile-only | Passed |
+| `aarch64-apple-darwin` | Required | Required | Passed |
+| `x86_64-pc-windows-msvc` | Required | Required | Passed |
+| `wasm32-unknown-unknown` | Required | Not applicable | Passed |
 
 WebAssembly support covers runtime-neutral `rca-core` and umbrella APIs. It
 remains experimental until RCA ships and qualifies a WebAssembly-compatible
@@ -67,13 +70,10 @@ of power-loss durability.
 ## Features
 
 The umbrella candidate is packaged as `rust-composable-architecture` and
-imported as crate `rca`. Default features are empty. The original
-`composable-views` renderer prototype and its internal `ui_id` macro remain in
-the preserved [v0.7.0 source](https://github.com/jacobcxdev/rust-composable-architecture/tree/v0.7.0/composable-views).
-Neither belongs to the nine-package 0.1.0 candidate: six headless crates and
-three transport dependencies. A later callback-adapter experiment was never
-published and is not supplied by this repository. None of RCA's current
-release packages depends on either prototype.
+imported as crate `rca`. Default features are empty. The nine-package 0.1.0 candidate
+contains six headless crates and three transport dependencies.
+Historical renderer and callback-adapter prototypes are not RCA packages.
+No current release package depends on them.
 
 | Feature | Adds |
 | --- | --- |
@@ -154,13 +154,9 @@ impossible missing-revision branches or backend ownership in document state.
 
 ### Version policy
 
-0.8 was a breaking runtime redesign from 0.7. See
-[`migration-0.7-to-0.8.md`](migration-0.7-to-0.8.md). The 0.9 alpha adds the
-breaking Rust-native composition model described in
-[`migration-0.9.md`](migration-0.9.md). These are historical development labels;
-the unpublished new-product package line now starts at 0.1.0. During pre-stable
-development, MSRV and public
-API can change only with an explicit release note and renewed qualification.
+RCA starts at 0.1.0. It does not maintain earlier Composable releases or promise
+source compatibility with development prototypes. During pre-stable development,
+MSRV and public API changes require explicit release notes and renewed qualification.
 Stable 1.x releases will follow semantic versioning.
 
 ## Stable API and runtime contracts

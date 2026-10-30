@@ -18,17 +18,29 @@ From a clean checkout:
 
 ```bash
 ./scripts/qualify-performance.sh \
-  target/qualification-evidence/0.8.0-alpha.1.json \
+  target/qualification-evidence/candidate.json \
   /tmp/rca-performance-reference \
   target/qualification-evidence/baseline.json
 ./scripts/compare-performance.sh \
   target/qualification-evidence/baseline.json \
-  target/qualification-evidence/0.8.0-alpha.1.json
+  target/qualification-evidence/candidate.json
 ```
 
-After review, replace canonical JSON, comparison, Divan log, and profile report together. In the canonical candidate JSON, normalise the Divan log and profile-report fields to their tracked `docs/performance` paths; measured rows and cohort metadata remain byte-for-byte unchanged. Qualification stages all four artefacts and refuses existing or aliased output paths. Failure removes only artefacts published by that invocation.
+Retain the paired JSON, comparison, Divan log and profile report together as
+qualification artefacts outside the tracked source tree. Do not change measured
+rows or cohort metadata. Qualification stages all four artefacts and refuses
+existing or aliased output paths. Failure removes only artefacts published by
+that invocation.
 
 Reference worktree must be clean and checked out at revision recorded by `docs/performance/baseline-revision.txt`. Its ignored `Cargo.lock` must byte-match `docs/performance/baseline-Cargo.lock`; candidate uses tracked root `Cargo.lock`. Every Cargo invocation uses `--locked`. Qualification also requires exact ordered scenario manifest in `docs/performance/scenarios.txt` and rejects changed candidate/reference workload sources before measurement. Protocol identity hashes benchmark source, scenario manifest, and qualification script together, so sample or capture-policy changes invalidate stale evidence.
+
+That reference belongs to RCA's archived development history, not the public
+repository. A clean public clone cannot reproduce this paired gate without
+the exact reference checkout from the retained archive. The revision pin and
+lockfile remain public because the qualifier and comparator validate them.
+Do not substitute a different baseline or treat parser tests as candidate
+performance evidence. Replacing the reference requires a reviewed method and
+baseline change.
 
 Qualification runner builds four distinct bench executables, two from each revision, and balances execution order within every scenario:
 
@@ -126,9 +138,16 @@ Comparison fails on missing scenarios, duplicate scenarios, zero metrics, schema
 
 ## Bootstrap reference
 
-`docs/performance/baseline.json` records pinned first accepted 0.8 safe-runtime source revision and is marked `reference_kind: "paired-reference"`. Its measurements are regenerated beside each candidate, in alternating order, on canonical runner. Source revision never changes without reviewed baseline replacement; paired measurements and candidate evidence change together.
+The generated baseline JSON records the pinned reference revision and is
+marked `reference_kind: "paired-reference"`. Its measurements are regenerated
+beside each candidate, in alternating order, on the canonical runner. The
+source revision never changes without a reviewed baseline replacement;
+paired measurements and candidate evidence change together. Old captures
+are archived outside the public source tree.
 
-Do not silently replace baseline source revision. Replacement needs documented runner or methodology change, review of raw evidence, and retained prior reference. Commit both paired result files together.
+Do not silently replace the baseline source revision. Replacement needs a
+documented runner or method change, review of raw evidence, and a retained
+prior reference. Retain both paired result files together.
 
 ## Variance and interpretation
 

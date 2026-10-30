@@ -11,10 +11,8 @@
   "percentile_ranks": [5000, 9500, 9900],
   "cohorts": [
     {"name": "composable-aa", "control_engine": "composable", "subject_engine": "composable"},
-    {"name": "historical-aa", "control_engine": "rca-0.7", "subject_engine": "rca-0.7"},
     {"name": "candidate-aa", "control_engine": "rca", "subject_engine": "rca"},
-    {"name": "candidate-composable", "control_engine": "composable", "subject_engine": "rca"},
-    {"name": "candidate-historical", "control_engine": "rca-0.7", "subject_engine": "rca"}
+    {"name": "candidate-composable", "control_engine": "composable", "subject_engine": "rca"}
   ],
   "estimator": "geometric-mean-of-order-stratum-medians",
   "interval": "geometric-mean-of-order-stratum-minima-and-maxima",

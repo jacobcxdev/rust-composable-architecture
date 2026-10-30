@@ -2,7 +2,7 @@
   "schema": "composable-common-outcome-allocation-cohorts-v1",
   "status": "frozen-before-qualified-capture",
   "cycles": 3,
-  "engine_order": ["composable", "rca-0.7", "rca"],
+  "engine_order": ["composable", "rca"],
   "orders": [{"order": "forward", "role": "a"}, {"order": "reverse", "role": "b"}],
   "samples_per_engine": 6,
   "operations": 64,

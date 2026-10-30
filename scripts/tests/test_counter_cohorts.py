@@ -44,8 +44,7 @@ class CounterCohortsTests(unittest.TestCase):
 
     def test_balanced_complete_plan_and_equal_costs(self):
         self.assertEqual([c["name"] for c in self.plan], [
-            "composable-aa", "historical-aa", "candidate-aa",
-            "candidate-composable", "candidate-historical",
+            "composable-aa", "candidate-aa", "candidate-composable",
         ])
         for cohort in self.plan:
             self.assertEqual([b["block"] for b in cohort["blocks"]], list(range(1, 25)))
@@ -60,14 +59,12 @@ class CounterCohortsTests(unittest.TestCase):
                 self.assertEqual(metric["direction"], "unresolved")
 
     def test_double_candidate_cost_is_not_hidden_by_perfect_controls(self):
-        for name in ("candidate-composable", "candidate-historical"):
-            for row in self.cohorts[name]:
-                row["subject"] = timing("rca", 200)
+        for row in self.cohorts["candidate-composable"]:
+            row["subject"] = timing("rca", 200)
         result = self.evaluate()
-        for name in ("candidate-composable", "candidate-historical"):
-            for metric in result["cohorts"][name]["metrics"].values():
-                self.assertEqual((metric["estimate"], metric["lower"], metric["upper"]), (2, 2, 2))
-                self.assertEqual(metric["direction"], "higher-cost")
+        for metric in result["cohorts"]["candidate-composable"]["metrics"].values():
+            self.assertEqual((metric["estimate"], metric["lower"], metric["upper"]), (2, 2, 2))
+            self.assertEqual(metric["direction"], "higher-cost")
         self.assertTrue(result["suitable_for_direction"])
         self.assertFalse(result["provenance_qualified"])
 
@@ -93,13 +90,14 @@ class CounterCohortsTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     self.evaluate()
         self.cohorts["candidate-aa"] = original
-        del self.cohorts["historical-aa"]
+        del self.cohorts["composable-aa"]
         with self.assertRaises(ValueError):
             self.evaluate()
 
     def test_rejects_wrong_engine_and_incomplete_nested_work(self):
         row = self.cohorts["candidate-composable"][0]
-        for field, bad in (("engine", "composable"), ("operations_completed", 9999),
+        for field, bad in (("engine", "composable"), ("engine", "rca-0.7"),
+                           ("operations_completed", 9999),
                            ("state_extracted", False), ("host_stopped", False)):
             row["subject"] = timing("rca")
             row["subject"]["work"][field] = bad
@@ -121,8 +119,8 @@ class CounterCohortsTests(unittest.TestCase):
         self.assertAlmostEqual(metric["drift_factors"]["subject-control"], 43 / 31)
 
     def test_narrow_aa_interval_excluding_one_is_unsuitable(self):
-        for row in self.cohorts["historical-aa"]:
-            row["subject"] = timing("rca-0.7", 101)
+        for row in self.cohorts["composable-aa"]:
+            row["subject"] = timing("composable", 101)
         result = self.evaluate()
         self.assertFalse(result["aa_suitable"])
         self.assertFalse(result["suitable_for_direction"])
@@ -172,13 +170,13 @@ class CounterCohortsTests(unittest.TestCase):
             if row["order"] == "subject-control":
                 row["subject"] = timing("rca", 110)
         counts = {"control-subject": 0, "subject-control": 0}
-        for row in self.cohorts["candidate-historical"]:
+        for row in self.cohorts["candidate-aa"]:
             counts[row["order"]] += 1
             if counts[row["order"]] > 6:
                 row["subject"] = timing("rca", 110)
         result = self.evaluate()
         order = result["cohorts"]["candidate-composable"]["metrics"]["p50_ns"]
-        drift = result["cohorts"]["candidate-historical"]["metrics"]["p50_ns"]
+        drift = result["cohorts"]["candidate-aa"]["metrics"]["p50_ns"]
         self.assertFalse(order["order_suitable"])
         self.assertTrue(order["drift_suitable"])
         self.assertTrue(drift["order_suitable"])
@@ -215,7 +213,7 @@ class CounterLifecycleCohortsTests(unittest.TestCase):
         return evidence.evaluate_counter_lifecycle_cohorts(self.cohorts, self.protocol)
 
     def test_balanced_plan_equal_costs_and_doubled_candidate(self):
-        self.assertEqual(len(self.plan), 5)
+        self.assertEqual(len(self.plan), 3)
         for cohort in self.plan:
             self.assertEqual([b["block"] for b in cohort["blocks"]], list(range(1, 25)))
             self.assertEqual(sum(b["order"] == "control-subject" for b in cohort["blocks"]), 12)
@@ -267,13 +265,13 @@ class CounterLifecycleCohortsTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.evaluate()
         del self.cohorts["extra"]
-        del self.cohorts["historical-aa"]
+        del self.cohorts["composable-aa"]
         with self.assertRaises(ValueError):
             self.evaluate()
 
     def test_rejects_wrong_engine_invalid_duration_and_incomplete_work(self):
         row = self.cohorts["candidate-composable"][0]
-        for field, bad in (("engine", "composable"), ("elapsed_ns", 0),
+        for field, bad in (("engine", "composable"), ("engine", "rca-0.7"), ("elapsed_ns", 0),
                            ("elapsed_ns", True), ("elapsed_ns", 2**128),
                            ("operations_completed", 0), ("state_extracted", False),
                            ("host_stopped", False), ("extra", 1)):
@@ -290,17 +288,17 @@ class CounterLifecycleCohortsTests(unittest.TestCase):
             if row["order"] == "subject-control":
                 row["subject"]["elapsed_ns"] = 110
         counts = {"control-subject": 0, "subject-control": 0}
-        for row in self.cohorts["candidate-historical"]:
+        for row in self.cohorts["candidate-aa"]:
             counts[row["order"]] += 1
             if counts[row["order"]] > 6:
                 row["subject"]["elapsed_ns"] = 110
-        for row in self.cohorts["historical-aa"]:
+        for row in self.cohorts["composable-aa"]:
             row["subject"]["elapsed_ns"] = 101
         before = copy.deepcopy(self.cohorts)
         result = self.evaluate()
         self.assertEqual(self.cohorts, before)
         order = result["cohorts"]["candidate-composable"]["metrics"]["elapsed_ns"]
-        drift = result["cohorts"]["candidate-historical"]["metrics"]["elapsed_ns"]
+        drift = result["cohorts"]["candidate-aa"]["metrics"]["elapsed_ns"]
         self.assertFalse(order["order_suitable"])
         self.assertTrue(order["drift_suitable"])
         self.assertTrue(drift["order_suitable"])
@@ -340,7 +338,7 @@ class CounterAllocationTests(unittest.TestCase):
         return evidence.validate_composable_counter_allocations(value, engine)
 
     def test_valid_engines_zero_counts_and_falling_live_counts(self):
-        for engine in ("composable", "rca-0.7", "rca"):
+        for engine in ("composable", "rca"):
             for scale in (0, 1):
                 value = allocation(engine, scale)
                 self.assertIs(self.validate(value, engine), value)
@@ -403,6 +401,8 @@ class CounterAllocationTests(unittest.TestCase):
                 self.validate(value)
         with self.assertRaises(ValueError):
             self.validate(allocation(), "unknown")
+        with self.assertRaises(ValueError):
+            self.validate(allocation("rca-0.7"), "rca-0.7")
 
     def test_rejects_duplicate_json_keys_and_impossible_live_counts(self):
         import json
@@ -419,12 +419,12 @@ class CounterAllocationTests(unittest.TestCase):
     def test_frozen_protocol_schedule_and_document_are_strict(self):
         protocol = evidence.load_counter_allocation_protocol(ALLOCATION_PROTOCOL)
         plan = evidence.counter_allocation_measurement_plan(protocol)
-        self.assertEqual(len(plan), 18)
-        expected = [("composable", "a"), ("rca-0.7", "a"), ("rca", "a"),
-                    ("rca", "b"), ("rca-0.7", "b"), ("composable", "b")] * 3
+        self.assertEqual(len(plan), 12)
+        expected = [("composable", "a"), ("rca", "a"),
+                    ("rca", "b"), ("composable", "b")] * 3
         self.assertEqual([(row["engine"], row["role"]) for row in plan], expected)
-        self.assertEqual([row["sequence"] for row in plan], list(range(1, 19)))
-        self.assertEqual([row["cycle"] for row in plan], [1] * 6 + [2] * 6 + [3] * 6)
+        self.assertEqual([row["sequence"] for row in plan], list(range(1, 13)))
+        self.assertEqual([row["cycle"] for row in plan], [1] * 4 + [2] * 4 + [3] * 4)
         with tempfile.TemporaryDirectory() as directory:
             path = pathlib.Path(directory) / "changed.json"
             path.write_bytes(ALLOCATION_PROTOCOL.read_bytes() + b" ")
@@ -488,10 +488,10 @@ class ReadyFutureAllocationCohortTests(unittest.TestCase):
         protocol = evidence.load_ready_future_allocation_protocol(self.path)
         plan = evidence.ready_future_allocation_measurement_plan(protocol)
         self.assertEqual([(row["engine"], row["role"]) for row in plan],
-                         [("composable", "a"), ("rca-0.7", "a"), ("rca", "a"),
-                          ("rca", "b"), ("rca-0.7", "b"), ("composable", "b")] * 3)
-        self.assertEqual([row["sequence"] for row in plan], list(range(1, 19)))
-        self.assertEqual([row["cycle"] for row in plan], [1] * 6 + [2] * 6 + [3] * 6)
+                         [("composable", "a"), ("rca", "a"),
+                          ("rca", "b"), ("composable", "b")] * 3)
+        self.assertEqual([row["sequence"] for row in plan], list(range(1, 13)))
+        self.assertEqual([row["cycle"] for row in plan], [1] * 4 + [2] * 4 + [3] * 4)
         for key in protocol:
             changed = copy.deepcopy(protocol)
             changed[key] = None
@@ -519,7 +519,7 @@ class ReadyFutureAllocationCohortTests(unittest.TestCase):
         self.assertFalse(result["provenance_qualified"])
         self.assertFalse(result["qualified_comparison"])
         self.assertEqual(result["completion"], {"composable": "result-acknowledgement",
-                                             "rca-0.7": "result-acknowledgement", "rca": "causal-finish"})
+                                             "rca": "causal-finish"})
         self.assertEqual(result["observations"], rows)
         metric = result["engines"]["rca"]["phases"]["checked"]["allocated_blocks"]
         self.assertEqual(metric["values"], [44, 44, 88, 88, 132, 132])

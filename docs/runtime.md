@@ -108,6 +108,23 @@ Effects and their captured values must be `Send + 'static`. A spinning future
 that never yields can starve any cooperative current-thread executor; this is a
 host-program bug, not a reason for hidden threads in core.
 
+### Stream-driven effects
+
+Consume an input stream inside `Effect::run`. Await each `sender.send(action)`.
+If the send returns an error, stop the loop. The loop polls its next input only
+after the previous action commits. Collecting the whole stream first changes memory
+use and the timing of external input.
+
+A long-lived subscription keeps its causal `ActionTask::finish()` pending until
+the subscription ends or is cancelled. Dropping the ordinary `ActionTask` does
+not cancel it. If the domain needs independent cancellation, give the subscription
+an explicit cancellation identity.
+
+Stream exhaustion, stream destruction and external-resource cleanup are separate
+facts. Test the cleanup contract of the client that owns the resource.
+These shared Store effects require `Send + 'static`. Owner-local APIs have
+separate contracts for non-`Send` work.
+
 ### Delayed work and debounce
 
 Use `Effect::run(operation).delay(duration).cancellable_in_flight(id)` to
@@ -433,8 +450,8 @@ If a finite job needs completed effects, establish completion before extraction.
 For one root causal tree, await `store.send(action).await?.finish().await` first.
 Other independent work needs its own completion condition. The runnable
 `Store::shutdown_into_state` rustdoc example returns a non-Clone boxed product.
-The [consumer guide](migration/composable-consumer.md#finite-owned-product)
-describes its synchronous-host counterpart.
+The [owned-resource guide](guides/owned-resources.md) explains one-shot action
+payloads and the separate cleanup obligations of external resources.
 
 The future retains its consumed owner until completion or cancellation.
 Construction submits no command. Before admission, dropping the future drops

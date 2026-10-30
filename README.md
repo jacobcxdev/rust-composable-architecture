@@ -15,8 +15,8 @@ RCA does not require UI concepts in a service, worker or command-line applicatio
 See the [integration boundaries](docs/integration-boundaries.md) for the host's responsibilities.
 
 RCA 0.1.0 is an unpublished development candidate. Local release-readiness
-qualification is complete for the recorded candidate; hosted PR CI has not yet
-run. See the [qualification status](docs/support.md#qualification-status) for
+qualification and hosted CI passed for recorded revisions.
+See the [qualification status](docs/support.md#qualification-status) for
 the evidence boundary. RCA does not claim universal superiority over Composable
 or Swift TCA.
 
@@ -199,14 +199,14 @@ covers state, effects, dependencies, child identity and exhaustive tests.
 
 Executable examples include [counter](examples/counter), [search](examples/search),
 [timer](examples/timer) and [composition search](examples/composition-search).
-Migration guides cover the [historical 0.7 to 0.8 runtime](docs/migration-0.7-to-0.8.md)
-and [later composition changes](docs/migration-0.9.md).
+The [owned-resource guide](docs/guides/owned-resources.md) explains move-only
+payloads and client cleanup responsibilities.
 
 ## Status
 
 The development candidate is `0.1.0` and requires Rust 1.98.0.
-The public API can change before stable 1.0. This package line resets the
-unpublished `0.9.0-alpha.1` candidate, not the preserved legacy `v0.7.0` tag.
+The public API can change before stable 1.0. This is the first RCA package line,
+not an update to a supported Composable release.
 The support policy distinguishes required qualification from completed platform support.
 
 ## Relationship to Swift TCA

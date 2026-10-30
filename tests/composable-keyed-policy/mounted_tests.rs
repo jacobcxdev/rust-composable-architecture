@@ -38,14 +38,7 @@ fn native_mounted_cardinalities_and_terminal_release() {
         assert_eq!(result["schema"], "mounted-keyed-allocations-v1");
         assert_eq!(result["accounting"], "semantic-boundary-not-quiescent");
         assert_eq!(result["comparison_qualified"], false);
-        assert_eq!(
-            result["engine"],
-            if env!("CARGO_PKG_NAME").ends_with("candidate") {
-                "rca"
-            } else {
-                "rca-0.7"
-            }
-        );
+        assert_eq!(result["engine"], "rca");
         assert_eq!(result["cardinality"], count);
         assert_eq!(result["outputs"], if count == 0 { 0 } else { 6 });
         assert_eq!(result["reductions"], if count == 0 { 2 } else { 18 });

@@ -1,12 +1,10 @@
 # Minimal target-clean compile diagnostic
 
-This page records development history, not results for the current release
-candidate. The supporting audit receipts and development commits remain in the
-local archive. A fresh public clone does not include that archive.
-[Current qualification](../qualification.md) records the release gates and
-available evidence.
+This page defines the current RCA/upstream compile diagnostic. Archived development
+results do not qualify the current release. See [current qualification](../qualification.md)
+for release gates and available evidence.
 
-This opt-in diagnostic compares the existing three `minimal-counter` applications,
+This opt-in diagnostic compares the current RCA and upstream `minimal-counter` applications,
 not the workspace test suites. It adds no Rust workload and changes no existing
 size, allocation or timing protocol. The v1 JSON protocol is frozen before capture.
 
@@ -20,10 +18,12 @@ competing builds. No complete comparative capture is recorded yet.
 
 ## Work and schedule
 
-Six blocks each run both workloads against all three engines: 36 measured commands,
-six observations per engine and workload. The protocol lists all six engine-order
-permutations once. Odd blocks run check before release. Even blocks reverse that
-workload order. Both workloads use the same engine order within a block.
+Six blocks each run both workloads against both engines: 24 measured commands,
+six observations per engine and workload. Forward and reverse engine orders each
+appear three times. Odd blocks run check before release. Even blocks reverse that
+workload order. Both workloads use the same engine order within a block. The
+[protocol](composable-minimal-compile-protocol-v1.json) and its exact hashes fix
+this schedule; archived three-engine captures cannot satisfy it.
 
 - Check: `cargo check --locked --offline --bin minimal-counter --target aarch64-apple-darwin -j 1`.
 - Release: `cargo build --locked --offline --release --bin minimal-counter --target aarch64-apple-darwin -j 1`.
@@ -82,7 +82,7 @@ The RSS counter is **not aggregate simultaneous compiler-tree memory**. The raw
 peak-footprint counter is retained but is not substituted for RSS. See
 [Darwin command resource accounting](darwin-command-resource-accounting.md).
 
-Paired ratios divide RCA by each legacy engine in the same workload and block.
+Paired ratios divide RCA by upstream Composable in the same workload and block.
 They are descriptive samples, not confidence intervals or acceptance thresholds.
 Darwin `time -p` prints two decimal places. Quantisation is not measurement accuracy.
 Zeros remain unchanged. If either paired value is zero, the ratio is `null`, with
@@ -94,64 +94,6 @@ and a complete schedule do not establish categorical performance superiority,
 non-regression, cross-host portability, or crate-level cost attribution. Six blocks
 are a bounded diagnostic, not a statistically qualified regression gate.
 
-## Controller verification
-
-The implementation passed all 223 Python tests, including 11 focused compile
-diagnostic tests. An independent rerun passed the full suite.
-Independent review found a late-freeze provenance gap. Whole-controller
-tampering tests reproduced that gap before the repair and rejected it afterward.
-Re-review found no remaining actionable findings. Existing protocol files remain unchanged.
-
-Logs: `/tmp/rca-minimal-compile-provenance-red.log`,
-`/tmp/rca-minimal-compile-python-repaired.log` and
-`/tmp/rca-minimal-compile-parent-all.log`.
-These checks establish controller behaviour, not native compile measurements.
-
-## Incomplete native capture: 30 September 2026
-
-The first native attempt at signed `937e0984761d44735985a34a031e80a5c55848c2`
-failed the clean-checkout preflight. Python tests had left untracked bytecode
-caches. No preparation or measurement ran. The caches were moved outside the
-checkout, and a separate full attempt started from clean source with bytecode
-generation disabled.
-
-The clean attempt completed the first block's Composable and historical RCA
-check commands. Before the current RCA check, sustained host admission timed
-out at `2026-09-30T19:06:40Z`: `sustained quiescence timed out; no measurement
-retried`. The frozen CPU/load thresholds were not changed. The process exited
-one, retaining incomplete evidence; no completion receipt or comparative
-analysis was published.
-
-Evidence directories under `target/qualification-evidence/0.1.0/composition/`:
-
-- `minimal-compile-v1-937e098.incomplete`: rejected preflight only.
-- `minimal-compile-v1-937e098-clean.incomplete`: preparation, two completed check
-  receipts, host telemetry and the terminal failure.
-
-Independent read-only audit matched all 834 source hashes to frozen Git, four
-tool hashes to the installed tools and 2,211 dependency hashes to the local
-cache. Both completed commands' raw counters and bound receipts agreed. This
-does not turn the failed capture into a complete provenance qualification.
-The terminal failure receipt's SHA-256 is
-`685b059946b0443d272b3268d2f88b67b5e1ad07f416dac5106b079e05e7b2e5`.
-
-The partial legacy samples do not measure current RCA and cannot support a
-compile-cost comparison. Compile qualification remains open. Implementation
-work resumed after the failed capture released its source freeze.
-
-### Follow-up at `99e991d`
-
-A separate attempt used clean signed candidate
-`99e991dc62a1d5f7dbc06a7483d31f67e5020c04`. All six dependency-fetch and
-metadata preparation commands exited zero. Host admission then timed out before
-the first measured command at `2026-09-30T20:01:12Z`. The controller exited one
-with the same error and retained `minimal-compile-v1-99e991d.incomplete`.
-
-This attempt contains no measured command, completion receipt or comparative
-analysis. All 836 recorded source hashes still matched the checkout after the
-controller stopped. The terminal failure receipt's SHA-256 is
-`03a70e49d002b425963a1ee9f041af8832cb0b1c33a95f5a5d5e56a4fb1594a5`.
-
-No threshold changed and no measurement retried. The source freeze ended with
-the controller. The independent historical package qualification
-then continued without a timing claim.
+A failed upstream baseline remains failed evidence. It does not block RCA's own
+release checks, but no comparison may use a reference command that failed or did
+not complete. No current comparative compile result is claimed here.

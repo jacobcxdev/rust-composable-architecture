@@ -4,25 +4,24 @@ RCA owns each admitted action, but lends it to reducers through `&Action`.
 An action need not implement `Clone` or `Sync`. This permits move-only messages.
 It does not permit moving an ordinary field out of the shared borrow.
 
-Upstream Composable instead passes an action by value to its reducer. Moving
-that action's resource into state requires less caller machinery. RCA's borrowed
-composition lets multiple reducers inspect ordinary actions without routing
-clones. Neither contract gives every recipient ownership of the same unique
-resource.
+Borrowed composition lets multiple reducers inspect ordinary actions without
+routing clones. It cannot give each recipient ownership of the same unique resource.
 
 ## Choose where the resource belongs
 
 When an effect owns an ongoing operation, keep its resource in that effect. Return
 domain events rather than the resource itself. Cancellation and resource Drop
-must still match the external system's cleanup requirements: dropping a future
+must still match the external system's cleanup requirements. Dropping a future
 does not prove that a process stopped or an asynchronous flush completed.
 
 When the domain needs exclusive ownership across actions, keep the resource in
 state. An action can carry `Cell<Option<Resource>>`. One designated reducer
 calls `take()` and moves the returned resource into an ordinary state field.
-This pattern needs no shared owner, mutex or resource clone. The resource must
-still satisfy RCA's `Send + 'static` boundary. A current-thread executor does
-not remove that requirement.
+This pattern needs no shared owner, mutex or resource clone.
+
+Resources in a shared Store must satisfy its `Send + 'static` boundary.
+A current-thread executor does not remove that requirement.
+The owner-local APIs provide separate non-`Send` contracts.
 
 If a host or thread-affinity requirement needs a separate host actor, use one.
 A command handle can cross RCA's Send boundary, but the host then
@@ -36,8 +35,8 @@ payload. The first `take()` returns the resource. Subsequent calls return
 `None`. A reducer must decide how to handle an empty slot. Composition order
 therefore matters, and the compiler does not enforce a single consumer.
 
-Put stable information needed by other reducers or tests beside the slot:
-request identity, operation kind or independently meaningful result metadata.
+Put stable metadata beside the slot for other reducers and tests.
+Examples include request identity, operation kind or independently meaningful result metadata.
 Later reducers can inspect that information after the designated child consumes
 the resource. They cannot also take ownership of the original resource.
 
@@ -64,18 +63,13 @@ move its resource or product out normally. Extraction does not drain unfinished
 effects, provide a durable result ticket or perform asynchronous destruction.
 See the [terminal extraction contract](../runtime.md#terminal-owned-state-extraction).
 
-## Qualification boundary
+## Test the resource boundary
 
-Historical local ownership checks exercised keyed receiver and finite buffer
-transfers. They covered stale-delivery cleanup, allocation identity and negative
-controls for competing consumers. Their retained records qualify those patterns,
-not arbitrary resource lifecycle equivalence. They are not public reproduction
-inputs or current release receipts. See the
-[qualification summary](../qualification.md) for the current candidate boundary.
+A resource test must check allocation or handle identity, rejected delivery,
+competing consumers and cleanup completion. A state assertion alone cannot prove
+that an external resource was released. Each client must provide evidence for
+its own synchronous or asynchronous cleanup contract.
 
-This work introduces no consuming-reducer phase or generic payload wrapper. A
-consuming phase needs owned routing through every composition form, ordering rules
-and TestStore integration. A wrapper alone does not enforce exclusive use.
-If concrete callers show unacceptable costs, those alternatives remain design
-options. Any such change needs explicit contracts and new verification; the
-historical comparison alone does not justify it.
+RCA provides no consuming-reducer phase or generic one-shot payload wrapper.
+A wrapper alone cannot enforce exclusive use across reducers.
+See the [qualification summary](../qualification.md) for the candidate evidence boundary.

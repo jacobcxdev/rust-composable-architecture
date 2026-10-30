@@ -30,7 +30,7 @@ def ledger(engine="rca"):
 
 class CommonOutcomeAllocationTests(unittest.TestCase):
     def test_accepts_each_engine_without_mutation(self):
-        for engine in ("rca", "composable", "rca-0.7"):
+        for engine in ("rca", "composable"):
             row = ledger(engine)
             before = json.dumps(row)
             self.assertIs(allocations.validate(row, engine), row)
@@ -115,9 +115,11 @@ class CommonOutcomeAllocationTests(unittest.TestCase):
             row[field] = "wrong"
             with self.assertRaises(ValueError):
                 allocations.validate(row, "rca")
-        for engine in (None, True, [], "unknown", "composable"):
+        for engine in (None, True, [], "unknown", "composable", "rca-0.7"):
             with self.assertRaises(ValueError):
                 allocations.validate(ledger(), engine)
+        with self.assertRaises(ValueError):
+            allocations.validate(ledger("rca-0.7"), "rca-0.7")
         text = json.dumps(ledger())
         for bad in ("", "not JSON", text + text,
                     text.replace('"checkpoints":', '"checkpoints":0,"checkpoints":'),
@@ -131,12 +133,12 @@ def observations():
     rows = []
     for cycle in (1, 2, 3):
         for order, role, engines in (
-                ("forward", "a", ("composable", "rca-0.7", "rca")),
-                ("reverse", "b", ("rca", "rca-0.7", "composable"))):
+                ("forward", "a", ("composable", "rca")),
+                ("reverse", "b", ("rca", "composable"))):
             for engine in engines:
                 raw = ledger(engine)
                 raw["snapshots"]["A"] = dict.fromkeys(raw["snapshots"]["A"], 0)
-                blocks, size = {"composable": (100, 800), "rca-0.7": (90, 720),
+                blocks, size = {"composable": (100, 800),
                                 "rca": (110, 880)}[engine]
                 raw["snapshots"]["E"].update(allocated_blocks=blocks, allocated_bytes=size)
                 raw["lifetime"].update(allocated_blocks=blocks, allocated_bytes=size)
@@ -149,13 +151,13 @@ class CommonOutcomeProtocolTests(unittest.TestCase):
     def test_fixed_plan_keeps_both_build_roles_and_all_cycles(self):
         protocol = allocations.load_protocol(PROTOCOL)
         plan = allocations.measurement_plan(protocol)
-        self.assertEqual(len(plan), 18)
+        self.assertEqual(len(plan), 12)
         self.assertEqual(plan[0], dict(sequence=1, cycle=1, order="forward", role="a", engine="composable"))
-        self.assertEqual(plan[3], dict(sequence=4, cycle=1, order="reverse", role="b", engine="rca"))
-        self.assertEqual(plan[-1], dict(sequence=18, cycle=3, order="reverse", role="b", engine="composable"))
-        self.assertEqual([(p["engine"], p["role"]) for p in plan[:6]],
-                         [("composable", "a"), ("rca-0.7", "a"), ("rca", "a"),
-                          ("rca", "b"), ("rca-0.7", "b"), ("composable", "b")])
+        self.assertEqual(plan[2], dict(sequence=3, cycle=1, order="reverse", role="b", engine="rca"))
+        self.assertEqual(plan[-1], dict(sequence=12, cycle=3, order="reverse", role="b", engine="composable"))
+        self.assertEqual([(p["engine"], p["role"]) for p in plan[:4]],
+                         [("composable", "a"), ("rca", "a"),
+                          ("rca", "b"), ("composable", "b")])
 
     def test_protocol_file_and_in_memory_mutations_are_rejected(self):
         original = PROTOCOL.read_bytes()
@@ -179,7 +181,7 @@ class CommonOutcomeProtocolTests(unittest.TestCase):
         self.assertEqual(json.dumps(rows), before)
         self.assertFalse(result.get("qualified_comparison", True))
         self.assertFalse(result.get("provenance_qualified", True))
-        self.assertEqual(result.get("observations"), 18)
+        self.assertEqual(result.get("observations"), 12)
         self.assertEqual(result["engines"]["rca"]["allocated_bytes"],
                          dict(values=[880] * 6, min=880, max=880))
         self.assertEqual(result["engines"]["rca"]["live_bytes"],
@@ -188,7 +190,7 @@ class CommonOutcomeProtocolTests(unittest.TestCase):
             self.assertEqual(row["difference"], dict(allocated_blocks=10, allocated_bytes=80,
                                                     live_blocks=0, live_bytes=0))
         self.assertEqual(len(result["comparisons"]["candidate-composable"]), 6)
-        self.assertEqual(result["comparisons"]["candidate-historical"][0]["difference"]["allocated_bytes"], 160)
+        self.assertEqual(set(result["comparisons"]), {"candidate-composable"})
 
     def test_incomplete_reordered_or_nonzero_baseline_cohorts_are_rejected(self):
         protocol = allocations.load_protocol(PROTOCOL)
@@ -216,6 +218,4 @@ class CommonOutcomeProtocolTests(unittest.TestCase):
         result = allocations.evaluate(rows, allocations.load_protocol(PROTOCOL))
         pairs = result["comparisons"]
         self.assertEqual([row["difference"]["allocated_bytes"] for row in pairs["candidate-composable"]],
-                         [160, -160, 160, -160, 160, -160])
-        self.assertEqual([row["difference"]["allocated_bytes"] for row in pairs["candidate-historical"]],
                          [80, -80, 80, -80, 80, -80])

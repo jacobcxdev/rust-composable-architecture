@@ -55,7 +55,7 @@ _TIMESTAMP = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
 
 def validate_composable_stream_work(value: Any, expected_engine: str) -> list[dict[str, Any]]:
     """Validate both finite traces without claiming buffering or performance parity."""
-    if expected_engine not in ("composable", "rca-0.7", "rca"):
+    if expected_engine not in ("composable", "rca"):
         raise ValueError("finite stream engine is invalid")
     if type(value) is not list or len(value) != 2:
         raise ValueError("finite stream requires both cases")
@@ -85,7 +85,7 @@ def capture_composable_stream_work(command: Sequence[str], expected_engine: str)
 
 def validate_composable_ready_future_work(value: Any, expected_engine: str) -> dict[str, Any]:
     """Validate finite ready-future work without equating task-join guarantees."""
-    if expected_engine not in ("composable", "rca-0.7", "rca"):
+    if expected_engine not in ("composable", "rca"):
         raise ValueError("ready future engine is invalid")
     expected = dict(schema="composable-ready-future-v1", engine=expected_engine,
                     operations_expected=64, operations_attempted=64,
@@ -134,7 +134,7 @@ def validate_composable_counter_work(value: Any) -> dict[str, Any]:
     }
     if not isinstance(value, dict) or value.keys() != expected.keys() | {"engine"}:
         raise ValueError("composable counter ledger fields are invalid")
-    if type(value["engine"]) is not str or value["engine"] not in ("composable", "rca", "rca-0.7"):
+    if type(value["engine"]) is not str or value["engine"] not in ("composable", "rca"):
         raise ValueError("composable counter engine is invalid")
     for field, required in expected.items():
         if type(value[field]) is not type(required) or value[field] != required:
@@ -175,7 +175,7 @@ def capture_composable_counter_timing(
     command: Sequence[str], expected_engine: str,
 ) -> dict[str, Any]:
     """Admit timings only after successful process exit and matching engine identity."""
-    if expected_engine not in ("composable", "rca", "rca-0.7"):
+    if expected_engine not in ("composable", "rca"):
         raise ValueError("expected counter engine is invalid")
     result = subprocess.run(command, capture_output=True, text=True, check=True, timeout=60)
     value = validate_composable_counter_timing(json.loads(result.stdout))
@@ -201,7 +201,7 @@ def validate_composable_counter_lifecycle(value: Any) -> dict[str, Any]:
     }
     if not isinstance(value, dict) or value.keys() != expected.keys() | {"engine", "elapsed_ns"}:
         raise ValueError("composable counter lifecycle fields are invalid")
-    if type(value["engine"]) is not str or value["engine"] not in ("composable", "rca", "rca-0.7"):
+    if type(value["engine"]) is not str or value["engine"] not in ("composable", "rca"):
         raise ValueError("composable counter engine is invalid")
     for field, required in expected.items():
         if type(value[field]) is not type(required) or value[field] != required:
@@ -216,7 +216,7 @@ def capture_composable_counter_lifecycle(
     command: Sequence[str], expected_engine: str,
 ) -> dict[str, Any]:
     """Admit lifecycle data only after successful exit and matching engine identity."""
-    if expected_engine not in ("composable", "rca", "rca-0.7"):
+    if expected_engine not in ("composable", "rca"):
         raise ValueError("expected counter engine is invalid")
     result = subprocess.run(command, capture_output=True, text=True, check=True, timeout=60)
     value = validate_composable_counter_lifecycle(json.loads(result.stdout))
@@ -225,10 +225,10 @@ def capture_composable_counter_lifecycle(
     return value
 
 
-COUNTER_ALLOCATION_PROTOCOL_SHA256 = "4c7cebcd07b53d81dd99e51a17cf88fbbc62ba945658f1f2237de3e528f5c04d"
-_COUNTER_ALLOCATION_DOCUMENT_SHA256 = "699ace13b594ac3328aafaac789e9575289beb03ed7e696d2ea80873f23a2c04"
-READY_FUTURE_ALLOCATION_PROTOCOL_SHA256 = "9d2a10ff4e976a68142e80e1c383803979f822bb78835b50105cf7912d639168"
-_READY_FUTURE_ALLOCATION_DOCUMENT_SHA256 = "5b68f35908c18e7df773f2da01d694c381516f2894e0bde6770e5c51b45825c5"
+COUNTER_ALLOCATION_PROTOCOL_SHA256 = "a8b7b60fc273b65c36a6e11e825514fc767f0f4819e5d554d70f8a20a831316b"
+_COUNTER_ALLOCATION_DOCUMENT_SHA256 = "26994909097173278d556e31d2ab1b675be4ca0b463c98ba708fcb3795ee37db"
+READY_FUTURE_ALLOCATION_PROTOCOL_SHA256 = "fc2180814e1f594f889b554880be6c701f5b68798f5c5971933a0969e19f2e2a"
+_READY_FUTURE_ALLOCATION_DOCUMENT_SHA256 = "a33d09edc1d6086581f6932902abc031ab49dd77c981f658e3b8c66272fdd01b"
 
 
 def validate_composable_ready_future_allocations(value: Any, expected_engine: str) -> dict:
@@ -272,7 +272,7 @@ def validate_composable_counter_allocations(value: Any, expected_engine: str) ->
     fields = {"schema", "engine", "instrument", "work", "snapshots", "phases"}
     if type(value) is not dict or value.keys() != fields:
         raise ValueError("counter allocation fields are invalid")
-    if type(expected_engine) is not str or expected_engine not in ("composable", "rca-0.7", "rca"):
+    if type(expected_engine) is not str or expected_engine not in ("composable", "rca"):
         raise ValueError("expected counter allocation engine is invalid")
     for field, required in (("schema", "composable-counter-allocations-v1"),
                             ("instrument", "dhat-0.3.3"), ("engine", expected_engine)):
@@ -418,8 +418,7 @@ def _evaluate_allocations(rows, protocol, plan, validate, schema, protocol_sha25
         engines[engine] = dict(samples=len(samples), phases=phases)
     comparisons = {}
     by_identity = {(row["cycle"], row["order"], row["engine"]): row["raw"] for row in rows}
-    for name, control_engine in (("candidate-composable", "composable"),
-                                  ("candidate-historical", "rca-0.7")):
+    for name, control_engine in (("candidate-composable", "composable"),):
         comparisons[name] = []
         for row in rows:
             if row["engine"] != "rca":
@@ -448,10 +447,10 @@ def _evaluate_allocations(rows, protocol, plan, validate, schema, protocol_sha25
                 interpretation="observed allocation costs only; no statistical or superiority claim")
 
 
-COUNTER_PROTOCOL_SHA256 = "e73a5a87c287a250dc6b26c26d7322515d415db52799b7846bff4ab695c33d66"
-_COUNTER_DOCUMENT_SHA256 = "e5932f8614cfcdad02326a484b4f5eb86cee171679fd838ea17d9825b91b46ba"
-COUNTER_LIFECYCLE_PROTOCOL_SHA256 = "f35a12c98989f8cd43b6064f3b56fc0d98b44f5d0893152c41313f7873d48a8e"
-_COUNTER_LIFECYCLE_DOCUMENT_SHA256 = "f085fa168003b8a7570ca34ab7b8cd511e311c9daa9ac91a4105f1f519c06adb"
+COUNTER_PROTOCOL_SHA256 = "0fd70efb7a438041c7032ff28ee673fa14256cacaea84ed80eb1186273610d7e"
+_COUNTER_DOCUMENT_SHA256 = "b8ec974ba744d938216ba1974e0738d95559ae8a1938ae79b48b79284ecdb7d6"
+COUNTER_LIFECYCLE_PROTOCOL_SHA256 = "6ccee60c1c572b2a48d899ce07ceaa395179e2a3fecc51131eb955e1bee7a0c8"
+_COUNTER_LIFECYCLE_DOCUMENT_SHA256 = "c887683a8eb2f706e38304ee081c5d91dc9996bdd7a6b64a88d462cb814042ed"
 
 
 def _validate_counter_protocol(protocol: dict) -> None:
@@ -468,12 +467,12 @@ def _validate_counter_document(protocol: dict, document_sha256: str) -> None:
         raise ValueError("counter protocol document is not the frozen protocol")
 
 
-MINIMAL_SIZE_PROTOCOL_SHA256 = "ea93c62049605a7414d3201522b41d176fe228cde05674230bf0bce542c8fff7"
-_MINIMAL_SIZE_DOCUMENT_SHA256 = "54941c253992559d28fb93f4bd753a4f4698a8f1108cddfb505e31344142ffe1"
+MINIMAL_SIZE_PROTOCOL_SHA256 = "49099b439eb6955be4510fd2c32b9956123dacea8609df02514914caf645da54"
+_MINIMAL_SIZE_DOCUMENT_SHA256 = "c13e4367f846da8b29198e336293b30f9e890ffac1bd434ca933a63f864ff594"
 
 
-MINIMAL_COMPILE_PROTOCOL_SHA256 = "52f2536e2b94e7210d77f51eef152adcfeee51edada8de1a7d90882069103d11"
-_MINIMAL_COMPILE_DOCUMENT_SHA256 = "3741798be48030e29fff3e4a90391db7cde160ce52c5122236a4cc1f19189823"
+MINIMAL_COMPILE_PROTOCOL_SHA256 = "a07d4a2c9402617d79faa585b6700eae9949706ffd578025d654266c0ab4dfa4"
+_MINIMAL_COMPILE_DOCUMENT_SHA256 = "9d9fe942d23d2cc8cab0d9b787c727ed40d17c58587f95644197ca7e3a510c46"
 
 
 def load_minimal_compile_protocol(path: pathlib.Path) -> dict:
@@ -535,7 +534,7 @@ def load_minimal_size_protocol(path: pathlib.Path) -> dict:
 
 
 def evaluate_minimal_size(rows: list[dict], protocol: dict) -> dict:
-    """Validate six size observations without interpreting build or run time."""
+    """Validate four size observations without interpreting build or run time."""
     _validate_counter_document(protocol, _MINIMAL_SIZE_DOCUMENT_SHA256)
     if not isinstance(rows, list) or any(not isinstance(row, dict) for row in rows):
         raise ValueError("minimal size observations must be a list of objects")

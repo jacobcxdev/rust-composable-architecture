@@ -4,8 +4,8 @@ import hashlib
 import json
 
 
-PROTOCOL_SHA256 = "1614616f7079911fcaf574bc5b3802d8422b34b547fea3085224a10c939a77b3"
-_DOCUMENT_SHA256 = "5e03dd3547273bdf831926c9f10ad70b560b143263ce9e370eac9700d832eb9d"
+PROTOCOL_SHA256 = "e4774ca3088bf3167f62e3c9cf3e5a1cc6e4f44abc4924ba6342b1038b3472a8"
+_DOCUMENT_SHA256 = "576c7aa0e3824081312bc57504ca2254c0b758fc1b24568d5c28b20bbb05d6d3"
 
 
 def load_protocol(path):
@@ -54,7 +54,7 @@ def evaluate(rows, protocol):
     by_identity = {(row["cycle"], row["order"], row["engine"]): row["raw"]["snapshots"]["E"]
                    for row in rows}
     comparisons = {}
-    for name, baseline in (("candidate-composable", "composable"), ("candidate-historical", "rca-0.7")):
+    for name, baseline in (("candidate-composable", "composable"),):
         pairs = []
         for row in rows:
             if row["engine"] != "rca":
@@ -76,7 +76,7 @@ def evaluate(rows, protocol):
 
 def validate(value, expected_engine):
     """Check exact work, snapshots and deltas without granting performance parity."""
-    if type(expected_engine) is not str or expected_engine not in ("composable", "rca-0.7", "rca"):
+    if type(expected_engine) is not str or expected_engine not in ("composable", "rca"):
         raise ValueError("common-outcome engine is invalid")
     _fields(value, {"schema", "engine", "instrument", "work", "snapshots", "lifetime"})
     _matches(value, dict(schema="composable-common-outcome-allocations-v1",

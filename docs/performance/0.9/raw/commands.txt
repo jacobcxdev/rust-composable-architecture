@@ -1,7 +1,0 @@
-Runtime build: cargo bench -p rca-core --bench composition --locked -j 1 --no-run --message-format=json
-Runtime samples: execute the built composition benchmark with --bench ten independent times (01 through 10)
-Allocation: one direct execution per named scenario of the allocation-measurement benchmark binary
-Zero gates: cargo test -p rca-core --features allocation-measurement <exact-test> --locked -j 1
-Compile: /usr/bin/time -lp cargo check --manifest-path benches/compile/Cargo.toml -p <fixture> --locked -j 1
-Binary: cargo build --release, plus cargo test --release --test app --no-run, with isolated targets
-Symbols: cargo bloat 0.12.1 --release --locked --crates -n 20 -j 1 with strip=false

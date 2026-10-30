@@ -48,6 +48,12 @@ the public repository. Historical local audit receipts are not public reproducti
 instructions. Current tests, required regression inputs and maintained development
 tools remain part of the snapshot.
 
+Archived development reports and retired-fork comparisons are not release inputs.
+Small historical samples remain only where maintained tooling tests require them.
+Their fixture documentation distinguishes parser and provenance checks from current
+RCA performance evidence. Removing an archive from the final tree does not erase
+it from earlier public Git commits.
+
 ## Later regression and macro changes
 
 The 30 October changes add child-routing and named-task regressions without changing
@@ -95,13 +101,12 @@ It remains a failed reference baseline, not an RCA failure or a valid numerical 
 RCA's own correctness, coverage and performance requirements remain unchanged.
 CI reports upstream runtime observations without using them as RCA acceptance gates.
 Formatting, lint and compilation remain required for all reference fixtures.
-RCA and historical runtime checks remain required. A later passing upstream
+RCA runtime checks remain required. A later passing upstream
 observation does not qualify that reference or erase its recorded failures.
 The [counter](../tests/composable-counter/README.md#failed-upstream-reference),
 [stream](../tests/composable-stream/README.md) and
 [publication](../tests/composable-observation/README.md) fixtures record this boundary.
 
-Older performance instructions can name unpublished development revisions.
-Those comparisons require the retained local history and cannot run from a fresh
-public clone without the specified baseline. The current public legacy fixtures
-pin the preserved Composable revision `c6200234cebbbd9b0009cd5788736c78a47f32b0`.
+The public benchmark tooling does not maintain retired Composable releases.
+Archived comparisons retain their original revisions and limits outside the
+maintained tree. They are not evidence for a later candidate.

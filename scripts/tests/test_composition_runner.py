@@ -216,7 +216,7 @@ class RunnerTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             binaries, engines, calls = {}, {}, []
-            for engine in ("composable", "rca-0.7", "rca"):
+            for engine in ("composable", "rca"):
                 binaries[engine] = {}
                 for role in ("a", "b"):
                     binary = root / f"{engine}-{role}"
@@ -236,7 +236,7 @@ class RunnerTests(unittest.TestCase):
                     runner.write_json(destination, ComposableCounterLifecycleTests().measurement(engines[command[0]]))
 
             records = runner.capture_counter_programme(root, protocol, binaries, {}, Monitor(), lifecycle=True)
-            self.assertEqual(len(calls), 240)
+            self.assertEqual(len(calls), 144)
             cohorts = runner.load_counter_capture(root, protocol, records, lifecycle=True)
             result = evaluator.evaluate_counter_lifecycle_cohorts(cohorts, protocol)
             self.assertTrue(result["suitable_for_direction"])
@@ -261,7 +261,7 @@ class RunnerTests(unittest.TestCase):
             binary.write_text("fixture")
             binaries = {engine: {role: {"path": str(binary), "sha256": evaluator._sha256(binary)}
                                   for role in ("a", "b")}
-                        for engine in ("composable", "rca-0.7", "rca")}
+                        for engine in ("composable", "rca")}
             monitor = Mock()
             monitor.run.side_effect = subprocess.CalledProcessError(7, [str(binary)])
             with self.assertRaises(subprocess.CalledProcessError):
@@ -413,7 +413,7 @@ class RunnerTests(unittest.TestCase):
                                         "path": path.name, "sha256": evaluator._sha256(path),
                                         "exit_code": 0})
             result = runner.load_counter_capture(root, protocol, records)
-            self.assertEqual(len(result), 5)
+            self.assertEqual(len(result), 3)
             (root / records[0]["path"]).write_text("{}")
             with self.assertRaises(ValueError):
                 runner.load_counter_capture(root, protocol, records)
@@ -458,7 +458,7 @@ class RunnerTests(unittest.TestCase):
             root = Path(tmp)
             binaries = {}
             engines = {}
-            for engine in ("composable", "rca-0.7", "rca"):
+            for engine in ("composable", "rca"):
                 binaries[engine] = {}
                 for role in ("a", "b"):
                     binary = root / f"{engine}-{role}"
@@ -479,12 +479,12 @@ class RunnerTests(unittest.TestCase):
                     runner.write_json(destination, timing(engines[command[0]]))
 
             records = runner.capture_counter_programme(root, protocol, binaries, {}, Monitor())
-            self.assertEqual(len(calls), 240)
+            self.assertEqual(len(calls), 144)
             cohorts = runner.load_counter_capture(root, protocol, records)
             self.assertTrue(evaluator.evaluate_counter_cohorts(cohorts, protocol)["aa_suitable"])
             self.assertEqual(calls.count(binaries["composable"]["b"]["path"]), 24)
-            self.assertEqual(calls.count(binaries["rca"]["b"]["path"]), 72)
-            self.assertEqual(calls.count(binaries["rca-0.7"]["a"]["path"]), 48)
+            self.assertEqual(calls.count(binaries["rca"]["b"]["path"]), 48)
+            self.assertEqual(calls.count(binaries["composable"]["a"]["path"]), 48)
 
     def test_counter_capture_failure_is_not_retried(self):
         self.assertTrue(callable(getattr(runner, "capture_counter_programme", None)))
@@ -495,7 +495,7 @@ class RunnerTests(unittest.TestCase):
             binary.write_text("fixture")
             binaries = {engine: {role: {"path": str(binary), "sha256": evaluator._sha256(binary)}
                                   for role in ("a", "b")}
-                        for engine in ("composable", "rca-0.7", "rca")}
+                        for engine in ("composable", "rca")}
             monitor = Mock()
             monitor.run.side_effect = subprocess.CalledProcessError(7, [str(binary)])
             with self.assertRaises(subprocess.CalledProcessError):
@@ -513,7 +513,7 @@ class RunnerTests(unittest.TestCase):
             self.assertEqual(receipt["error"], "dirty source")
             self.assertFalse((staging / "complete.json").exists())
 
-    def test_counter_builds_bind_six_fresh_targets_and_default_features(self):
+    def test_counter_builds_bind_four_fresh_targets_and_default_features(self):
         protocol = evaluator.load_counter_protocol(SCRIPTS.parent / "docs/performance/composable-counter-protocol-v1.json")
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -536,9 +536,9 @@ class RunnerTests(unittest.TestCase):
                 binaries = runner.build_counter_binaries(root, root / "targets", protocol,
                                                          {**runner.COUNTER_RELEASE_ENV, "CARGO_HOME": str(root / "cargo-home")}, {"cargo": "/cargo"})
             builds = [(command, env) for command, env in commands if "build" in command]
-            self.assertEqual(len(builds), 6)
-            self.assertEqual(len({env["CARGO_TARGET_DIR"] for _, env in builds}), 6)
-            self.assertEqual(len(binaries), 3)
+            self.assertEqual(len(builds), 4)
+            self.assertEqual(len({env["CARGO_TARGET_DIR"] for _, env in builds}), 4)
+            self.assertEqual(len(binaries), 2)
             for command, env in builds:
                 fixture = Path(command[command.index("--manifest-path") + 1]).parent.name
                 self.assertIn("--bin", command)
@@ -549,7 +549,7 @@ class RunnerTests(unittest.TestCase):
                 self.assertNotIn("--no-default-features", command)
                 self.assertNotIn("--features", command)
                 self.assertEqual(env["CARGO_INCREMENTAL"], "0")
-            self.assertEqual(sum("metadata" in command for command, _ in commands), 3)
+            self.assertEqual(sum("metadata" in command for command, _ in commands), 2)
 
     def test_counter_build_timeout_stops_owned_grandchild(self):
         import signal
@@ -585,7 +585,7 @@ class RunnerTests(unittest.TestCase):
             binary = root / "binary"
             binary.write_text("binary")
             binaries = {engine: {role: {"path": str(binary), "sha256": evaluator._sha256(binary)}
-                                  for role in ("a", "b")} for engine in ("composable", "rca", "rca-0.7")}
+                                  for role in ("a", "b")} for engine in ("composable", "rca")}
 
             def build(*args):
                 (staging / "builds").mkdir()
@@ -802,7 +802,7 @@ class RunnerTests(unittest.TestCase):
                         receipt["sha256"]["protocol.json"], evaluator.PROTOCOL_SHA256
                     )
                     (directory / "protocol.json").write_bytes(
-                        (runner.ROOT / "docs/performance/0.9/composition-protocol-v3.json").read_bytes()
+                        (runner.ROOT / "scripts/tests/fixtures/composition-performance/composition-protocol-v3.json").read_bytes()
                     )
                     with self.assertRaisesRegex(ValueError, "A/A evidence protocol hash"):
                         runner.validate_aa_evidence(directory, protocol, controller, host)
@@ -1017,7 +1017,7 @@ class RunnerTests(unittest.TestCase):
             output = Path(tmp) / "parsed.json"
             output.write_text(json.dumps(counters))
             protocol = evaluator.load_protocol(
-                SCRIPTS.parent / "docs/performance/0.9/composition-protocol-v5.json"
+                SCRIPTS.parent / "docs/performance/composition/composition-protocol-v5.json"
             )
             self.assertEqual(
                 evaluator._load_resource_counters(output, protocol), counters
@@ -1038,7 +1038,7 @@ class RunnerTests(unittest.TestCase):
 
     def test_resource_counter_rejects_nonfinite_bool_and_fractional_counts(self):
         protocol = evaluator.load_protocol(
-            SCRIPTS.parent / "docs/performance/0.9/composition-protocol-v5.json"
+            SCRIPTS.parent / "docs/performance/composition/composition-protocol-v5.json"
         )
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "counters.json"
@@ -1143,7 +1143,7 @@ class RunnerTests(unittest.TestCase):
 
     def test_pair_execution_uses_exact_filters_seed_and_unique_clean_targets(self):
         protocol = evaluator.load_protocol(
-            SCRIPTS.parent / "docs/performance/0.9/composition-protocol-v5.json"
+            SCRIPTS.parent / "docs/performance/composition/composition-protocol-v5.json"
         )
         calls = []
 
@@ -1203,7 +1203,7 @@ class RunnerTests(unittest.TestCase):
 
     def test_invalid_isolated_output_stops_before_next_measurement(self):
         protocol = evaluator.load_protocol(
-            SCRIPTS.parent / "docs/performance/0.9/composition-protocol-v5.json"
+            SCRIPTS.parent / "docs/performance/composition/composition-protocol-v5.json"
         )
         calls = []
 
@@ -1296,7 +1296,7 @@ class CounterAllocationRunnerTests(unittest.TestCase):
 
     def binaries(self, root, *, fail=False):
         binaries = {}
-        for engine in ("composable", "rca-0.7", "rca"):
+        for engine in ("composable", "rca"):
             binaries[engine] = {}
             for role in ("a", "b"):
                 path = root / f"{engine}-{role}"
@@ -1316,11 +1316,11 @@ class CounterAllocationRunnerTests(unittest.TestCase):
             with patch.object(runner.HostMonitor, "idle", side_effect=AssertionError("busy host")), \
                  patch.object(runner.HostMonitor, "run", side_effect=AssertionError("timing monitor")):
                 records = runner.capture_counter_allocation_programme(root, self.protocol, binaries, dict(os.environ), **self.options)
-            self.assertEqual(len(records), 18)
+            self.assertEqual(len(records), 12)
             rows = runner.load_counter_allocation_capture(root, self.protocol, records, binaries, **self.options)
-            self.assertEqual(len(rows), 18)
-            self.assertEqual([row["engine"] for row in rows[:6]],
-                             ["composable", "rca-0.7", "rca", "rca", "rca-0.7", "composable"])
+            self.assertEqual(len(rows), 12)
+            self.assertEqual([row["engine"] for row in rows[:4]],
+                             ["composable", "rca", "rca", "composable"])
             result = getattr(self.evaluate_module, self.evaluate_name)(rows, self.protocol)
             self.assertFalse(result["provenance_qualified"])
             with self.assertRaises(ValueError):
@@ -1463,7 +1463,7 @@ class CounterAllocationRunnerTests(unittest.TestCase):
                 self.assertEqual(qualify.call_args.kwargs, {"allocations": True, **self.options})
                 lock.assert_called_once_with(runner.LOCK)
 
-    def test_allocation_builds_feature_match_metadata_and_six_fresh_targets(self):
+    def test_allocation_builds_feature_match_metadata_and_four_fresh_targets(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             calls = []
@@ -1484,7 +1484,7 @@ class CounterAllocationRunnerTests(unittest.TestCase):
                     {"CARGO_HOME": str(root / "cargo-home")}, {"cargo": "/cargo"},
                     features=("allocation-measurement",), **self.options)
             selected = [command for command, _ in calls if "build" in command or "metadata" in command]
-            self.assertEqual(len(selected), 9)
+            self.assertEqual(len(selected), 6)
             for command in selected:
                 self.assertEqual(command[command.index("--features") + 1], "allocation-measurement")
                 manifest = Path(command[command.index("--manifest-path") + 1])
@@ -1492,7 +1492,7 @@ class CounterAllocationRunnerTests(unittest.TestCase):
                 if "build" in command:
                     self.assertIn("--bin", command)
                     self.assertEqual(command[command.index("--bin") + 1], self.binary_name(manifest.parent.name))
-            self.assertEqual(len({env["CARGO_TARGET_DIR"] for command, env in calls if "build" in command}), 6)
+            self.assertEqual(len({env["CARGO_TARGET_DIR"] for command, env in calls if "build" in command}), 4)
 
     def test_allocation_receipts_reject_other_workload_even_with_updated_hashes(self):
         import copy

@@ -1,17 +1,15 @@
-# MCMaitreD migration example
+# Server lifecycle composition example
 
-This unpublished crate starts an isolated migration of the preserved MCMaitreD
-server domain to RCA. It is not a runnable daemon or a complete server feature.
-No original application files are changed.
+This unpublished crate demonstrates a server domain inspired by MCMaitreD.
+It composes backend, polling and proxy lifecycles with injected clients.
+It is not a runnable daemon or a complete application.
 
 Proxy/server integration has five controlled-client traces covering wake-up,
 independent stop domains, stop/error joins, failure/EOF and keyed replacement.
-An explicit inherited-ID cancellation boundary fixes two historically reproduced
-cross-feature cancellation failures. The
-[migration case study](../../docs/migration/composable-consumer.md#proxyserver-composition-qualification)
-describes that boundary and its retained local verification. Those historical
-results are not current-release receipts; see the
-[qualification summary](../../docs/qualification.md).
+An explicit inherited-ID cancellation boundary isolates the cooperating features.
+The [server/proxy tests](tests/server_proxy.rs) exercise that boundary.
+The [qualification summary](../../docs/qualification.md) separates these
+test contracts from release evidence.
 
 `backend::Backend` owns backend lifecycle policy. Inject `Arc<dyn BackendClient>`
 through `BackendKey` on the Store or TestStore builder. The client must report
@@ -24,9 +22,8 @@ pending operation, then reconcile again. Failures retain their message and suspe
 automatic reconciliation. Parent-facing `Started` and `Stopped` actions expose the
 integration boundary. `server::reducer()` composes backend, polling and proxy scopes.
 
-The captured application allowed overlapping start/stop operations and could lose
-a start request made while stopping. Serial reconciliation deliberately repairs
-that policy; this is not a literal port or an automatic guarantee supplied by RCA.
+Serial reconciliation preserves a start request made while stopping.
+This is application policy, not an automatic guarantee supplied by RCA.
 The tests assert complete backend state after each action, exact client calls,
 delayed responses, both reversal directions, errors and isolated dependencies.
 
@@ -46,9 +43,9 @@ Restart creates a new runtime lifetime. State contains no task handles.
 Success updates the count and clears failures. Errors retain the previous count,
 record their message and saturate the failure counter. Stop preserves observations.
 The composed server clears observations only after confirmed backend stop.
-`QueryError` preserves the captured client's `ConnectionFailed`, `Protocol` and
+`QueryError` preserves the client's `ConnectionFailed`, `Protocol` and
 `Other` categories and payloads through the client and action boundary. Observable
-error text retains the captured diagnostic spelling, including quoted payloads.
+error text retains the diagnostic spelling, including quoted payloads.
 No category-dependent retry or shutdown policy is implemented or claimed.
 
 Eight full-state tests cover cadence, repeated starts, pending ticks, error recovery,
@@ -58,15 +55,15 @@ not real network cleanup.
 
 ## Limits
 
-`config` preserves the captured floor/table/server configuration and read-only
-validation. It rejects duplicate table/server identities, empty tables, zero
+`config` provides floor, table and server configuration with read-only validation.
+It rejects duplicate table/server identities, empty tables, zero
 inactivity timeouts, zero ports and repeated ports within one server (including
 across Java and Bedrock lists). Validation preserves traversal order and all
 metadata. Empty floors and empty port lists remain valid; ports shared by
 different servers remain allowed. This is not a socket-binding feasibility check.
 
-Table and server identities use separate String fields, not the original typed
-ID wrappers. This module does not flatten tables into keyed state or implement
+Table and server identities use separate String fields.
+This module does not flatten tables into keyed state or implement
 inactivity policy. Callers must validate configuration at their input boundary;
 existing direct `proxy::Config` construction and `servers::Add` do not invoke it.
 
@@ -81,8 +78,8 @@ existing direct `proxy::Config` construction and `servers::Add` do not invoke it
 - Restart reconciliation follows the `Stopped` action's commit, not completion of
   arbitrary parent effects. The server coordinator applies polling controls in
   the same reduction, rather than depending on asynchronous delegate cleanup.
-- No performance, native-host or complete consumer-parity claim follows from these
-  deterministic tests. See the [migration report](../../docs/migration/composable-consumer.md).
+- No performance or native-host claim follows from these deterministic tests.
+  The socket tests below cover a separate, bounded resource contract.
 
 ## Server composition
 
@@ -93,7 +90,6 @@ Store commits. Polling runs only for a wanted Running backend. Stop requests
 cancel polling immediately; confirmed backend stop clears count, failures and
 query error. A failed stop preserves observations but leaves polling inactive.
 
-This deliberately cancels queries earlier than the captured implementation.
 Six integration traces cover successful lifecycle, delayed cancellation, both
 target-reversal directions, failures and duplicate delegates. Both child IDs are
 constructed together and must remain stable; this example does not validate
@@ -126,8 +122,8 @@ Ended changes the phase to Stopped. Explicit Start retries acquisition failures.
 Acquisition errors retain `StartFailed` and `Other` categories and payloads through
 the client and action boundary. State records debug-shaped diagnostic text,
 including quoted and escaped payloads. No category-dependent policy is added.
-The captured `StopFailed` category remains outside this acquisition-only API;
-the separate managed proxy below covers that asynchronous contract.
+The `StopFailed` category remains outside this acquisition-only API.
+The separate managed proxy below covers that asynchronous contract.
 
 Clients must release partial resources when acquisition is dropped and live
 resources when the stream is dropped. Six full-state traces use non-Clone leases
@@ -136,11 +132,11 @@ This is a semantic client obligation, not a type-system guarantee or real-socket
 proof. Cancellation is cooperative; these tests do not promise instantaneous
 physical teardown on every host.
 
-Unlike the captured separate start/stop-by-ID interface, this boundary requires
-local owned resources. Fallible asynchronous remote shutdown needs an independent
-cleanup/reconciliation owner; returning a stream alone is insufficient. That
-deliberate narrowing is not full old-client parity. JoinObserved now requests a
-stopped backend to start; its backend effect excludes the proxy's inherited
+This boundary requires local owned resources.
+Fallible asynchronous remote shutdown needs an independent cleanup/reconciliation owner.
+A stream alone is insufficient. That contract differs from local resource destruction.
+JoinObserved requests a stopped backend to start.
+Its backend effect excludes the proxy's inherited
 cancellation identity while retaining root task and structural ownership.
 Internal phase guards do not authenticate forged messages;
 the pending-acquisition restart trace does not exercise already-queued old events.
@@ -173,8 +169,11 @@ must-use `Recovery` retains the client, identity, pending obligation and exact
 error. `retry(&mut self)` preserves authority if its future is cancelled; the
 client's idempotent stop contract remains required.
 
-Controlled-client proofs now include a
-[test-only local TCP cleanup adapter](../../docs/migration/native-managed-proxy-ownership.md).
+The [managed socket tests](tests/managed_proxy_socket.rs) use a test-only local TCP
+adapter. A peer must observe EOF after release, independently of the client's
+acknowledgement. Pending and failed stop retain a usable socket.
+The [local socket tests](tests/proxy_socket.rs) separately exercise destruction
+of owned sessions. Neither adapter provides a production network protocol.
 This is not a production native proxy or complete daemon.
 Host panic/abortion, process exit, duplicate owners, and discarded recovery values
 remain application responsibilities. A permanently pending client operation also
