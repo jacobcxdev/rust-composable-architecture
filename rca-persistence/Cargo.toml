@@ -27,3 +27,9 @@ rca-test.workspace = true
 
 [lints]
 workspace = true
+
+[[test]]
+name = "allocation_controls"
+path = "src/allocation_main.rs"
+harness = false
+required-features = ["file"]

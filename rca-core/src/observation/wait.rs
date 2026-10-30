@@ -12,6 +12,9 @@ use std::task::{Context, Poll};
 use super::{ObservationCore, ObservationFamily};
 use crate::{ActionTask, Observation};
 
+#[cfg(all(test, feature = "allocation-measurement", feature = "local"))]
+pub(crate) mod allocation_tests;
+
 #[cfg(all(test, feature = "local"))]
 ordinary_test_items! {
 mod tests;

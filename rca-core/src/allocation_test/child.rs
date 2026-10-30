@@ -8,7 +8,7 @@ const CHILD_TIMEOUT: Duration = Duration::from_secs(60);
 /// Retain bounded diagnostics while still draining both pipes to completion.
 const OUTPUT_LIMIT: u64 = 1024 * 1024;
 
-/// Runs one allocation test without unrelated harness allocations or profilers.
+/// Runs one selected test in a separate process.
 pub(crate) fn run_in_child(test_name: &str) -> bool {
     run_in_child_with_env(test_name, &[])
 }

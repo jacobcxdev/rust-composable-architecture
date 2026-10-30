@@ -227,7 +227,7 @@ fn string_identity_costs() -> ([(u64, u64, usize); 3], usize) {
     (costs, clones.load(Ordering::Acquire))
 }
 
-#[test]
+/// Checks that scoped admission reuses its embedding without per-send closures.
 #[expect(
     clippy::too_many_lines,
     reason = "one profiler session keeps construction, admission and semantic checks in phase order"
@@ -421,3 +421,11 @@ fn scoped_admission_reuses_embedding_without_allocating_a_per_send_closure() {
         admission_blocks[1],
     );
 }
+
+/// Preserves the exact names of the isolated allocation cases.
+const CASES: &[(&str, fn())] = &[(
+    "scoped_admission_reuses_embedding_without_allocating_a_per_send_closure",
+    scoped_admission_reuses_embedding_without_allocating_a_per_send_closure,
+)];
+
+include!("support/allocation_main.rs");

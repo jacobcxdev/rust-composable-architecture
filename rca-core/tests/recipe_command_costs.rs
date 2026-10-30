@@ -100,7 +100,7 @@ fn descriptor() -> OptionalMount<Option<usize>, Child, ()> {
     )
 }
 
-#[test]
+/// Checks recipe dispatch costs against ordinary root and mapped controls.
 fn measured_recipe_dispatch_and_unchanged_ordinary_root_mapped_controls() {
     let profiler = dhat::Profiler::builder().testing().build();
     let driver = Driver::default();
@@ -594,3 +594,11 @@ mod local {
         }
     }
 }
+
+/// Preserves the exact names of the isolated allocation cases.
+const CASES: &[(&str, fn())] = &[(
+    "measured_recipe_dispatch_and_unchanged_ordinary_root_mapped_controls",
+    measured_recipe_dispatch_and_unchanged_ordinary_root_mapped_controls,
+)];
+
+include!("support/allocation_main.rs");

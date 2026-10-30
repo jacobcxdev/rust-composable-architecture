@@ -88,8 +88,8 @@ fn copied_observation_scalars_cannot_hide_invalid_work_or_owners() {
 }
 
 #[cfg(feature = "allocations")]
-#[test]
-fn real_observation_owner_retention_is_rejected_in_fresh_child() {
+#[cfg_attr(not(feature = "allocations"), test)]
+pub(crate) fn real_observation_owner_retention_is_rejected_in_fresh_child() {
     if !crate::tests::in_child(
         "observation_controls::real_observation_owner_retention_is_rejected_in_fresh_child",
     ) {

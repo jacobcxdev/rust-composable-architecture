@@ -38,7 +38,7 @@ impl Reducer for Counter {
     }
 }
 
-#[test]
+/// Checks that direct sends avoid private erased-sender storage.
 fn direct_send_avoids_private_erased_sender_allocation() {
     if allocation_test::run_in_child("direct_send_avoids_private_erased_sender_allocation") {
         return;
@@ -94,3 +94,11 @@ fn direct_send_avoids_private_erased_sender_allocation() {
         "direct send allocated {blocks} blocks; budget is 5"
     );
 }
+
+/// Preserves the exact names of the isolated allocation cases.
+const CASES: &[(&str, fn())] = &[(
+    "direct_send_avoids_private_erased_sender_allocation",
+    direct_send_avoids_private_erased_sender_allocation,
+)];
+
+include!("support/allocation_main.rs");

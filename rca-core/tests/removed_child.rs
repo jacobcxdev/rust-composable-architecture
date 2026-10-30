@@ -640,9 +640,11 @@ fn owned_sibling_values_survive_queued_parent_inputs() {
 }
 
 /// Measures plain extraction without counting fixture construction or semantic checks.
+///
+/// # Panics
+/// Panics if removal ownership or allocation counts change.
 #[cfg(feature = "allocation-measurement")]
-#[test]
-fn plain_removal_work_costs() {
+pub fn plain_removal_work_costs() {
     if allocation_test::run_in_child("plain_removal_work_costs") {
         return;
     }

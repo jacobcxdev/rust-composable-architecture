@@ -53,3 +53,9 @@ unsafe_code = "forbid"
 all = { level = "warn", priority = -1 }
 pedantic = { level = "warn", priority = -1 }
 cargo = { level = "warn", priority = -1 }
+
+[[test]]
+name = "allocation_controls"
+path = "src/allocation_main.rs"
+harness = false
+required-features = ["allocations"]

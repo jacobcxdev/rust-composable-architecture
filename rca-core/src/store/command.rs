@@ -144,14 +144,12 @@ impl std::future::Future for CommitReceiver {
 }
 
 #[cfg(test)]
-ordinary_test_items! {
 impl CommitReceiver {
     pub(crate) fn try_recv(
         &mut self,
     ) -> Result<Option<CommitResult>, futures_channel::oneshot::Canceled> {
         self.0.try_recv()
     }
-}
 }
 
 /// Rejections understood by the legacy action acknowledgement protocol.
@@ -688,6 +686,9 @@ pub(crate) enum TerminalReply<Callback: ?Sized> {
     State(Box<Callback>),
 }
 
+#[cfg(all(test, not(loom), feature = "allocation-measurement", feature = "local"))]
+pub(crate) mod allocation_tests;
+
 #[cfg(all(test, not(loom)))]
 ordinary_test_items! {
 mod reply_contract_tests {
@@ -810,51 +811,6 @@ mod reply_contract_tests {
         assert_eq!(size_of_val(&*callback), payload_size);
         callback(state);
         assert_eq!(calls.load(Ordering::SeqCst), 1);
-    }
-
-    #[cfg(all(feature = "allocation-measurement", feature = "local"))]
-    #[test]
-    fn terminal_callbacks_allocate_one_existing_payload_box() {
-        fn measure<T>(make: impl FnOnce() -> T) -> (u64, u64) {
-            let before = dhat::HeapStats::get();
-            let value = std::hint::black_box(make());
-            let after = dhat::HeapStats::get();
-            drop(value);
-            (
-                after.total_blocks - before.total_blocks,
-                after.total_bytes - before.total_bytes,
-            )
-        }
-        type SharedCallback =
-            <super::super::carriers::Shared as super::super::carriers::Carriers<u64, ()>>::Terminal;
-        type LocalCallback =
-            <super::super::local::Local as super::super::carriers::Carriers<u64, ()>>::Terminal;
-        if crate::allocation_test::run_in_child(
-            "store::command::reply_contract_tests::terminal_callbacks_allocate_one_existing_payload_box",
-        ) {
-            return;
-        }
-
-        let _profiler = dhat::Profiler::builder().testing().build();
-        let shared = measure(|| {
-            let captured = std::hint::black_box(7_u64);
-            Command::<u64, ()>::Shutdown(TerminalReply::<SharedCallback>::State(Box::new(
-                move |state| {
-                    std::hint::black_box(captured + state);
-                },
-            )))
-        });
-        let local = measure(|| {
-            let captured = std::hint::black_box(7_u64);
-            Command::<u64, (), super::super::local::Local>::Shutdown(
-                TerminalReply::<LocalCallback>::State(Box::new(move |state| {
-                    std::hint::black_box(captured + state);
-                })),
-            )
-        });
-        assert_eq!(shared, (1, 8));
-        assert_eq!(local, (1, 8));
-        println!("terminal_callback_allocations shared={shared:?} local={local:?}");
     }
 
     #[test]

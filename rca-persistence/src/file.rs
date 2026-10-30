@@ -556,4 +556,4 @@ impl Backend for FileBackend {
 }
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;

@@ -626,11 +626,11 @@ fn run_inner(config: Config, #[cfg(test)] fault: Option<Fault>) -> Result<String
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::{Config, Fault, run_inner};
 
-    #[test]
-    fn rejects_skipped_work_and_retained_owner() {
+    #[cfg_attr(not(feature = "allocations"), test)]
+    pub(crate) fn rejects_skipped_work_and_retained_owner() {
         #[cfg(feature = "allocations")]
         if !crate::tests::in_child(
             "feature_transactions::tests::rejects_skipped_work_and_retained_owner",
@@ -649,8 +649,8 @@ mod tests {
     }
 
     // Missing dispatch or silently skipped domain work must fail these literal oracles.
-    #[test]
-    fn root_and_mounted_dispatch_complete_one_and_sixty_four_increments() {
+    #[cfg_attr(not(feature = "allocations"), test)]
+    pub(crate) fn root_and_mounted_dispatch_complete_one_and_sixty_four_increments() {
         #[cfg(feature = "allocations")]
         if !crate::tests::in_child(
             "feature_transactions::tests::root_and_mounted_dispatch_complete_one_and_sixty_four_increments",

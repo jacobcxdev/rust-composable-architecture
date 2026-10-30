@@ -30,7 +30,7 @@ impl Reducer for Counter {
     }
 }
 
-#[test]
+/// Checks that warmed commits and mailbox waits require no allocations.
 fn warmed_actor_commit_and_mailbox_wait_do_not_allocate() {
     if allocation_test::run_in_child("warmed_actor_commit_and_mailbox_wait_do_not_allocate") {
         return;
@@ -81,3 +81,11 @@ fn warmed_actor_commit_and_mailbox_wait_do_not_allocate() {
         "100 warmed actor commits and waits allocated {blocks} blocks / {bytes} bytes"
     );
 }
+
+/// Preserves the exact names of the isolated allocation cases.
+const CASES: &[(&str, fn())] = &[(
+    "warmed_actor_commit_and_mailbox_wait_do_not_allocate",
+    warmed_actor_commit_and_mailbox_wait_do_not_allocate,
+)];
+
+include!("support/allocation_main.rs");

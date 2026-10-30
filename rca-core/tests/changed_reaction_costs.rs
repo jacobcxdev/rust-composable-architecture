@@ -316,8 +316,12 @@ fn phases(hooks: Hooks) {
     );
 }
 
-#[test]
-fn children_have_exact_reaction_work() {
+/// Checks reaction work and, in the isolated host, its allocation costs.
+///
+/// # Panics
+/// Panics if reaction work or allocation counts violate the recorded contracts.
+#[cfg_attr(not(feature = "allocation-measurement"), test)]
+pub fn children_have_exact_reaction_work() {
     #[cfg(feature = "allocation-measurement")]
     let _profiler = dhat::Profiler::builder().testing().build();
     for hooks in [Hooks::None, Hooks::One, Hooks::All] {

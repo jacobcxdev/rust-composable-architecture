@@ -128,7 +128,7 @@ jobs:
                   cargo test --locked --manifest-path tests/composable-counter/upstream/Cargo.toml --no-run
                   cargo test --locked --manifest-path tests/composable-counter/upstream/Cargo.toml --features allocation-measurement --no-run
                   cargo test --locked --manifest-path tests/composable-stream/upstream/Cargo.toml --no-run
-                  cargo test --locked --manifest-path tests/composable-stream/upstream/Cargo.toml --features allocation-measurement --test outcome --no-run
+                  cargo test --locked --manifest-path tests/composable-stream/upstream/Cargo.toml --features allocation-measurement --test outcome --test ready_allocation_controls --test outcome_allocation_controls --no-run
                   cargo test --locked --manifest-path tests/composable-timers/upstream/Cargo.toml --no-run
                   cargo test --locked --manifest-path tests/composable-observation/upstream/Cargo.toml --all-features --no-run
 
@@ -165,7 +165,7 @@ jobs:
               id: stream-allocations
               timeout-minutes: 2
               continue-on-error: ${{ matrix.engine == 'upstream' }}
-              run: cargo test --locked --manifest-path tests/composable-stream/${{ matrix.engine }}/Cargo.toml --features allocation-measurement --test outcome
+              run: cargo test --locked --manifest-path tests/composable-stream/${{ matrix.engine }}/Cargo.toml --features allocation-measurement --test outcome --test ready_allocation_controls --test outcome_allocation_controls
 
             - name: Test stream evidence validator
               if: matrix.engine == 'candidate'

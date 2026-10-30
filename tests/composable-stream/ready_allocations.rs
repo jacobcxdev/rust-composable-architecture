@@ -109,9 +109,48 @@ pub fn run(engine: &str, completion: &str) -> Result<String, &'static str> {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use std::hint::black_box;
+
+    /// Preserves the measured cases outside the threaded semantic test host.
+    pub(crate) const CASES: &[(&str, fn())] = &[
+        (
+            "ready_allocations::tests::construction_initial_checked_and_destructor_are_separate",
+            construction_initial_checked_and_destructor_are_separate,
+        ),
+        (
+            "ready_allocations::tests::snapshots_and_scalar_accounting_allocate_nothing",
+            snapshots_and_scalar_accounting_allocate_nothing,
+        ),
+        (
+            "ready_allocations::tests::missing_duplicate_and_reordered_hooks_are_rejected",
+            missing_duplicate_and_reordered_hooks_are_rejected,
+        ),
+        (
+            "ready_allocations::tests::worker_allocations_are_process_wide",
+            worker_allocations_are_process_wide,
+        ),
+        (
+            "ready_allocations::tests::failed_work_returns_no_measurement_and_stops_profiler",
+            failed_work_returns_no_measurement_and_stops_profiler,
+        ),
+    ];
+
+    #[test]
+    fn allocation_case_roster_preserves_exact_names() {
+        let expected = [
+            "ready_allocations::tests::construction_initial_checked_and_destructor_are_separate",
+            "ready_allocations::tests::snapshots_and_scalar_accounting_allocate_nothing",
+            "ready_allocations::tests::missing_duplicate_and_reordered_hooks_are_rejected",
+            "ready_allocations::tests::worker_allocations_are_process_wide",
+            "ready_allocations::tests::failed_work_returns_no_measurement_and_stops_profiler",
+        ];
+        assert_eq!(
+            CASES.iter().map(|case| case.0).collect::<Vec<_>>(),
+            expected
+        );
+    }
 
     #[expect(
         dead_code,
@@ -162,7 +201,6 @@ mod tests {
         }
     }
 
-    #[test]
     fn construction_initial_checked_and_destructor_are_separate() {
         if !in_child("construction_initial_checked_and_destructor_are_separate") {
             return;
@@ -192,7 +230,6 @@ mod tests {
         assert_eq!((e.live_blocks, e.live_bytes), (a.live_blocks, a.live_bytes));
     }
 
-    #[test]
     fn snapshots_and_scalar_accounting_allocate_nothing() {
         if !in_child("snapshots_and_scalar_accounting_allocate_nothing") {
             return;
@@ -217,7 +254,6 @@ mod tests {
         }
     }
 
-    #[test]
     fn missing_duplicate_and_reordered_hooks_are_rejected() {
         if !in_child("missing_duplicate_and_reordered_hooks_are_rejected") {
             return;
@@ -243,7 +279,6 @@ mod tests {
         }
     }
 
-    #[test]
     fn worker_allocations_are_process_wide() {
         if !in_child("worker_allocations_are_process_wide") {
             return;
@@ -265,7 +300,6 @@ mod tests {
         assert_eq!(e.live_bytes, a.live_bytes);
     }
 
-    #[test]
     fn failed_work_returns_no_measurement_and_stops_profiler() {
         if !in_child("failed_work_returns_no_measurement_and_stops_profiler") {
             return;

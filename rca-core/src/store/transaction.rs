@@ -856,6 +856,16 @@ pub(super) fn request<S: 'static, A: 'static, C: Execution<S, A>>(
 }
 
 #[cfg(test)]
+#[allow(
+    dead_code,
+    reason = "the allocation host shares ownership fixtures but uses only their retirement controls"
+)]
+mod test_support;
+
+#[cfg(all(test, feature = "allocation-measurement"))]
+pub(crate) mod allocation_tests;
+
+#[cfg(test)]
 ordinary_test_items! { pub(in crate::store) mod tests; }
 
 impl<State: 'static, Action: 'static, C: Execution<State, Action>>

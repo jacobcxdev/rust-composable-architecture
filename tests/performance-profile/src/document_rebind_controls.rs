@@ -49,8 +49,8 @@ fn rejects_invalid_dimensions_before_construction() {
 }
 
 // Catches missing replacement, extra loads/saves, stale publication or conflated joins.
-#[test]
-fn both_orders_preserve_binding_sibling_and_independent_debt() {
+#[cfg_attr(not(feature = "allocations"), test)]
+pub(crate) fn both_orders_preserve_binding_sibling_and_independent_debt() {
     if !child(
         "document_rebind::controls::both_orders_preserve_binding_sibling_and_independent_debt",
     ) {
@@ -94,8 +94,8 @@ fn both_orders_preserve_binding_sibling_and_independent_debt() {
 }
 
 // Each mutation exercises the actual workload; successful cleanup is independently required.
-#[test]
-fn rejects_oracle_faults_and_releases_both_gates() {
+#[cfg_attr(not(feature = "allocations"), test)]
+pub(crate) fn rejects_oracle_faults_and_releases_both_gates() {
     if !child("document_rebind::controls::rejects_oracle_faults_and_releases_both_gates") {
         return;
     }

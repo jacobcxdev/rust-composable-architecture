@@ -5,6 +5,10 @@
 
 #![cfg(feature = "allocation-measurement")]
 
+#[expect(
+    dead_code,
+    reason = "Shared support tests run in the ordinary libtest targets."
+)]
 mod support;
 
 #[path = "../src/allocation_test/child.rs"]
@@ -33,7 +37,7 @@ impl Reducer for Counter {
     }
 }
 
-#[test]
+/// Checks the allocation budget for warmed committed-action replies.
 fn warmed_committed_actions_do_not_allocate_general_purpose_reply_channels() {
     if allocation_test::run_in_child(
         "warmed_committed_actions_do_not_allocate_general_purpose_reply_channels",
@@ -136,7 +140,7 @@ fn reject_with_panicking_capture(
     );
 }
 
-#[test]
+/// Checks that rejected commands release their captured backtraces.
 fn rejected_command_destructors_do_not_leak_captured_backtraces() {
     if allocation_test::run_in_child_with_env(
         "rejected_command_destructors_do_not_leak_captured_backtraces",
@@ -183,3 +187,17 @@ fn rejected_command_destructors_do_not_leak_captured_backtraces() {
         "rejected {commands:?} commands retained blocks/bytes after payload panic",
     );
 }
+
+/// Preserves the exact names of the isolated allocation cases.
+const CASES: &[(&str, fn())] = &[
+    (
+        "warmed_committed_actions_do_not_allocate_general_purpose_reply_channels",
+        warmed_committed_actions_do_not_allocate_general_purpose_reply_channels,
+    ),
+    (
+        "rejected_command_destructors_do_not_leak_captured_backtraces",
+        rejected_command_destructors_do_not_leak_captured_backtraces,
+    ),
+];
+
+include!("support/allocation_main.rs");

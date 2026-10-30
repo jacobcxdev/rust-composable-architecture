@@ -1,25 +1,32 @@
-#![cfg(all(feature = "allocation-measurement", target_pointer_width = "64"))]
+#![cfg(feature = "allocation-measurement")]
 //! Measures the storage difference between two usable mailbox capacities.
 
+#[cfg(target_pointer_width = "64")]
 #[path = "../src/allocation_test/child.rs"]
 mod allocation_test;
 
+#[cfg(target_pointer_width = "64")]
 #[expect(
     dead_code,
     reason = "this test captures actors without executor threads"
 )]
 mod support;
 
+#[cfg(target_pointer_width = "64")]
 use std::task::{Context, Poll, Waker};
 
+#[cfg(target_pointer_width = "64")]
 use rca_core::{Effect, ReduceContext, Reducer, Store};
 
+#[cfg(target_pointer_width = "64")]
 #[global_allocator]
 static ALLOCATOR: dhat::Alloc = dhat::Alloc;
 
 /// Counts every accepted action during the ordered shutdown drain.
+#[cfg(target_pointer_width = "64")]
 struct Counter;
 
+#[cfg(target_pointer_width = "64")]
 impl Reducer for Counter {
     type State = u64;
     type Action = ();
@@ -30,7 +37,8 @@ impl Reducer for Counter {
     }
 }
 
-#[test]
+/// Checks the storage budget for additional usable mailbox slots.
+#[cfg(target_pointer_width = "64")]
 fn additional_mailbox_capacity_has_bounded_storage_cost() {
     if allocation_test::run_in_child("additional_mailbox_capacity_has_bounded_storage_cost") {
         return;
@@ -82,3 +90,14 @@ fn additional_mailbox_capacity_has_bounded_storage_cost() {
         "additional mailbox slots exceeded storage budget: {additional} bytes"
     );
 }
+
+/// Preserves the exact names of the isolated allocation cases.
+const CASES: &[(&str, fn())] = &[
+    #[cfg(target_pointer_width = "64")]
+    (
+        "additional_mailbox_capacity_has_bounded_storage_cost",
+        additional_mailbox_capacity_has_bounded_storage_cost,
+    ),
+];
+
+include!("support/allocation_main.rs");

@@ -17,6 +17,18 @@ bench = false
 [features]
 allocation-measurement = ["dep:dhat"]
 
+[[test]]
+name = "ready_allocation_controls"
+path = "src/ready_allocation_controls.rs"
+harness = false
+required-features = ["allocation-measurement"]
+
+[[test]]
+name = "outcome_allocation_controls"
+path = "src/outcome_allocation_controls.rs"
+harness = false
+required-features = ["allocation-measurement"]
+
 [dependencies]
 dhat = { version = "=0.3.3", optional = true }
 composable = { git = "https://github.com/bwoods/Architecture.git", rev = "0b5baa80246a625c1bb886e6df20dae27fc97c97" }

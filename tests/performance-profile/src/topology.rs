@@ -1137,11 +1137,11 @@ fn run_control(fault: &str) -> Result<String, &'static str> {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     // Skipped optional-child removal, incidental leaf work or early teardown
     // cannot satisfy these independently counted retirement-only outcomes.
-    #[test]
-    fn retirement_only_removes_descendants_and_preserves_the_keyed_entry() {
+    #[cfg_attr(not(feature = "allocations"), test)]
+    pub(crate) fn retirement_only_removes_descendants_and_preserves_the_keyed_entry() {
         #[cfg(feature = "allocations")]
         if !crate::tests::in_child(
             "topology::tests::retirement_only_removes_descendants_and_preserves_the_keyed_entry",
@@ -1203,8 +1203,8 @@ mod tests {
         }
     }
 
-    #[test]
-    fn retirement_only_rejects_skipped_removal_and_each_retained_owner() {
+    #[cfg_attr(not(feature = "allocations"), test)]
+    pub(crate) fn retirement_only_rejects_skipped_removal_and_each_retained_owner() {
         #[cfg(feature = "allocations")]
         if !crate::tests::in_child(
             "topology::tests::retirement_only_rejects_skipped_removal_and_each_retained_owner",
@@ -1254,8 +1254,8 @@ mod tests {
         }
     }
 
-    #[test]
-    fn topology_controls_reject_skipped_work_and_each_retained_owner() {
+    #[cfg_attr(not(feature = "allocations"), test)]
+    pub(crate) fn topology_controls_reject_skipped_work_and_each_retained_owner() {
         #[cfg(feature = "allocations")]
         if !crate::tests::in_child(
             "topology::tests::topology_controls_reject_skipped_work_and_each_retained_owner",
@@ -1276,8 +1276,8 @@ mod tests {
     }
 
     #[cfg(feature = "deterministic")]
-    #[test]
-    fn deterministic_topology_uses_the_same_exact_work_contract() {
+    #[cfg_attr(not(feature = "allocations"), test)]
+    pub(crate) fn deterministic_topology_uses_the_same_exact_work_contract() {
         #[cfg(feature = "allocations")]
         if !crate::tests::in_child(
             "topology::tests::deterministic_topology_uses_the_same_exact_work_contract",
@@ -1301,8 +1301,8 @@ mod tests {
 
     // These literals reject missing dispatch, skipped leaf transactions, fabricated
     // empty work, reconstructed caches, ancestor reduction, and leaked ownership.
-    #[test]
-    fn six_topologies_complete_exact_leaf_work_and_release_owners() {
+    #[cfg_attr(not(feature = "allocations"), test)]
+    pub(crate) fn six_topologies_complete_exact_leaf_work_and_release_owners() {
         #[cfg(feature = "allocations")]
         if !crate::tests::in_child(
             "topology::tests::six_topologies_complete_exact_leaf_work_and_release_owners",

@@ -129,7 +129,7 @@ fn forbidden_wait_costs(
     costs
 }
 
-#[test]
+/// Checks that elapsed tolerant waits require no heap storage.
 fn elapsed_tolerant_waits_need_no_heap_storage() {
     let shared = Clock::new(SharedClock);
     let local = local::Clock::new(LocalClock(thread::current().id()));
@@ -219,3 +219,11 @@ fn elapsed_tolerant_waits_need_no_heap_storage() {
         );
     }
 }
+
+/// Preserves the exact names of the isolated allocation cases.
+const CASES: &[(&str, fn())] = &[(
+    "elapsed_tolerant_waits_need_no_heap_storage",
+    elapsed_tolerant_waits_need_no_heap_storage,
+)];
+
+include!("support/allocation_main.rs");

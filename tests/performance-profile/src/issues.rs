@@ -796,7 +796,7 @@ fn run_payload(config: Config, payload: usize) -> Result<String, &'static str> {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use std::panic::Location;
 
@@ -1338,8 +1338,8 @@ mod tests {
     }
 
     #[cfg(feature = "allocations")]
-    #[test]
-    fn retained_owned_issue_rejects_cache_none() {
+    #[cfg_attr(not(feature = "allocations"), test)]
+    pub(crate) fn retained_owned_issue_rejects_cache_none() {
         if !in_child("issues::tests::retained_owned_issue_rejects_cache_none") {
             return;
         }
@@ -1351,8 +1351,8 @@ mod tests {
     }
 
     #[cfg(feature = "allocations")]
-    #[test]
-    fn clean_owned_issue_qualifies_cache_none() {
+    #[cfg_attr(not(feature = "allocations"), test)]
+    pub(crate) fn clean_owned_issue_qualifies_cache_none() {
         if !in_child("issues::tests::clean_owned_issue_qualifies_cache_none") {
             return;
         }

@@ -75,7 +75,7 @@ fn named_pending_work(done: Arc<AtomicBool>, depth: i32) -> Effect<()> {
 }
 
 /// Requires allocation-free repeated polls and cancellation, with separate setup totals.
-#[test]
+/// Measures unused named-operation and wait costs separately.
 fn unused_named_and_wait_costs_are_measured_separately() {
     if allocation_test::run_in_child("unused_named_and_wait_costs_are_measured_separately") {
         return;
@@ -178,3 +178,11 @@ fn unused_named_and_wait_costs_are_measured_separately() {
         assert!(poll(actor.as_mut()).is_ready());
     }
 }
+
+/// Preserves the exact names of the isolated allocation cases.
+const CASES: &[(&str, fn())] = &[(
+    "unused_named_and_wait_costs_are_measured_separately",
+    unused_named_and_wait_costs_are_measured_separately,
+)];
+
+include!("support/allocation_main.rs");

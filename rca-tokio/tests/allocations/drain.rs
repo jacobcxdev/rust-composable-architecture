@@ -2,8 +2,7 @@
 
 #![cfg(all(feature = "qualification-dhat", not(loom), not(miri)))]
 
-#[path = "support/allocation_test.rs"]
-mod allocation_test;
+use crate::allocation_test;
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -12,10 +11,6 @@ use std::time::Duration;
 
 use rca_core::MonotonicInstant;
 use rca_test::{DeterministicRuntime, PendingSleep};
-
-/// Counts allocations only inside the explicitly owned profiling intervals.
-#[global_allocator]
-static ALLOCATOR: dhat::Alloc = dhat::Alloc;
 
 /// Checks real wakeups and re-entry while keeping the deterministic host alive.
 struct WakeProbe {
@@ -98,8 +93,11 @@ fn measured_drain(count: usize, distinct: bool) -> (u64, u64) {
     )
 }
 
-#[test]
-fn owned_deadline_draining_keeps_allocation_work_linear() {
+/// Checks linear drain costs and complete release across six timer workloads.
+///
+/// # Panics
+/// Panics if wakeups, release or allocation budgets differ from the expected contracts.
+pub(crate) fn owned_deadline_draining_keeps_allocation_work_linear() {
     if allocation_test::run_in_child("owned_deadline_draining_keeps_allocation_work_linear") {
         return;
     }

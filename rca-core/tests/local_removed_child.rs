@@ -2057,9 +2057,11 @@ fn local_plain_extraction_authors_no_output_work() {
 }
 
 /// Measures plain extraction without counting fixture construction or semantic checks.
+///
+/// # Panics
+/// Panics if removal ownership or allocation counts change.
 #[cfg(feature = "allocation-measurement")]
-#[test]
-fn local_plain_removal_work_costs() {
+pub fn local_plain_removal_work_costs() {
     if allocation_test::run_in_child("local_plain_removal_work_costs") {
         return;
     }

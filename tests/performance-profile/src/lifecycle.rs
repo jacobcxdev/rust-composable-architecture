@@ -705,7 +705,7 @@ impl Outcome {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::{Config, Fault, INVALID, run_inner, run_repeated};
 
     #[test]
@@ -744,8 +744,8 @@ mod tests {
         }
     }
 
-    #[test]
-    fn exact_work_rejects_skipped_action_and_retained_owner() {
+    #[cfg_attr(not(feature = "allocations"), test)]
+    pub(crate) fn exact_work_rejects_skipped_action_and_retained_owner() {
         if cfg!(feature = "deterministic") {
             return;
         }
@@ -766,8 +766,8 @@ mod tests {
         }
     }
 
-    #[test]
-    fn native_dispatch_validates_real_work_and_terminal_release() {
+    #[cfg_attr(not(feature = "allocations"), test)]
+    pub(crate) fn native_dispatch_validates_real_work_and_terminal_release() {
         if cfg!(feature = "deterministic") {
             return;
         }

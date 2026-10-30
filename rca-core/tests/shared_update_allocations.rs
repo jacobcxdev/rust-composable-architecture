@@ -11,7 +11,7 @@ use rca_core::Shared;
 #[global_allocator]
 static ALLOCATOR: dhat::Alloc = dhat::Alloc;
 
-#[test]
+/// Checks that both shared-update paths perform equal work without allocation.
 fn infallible_and_fallible_updates_do_equal_work_without_allocation() {
     let shared = Shared::new(Some(0_u64));
     let projection = shared.project(Option::as_ref, Option::as_mut).unwrap();
@@ -102,3 +102,11 @@ fn infallible_and_fallible_updates_do_equal_work_without_allocation() {
         std::mem::size_of_val(&projection)
     );
 }
+
+/// Preserves the exact names of the isolated allocation cases.
+const CASES: &[(&str, fn())] = &[(
+    "infallible_and_fallible_updates_do_equal_work_without_allocation",
+    infallible_and_fallible_updates_do_equal_work_without_allocation,
+)];
+
+include!("support/allocation_main.rs");

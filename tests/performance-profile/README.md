@@ -441,6 +441,22 @@ cargo run --offline --locked --release --manifest-path tests/performance-profile
 cargo run --offline --locked --release --manifest-path tests/performance-profile/Cargo.toml --features deterministic,allocations -- effects-deterministic 16 100
 ```
 
+With `allocations` enabled, measured test controls run in the
+`allocation_controls` target. It runs each selected control on the main thread,
+without libtest's concurrent receiver thread. The existing child processes still
+isolate each measurement. Ordinary semantic tests and CLI tests keep their normal
+test harness.
+
+```sh
+cargo test --locked --manifest-path tests/performance-profile/Cargo.toml --all-features --test allocation_controls
+cargo test --locked --manifest-path tests/performance-profile/Cargo.toml --no-default-features --features allocations --test allocation_controls
+```
+
+An unfiltered `cargo test` includes this target when `allocations` is enabled.
+`cargo test --bin rca-performance-profile` alone does not run measured controls.
+Without `allocations`, the controls that also check ordinary behaviour remain
+unit tests.
+
 The single JSON line has schema `rca-performance-profile-v2`, identity/inputs,
 committed roots/responses, reducer calls, causal completions, final counter and
 checksum, and separate extraction/drop/host-stop facts. Version 2 adds

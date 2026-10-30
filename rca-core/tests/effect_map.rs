@@ -6,7 +6,7 @@
 static ALLOCATOR: dhat::Alloc = dhat::Alloc;
 
 #[cfg(feature = "allocation-measurement")]
-#[test]
+/// Checks that eager effect mapping requires no allocations.
 fn eager_effect_mapping_does_not_allocate() {
     use std::hint::black_box;
     use std::time::Duration;
@@ -84,3 +84,11 @@ fn local_eager_mapping_does_not_allocate() {
     assert_eq!(calls.get(), 3);
     assert_eq!(Rc::strong_count(&calls), 1);
 }
+
+/// Preserves the exact names of the isolated allocation cases.
+const CASES: &[(&str, fn())] = &[(
+    "eager_effect_mapping_does_not_allocate",
+    eager_effect_mapping_does_not_allocate,
+)];
+
+include!("support/allocation_main.rs");

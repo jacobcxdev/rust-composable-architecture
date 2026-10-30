@@ -110,6 +110,9 @@ are not a frozen multi-build comparison cohort.
 `cargo test --locked --all-features` runs the adapter controls, isolated
 profiler controls and real-reporter integration tests. CI also lints all targets
 with this feature enabled.
+The `allocation_controls` target uses the shared synchronous runner. Its child
+process has no concurrent libtest receiver thread, but still counts workload
+allocations from every thread.
 
 These diagnostics do not establish a current numerical comparison.
 See the [qualification boundary](../../docs/qualification.md).

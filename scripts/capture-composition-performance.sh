@@ -191,7 +191,7 @@ cat >"${output_dir}/commands.txt" <<'COMMANDS'
 Runtime build: cargo bench -p rca-core --bench composition --locked -j 1 --no-run --message-format=json
 Runtime samples: execute the built composition benchmark with --bench ten independent times (01 through 10)
 Allocation: one direct execution per named scenario of the allocation-measurement benchmark binary
-Zero gates: cargo test -p rca-core --features allocation-measurement <exact-test> --locked -j 1
+Zero gates: cargo test -p rca-core --test core_allocations --features allocation-measurement <exact-test> --locked -j 1
 Compile: /usr/bin/time -lp cargo check --manifest-path benches/compile/Cargo.toml -p <fixture> --locked -j 1
 Binary: cargo build --release, plus cargo test --release --test app --no-run, with isolated targets
 Symbols: cargo bloat 0.12.1 --release --locked --crates -n 20 -j 1 with strip=false
@@ -235,12 +235,12 @@ fi
 
 capture "${output_dir}/zero-direct-scope.txt" \
   env CARGO_PROFILE_TEST_DEBUG=0 CARGO_PROFILE_TEST_OPT_LEVEL=1 \
-  "${cargo_bin}" test -p rca-core --lib --features allocation-measurement \
+  "${cargo_bin}" test -p rca-core --test core_allocations --features allocation-measurement \
   composition::scope::allocation_tests::scope_none_paths_do_not_allocate_after_warm_up \
   --locked -j 1 -- --exact --nocapture
 capture "${output_dir}/zero-combine.txt" \
   env CARGO_PROFILE_TEST_DEBUG=0 CARGO_PROFILE_TEST_OPT_LEVEL=1 \
-  "${cargo_bin}" test -p rca-core --lib --features allocation-measurement \
+  "${cargo_bin}" test -p rca-core --test core_allocations --features allocation-measurement \
   composition::combine::tests::combine_all_none_widths_do_not_allocate \
   --locked -j 1 -- --exact --nocapture
 

@@ -43,7 +43,7 @@ enum Endpoint {
     Closed,
 }
 
-#[test]
+/// Checks that failure reporting moves owned diagnostics without cloning strings.
 fn reported_failure_moves_owned_diagnostics_without_cloning_their_strings() {
     if allocation_test::run_in_child(
         "reported_failure_moves_owned_diagnostics_without_cloning_their_strings",
@@ -160,3 +160,11 @@ fn measure_report(endpoint: Endpoint) -> (u64, u64) {
     assert!(task.is_finished());
     *cost.lock().unwrap()
 }
+
+/// Preserves the exact names of the isolated allocation cases.
+const CASES: &[(&str, fn())] = &[(
+    "reported_failure_moves_owned_diagnostics_without_cloning_their_strings",
+    reported_failure_moves_owned_diagnostics_without_cloning_their_strings,
+)];
+
+include!("support/allocation_main.rs");

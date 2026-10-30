@@ -585,7 +585,7 @@ fn render(
 mod controls;
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::{
         Config, Facts, Mode, OUTPUT, Pair, Shape, WorkRecord, run, validate_drops, validate_work,
     };
@@ -808,8 +808,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn observed_seed_emits_complete_exact_work_record() {
+    #[cfg_attr(not(feature = "allocations"), test)]
+    pub(crate) fn observed_seed_emits_complete_exact_work_record() {
         #[cfg(feature = "allocations")]
         if !crate::tests::in_child(
             "diagnostic_workloads::tests::observed_seed_emits_complete_exact_work_record",
@@ -878,8 +878,8 @@ mod tests {
         assert_retention_record(&value);
     }
 
-    #[test]
-    fn explicit_disabled_seed_has_no_diagnostic_work_or_callback_owners() {
+    #[cfg_attr(not(feature = "allocations"), test)]
+    pub(crate) fn explicit_disabled_seed_has_no_diagnostic_work_or_callback_owners() {
         #[cfg(feature = "allocations")]
         if !crate::tests::in_child(
             "diagnostic_workloads::tests::explicit_disabled_seed_has_no_diagnostic_work_or_callback_owners",

@@ -27,17 +27,6 @@ macro_rules! ordinary_test_items {
     ($($items:tt)*) => { $($items)* };
 }
 
-/// Shares the manual host between internal observation and scoped-store tests.
-#[cfg(all(test, not(loom)))]
-#[expect(
-    dead_code,
-    reason = "internal tests use only the manual actor controls"
-)]
-mod test_support {
-    use crate as rca_core;
-    include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/support/mod.rs"));
-}
-
 // Rustdoc links cross-crate module re-exports to these declarations.
 // Keep them in the emitted crate-root source.
 #[cfg(feature = "diagnostics")]

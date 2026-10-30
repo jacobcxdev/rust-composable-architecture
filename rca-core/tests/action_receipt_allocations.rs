@@ -36,7 +36,7 @@ impl Reducer for Append {
     }
 }
 
-#[test]
+/// Checks that receipt conversion and polling reuse existing allocation storage.
 fn receipt_conversion_and_polling_need_no_extra_allocation() {
     if allocation_test::run_in_child("receipt_conversion_and_polling_need_no_extra_allocation") {
         return;
@@ -130,3 +130,11 @@ fn receipt_conversion_and_polling_need_no_extra_allocation() {
         "completed receipt retained heap storage"
     );
 }
+
+/// Preserves the exact names of the isolated allocation cases.
+const CASES: &[(&str, fn())] = &[(
+    "receipt_conversion_and_polling_need_no_extra_allocation",
+    receipt_conversion_and_polling_need_no_extra_allocation,
+)];
+
+include!("support/allocation_main.rs");

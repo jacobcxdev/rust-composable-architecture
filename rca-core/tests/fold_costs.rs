@@ -258,7 +258,7 @@ fn dispatch_containers(width: usize) {
     }
 }
 
-#[test]
+/// Checks finite public reads and measured vector-pruning work.
 fn finite_public_reads_and_actual_vec_prune_work() {
     let _profiler = if let Some(path) = std::env::var_os("RCA_FOLD_ALLOCATION_PROFILE") {
         let path = std::path::PathBuf::from(path);
@@ -298,3 +298,11 @@ fn finite_public_reads_and_actual_vec_prune_work() {
         std::mem::size_of::<Option<rca_core::testing::TransactionGate<(), ()>>>()
     );
 }
+
+/// Preserves the exact names of the isolated allocation cases.
+const CASES: &[(&str, fn())] = &[(
+    "finite_public_reads_and_actual_vec_prune_work",
+    finite_public_reads_and_actual_vec_prune_work,
+)];
+
+include!("support/allocation_main.rs");

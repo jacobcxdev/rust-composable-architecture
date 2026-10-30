@@ -30,7 +30,7 @@ use crate::measurement::Measurement;
 
 #[cfg(test)]
 #[path = "document_rebind_controls.rs"]
-mod controls;
+pub(crate) mod controls;
 
 // Fixed two-row schedules; independent scheduler and outer-drive bounds, no sleeps.
 const SCHEDULER_BUDGET: usize = 8192;

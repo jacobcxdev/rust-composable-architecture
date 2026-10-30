@@ -29,7 +29,7 @@ impl Reducer for Counter {
     }
 }
 
-#[test]
+/// Checks that observation registration avoids a separate reply channel.
 fn registration_request_avoids_general_purpose_reply_channel() {
     // Exclude the support module's tests from this process-wide allocation count.
     if allocation_test::run_in_child("registration_request_avoids_general_purpose_reply_channel") {
@@ -89,3 +89,11 @@ fn registration_request_avoids_general_purpose_reply_channel() {
         "registration request allocated {blocks} blocks; budget is 3"
     );
 }
+
+/// Preserves the exact names of the isolated allocation cases.
+const CASES: &[(&str, fn())] = &[(
+    "registration_request_avoids_general_purpose_reply_channel",
+    registration_request_avoids_general_purpose_reply_channel,
+)];
+
+include!("support/allocation_main.rs");

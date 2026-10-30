@@ -32,7 +32,7 @@ impl Reducer for ReadyEffect {
     }
 }
 
-#[test]
+/// Checks that unobserved completion needs no notification storage.
 fn unobserved_completion_does_not_allocate_notification_storage() {
     if allocation_test::run_in_child("unobserved_completion_does_not_allocate_notification_storage")
     {
@@ -93,3 +93,11 @@ fn unobserved_completion_does_not_allocate_notification_storage() {
     assert_eq!(after_finish.total_blocks, after.total_blocks);
     assert_eq!(after_finish.total_bytes, after.total_bytes);
 }
+
+/// Preserves the exact names of the isolated allocation cases.
+const CASES: &[(&str, fn())] = &[(
+    "unobserved_completion_does_not_allocate_notification_storage",
+    unobserved_completion_does_not_allocate_notification_storage,
+)];
+
+include!("support/allocation_main.rs");

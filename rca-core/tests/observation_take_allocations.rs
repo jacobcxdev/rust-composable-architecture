@@ -29,7 +29,7 @@ impl Reducer for Counter {
     }
 }
 
-#[test]
+/// Checks that committed observation takes reuse their operation allocation.
 #[expect(
     clippy::too_many_lines,
     reason = "one profiling session verifies read costs, registration retention and two take round trips"
@@ -191,3 +191,11 @@ fn committed_observation_takes_reuse_operation_allocation() {
         "reused take allocated {reused_blocks} blocks; budget is 1"
     );
 }
+
+/// Preserves the exact names of the isolated allocation cases.
+const CASES: &[(&str, fn())] = &[(
+    "committed_observation_takes_reuse_operation_allocation",
+    committed_observation_takes_reuse_operation_allocation,
+)];
+
+include!("support/allocation_main.rs");
