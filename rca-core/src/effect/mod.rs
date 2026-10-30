@@ -933,6 +933,113 @@ mod tests {
         assert_eq!(unconsumed.load(Ordering::Relaxed), 1);
     }
 
+    /// A hint panic during growth must release both retained and unconsumed children.
+    #[test]
+    fn merge_growth_hint_panic_drops_every_payload_once() {
+        /// Allows initial reservation, then panics when growth asks for another hint.
+        struct HintPanics {
+            /// Owns every source child until iteration transfers it.
+            effects: std::vec::IntoIter<Effect<DropCount>>,
+            /// Counts size-hint calls without changing the iterator position.
+            hints: std::cell::Cell<usize>,
+            /// Counts children released before iterator cleanup starts.
+            drops: Arc<AtomicUsize>,
+            /// Records cleanup order without panicking during unwinding.
+            drops_before_cleanup: Arc<AtomicUsize>,
+        }
+
+        impl Iterator for HintPanics {
+            type Item = Effect<DropCount>;
+
+            fn next(&mut self) -> Option<Self::Item> {
+                self.effects.next()
+            }
+
+            fn size_hint(&self) -> (usize, Option<usize>) {
+                let calls = self.hints.get();
+                self.hints.set(calls + 1);
+                assert_eq!(calls, 0, "growth hint must panic");
+                self.effects.size_hint()
+            }
+        }
+
+        impl Drop for HintPanics {
+            fn drop(&mut self) {
+                self.drops_before_cleanup
+                    .store(self.drops.load(Ordering::Relaxed), Ordering::Relaxed);
+            }
+        }
+
+        let drops = Arc::new(AtomicUsize::new(0));
+        let drops_before_cleanup = Arc::new(AtomicUsize::new(usize::MAX));
+        let effects = HintPanics {
+            effects: (0..24)
+                .map(|_| Effect::send(DropCount(Arc::clone(&drops))))
+                .collect::<Vec<_>>()
+                .into_iter(),
+            hints: std::cell::Cell::new(0),
+            drops: Arc::clone(&drops),
+            drops_before_cleanup: Arc::clone(&drops_before_cleanup),
+        };
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| Effect::merge(effects)));
+
+        result.expect_err("growth must ask for the remaining upper hint");
+        assert_eq!(drops_before_cleanup.load(Ordering::Relaxed), 1);
+        assert_eq!(drops.load(Ordering::Relaxed), 24);
+    }
+
+    /// Iterator cleanup runs while collected children remain owned by the merge builder.
+    #[test]
+    fn merge_iterator_cleanup_panic_releases_collected_payloads_once() {
+        /// Reports its final state before panicking during cleanup.
+        struct CleanupPanics {
+            /// Owns source children until they have all been transferred.
+            effects: std::vec::IntoIter<Effect<DropCount>>,
+            /// Counts retained children released by the builder's unwind.
+            drops: Arc<AtomicUsize>,
+            /// Records the iterator's state without risking a second panic.
+            clean: Arc<std::sync::atomic::AtomicBool>,
+        }
+
+        impl Iterator for CleanupPanics {
+            type Item = Effect<DropCount>;
+
+            fn next(&mut self) -> Option<Self::Item> {
+                self.effects.next()
+            }
+
+            fn size_hint(&self) -> (usize, Option<usize>) {
+                self.effects.size_hint()
+            }
+        }
+
+        impl Drop for CleanupPanics {
+            fn drop(&mut self) {
+                self.clean.store(
+                    self.effects.as_slice().is_empty() && self.drops.load(Ordering::Relaxed) == 0,
+                    Ordering::Relaxed,
+                );
+                assert!(std::thread::panicking(), "iterator cleanup panic");
+            }
+        }
+
+        let drops = Arc::new(AtomicUsize::new(0));
+        let clean = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let effects = CleanupPanics {
+            effects: (0..24)
+                .map(|_| Effect::send(DropCount(Arc::clone(&drops))))
+                .collect::<Vec<_>>()
+                .into_iter(),
+            drops: Arc::clone(&drops),
+            clean: Arc::clone(&clean),
+        };
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| Effect::merge(effects)));
+
+        result.expect_err("iterator cleanup must panic");
+        assert!(clean.load(Ordering::Relaxed));
+        assert_eq!(drops.load(Ordering::Relaxed), 24);
+    }
+
     /// Separates retained output from the iterator hints used for reservation.
     struct HintedEffects {
         effects: VecDeque<Effect<u8>>,
@@ -1030,6 +1137,27 @@ mod tests {
         let (outputs, capacity) = merge_outputs(effects);
         assert_eq!(outputs, [1, 2]);
         assert_eq!(capacity, MAX_MERGE_PREALLOCATION);
+    }
+
+    /// Bounds dense growth by the number of source items still available.
+    #[test]
+    fn merge_dense_growth_does_not_overshoot_remaining_input() {
+        let (outputs, capacity) = merge_outputs((0..100).map(Effect::send));
+
+        assert_eq!(outputs, (0..100).collect::<Vec<_>>());
+        assert!(capacity <= 100, "capacity {capacity} exceeded dense input");
+    }
+
+    /// Unknown and excessive upper hints cannot force speculative reservation.
+    #[test]
+    fn merge_growth_bounds_unknown_and_excessive_upper_hints() {
+        for upper in [None, Some(usize::MAX)] {
+            let effects = HintedEffects::new((0..100).map(Effect::send).collect(), 0, upper);
+            let (outputs, capacity) = merge_outputs(effects);
+
+            assert_eq!(outputs, (0..100).collect::<Vec<_>>());
+            assert!(capacity <= 128, "capacity {capacity} exceeded bounded growth");
+        }
     }
 
     #[test]

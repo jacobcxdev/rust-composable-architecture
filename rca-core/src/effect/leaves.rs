@@ -59,7 +59,25 @@ pub(crate) fn merge<A, C: EffectLeaves<A>>(
         let capacity = super::initial_merge_capacity(effects.size_hint().0);
         let mut non_empty = Vec::with_capacity(capacity);
         non_empty.push(effect);
-        non_empty.extend(effects.filter(|effect| !effect.is_none()));
+        // Keep iterator cleanup ahead of the retained children when unwinding.
+        let mut tail = effects;
+        while let Some(effect) = tail.next() {
+            if effect.is_none() {
+                continue;
+            }
+
+            if non_empty.len() == non_empty.capacity()
+                && non_empty.capacity() >= super::MAX_MERGE_PREALLOCATION
+            {
+                // Align growth after the initial cap without reserving beyond
+                // the remaining input. Loose hints cannot increase this bound.
+                let growth = (non_empty.len() + 1).next_power_of_two() - non_empty.len();
+                let remaining = tail.size_hint().1.unwrap_or(usize::MAX).saturating_add(1);
+                non_empty.reserve_exact(growth.min(remaining));
+            }
+            non_empty.push(effect);
+        }
+        drop(tail);
         return C::Effect::from_parts(Program::Merge(non_empty), None);
     }
     C::Effect::from_parts(Program::None, None)
