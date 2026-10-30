@@ -815,19 +815,24 @@ impl TerminalReceipt {
     feature = "test-util",
     feature = "allocation-measurement"
 ))]
-ordinary_test_items! {
-mod terminal_receipt_tests {
+pub(crate) mod terminal_receipt_tests {
     use super::{TaskAccessError, TaskAccessReason, TaskProgress, TerminalReceipt};
 
     fn measure<T>(run: impl FnOnce() -> T) -> (T, (u64, u64)) {
         let before = dhat::HeapStats::get();
         let result = run();
         let after = dhat::HeapStats::get();
-        (result, (after.total_blocks - before.total_blocks, after.total_bytes - before.total_bytes))
+        (
+            result,
+            (
+                after.total_blocks - before.total_blocks,
+                after.total_bytes - before.total_bytes,
+            ),
+        )
     }
 
-    #[test]
-    fn terminal_receipt_first_access_is_allocation_free() {
+    /// Checks receipt access allocates only its initial owner.
+    pub(crate) fn terminal_receipt_first_access_is_allocation_free() {
         if crate::allocation_test::run_in_child(
             "store::task_context::terminal_receipt_tests::terminal_receipt_first_access_is_allocation_free",
         ) {
@@ -838,7 +843,11 @@ mod terminal_receipt_tests {
         let (success, creation) = measure(TerminalReceipt::default);
         assert_eq!(creation.0, 1, "the selected boundary owns one receipt Arc");
         let ((), first_record) = measure(|| success.record(Ok(())));
-        assert_eq!(first_record, (0, 0), "first record must not allocate another lock owner");
+        assert_eq!(
+            first_record,
+            (0, 0),
+            "first record must not allocate another lock owner"
+        );
         let error = TaskAccessError::new(
             TaskAccessReason::ActorFailed,
             TaskProgress::Committed { revision: 7 },
@@ -847,26 +856,37 @@ mod terminal_receipt_tests {
             success.record(Err(error));
             success.result()
         });
-        assert_eq!(success_result, Some(Ok(())), "the first success remains authoritative");
+        assert_eq!(
+            success_result,
+            Some(Ok(())),
+            "the first success remains authoritative"
+        );
         assert_eq!(later_access, (0, 0));
 
         let (failure, creation) = measure(TerminalReceipt::default);
         assert_eq!(creation.0, 1);
         let (empty, first_read) = measure(|| failure.result());
         assert_eq!(empty, None);
-        assert_eq!(first_read, (0, 0), "first observation must not allocate another lock owner");
+        assert_eq!(
+            first_read,
+            (0, 0),
+            "first observation must not allocate another lock owner"
+        );
         let (failure_result, later_access) = measure(|| {
             failure.record(Err(error));
             failure.record(Ok(()));
             failure.result()
         });
-        assert_eq!(failure_result, Some(Err(error)), "the first exact error remains authoritative");
+        assert_eq!(
+            failure_result,
+            Some(Err(error)),
+            "the first exact error remains authoritative"
+        );
         assert_eq!(later_access, (0, 0));
         drop(success);
         drop(failure);
         drop(profiler);
     }
-}
 }
 
 /// Supplies the same unwind publication for legacy replies and structural turns.

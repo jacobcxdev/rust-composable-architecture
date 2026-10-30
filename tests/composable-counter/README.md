@@ -44,8 +44,9 @@ native allocations outside Rust's global allocator, worker-stack mappings,
 allocator-resident memory and RSS. The different executor topologies remain
 part of the adapter costs.
 
-Allocation controls run in isolated test subprocesses so concurrent tests cannot
-contaminate the global profiler. They cover worker allocations, phase
+The `allocation_controls` target runs each control in a separate process without
+a concurrent libtest receiver thread. This prevents test-harness allocations from
+entering the global profiler. The controls cover worker allocations, phase
 attribution, warm-up exclusion, teardown frees, allocation-free accounting,
 reallocation semantics and rejected work. CLI tests execute the actual binary
 and check instrumentation/mode admission and parse the emitted JSON.

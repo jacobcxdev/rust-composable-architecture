@@ -1222,8 +1222,11 @@ fn selected_reference_chain_depth_is_independent_of_captured_edge_depth() {
 }
 
 #[cfg(feature = "allocation-measurement")]
-#[test]
-fn structural_validation_reuses_scratch_across_captured_nodes() {
+/// Checks scratch reuse in the dedicated allocation host.
+///
+/// # Panics
+/// Panics if structural validation or allocation counts change.
+pub fn structural_validation_reuses_scratch_across_captured_nodes() {
     struct CountOutput(usize);
 
     impl fmt::Write for CountOutput {
@@ -1372,8 +1375,11 @@ fn invalid_wide_view_drops_all_projected_values_without_redaction() {
 }
 
 #[cfg(feature = "allocation-measurement")]
-#[test]
-fn structural_diff_cleanup_panic_releases_the_completed_report() {
+/// Checks allocation cleanup when a structural report destructor panics.
+///
+/// # Panics
+/// Panics if report cleanup leaves tracked allocations alive.
+pub fn structural_diff_cleanup_panic_releases_the_completed_report() {
     struct Probe<'a> {
         tag: u8,
         panics: bool,

@@ -37,6 +37,18 @@ pub(crate) mod task_context;
 mod transaction;
 
 #[cfg(all(test, feature = "allocation-measurement"))]
+pub(crate) use actor::allocation_tests::{
+    direct_future_launch_avoids_erased_sender_allocation,
+    timer_command_avoids_discarded_reply_allocation,
+};
+#[cfg(all(test, not(loom), feature = "allocation-measurement"))]
+pub(crate) use scoped::allocation_tests::{
+    distinct_projection_publication_costs, scoped_observation_adapter_storage_costs,
+};
+#[cfg(all(test, feature = "allocation-measurement"))]
+pub(crate) use transaction::allocation_tests::retiring_delayed_suffixes_prunes_waits_with_constant_allocation_budget;
+
+#[cfg(all(test, feature = "allocation-measurement"))]
 pub(crate) use mount::allocation_tests::mount_declaration_and_acquisition_costs;
 #[cfg(all(test, feature = "allocation-measurement"))]
 pub(crate) use mount::collection_costs::keyed_collection_costs;

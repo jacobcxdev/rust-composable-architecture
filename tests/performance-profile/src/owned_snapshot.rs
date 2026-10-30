@@ -271,11 +271,11 @@ fn run_control(fault: &str) -> Result<String, &'static str> {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::{run, run_control};
 
-    #[test]
-    fn rejects_skipped_capture_and_retained_authority() {
+    #[cfg_attr(not(feature = "allocations"), test)]
+    pub(crate) fn rejects_skipped_capture_and_retained_authority() {
         #[cfg(feature = "allocations")]
         if !crate::tests::in_child(
             "owned_snapshot::tests::rejects_skipped_capture_and_retained_authority",
@@ -290,8 +290,8 @@ mod tests {
         }
     }
 
-    #[test]
-    fn owned_history_captures_private_mutation_without_retaining_authority() {
+    #[cfg_attr(not(feature = "allocations"), test)]
+    pub(crate) fn owned_history_captures_private_mutation_without_retaining_authority() {
         #[cfg(feature = "allocations")]
         if !crate::tests::in_child(
             "owned_snapshot::tests::owned_history_captures_private_mutation_without_retaining_authority",

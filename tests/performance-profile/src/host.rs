@@ -153,7 +153,7 @@ impl Host {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::Host;
     use rca_core::{Effect, ReduceContext, Reducer, Store};
     use std::future::{pending, poll_fn};
@@ -677,24 +677,24 @@ mod tests {
     }
 
     #[cfg(all(feature = "deterministic", feature = "allocations"))]
-    #[test]
-    fn ready_releases_owned_waker_on_failure() {
+    #[cfg_attr(not(feature = "allocations"), test)]
+    pub(crate) fn ready_releases_owned_waker_on_failure() {
         if crate::tests::in_child("host::tests::ready_releases_owned_waker_on_failure") {
             retained_waker_control(false);
         }
     }
 
     #[cfg(all(feature = "deterministic", feature = "allocations"))]
-    #[test]
-    fn ready_rejects_retained_waker_on_failure() {
+    #[cfg_attr(not(feature = "allocations"), test)]
+    pub(crate) fn ready_rejects_retained_waker_on_failure() {
         if crate::tests::in_child("host::tests::ready_rejects_retained_waker_on_failure") {
             retained_waker_control(true);
         }
     }
 
     #[cfg(all(feature = "deterministic", feature = "allocations"))]
-    #[test]
-    fn ready_allocation_teardown_is_observed() {
+    #[cfg_attr(not(feature = "allocations"), test)]
+    pub(crate) fn ready_allocation_teardown_is_observed() {
         if !crate::tests::in_child("host::tests::ready_allocation_teardown_is_observed") {
             return;
         }
@@ -707,8 +707,8 @@ mod tests {
     }
 
     #[cfg(all(feature = "deterministic", feature = "allocations"))]
-    #[test]
-    fn ready_rejects_retained_unrelated_owner() {
+    #[cfg_attr(not(feature = "allocations"), test)]
+    pub(crate) fn ready_rejects_retained_unrelated_owner() {
         if !crate::tests::in_child("host::tests::ready_rejects_retained_unrelated_owner") {
             return;
         }

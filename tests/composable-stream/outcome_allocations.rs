@@ -99,9 +99,33 @@ pub fn main(engine: &str) {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use std::hint::black_box;
+
+    /// Preserves the measured cases outside the threaded semantic test host.
+    pub(crate) const CASES: &[(&str, fn())] = &[
+        ("outcome_allocations::tests::whole_lifetime_includes_construction_and_destructor_allocations", whole_lifetime_includes_construction_and_destructor_allocations),
+        ("outcome_allocations::tests::snapshots_and_scalar_results_allocate_nothing", snapshots_and_scalar_results_allocate_nothing),
+        ("outcome_allocations::tests::worker_allocations_are_included_through_join", worker_allocations_are_included_through_join),
+        ("outcome_allocations::tests::rejected_work_emits_no_measurement_and_stops_profiler", rejected_work_emits_no_measurement_and_stops_profiler),
+        ("outcome_allocations::tests::native_capture_formats_only_after_successful_teardown", native_capture_formats_only_after_successful_teardown),
+    ];
+
+    #[test]
+    fn allocation_case_roster_preserves_exact_names() {
+        let expected = [
+            "outcome_allocations::tests::whole_lifetime_includes_construction_and_destructor_allocations",
+            "outcome_allocations::tests::snapshots_and_scalar_results_allocate_nothing",
+            "outcome_allocations::tests::worker_allocations_are_included_through_join",
+            "outcome_allocations::tests::rejected_work_emits_no_measurement_and_stops_profiler",
+            "outcome_allocations::tests::native_capture_formats_only_after_successful_teardown",
+        ];
+        assert_eq!(
+            CASES.iter().map(|case| case.0).collect::<Vec<_>>(),
+            expected
+        );
+    }
 
     #[test]
     fn retired_engine_is_rejected_before_capture() {
@@ -124,7 +148,6 @@ mod tests {
         }
     }
 
-    #[test]
     fn whole_lifetime_includes_construction_and_destructor_allocations() {
         if !crate::native::in_child("outcome_allocations::tests::whole_lifetime_includes_construction_and_destructor_allocations") { return; }
         let result = capture(|| {
@@ -147,7 +170,6 @@ mod tests {
         );
     }
 
-    #[test]
     fn snapshots_and_scalar_results_allocate_nothing() {
         if !crate::native::in_child(
             "outcome_allocations::tests::snapshots_and_scalar_results_allocate_nothing",
@@ -159,7 +181,6 @@ mod tests {
         assert_eq!(result.after, Snapshot::default());
     }
 
-    #[test]
     fn worker_allocations_are_included_through_join() {
         if !crate::native::in_child(
             "outcome_allocations::tests::worker_allocations_are_included_through_join",
@@ -178,7 +199,6 @@ mod tests {
         assert_eq!(result.after.live_bytes, result.before.live_bytes);
     }
 
-    #[test]
     fn rejected_work_emits_no_measurement_and_stops_profiler() {
         if !crate::native::in_child(
             "outcome_allocations::tests::rejected_work_emits_no_measurement_and_stops_profiler",
@@ -193,7 +213,6 @@ mod tests {
         capture(|| Ok(empty_work())).expect("failed capture released profiler");
     }
 
-    #[test]
     fn native_capture_formats_only_after_successful_teardown() {
         if !crate::native::in_child(
             "outcome_allocations::tests::native_capture_formats_only_after_successful_teardown",

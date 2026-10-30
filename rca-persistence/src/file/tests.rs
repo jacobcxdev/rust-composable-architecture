@@ -8,7 +8,23 @@ use super::*;
 #[global_allocator]
 static ALLOCATOR: dhat::Alloc = dhat::Alloc;
 
+/// Registers the allocation check in the separate synchronous host.
+pub(crate) const ALLOCATION_CASES: &[(&str, fn())] = &[(
+    "file::tests::offload_future_storage_avoids_inner_allocation",
+    offload_future_storage_avoids_inner_allocation,
+)];
+
 #[test]
+fn allocation_host_retains_its_exact_case() {
+    assert_eq!(
+        ALLOCATION_CASES
+            .iter()
+            .map(|case| case.0)
+            .collect::<Vec<_>>(),
+        ["file::tests::offload_future_storage_avoids_inner_allocation"],
+    );
+}
+
 fn offload_future_storage_avoids_inner_allocation() {
     const TEST: &str = "file::tests::offload_future_storage_avoids_inner_allocation";
     const CHILD_ENV: &str = "RCA_PERSISTENCE_ALLOCATION_TEST";

@@ -353,7 +353,7 @@ fn typed_snapshots_copy_only_runtime_metadata() {
     ));
 }
 
-#[test]
+/// Checks that warmed actor controls reuse existing wait storage.
 fn actor_control_wait_does_not_allocate_a_listener_box_per_commit() {
     if allocation_test::run_in_child(
         "actor_control_wait_does_not_allocate_a_listener_box_per_commit",
@@ -407,3 +407,11 @@ fn actor_control_wait_does_not_allocate_a_listener_box_per_commit() {
         "100 committed actions allocated {blocks} blocks; budget is 100 (actor frame {frame_bytes} bytes)",
     );
 }
+
+/// Preserves the exact names of the isolated allocation cases.
+const CASES: &[(&str, fn())] = &[(
+    "actor_control_wait_does_not_allocate_a_listener_box_per_commit",
+    actor_control_wait_does_not_allocate_a_listener_box_per_commit,
+)];
+
+include!("support/allocation_main.rs");

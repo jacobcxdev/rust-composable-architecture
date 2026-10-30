@@ -851,7 +851,7 @@ fn run_mismatch(config: Config) -> Result<String, &'static str> {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     //! Challenges real failure, ownership and poll-budget boundaries in isolated children.
 
     use super::*;
@@ -944,8 +944,8 @@ mod tests {
         assert_eq!(hook_calls, 1, "rejected mismatch failed to restore hook");
     }
 
-    #[test]
-    fn mismatch_guard_rejection_preserves_error_owners_and_hook() {
+    #[cfg_attr(not(feature = "allocations"), test)]
+    pub(crate) fn mismatch_guard_rejection_preserves_error_owners_and_hook() {
         if in_control_child(
             "teststore::tests::mismatch_guard_rejection_preserves_error_owners_and_hook",
         ) {
@@ -953,8 +953,8 @@ mod tests {
         }
     }
 
-    #[test]
-    fn mismatch_validation_unwind_preserves_payload_owners_and_hook() {
+    #[cfg_attr(not(feature = "allocations"), test)]
+    pub(crate) fn mismatch_validation_unwind_preserves_payload_owners_and_hook() {
         if in_control_child(
             "teststore::tests::mismatch_validation_unwind_preserves_payload_owners_and_hook",
         ) {
@@ -1038,8 +1038,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn success_and_idle_keep_renderer_lazy_and_balance_owned_values() {
+    #[cfg_attr(not(feature = "allocations"), test)]
+    pub(crate) fn success_and_idle_keep_renderer_lazy_and_balance_owned_values() {
         if !in_control_child(
             "teststore::tests::success_and_idle_keep_renderer_lazy_and_balance_owned_values",
         ) {
@@ -1265,8 +1265,8 @@ mod tests {
     }
 
     #[cfg(feature = "allocations")]
-    #[test]
-    fn allocation_endpoint_rejects_retained_task_weak_and_probe_owners() {
+    #[cfg_attr(not(feature = "allocations"), test)]
+    pub(crate) fn allocation_endpoint_rejects_retained_task_weak_and_probe_owners() {
         if !in_control_child(
             "teststore::tests::allocation_endpoint_rejects_retained_task_weak_and_probe_owners",
         ) {
@@ -1448,8 +1448,8 @@ mod tests {
         }
     }
 
-    #[test]
-    fn mismatch_cleanup_restores_child_panic_hook() {
+    #[cfg_attr(not(feature = "allocations"), test)]
+    pub(crate) fn mismatch_cleanup_restores_child_panic_hook() {
         if !in_control_child("teststore::tests::mismatch_cleanup_restores_child_panic_hook") {
             return;
         }
@@ -1478,8 +1478,8 @@ mod tests {
     }
 
     #[cfg(feature = "allocations")]
-    #[test]
-    fn failure_allocation_endpoint_rejects_retained_panic_payload() {
+    #[cfg_attr(not(feature = "allocations"), test)]
+    pub(crate) fn failure_allocation_endpoint_rejects_retained_panic_payload() {
         if !in_control_child(
             "teststore::tests::failure_allocation_endpoint_rejects_retained_panic_payload",
         ) {

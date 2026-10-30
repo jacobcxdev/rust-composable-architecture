@@ -11,7 +11,7 @@ const CHILD_TIMEOUT: Duration = Duration::from_secs(60);
 /// Retains bounded diagnostics while still draining each pipe to completion.
 const OUTPUT_LIMIT: u64 = 1024 * 1024;
 
-/// Runs one allocation test without unrelated harness allocations or profilers.
+/// Runs one selected test in a separate process.
 pub(crate) fn run_in_child(test_name: &str) -> bool {
     const CHILD_ENV: &str = "RCA_ALLOCATION_TEST_CHILD";
     if std::env::var_os(CHILD_ENV).as_deref() == Some(std::ffi::OsStr::new(test_name)) {

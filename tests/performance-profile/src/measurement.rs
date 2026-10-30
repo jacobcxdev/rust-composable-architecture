@@ -446,7 +446,7 @@ mod profile_export_tests {
 }
 
 #[cfg(all(test, feature = "allocations"))]
-mod tests {
+pub(crate) mod tests {
     use super::{ExecutorCache, Measurement, TestFile, verify_live_stacks};
     use std::hint::black_box;
 
@@ -473,8 +473,8 @@ mod tests {
         false
     }
 
-    #[test]
-    fn file_safe_child_rejects_empty_selection() {
+    #[cfg_attr(not(feature = "allocations"), test)]
+    pub(crate) fn file_safe_child_rejects_empty_selection() {
         let result = std::panic::catch_unwind(|| in_file_safe_child("missing::cleanup_test"));
         let panic = result.expect_err("empty cleanup selection must fail");
         let message = panic
@@ -491,8 +491,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn early_error_preserves_caller_file_and_releases_session() {
+    #[cfg_attr(not(feature = "allocations"), test)]
+    pub(crate) fn early_error_preserves_caller_file_and_releases_session() {
         fn fail_before_finish() -> Result<(), &'static str> {
             let _measurement = Measurement::new(None);
             Err("expected early error")?;
@@ -507,8 +507,8 @@ mod tests {
         Measurement::new(None).finish().unwrap();
     }
 
-    #[test]
-    fn unwind_preserves_caller_file_and_releases_session() {
+    #[cfg_attr(not(feature = "allocations"), test)]
+    pub(crate) fn unwind_preserves_caller_file_and_releases_session() {
         if !in_file_safe_child(
             "measurement::tests::unwind_preserves_caller_file_and_releases_session",
         ) {
@@ -526,8 +526,8 @@ mod tests {
         Measurement::new(None).finish().unwrap();
     }
 
-    #[test]
-    fn attributes_known_allocations_and_drops() {
+    #[cfg_attr(not(feature = "allocations"), test)]
+    pub(crate) fn attributes_known_allocations_and_drops() {
         if !crate::tests::in_child("measurement::tests::attributes_known_allocations_and_drops") {
             return;
         }
@@ -554,8 +554,8 @@ mod tests {
         assert_eq!(record.peak_blocks, 3);
     }
 
-    #[test]
-    fn attributes_known_allocations_across_warmup_boundary() {
+    #[cfg_attr(not(feature = "allocations"), test)]
+    pub(crate) fn attributes_known_allocations_across_warmup_boundary() {
         if !crate::tests::in_child(
             "measurement::tests::attributes_known_allocations_across_warmup_boundary",
         ) {
@@ -590,8 +590,8 @@ mod tests {
         assert_eq!(json["executor_thread_local"]["retained_blocks"], 0);
     }
 
-    #[test]
-    fn attributes_known_allocations_across_cold_boundary() {
+    #[cfg_attr(not(feature = "allocations"), test)]
+    pub(crate) fn attributes_known_allocations_across_cold_boundary() {
         if !crate::tests::in_child(
             "measurement::tests::attributes_known_allocations_across_cold_boundary",
         ) {
@@ -629,8 +629,8 @@ mod tests {
         assert_eq!(json["executor_thread_local"]["retained_bytes"], 0);
     }
 
-    #[test]
-    fn rejects_unexplained_live_allocations() {
+    #[cfg_attr(not(feature = "allocations"), test)]
+    pub(crate) fn rejects_unexplained_live_allocations() {
         if !crate::tests::in_child("measurement::tests::rejects_unexplained_live_allocations") {
             return;
         }
@@ -643,8 +643,8 @@ mod tests {
         drop(retained);
     }
 
-    #[test]
-    fn empty_measurement_does_not_allocate() {
+    #[cfg_attr(not(feature = "allocations"), test)]
+    pub(crate) fn empty_measurement_does_not_allocate() {
         if !crate::tests::in_child("measurement::tests::empty_measurement_does_not_allocate") {
             return;
         }
@@ -661,8 +661,8 @@ mod tests {
         }
     }
 
-    #[test]
-    fn rejects_cache_sized_unrelated_owner_after_clean_session() {
+    #[cfg_attr(not(feature = "allocations"), test)]
+    pub(crate) fn rejects_cache_sized_unrelated_owner_after_clean_session() {
         if !crate::tests::in_child(
             "measurement::tests::rejects_cache_sized_unrelated_owner_after_clean_session",
         ) {
@@ -689,8 +689,8 @@ mod tests {
         drop(unrelated);
     }
 
-    #[test]
-    fn rejects_cold_cache_sized_unrelated_owner() {
+    #[cfg_attr(not(feature = "allocations"), test)]
+    pub(crate) fn rejects_cold_cache_sized_unrelated_owner() {
         if !crate::tests::in_child("measurement::tests::rejects_cold_cache_sized_unrelated_owner") {
             return;
         }

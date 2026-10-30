@@ -10,7 +10,7 @@ use rca_core::Effect;
 /// Counts construction storage; this binary contains only one test.
 static ALLOCATOR: dhat::Alloc = dhat::Alloc;
 
-#[test]
+/// Checks that every non-empty exact-size merge allocates once.
 fn all_non_empty_exact_size_widths_allocate_once() {
     for width in 1..=12 {
         drop(black_box(Effect::merge(
@@ -39,3 +39,11 @@ fn all_non_empty_exact_size_widths_allocate_once() {
     }
     drop(profiler);
 }
+
+/// Preserves the exact names of the isolated allocation cases.
+const CASES: &[(&str, fn())] = &[(
+    "all_non_empty_exact_size_widths_allocate_once",
+    all_non_empty_exact_size_widths_allocate_once,
+)];
+
+include!("support/allocation_main.rs");

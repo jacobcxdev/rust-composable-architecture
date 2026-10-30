@@ -59,6 +59,187 @@ path = "src/allocation_main.rs"
 harness = false
 required-features = ["allocation-measurement"]
 
+# Allocation windows run without libtest's concurrent receiver thread.
+
+[[test]]
+name = "action_receipt_allocations"
+harness = false
+required-features = ["allocation-measurement"]
+
+[[test]]
+name = "action_reply_allocations"
+harness = false
+required-features = ["allocation-measurement"]
+
+[[test]]
+name = "clock_allocations"
+harness = false
+required-features = ["allocation-measurement", "local"]
+
+[[test]]
+name = "control_wait_allocations"
+harness = false
+required-features = ["allocation-measurement"]
+
+[[test]]
+name = "direct_send_allocations"
+harness = false
+required-features = ["allocation-measurement"]
+
+[[test]]
+name = "effect_dispatch_allocations"
+harness = false
+required-features = ["allocation-measurement"]
+
+[[test]]
+name = "effect_map"
+harness = false
+required-features = ["allocation-measurement"]
+
+[[test]]
+name = "effect_merge_allocations"
+harness = false
+required-features = ["allocation-measurement"]
+
+[[test]]
+name = "effect_send_allocations"
+harness = false
+required-features = ["allocation-measurement"]
+
+[[test]]
+name = "fallible_effect_allocations"
+harness = false
+required-features = ["allocation-measurement", "test-util"]
+
+[[test]]
+name = "fold_costs"
+harness = false
+required-features = ["allocation-measurement"]
+
+[[test]]
+name = "issue_allocations"
+harness = false
+required-features = ["allocation-measurement"]
+
+[[test]]
+name = "lifecycle_diagnostic_allocations"
+harness = false
+required-features = ["allocation-measurement"]
+
+[[test]]
+name = "mailbox_storage_allocations"
+harness = false
+required-features = ["allocation-measurement"]
+
+[[test]]
+name = "mailbox_wait_allocations"
+harness = false
+required-features = ["allocation-measurement"]
+
+[[test]]
+name = "mapped_send_allocations"
+harness = false
+required-features = ["allocation-measurement"]
+
+[[test]]
+name = "named_operation_allocations"
+harness = false
+required-features = ["allocation-measurement"]
+
+[[test]]
+name = "observation_registration_allocations"
+harness = false
+required-features = ["allocation-measurement"]
+
+[[test]]
+name = "observation_take_allocations"
+harness = false
+required-features = ["allocation-measurement"]
+
+[[test]]
+name = "observation_wait_allocations"
+harness = false
+required-features = ["allocation-measurement"]
+
+[[test]]
+name = "recipe_command_costs"
+harness = false
+required-features = ["allocation-measurement"]
+
+[[test]]
+name = "removal_costs"
+harness = false
+required-features = ["allocation-measurement", "test-util"]
+
+[[test]]
+name = "root_task_send_allocations"
+harness = false
+required-features = ["allocation-measurement"]
+
+[[test]]
+name = "scoped_action_allocations"
+harness = false
+required-features = ["allocation-measurement"]
+
+[[test]]
+name = "shared_update_allocations"
+harness = false
+required-features = ["allocation-measurement"]
+
+[[test]]
+name = "terminal_task_allocations"
+harness = false
+required-features = ["allocation-measurement"]
+
+[[test]]
+name = "unobserved_completion_allocations"
+harness = false
+required-features = ["allocation-measurement"]
+
+# Mixed fixtures retain their ordinary tests in the original libtest targets.
+
+[[test]]
+name = "changed_reaction_allocations"
+path = "tests/allocation_hosts/changed_reaction.rs"
+harness = false
+required-features = ["allocation-measurement"]
+
+[[test]]
+name = "command_port_allocations"
+path = "tests/allocation_hosts/command_port.rs"
+harness = false
+required-features = ["allocation-measurement"]
+
+[[test]]
+name = "local_output_delivery_allocations"
+path = "tests/allocation_hosts/local_output_delivery.rs"
+harness = false
+required-features = ["allocation-measurement", "local", "test-util"]
+
+[[test]]
+name = "local_removed_child_allocations"
+path = "tests/allocation_hosts/local_removed_child.rs"
+harness = false
+required-features = ["allocation-measurement", "local"]
+
+[[test]]
+name = "output_delivery_allocations"
+path = "tests/allocation_hosts/output_delivery.rs"
+harness = false
+required-features = ["allocation-measurement", "test-util"]
+
+[[test]]
+name = "removed_child_allocations"
+path = "tests/allocation_hosts/removed_child.rs"
+harness = false
+required-features = ["allocation-measurement"]
+
+[[test]]
+name = "structural_diagnostics_allocations"
+path = "tests/allocation_hosts/structural_diagnostics.rs"
+harness = false
+required-features = ["allocation-measurement", "diagnostics"]
+
 [[bench]]
 name = "composition"
 harness = false

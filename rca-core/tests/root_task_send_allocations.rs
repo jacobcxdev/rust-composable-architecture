@@ -107,7 +107,7 @@ impl Cost {
     }
 }
 
-#[test]
+/// Checks cold, reused and full root-task send costs.
 #[expect(
     clippy::too_many_lines,
     reason = "keep registration, send, cancellation and teardown ownership measurements in one schedule"
@@ -293,3 +293,11 @@ fn root_task_send_reports_origin_cold_reused_and_full_costs() {
         end.curr_bytes
     );
 }
+
+/// Preserves the exact names of the isolated allocation cases.
+const CASES: &[(&str, fn())] = &[(
+    "root_task_send_reports_origin_cold_reused_and_full_costs",
+    root_task_send_reports_origin_cold_reused_and_full_costs,
+)];
+
+include!("support/allocation_main.rs");

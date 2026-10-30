@@ -747,7 +747,7 @@ fn control(config: Config, fault: Fault) -> Result<(), &'static str> {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
 
     fn config(native: bool, width: &str) -> Config {
@@ -807,8 +807,8 @@ mod tests {
     }
 
     // Missing suffix cancellation, over-popping, or stale output admission must fail.
-    #[test]
-    fn stack_retirement_preserves_prefix_and_rejects_retired_authority() {
+    #[cfg_attr(not(feature = "allocations"), test)]
+    pub(crate) fn stack_retirement_preserves_prefix_and_rejects_retired_authority() {
         #[cfg(feature = "allocations")]
         if !crate::tests::in_child(
             "stack_retirement::tests::stack_retirement_preserves_prefix_and_rejects_retired_authority",

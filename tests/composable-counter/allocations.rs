@@ -113,7 +113,7 @@ pub fn run<Adapter>(
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use std::hint::black_box;
 
     use super::{capture, Measurement};
@@ -125,6 +125,34 @@ mod tests {
 
     fn in_child(name: &str) -> bool {
         !child::run_in_child(&format!("common::allocations::tests::{name}"))
+    }
+
+    /// Keeps allocation controls separate from the threaded semantic tests.
+    pub(crate) const CASES: &[(&str, fn())] = &[
+        ("common::allocations::tests::construction_send_and_destructor_have_separate_windows", construction_send_and_destructor_have_separate_windows),
+        ("common::allocations::tests::warmup_allocations_are_excluded_from_checked_work", warmup_allocations_are_excluded_from_checked_work),
+        ("common::allocations::tests::teardown_releases_allocations_from_earlier_windows", teardown_releases_allocations_from_earlier_windows),
+        ("common::allocations::tests::snapshots_and_empty_accounting_allocate_nothing", snapshots_and_empty_accounting_allocate_nothing),
+        ("common::allocations::tests::retained_worker_allocation_is_counted", retained_worker_allocation_is_counted),
+        ("common::allocations::tests::reallocation_counts_full_new_size_and_one_allocation_event", reallocation_counts_full_new_size_and_one_allocation_event),
+        ("common::allocations::tests::failed_work_never_emits_allocation_measurements", failed_work_never_emits_allocation_measurements),
+    ];
+
+    #[test]
+    fn allocation_case_roster_preserves_exact_names() {
+        let expected = [
+            "common::allocations::tests::construction_send_and_destructor_have_separate_windows",
+            "common::allocations::tests::warmup_allocations_are_excluded_from_checked_work",
+            "common::allocations::tests::teardown_releases_allocations_from_earlier_windows",
+            "common::allocations::tests::snapshots_and_empty_accounting_allocate_nothing",
+            "common::allocations::tests::retained_worker_allocation_is_counted",
+            "common::allocations::tests::reallocation_counts_full_new_size_and_one_allocation_event",
+            "common::allocations::tests::failed_work_never_emits_allocation_measurements",
+        ];
+        assert_eq!(
+            CASES.iter().map(|case| case.0).collect::<Vec<_>>(),
+            expected
+        );
     }
 
     struct Fixture {
@@ -166,7 +194,6 @@ mod tests {
         .expect("allocation capture succeeds")
     }
 
-    #[test]
     fn construction_send_and_destructor_have_separate_windows() {
         if !in_child("construction_send_and_destructor_have_separate_windows") {
             return;
@@ -180,7 +207,6 @@ mod tests {
         assert_eq!(e.allocated_bytes - d.allocated_bytes, 512);
     }
 
-    #[test]
     fn warmup_allocations_are_excluded_from_checked_work() {
         if !in_child("warmup_allocations_are_excluded_from_checked_work") {
             return;
@@ -190,7 +216,6 @@ mod tests {
         assert_eq!(d.allocated_bytes - c.allocated_bytes, 256);
     }
 
-    #[test]
     fn teardown_releases_allocations_from_earlier_windows() {
         if !in_child("teardown_releases_allocations_from_earlier_windows") {
             return;
@@ -202,7 +227,6 @@ mod tests {
         assert_eq!(e.live_bytes, a.live_bytes);
     }
 
-    #[test]
     fn snapshots_and_empty_accounting_allocate_nothing() {
         if !in_child("snapshots_and_empty_accounting_allocate_nothing") {
             return;
@@ -224,7 +248,6 @@ mod tests {
         }
     }
 
-    #[test]
     fn retained_worker_allocation_is_counted() {
         if !in_child("retained_worker_allocation_is_counted") {
             return;
@@ -252,7 +275,6 @@ mod tests {
         assert_eq!(e.live_bytes, a.live_bytes);
     }
 
-    #[test]
     fn reallocation_counts_full_new_size_and_one_allocation_event() {
         if !in_child("reallocation_counts_full_new_size_and_one_allocation_event") {
             return;
@@ -282,7 +304,6 @@ mod tests {
         assert_eq!(e.live_bytes, a.live_bytes);
     }
 
-    #[test]
     fn failed_work_never_emits_allocation_measurements() {
         if !in_child("failed_work_never_emits_allocation_measurements") {
             return;

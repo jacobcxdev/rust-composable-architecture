@@ -32,7 +32,7 @@ impl Reducer for ReadyEffect {
     }
 }
 
-#[test]
+/// Checks that singleton effect completion needs no result buffer.
 fn singleton_ready_effect_harvest_allocates_no_result_buffer() {
     if allocation_test::run_in_child("singleton_ready_effect_harvest_allocates_no_result_buffer") {
         return;
@@ -92,3 +92,11 @@ fn singleton_ready_effect_harvest_allocates_no_result_buffer() {
     // Neither singleton harvesting nor the next mailbox wait needs heap storage.
     assert_eq!(blocks, 0, "singleton harvest allocated {blocks} blocks");
 }
+
+/// Preserves the exact names of the isolated allocation cases.
+const CASES: &[(&str, fn())] = &[(
+    "singleton_ready_effect_harvest_allocates_no_result_buffer",
+    singleton_ready_effect_harvest_allocates_no_result_buffer,
+)];
+
+include!("support/allocation_main.rs");

@@ -16,9 +16,7 @@ use std::sync::{Arc, Weak};
 use futures_util::future::{Either, FutureExt, select};
 
 #[cfg(test)]
-ordinary_test_items! {
-    use super::Ingress;
-}
+use super::Ingress;
 use super::carriers::{Carriers, Execution, Shared};
 use super::command::{ActionCommand, Command, CommitError, TerminalReply};
 #[cfg(feature = "test-util")]
@@ -35,33 +33,27 @@ use super::scope::{HandleRegistryCore, ScopeRegistry, ScopeToken};
 use super::transaction::{Mutation, Turn};
 use super::{CloseState, Lifecycle};
 #[cfg(test)]
-ordinary_test_items! {
-    use crate::ReduceContext;
-}
+use crate::ReduceContext;
 #[cfg(test)]
-ordinary_test_items! {
-    use crate::Runtime;
-}
+use crate::Runtime;
 #[cfg(test)]
-ordinary_test_items! {
-    use crate::effect::Effect;
-}
+use crate::effect::Effect;
 #[cfg(test)]
-ordinary_test_items! {
-    use crate::effect::Program;
-}
+use crate::effect::Program;
 use crate::effect::lineage::{ControlWake, LineageState, LineageWork};
 use crate::effect::registry::{GenerationToken, TaskCompletion, TaskId, TaskRegistry, TaskStatus};
 use crate::effect::timer::{TimerId, TimerQueue};
 #[cfg(test)]
-ordinary_test_items! {
-    use crate::feature::ReduceDriver;
-}
+use crate::feature::ReduceDriver;
 #[cfg(test)]
-ordinary_test_items! {
-    use crate::reducer::ErasedReducer;
-}
+use crate::reducer::ErasedReducer;
 use crate::{DependencyValues, RuntimeFuture};
+
+#[cfg(test)]
+mod test_support;
+
+#[cfg(all(test, feature = "allocation-measurement"))]
+pub(crate) mod allocation_tests;
 
 /// Maximum ready commands, or timer-free turns, before giving other work a turn.
 const COMMAND_BATCH_LIMIT: usize = 64;
@@ -281,44 +273,42 @@ pub(crate) struct Actor<State, Action, C: Carriers<State, Action> = Shared> {
 }
 
 #[cfg(test)]
-ordinary_test_items! {
-    impl<State, Action> Actor<State, Action>
-    where
-        State: Send + 'static,
-        Action: Send + 'static,
-    {
-        #[expect(
-            clippy::too_many_arguments,
-            reason = "the actor constructor makes every owned runtime component explicit"
-        )]
-        #[cfg(test)]
-        /// Adapts legacy reducer fixtures to the production driver and ownership protocol.
-        fn new(
-            state: State,
-            reducer: Box<dyn ErasedReducer<State, Action>>,
-            dependencies: DependencyValues,
-            issues: crate::IssueReporter,
-            receiver: super::mailbox::Receiver<Command<State, Action>>,
-            ingress: &Arc<Ingress<State, Action>>,
-            lifecycle: Arc<Lifecycle>,
-            runtime: Runtime,
-            #[cfg(feature = "test-util")] assertion_gate: Option<
-                crate::testing::AssertionGateBinding<Action>,
-            >,
-        ) -> Self {
-            Self::with_driver(
-                state,
-                Box::new(LegacyDriver(reducer)),
-                dependencies,
-                issues,
-                receiver,
-                ingress,
-                lifecycle,
-                runtime,
-                #[cfg(feature = "test-util")]
-                assertion_gate,
-            )
-        }
+impl<State, Action> Actor<State, Action>
+where
+    State: Send + 'static,
+    Action: Send + 'static,
+{
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "the actor constructor makes every owned runtime component explicit"
+    )]
+    #[cfg(test)]
+    /// Adapts legacy reducer fixtures to the production driver and ownership protocol.
+    fn new(
+        state: State,
+        reducer: Box<dyn ErasedReducer<State, Action>>,
+        dependencies: DependencyValues,
+        issues: crate::IssueReporter,
+        receiver: super::mailbox::Receiver<Command<State, Action>>,
+        ingress: &Arc<Ingress<State, Action>>,
+        lifecycle: Arc<Lifecycle>,
+        runtime: Runtime,
+        #[cfg(feature = "test-util")] assertion_gate: Option<
+            crate::testing::AssertionGateBinding<Action>,
+        >,
+    ) -> Self {
+        Self::with_driver(
+            state,
+            Box::new(LegacyDriver(reducer)),
+            dependencies,
+            issues,
+            receiver,
+            ingress,
+            lifecycle,
+            runtime,
+            #[cfg(feature = "test-util")]
+            assertion_gate,
+        )
     }
 }
 
@@ -1854,6 +1844,7 @@ ordinary_test_items! {
     #[path = "mounted/actor_tests.rs"]
     mod mounted_tests;
     mod tests {
+        use super::test_support::{LaunchDriver, launch_actor};
         use std::fmt;
         use std::future::pending;
         use std::sync::atomic::{AtomicUsize, Ordering};
@@ -2104,17 +2095,6 @@ ordinary_test_items! {
             assert!(closed.now_or_never().is_some());
         }
 
-        /// Transfers one prebuilt effect into a real actor transaction without cloning it.
-        struct OnceEffect(Option<Effect<()>>);
-
-        impl Reducer for OnceEffect {
-            type State = ();
-            type Action = ();
-
-            fn reduce(&mut self, (): &mut (), (): &(), _: &mut ReduceContext<'_>) -> Effect<()> {
-                self.0.take().unwrap()
-            }
-        }
 
         /// Records capture destruction order independently of whether its factory was called.
         struct Captured(usize, Arc<std::sync::Mutex<Vec<usize>>>);
@@ -2140,80 +2120,6 @@ ordinary_test_items! {
             })
         }
 
-        /// Retains unpolled futures and can fail one spawn after earlier ownership transfers.
-        ///
-        /// Time stays at zero. Elapsed sleeps complete immediately, while yields
-        /// offer one pending poll before completion.
-        struct LaunchDriver {
-            /// Futures already accepted by the host, not by the actor's launch buffer.
-            tasks: Arc<std::sync::Mutex<Vec<RuntimeFuture>>>,
-            /// Number of accepted futures after which spawn deliberately panics.
-            panic_after: usize,
-        }
-
-        impl fmt::Debug for LaunchDriver {
-            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-                f.debug_struct("LaunchDriver").finish_non_exhaustive()
-            }
-        }
-
-        impl RuntimeDriver for LaunchDriver {
-            fn spawn(&self, task: RuntimeFuture) {
-                let mut tasks = self.tasks.lock().unwrap();
-                if tasks.len() == self.panic_after {
-                    drop(tasks);
-                    panic!("host spawn failure");
-                }
-                tasks.push(task);
-            }
-
-            fn now(&self) -> MonotonicInstant {
-                MonotonicInstant::ZERO
-            }
-            fn sleep_until(&self, deadline: MonotonicInstant) -> RuntimeFuture {
-                if deadline <= self.now() {
-                    Box::pin(std::future::ready(()))
-                } else {
-                    Box::pin(pending())
-                }
-            }
-            fn yield_now(&self) -> RuntimeFuture {
-                let mut yielded = false;
-                Box::pin(std::future::poll_fn(move |context| {
-                    if yielded {
-                        std::task::Poll::Ready(())
-                    } else {
-                        yielded = true;
-                        context.waker().wake_by_ref();
-                        std::task::Poll::Pending
-                    }
-                }))
-            }
-        }
-
-        /// Keeps ingress alive while tests drive the concrete actor and its prepared work.
-        fn launch_actor(
-            effect: Effect<()>,
-            runtime: Runtime,
-        ) -> (Actor<(), ()>, Arc<Ingress<(), ()>>) {
-            let (sender, receiver) = crate::store::mailbox::bounded(
-                std::num::NonZeroUsize::new(8).expect("test capacity is nonzero"),
-            );
-            let ingress = Arc::new(Ingress::new(sender, ControlWake::new()));
-            let actor = Actor::new(
-                (),
-                Box::new(OnceEffect(Some(effect))),
-                DependencyValues::new(),
-                crate::IssueReporter::default(),
-                receiver,
-                &ingress,
-                Arc::new(Lifecycle::new()),
-                runtime,
-                #[cfg(feature = "test-util")]
-                None,
-            );
-            (actor, ingress)
-        }
 
         /// Counts transaction clock samples while reusing the launch fixture's ownership rules.
         ///
@@ -2687,308 +2593,6 @@ ordinary_test_items! {
             }
         }
 
-        #[cfg(feature = "allocation-measurement")]
-        #[test]
-        #[expect(
-            clippy::too_many_lines,
-            reason = "keep constructor cost and its live-provenance controls in one isolated process"
-        )]
-        fn timer_command_avoids_discarded_reply_allocation() {
-            if crate::allocation_test::run_in_marked_child(
-                "store::actor::tests::timer_command_avoids_discarded_reply_allocation",
-                "RCA_TIMER_REPLY_ALLOCATION_CHILD",
-            ) {
-                return;
-            }
-
-            let (mut actor, _ingress) = launch_actor(
-                Effect::none(),
-                Runtime::new(LaunchDriver {
-                    tasks: Arc::new(std::sync::Mutex::new(Vec::new())),
-                    panic_after: usize::MAX,
-                }),
-            );
-            let lineage = LineageState::new(Arc::downgrade(&actor.control));
-            let witness = Arc::downgrade(&lineage);
-            let scope = actor.scopes.root();
-            let prepared = actor.registry.prepare(scope, Arc::clone(&lineage), &[]);
-            let id = prepared.id();
-            let provenance = TimerProvenance {
-                scope,
-                lineage: Arc::clone(&lineage),
-                task: prepared.sender_token(),
-                generations: prepared.generation_tokens(),
-                operations: prepared.operation_ancestry(),
-            };
-            actor.registry.register_actor(prepared);
-            lineage.finish_registration();
-            let task = ActionTask::live(Arc::clone(&lineage));
-            assert!(provenance.is_live());
-            assert!(!task.is_finished());
-
-            let profiler = dhat::Profiler::builder().testing().build();
-            let before = dhat::HeapStats::get();
-            let command = Actor::<(), ()>::timer_action_command((), &provenance);
-            let alive = dhat::HeapStats::get();
-            drop(command);
-            let released = dhat::HeapStats::get();
-            drop(profiler);
-            println!(
-                "timer blocks={} bytes={} held_blocks={} held_bytes={} retained_blocks={} retained_bytes={} peak_blocks={} peak_bytes={}",
-                alive.total_blocks - before.total_blocks,
-                alive.total_bytes - before.total_bytes,
-                alive.curr_blocks - before.curr_blocks,
-                alive.curr_bytes - before.curr_bytes,
-                released.curr_blocks - before.curr_blocks,
-                released.curr_bytes - before.curr_bytes,
-                released.max_blocks,
-                released.max_bytes,
-            );
-
-            let profiler = dhat::Profiler::builder().testing().build();
-            let ack_before = dhat::HeapStats::get();
-            let (reply, mut receive) = crate::store::command::commit_channel();
-            let ack_alive = dhat::HeapStats::get();
-            reply
-                .send(Ok(ActionTask::completed()))
-                .expect("connected acknowledgement");
-            let acknowledged = receive.try_recv().unwrap().unwrap().unwrap();
-            drop(receive);
-            let ack_released = dhat::HeapStats::get();
-            drop(profiler);
-            assert!(acknowledged.is_finished());
-            assert!(!acknowledged.is_cancelled());
-            println!(
-                "connected blocks={} bytes={} held_blocks={} held_bytes={} retained_blocks={} retained_bytes={} peak_blocks={} peak_bytes={}",
-                ack_released.total_blocks - ack_before.total_blocks,
-                ack_released.total_bytes - ack_before.total_bytes,
-                ack_alive.curr_blocks - ack_before.curr_blocks,
-                ack_alive.curr_bytes - ack_before.curr_bytes,
-                ack_released.curr_blocks - ack_before.curr_blocks,
-                ack_released.curr_bytes - ack_before.curr_bytes,
-                ack_released.max_blocks,
-                ack_released.max_bytes,
-            );
-
-            // Discarding one command must not complete or cancel its timer authority.
-            assert!(provenance.is_live());
-            assert!(!task.is_finished());
-            assert!(!task.is_cancelled());
-            let turn = actor.commit_action(Actor::<(), ()>::timer_action_command((), &provenance));
-            assert!(actor.launch(turn));
-            assert_eq!(actor.commit_version, 1);
-            assert!(provenance.is_live());
-            assert!(!task.is_finished());
-            actor.registry.complete_actor(id, TaskStatus::Completed);
-            let turn = actor.process_control();
-            assert!(actor.launch(turn));
-            assert!(task.is_finished());
-            assert!(!task.is_cancelled());
-            assert!(!provenance.is_live());
-            let turn = actor.commit_action(Actor::<(), ()>::timer_action_command((), &provenance));
-            assert!(!actor.launch(turn));
-            assert_eq!(actor.commit_version, 1, "stale timer cannot reduce again");
-            let run = actor.run();
-            println!(
-                "actor_future size={} align={}",
-                std::mem::size_of_val(&run),
-                std::mem::align_of_val(&run)
-            );
-            drop(run);
-            drop(provenance);
-            drop(task);
-            drop(lineage);
-            assert!(witness.upgrade().is_none());
-
-            assert_eq!(ack_released.total_blocks - ack_before.total_blocks, 1);
-            assert!(ack_released.total_bytes > ack_before.total_bytes);
-            assert_eq!(ack_released.curr_blocks, ack_before.curr_blocks);
-            assert_eq!(ack_released.curr_bytes, ack_before.curr_bytes);
-            assert_eq!(released.curr_blocks, before.curr_blocks);
-            assert_eq!(released.curr_bytes, before.curr_bytes);
-            // The real timer constructor must not allocate a discarded reply.
-            assert_eq!(released.total_blocks - before.total_blocks, 0);
-            assert_eq!(released.total_bytes - before.total_bytes, 0);
-        }
-
-        /// Measures only launch-buffer storage; future boxes are prepared before profiling starts.
-        #[cfg(feature = "allocation-measurement")]
-        fn assert_launch_buffer_budget() {
-            let widths = [0, 1, 2, 4, 5, 8, 9, 16, 17];
-            let mut costs = [(0, 0); 9];
-            for (width, cost) in widths.into_iter().zip(&mut costs) {
-                let prepared: Vec<RuntimeFuture> = (0..width)
-                    .map(|_| Box::pin(std::future::ready(())) as RuntimeFuture)
-                    .collect();
-                let profiler = dhat::Profiler::builder().testing().build();
-                let before = dhat::HeapStats::get();
-                let mut launches = Launches::default();
-                for future in prepared {
-                    launches.push(future);
-                }
-                let allocated = dhat::HeapStats::get();
-                drop(launches);
-                let released = dhat::HeapStats::get();
-                drop(profiler);
-                *cost = (
-                    allocated.total_blocks - before.total_blocks,
-                    allocated.total_bytes - before.total_bytes,
-                );
-                assert_eq!(released.curr_blocks, before.curr_blocks);
-                assert_eq!(released.curr_bytes, before.curr_bytes);
-            }
-            eprintln!(
-                "launch buffer widths={widths:?} blocks/bytes={costs:?} inline_bytes={}",
-                std::mem::size_of::<Launches>()
-            );
-            assert_eq!(
-                costs.map(|(blocks, _)| blocks),
-                [0, 0, 1, 1, 1, 2, 2, 3, 3],
-                "the first launch stays inline when later launches spill"
-            );
-        }
-
-        #[cfg(feature = "allocation-measurement")]
-        #[test]
-        fn direct_future_launch_avoids_erased_sender_allocation() {
-            if crate::allocation_test::run_in_marked_child(
-                "store::actor::tests::direct_future_launch_avoids_erased_sender_allocation",
-                "RCA_DIRECT_FUTURE_ALLOCATION_CHILD",
-            ) {
-                return;
-            }
-
-            assert_launch_buffer_budget();
-            assert_sequence_storage_budget();
-
-            let tasks = Arc::new(std::sync::Mutex::new(Vec::new()));
-            let (mut actor, _ingress) = launch_actor(
-                Effect::none(),
-                Runtime::new(LaunchDriver {
-                    tasks,
-                    panic_after: usize::MAX,
-                }),
-            );
-            let effect = Effect::future(std::future::ready(None));
-            let scope = actor.scopes.root();
-            let mut lineage = None;
-            let mut generations = Vec::new();
-            let mut launches = Launches::default();
-            let profiler = dhat::Profiler::builder().testing().build();
-            let before = dhat::HeapStats::get();
-            actor.transaction_parts().compile_effect(
-                effect,
-                super::super::mounted::WorkOrigin {
-                    scope,
-                    lineage: &mut lineage,
-                    generations: &mut generations,
-                    operations: &crate::effect::operation::OperationAncestry::default(),
-                    inherited_generations: 0,
-                    group: None,
-                },
-                &mut launches,
-            );
-            let blocks = dhat::HeapStats::get().total_blocks - before.total_blocks;
-            drop(profiler);
-            let lineage = lineage.expect("future must own a lineage");
-            lineage.finish_registration();
-            assert!(!lineage.is_finished());
-            let mut launches = launches.into_iter();
-            let mut launch = launches.next().expect("future must register a launch");
-            assert!(
-                launch
-                    .as_mut()
-                    .poll(&mut std::task::Context::from_waker(std::task::Waker::noop()))
-                    .is_ready()
-            );
-            assert!(launches.next().is_none());
-            drop(launch);
-            drop(actor);
-            assert!(lineage.is_finished());
-            // The original erased sender used six blocks. Direct futures need no
-            // public sender allocation, so their cold launch must save one block.
-            assert!(
-                blocks <= 5,
-                "direct future launch allocated {blocks} blocks"
-            );
-        }
-
-        /// Measures retained generations through real sequence compilation and full cleanup.
-        #[cfg(feature = "allocation-measurement")]
-        fn assert_sequence_storage_budget() {
-            // The critical-section backend lazily allocates a process-global mutex.
-            // Initialise it separately so the measurement includes only per-object costs.
-            let warm_control = ControlWake::new();
-            warm_control.notify();
-            drop(warm_control);
-
-            for (depth, blocks) in [(0_u32, 8), (1, 17), (4, 27), (16, 67)] {
-                let effect = (0..depth).fold(
-                    Effect::concatenate([
-                        Effect::future(pending()),
-                        Effect::future(std::future::ready(None)),
-                    ]),
-                    Effect::cancellable,
-                );
-                let (mut actor, ingress) = launch_actor(
-                    Effect::none(),
-                    Runtime::new(LaunchDriver {
-                        tasks: Arc::default(),
-                        panic_after: usize::MAX,
-                    }),
-                );
-                let scope = actor.scopes.root();
-                let mut lineage = None;
-                let mut generations = Vec::new();
-                let mut launches = Launches::default();
-                let profiler = dhat::Profiler::builder().testing().build();
-                let before = dhat::HeapStats::get();
-                actor.transaction_parts().compile_effect(
-                    effect,
-                    super::super::mounted::WorkOrigin {
-                        scope,
-                        lineage: &mut lineage,
-                        generations: &mut generations,
-                        operations: &crate::effect::operation::OperationAncestry::default(),
-                        inherited_generations: 0,
-                        group: None,
-                    },
-                    &mut launches,
-                );
-                let retained = dhat::HeapStats::get();
-                assert_eq!(actor.sequences.len(), 1);
-                assert_eq!(
-                    actor.sequences.values().next().unwrap().generations.len(),
-                    depth as usize,
-                );
-                drop(launches);
-                drop(actor);
-                drop(ingress);
-                drop(lineage);
-                drop(generations);
-                let released = dhat::HeapStats::get();
-                drop(profiler);
-                eprintln!(
-                    "sequence depth={depth} blocks={} bytes={} held_blocks={} held_bytes={} inline_bytes={}",
-                    retained.total_blocks - before.total_blocks,
-                    retained.total_bytes - before.total_bytes,
-                    retained.curr_blocks - before.curr_blocks,
-                    retained.curr_bytes - before.curr_bytes,
-                    std::mem::size_of::<
-                        Sequence<super::super::mounted::DeferredQueue<(), (), Shared>>,
-                    >(),
-                );
-                assert_eq!(released.curr_blocks, before.curr_blocks);
-                assert_eq!(released.curr_bytes, before.curr_bytes);
-                assert_eq!(retained.total_blocks - before.total_blocks, blocks);
-            }
-            #[cfg(target_pointer_width = "64")]
-            assert!(
-                std::mem::size_of::<Sequence<super::super::mounted::DeferredQueue<(), (), Shared>>>(
-                ) <= 144,
-                "retained sequence storage must not regain unused generation capacity",
-            );
-        }
 
         #[test]
         fn compile_panic_drops_queued_launches_without_spawning_or_acknowledging() {
@@ -3322,25 +2926,23 @@ ordinary_test_items! {
 }
 
 #[cfg(test)]
-ordinary_test_items! {
-    /// Routes legacy reducer fixtures through production work collection without eager polling.
-    struct LegacyDriver<S, A>(Box<dyn ErasedReducer<S, A>>);
-    #[cfg(test)]
-    impl<S, A> ReduceDriver<S, A> for LegacyDriver<S, A> {
-        type Effect = Effect<A>;
-        type Task = crate::Task<S, A>;
-        fn reduce(
-            &mut self,
-            state: &mut S,
-            action: &A,
-            mut context: ReduceContext<'_>,
-        ) -> crate::feature::Work<Self::Effect, Self::Task> {
-            let effect = self.0.reduce(state, action, &mut context);
-            let mut work = crate::feature::Work::default();
-            if !matches!(effect.program, Program::None) {
-                work.push(crate::feature::WorkItem::Effect(effect));
-            }
-            work
+/// Routes legacy reducer fixtures through production work collection without eager polling.
+struct LegacyDriver<S, A>(Box<dyn ErasedReducer<S, A>>);
+#[cfg(test)]
+impl<S, A> ReduceDriver<S, A> for LegacyDriver<S, A> {
+    type Effect = Effect<A>;
+    type Task = crate::Task<S, A>;
+    fn reduce(
+        &mut self,
+        state: &mut S,
+        action: &A,
+        mut context: ReduceContext<'_>,
+    ) -> crate::feature::Work<Self::Effect, Self::Task> {
+        let effect = self.0.reduce(state, action, &mut context);
+        let mut work = crate::feature::Work::default();
+        if !matches!(effect.program, Program::None) {
+            work.push(crate::feature::WorkItem::Effect(effect));
         }
+        work
     }
 }

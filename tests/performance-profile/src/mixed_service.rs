@@ -763,12 +763,12 @@ mod local {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
 
     // Catches omitted task updates, Changed reactions, output, refresh or causal completion.
-    #[test]
-    fn one_session_completes_exact_mounted_work() {
+    #[cfg_attr(not(feature = "allocations"), test)]
+    pub(crate) fn one_session_completes_exact_mounted_work() {
         #[cfg(feature = "allocations")]
         if !crate::tests::in_child("mixed_service::tests::one_session_completes_exact_mounted_work")
         {
@@ -802,8 +802,8 @@ mod tests {
     }
 
     // Catches changing committed work to make an observation policy appear cheaper.
-    #[test]
-    fn sixty_four_reused_sessions_change_only_delivery_work() {
+    #[cfg_attr(not(feature = "allocations"), test)]
+    pub(crate) fn sixty_four_reused_sessions_change_only_delivery_work() {
         #[cfg(feature = "allocations")]
         if !crate::tests::in_child(
             "mixed_service::tests::sixty_four_reused_sessions_change_only_delivery_work",
@@ -838,8 +838,8 @@ mod tests {
     }
 
     // Catches a validator accepting a skipped real update or a retained State owner.
-    #[test]
-    fn rejects_skipped_update_and_retained_owner() {
+    #[cfg_attr(not(feature = "allocations"), test)]
+    pub(crate) fn rejects_skipped_update_and_retained_owner() {
         #[cfg(feature = "allocations")]
         if !crate::tests::in_child(
             "mixed_service::tests::rejects_skipped_update_and_retained_owner",

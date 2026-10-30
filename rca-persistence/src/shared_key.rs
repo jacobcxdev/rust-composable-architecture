@@ -235,7 +235,10 @@ impl<Value: Send + 'static, Storage: Backend, Encoding: Codec<Value>> SharedKey
 
 #[cfg(all(test, feature = "file"))]
 pub(crate) mod tests {
-    use super::*;
+    use super::{
+        Backend, BackendKey, BackendKeyError, Codec, Error, SharedKey, SharedLoadContext,
+        SharedReaderKey, fmt,
+    };
 
     /// Selects a backend or codec failure without allocating fixture payloads.
     struct Probe(bool);

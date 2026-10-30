@@ -38,7 +38,7 @@ impl Reducer for ReadyEffect {
     }
 }
 
-#[test]
+/// Checks that single-task registration avoids separate dispatch and launch boxes.
 fn single_task_registration_avoids_dispatch_and_launch_boxes() {
     if allocation_test::run_in_child("single_task_registration_avoids_dispatch_and_launch_boxes") {
         return;
@@ -106,3 +106,11 @@ fn single_task_registration_avoids_dispatch_and_launch_boxes() {
         "registration allocated {measured_blocks} blocks; budget is 6"
     );
 }
+
+/// Preserves the exact names of the isolated allocation cases.
+const CASES: &[(&str, fn())] = &[(
+    "single_task_registration_avoids_dispatch_and_launch_boxes",
+    single_task_registration_avoids_dispatch_and_launch_boxes,
+)];
+
+include!("support/allocation_main.rs");

@@ -9,6 +9,12 @@ default-run = "composable-counter-candidate"
 [features]
 allocation-measurement = ["dep:dhat"]
 
+[[test]]
+name = "allocation_controls"
+path = "../allocation_main.rs"
+harness = false
+required-features = ["allocation-measurement"]
+
 [dev-dependencies]
 serde_json = "1"
 

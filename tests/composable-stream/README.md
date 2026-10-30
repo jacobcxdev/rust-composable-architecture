@@ -256,8 +256,11 @@ It does not authenticate provenance or qualify a comparison. The binary has no
 internal watchdog; an external controller must impose a failure deadline and
 retain failures without retries.
 
-Five allocation controls run in the `outcome` target with `allocation-measurement`.
-CI runs these controls and the strict decoder tests.
+Five allocation controls run in `outcome_allocation_controls` with `allocation-measurement`.
+Another five controls run in `ready_allocation_controls`. Both targets use the
+shared synchronous runner, without a concurrent libtest receiver thread.
+The profiler still counts workload allocations from every thread.
+CI runs both allocation targets, the ordinary `outcome` tests and the strict decoder tests.
 Checkpoint completion does not prove task-wrapper reclamation or executor quiescence.
 Successful final extraction proves fixture host teardown, not process-global allocator quiescence.
 The pinned upstream reference has a shutdown race and a failed broader suite.

@@ -77,7 +77,7 @@ impl Reducer for CaptureSender {
     }
 }
 
-#[test]
+/// Checks that nested mapped sends avoid forwarding-future allocations.
 fn nested_mapped_sends_do_not_allocate_forwarding_futures() {
     if allocation_test::run_in_child("nested_mapped_sends_do_not_allocate_forwarding_futures") {
         return;
@@ -173,3 +173,11 @@ fn nested_mapped_sends_do_not_allocate_forwarding_futures() {
         "nested mapped send allocated {admission_blocks} blocks; budget is 2",
     );
 }
+
+/// Preserves the exact names of the isolated allocation cases.
+const CASES: &[(&str, fn())] = &[(
+    "nested_mapped_sends_do_not_allocate_forwarding_futures",
+    nested_mapped_sends_do_not_allocate_forwarding_futures,
+)];
+
+include!("support/allocation_main.rs");

@@ -54,7 +54,7 @@ impl Reducer for CaptureSender {
     }
 }
 
-#[test]
+/// Checks reply and generation-storage costs for effect sends.
 fn effect_send_allocates_only_reply_and_nonempty_generation_storage() {
     if allocation_test::run_in_child(
         "effect_send_allocates_only_reply_and_nonempty_generation_storage",
@@ -221,3 +221,11 @@ fn measure_effect_send(generations: usize) -> (u64, u64) {
     );
     (commit_blocks, commit_bytes)
 }
+
+/// Preserves the exact names of the isolated allocation cases.
+const CASES: &[(&str, fn())] = &[(
+    "effect_send_allocates_only_reply_and_nonempty_generation_storage",
+    effect_send_allocates_only_reply_and_nonempty_generation_storage,
+)];
+
+include!("support/allocation_main.rs");

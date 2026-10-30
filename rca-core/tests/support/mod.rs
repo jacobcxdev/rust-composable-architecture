@@ -216,7 +216,6 @@ impl Drop for ManualRuntime {
 mod tests {
     use super::*;
     use std::sync::atomic::AtomicBool;
-    use std::task::Context;
 
     /// Records whether a future's destructor can acquire the queue lock.
     struct QueueDropProbe {
@@ -233,6 +232,8 @@ mod tests {
 
     #[test]
     fn maximum_clock_wait_remains_pending() {
+        use std::task::Context;
+
         let host = ManualRuntime::new();
         let driver = ManualDriver {
             shared: Arc::clone(&host.shared),
@@ -247,6 +248,8 @@ mod tests {
 
     #[test]
     fn finite_wait_advances_shared_time_without_blocking() {
+        use std::task::Context;
+
         let host = ManualRuntime::new();
         let driver = ManualDriver {
             shared: Arc::clone(&host.shared),

@@ -999,6 +999,22 @@ printf '%s\\n' "$qualification_root" > "$TEST_ROOT/allocated-root"
 
         self.assertIn("start_paused = true", source)
 
+    def test_packaged_allocation_runners_match_shared_source(self) -> None:
+        source = (
+            self.repo_root / "rca-core/src/allocation_test/runner.rs"
+        ).read_text(encoding="utf-8")
+        copies = (
+            "rca-tokio/tests/support/allocation_runner.rs",
+            "rca-persistence/src/allocation_runner.rs",
+        )
+        for path in copies:
+            with self.subTest(path=path):
+                packaged = (self.repo_root / path).read_text(encoding="utf-8")
+                header, separator, body = packaged.partition("\n\n")
+                self.assertTrue(header.startswith("// Package-local copy of "))
+                self.assertEqual(separator, "\n\n")
+                self.assertEqual(body, source)
+
     def test_tokio_proof_asserts_timer_cancellation(self) -> None:
         source = (
             self.repo_root / "tests/downstream-composition/src/main.rs"

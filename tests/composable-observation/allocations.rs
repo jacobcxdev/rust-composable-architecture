@@ -108,7 +108,7 @@ pub fn run(
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use std::hint::black_box;
 
@@ -117,7 +117,20 @@ mod tests {
         include!("../../rca-core/src/allocation_test/child.rs");
     }
 
+    /// Keeps the allocation control outside the threaded semantic test harness.
+    pub(crate) const CASES: &[(&str, fn())] = &[(
+        "allocations::tests::isolated_allocation_controls",
+        isolated_allocation_controls,
+    )];
+
     #[test]
+    fn allocation_case_roster_preserves_exact_name() {
+        assert_eq!(
+            CASES.iter().map(|case| case.0).collect::<Vec<_>>(),
+            ["allocations::tests::isolated_allocation_controls"]
+        );
+    }
+
     fn isolated_allocation_controls() {
         if child::run_in_child("allocations::tests::isolated_allocation_controls") {
             return;

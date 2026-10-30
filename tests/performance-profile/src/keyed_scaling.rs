@@ -975,7 +975,7 @@ fn uncancelled_retirement_control() -> Result<(), &'static str> {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
 
     /// Keeps literal workload cases concise without bypassing argument validation.
@@ -1022,12 +1022,12 @@ mod tests {
         }
     }
 
-    #[test]
+    #[cfg_attr(not(feature = "allocations"), test)]
     #[expect(
         clippy::too_many_lines,
         reason = "literal ordered projections and lifetime counts keep the trace oracle independent"
     )]
-    fn keyed_scaling_real_trace_preserves_order_and_exact_lifetimes() {
+    pub(crate) fn keyed_scaling_real_trace_preserves_order_and_exact_lifetimes() {
         #[cfg(feature = "allocations")]
         if !crate::tests::in_child(
             "keyed_scaling::tests::keyed_scaling_real_trace_preserves_order_and_exact_lifetimes",
@@ -1142,8 +1142,8 @@ mod tests {
         }
     }
 
-    #[test]
-    fn keyed_scaling_large_widths_retain_exact_final_rows() {
+    #[cfg_attr(not(feature = "allocations"), test)]
+    pub(crate) fn keyed_scaling_large_widths_retain_exact_final_rows() {
         #[cfg(feature = "allocations")]
         if !crate::tests::in_child(
             "keyed_scaling::tests::keyed_scaling_large_widths_retain_exact_final_rows",
@@ -1180,8 +1180,8 @@ mod tests {
         }
     }
 
-    #[test]
-    fn keyed_scaling_replacement_wraps_with_exact_generations() {
+    #[cfg_attr(not(feature = "allocations"), test)]
+    pub(crate) fn keyed_scaling_replacement_wraps_with_exact_generations() {
         #[cfg(feature = "allocations")]
         if !crate::tests::in_child(
             "keyed_scaling::tests::keyed_scaling_replacement_wraps_with_exact_generations",
@@ -1257,8 +1257,8 @@ mod tests {
     }
 
     #[cfg(feature = "deterministic")]
-    #[test]
-    fn keyed_scaling_deterministic_matches_native_trace() {
+    #[cfg_attr(not(feature = "allocations"), test)]
+    pub(crate) fn keyed_scaling_deterministic_matches_native_trace() {
         #[cfg(feature = "allocations")]
         if !crate::tests::in_child(
             "keyed_scaling::tests::keyed_scaling_deterministic_matches_native_trace",

@@ -70,7 +70,7 @@ fn owned_endpoint_allocations(accepted: bool, count: usize) -> u64 {
     after.total_blocks - before.total_blocks
 }
 
-#[test]
+/// Checks that disabled reporting and issue-free reductions require no heap work.
 #[expect(
     clippy::too_many_lines,
     reason = "one profiler owns the related allocation windows and drops before assertions"
@@ -181,3 +181,11 @@ fn disabled_reporting_and_issue_free_reductions_add_no_heap_allocations() {
         "only prefix endpoints copy the owned strings"
     );
 }
+
+/// Preserves the exact names of the isolated allocation cases.
+const CASES: &[(&str, fn())] = &[(
+    "disabled_reporting_and_issue_free_reductions_add_no_heap_allocations",
+    disabled_reporting_and_issue_free_reductions_add_no_heap_allocations,
+)];
+
+include!("support/allocation_main.rs");

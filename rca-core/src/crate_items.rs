@@ -1,3 +1,14 @@
+/// Shares the manual host between internal observation and scoped-store tests.
+#[cfg(all(test, not(loom)))]
+#[expect(
+    dead_code,
+    reason = "internal tests use only the manual actor controls"
+)]
+mod test_support {
+    use crate as rca_core;
+    include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/support/mod.rs"));
+}
+
 #[cfg(all(test, feature = "allocation-measurement"))]
 mod allocation_test;
 

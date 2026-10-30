@@ -192,6 +192,13 @@ affected integration boundaries. CI adds feature, platform, compiler-contract an
 dependency checks. Release qualification also requires applicable performance and
 100% executable-production coverage evidence. Test-only code has a separate audit scope.
 
+Run process-wide allocation measurements in a `harness = false` test target.
+Reuse the existing synchronous allocation runner. An isolated libtest subprocess
+still has a receiver thread, even with `--test-threads=1`. That thread can add
+unrelated allocations to the measured interval. Keep workload worker allocations
+inside the measurement. Do not replace process-wide counts with thread-only counts.
+Packaged crates must include their runner support without paths to sibling checkouts.
+
 The full Python tooling suite includes a real performance-tool preflight.
 It requires `cargo-bloat` 0.12.1 in the checkout's local tool directory.
 From the repository root, install that prerequisite before running the suite:

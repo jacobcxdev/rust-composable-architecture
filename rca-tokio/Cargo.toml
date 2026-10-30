@@ -27,6 +27,12 @@ tokio-metrics.workspace = true
 [lints]
 workspace = true
 
+[[test]]
+name = "allocation_controls"
+path = "tests/allocation_main.rs"
+harness = false
+required-features = ["qualification-dhat"]
+
 [[bench]]
 name = "runtime"
 harness = false

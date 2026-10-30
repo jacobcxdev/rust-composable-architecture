@@ -46,7 +46,7 @@ impl Wake for WakeCount {
     }
 }
 
-#[test]
+/// Checks that waiting observations avoid a second listener allocation.
 fn waiting_observation_avoids_a_second_listener_allocation() {
     // Exclude the support module's tests from this process-wide allocation count.
     if allocation_test::run_in_child("waiting_observation_avoids_a_second_listener_allocation") {
@@ -156,3 +156,11 @@ fn waiting_observation_avoids_a_second_listener_allocation() {
         "closed observation retained {closed_owner_blocks} blocks; signal metadata budget is 4",
     );
 }
+
+/// Preserves the exact names of the isolated allocation cases.
+const CASES: &[(&str, fn())] = &[(
+    "waiting_observation_avoids_a_second_listener_allocation",
+    waiting_observation_avoids_a_second_listener_allocation,
+)];
+
+include!("support/allocation_main.rs");

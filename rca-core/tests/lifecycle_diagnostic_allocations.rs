@@ -405,7 +405,7 @@ fn workload(with_sink: bool) -> Report {
 // Catches event allocation/formatting, a callback queue, and consumer storage
 // accidentally charged to delivery. Off/on comparisons require separate runs;
 // only enabled-sink versus enabled-no-sink equality is asserted in this binary.
-#[test]
+/// Checks lifecycle delivery costs beyond the diagnostic sink box.
 fn lifecycle_delivery_adds_no_phase_allocations_beyond_the_sink_box() {
     if allocation_test::run_in_child(
         "lifecycle_delivery_adds_no_phase_allocations_beyond_the_sink_box",
@@ -484,3 +484,11 @@ fn lifecycle_delivery_adds_no_phase_allocations_beyond_the_sink_box() {
         assert_eq!(enabled.last_event_revision, Some(20));
     }
 }
+
+/// Preserves the exact names of the isolated allocation cases.
+const CASES: &[(&str, fn())] = &[(
+    "lifecycle_delivery_adds_no_phase_allocations_beyond_the_sink_box",
+    lifecycle_delivery_adds_no_phase_allocations_beyond_the_sink_box,
+)];
+
+include!("support/allocation_main.rs");

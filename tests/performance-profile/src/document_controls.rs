@@ -151,8 +151,8 @@ fn failure(f: &Fixture, operation: Operation, revision: Option<u64>, error: Cont
     assert_eq!(actual, Some(error));
 }
 
-#[test]
-fn missing_and_present_clean_load() {
+#[cfg_attr(not(feature = "allocations"), test)]
+pub(crate) fn missing_and_present_clean_load() {
     if !child("document::controls::missing_and_present_clean_load") {
         return;
     }
@@ -191,8 +191,8 @@ fn missing_and_present_clean_load() {
     }
 }
 
-#[test]
-fn single_edit_bursts_have_one_save_and_no_omitted_receipts() {
+#[cfg_attr(not(feature = "allocations"), test)]
+pub(crate) fn single_edit_bursts_have_one_save_and_no_omitted_receipts() {
     if !child("document::controls::single_edit_bursts_have_one_save_and_no_omitted_receipts") {
         return;
     }
@@ -265,8 +265,8 @@ fn single_edit_bursts_have_one_save_and_no_omitted_receipts() {
     }
 }
 
-#[test]
-fn load_decode_failures_require_explicit_retry() {
+#[cfg_attr(not(feature = "allocations"), test)]
+pub(crate) fn load_decode_failures_require_explicit_retry() {
     if !child("document::controls::load_decode_failures_require_explicit_retry") {
         return;
     }
@@ -306,8 +306,8 @@ fn load_decode_failures_require_explicit_retry() {
     }
 }
 
-#[test]
-fn encode_failure_latest_close_retry_fences_edits() {
+#[cfg_attr(not(feature = "allocations"), test)]
+pub(crate) fn encode_failure_latest_close_retry_fences_edits() {
     if !child("document::controls::encode_failure_latest_close_retry_fences_edits") {
         return;
     }
@@ -354,8 +354,8 @@ fn encode_failure_latest_close_retry_fences_edits() {
     }
 }
 
-#[test]
-fn save_failure_old_barrier_and_latest_flush_retry() {
+#[cfg_attr(not(feature = "allocations"), test)]
+pub(crate) fn save_failure_old_barrier_and_latest_flush_retry() {
     if !child("document::controls::save_failure_old_barrier_and_latest_flush_retry") {
         return;
     }
@@ -410,8 +410,8 @@ fn save_failure_old_barrier_and_latest_flush_retry() {
     }
 }
 
-#[test]
-fn receipt_ownership_does_not_cancel_physical_save() {
+#[cfg_attr(not(feature = "allocations"), test)]
+pub(crate) fn receipt_ownership_does_not_cancel_physical_save() {
     if !child("document::controls::receipt_ownership_does_not_cancel_physical_save") {
         return;
     }
@@ -462,8 +462,8 @@ fn receipt_ownership_does_not_cancel_physical_save() {
     }
 }
 
-#[test]
-fn captured_barrier_precedes_newer_acknowledgement() {
+#[cfg_attr(not(feature = "allocations"), test)]
+pub(crate) fn captured_barrier_precedes_newer_acknowledgement() {
     if !child("document::controls::captured_barrier_precedes_newer_acknowledgement") {
         return;
     }
@@ -503,8 +503,8 @@ fn captured_barrier_precedes_newer_acknowledgement() {
     }
 }
 
-#[test]
-fn cancellation_abort_external_join_then_new_document() {
+#[cfg_attr(not(feature = "allocations"), test)]
+pub(crate) fn cancellation_abort_external_join_then_new_document() {
     if !child("document::controls::cancellation_abort_external_join_then_new_document") {
         return;
     }
@@ -577,8 +577,8 @@ fn cancellation_abort_external_join_then_new_document() {
     }
 }
 
-#[test]
-fn abort_and_shutdown_are_not_flush() {
+#[cfg_attr(not(feature = "allocations"), test)]
+pub(crate) fn abort_and_shutdown_are_not_flush() {
     if !child("document::controls::abort_and_shutdown_are_not_flush") {
         return;
     }
@@ -623,8 +623,8 @@ fn abort_and_shutdown_are_not_flush() {
     }
 }
 
-#[test]
-fn broken_wait_byte_task_and_owner_gates_release_every_guard() {
+#[cfg_attr(not(feature = "allocations"), test)]
+pub(crate) fn broken_wait_byte_task_and_owner_gates_release_every_guard() {
     if !child("document::controls::broken_wait_byte_task_and_owner_gates_release_every_guard") {
         return;
     }
@@ -691,8 +691,8 @@ fn broken_wait_byte_task_and_owner_gates_release_every_guard() {
     }
 }
 
-#[test]
-fn broken_outcome_intermediate_and_capture_gates_release_owners() {
+#[cfg_attr(not(feature = "allocations"), test)]
+pub(crate) fn broken_outcome_intermediate_and_capture_gates_release_owners() {
     if !child("document::controls::broken_outcome_intermediate_and_capture_gates_release_owners") {
         return;
     }

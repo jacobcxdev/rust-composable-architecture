@@ -19,7 +19,7 @@ use crate::measurement::{ExecutorCache, Measurement};
 
 #[cfg(test)]
 #[path = "document_controls.rs"]
-mod controls;
+pub(crate) mod controls;
 
 // These finite dimensions and per-drive limits are the reviewed H contract.
 const DEADLINE: Duration = Duration::from_secs(5);

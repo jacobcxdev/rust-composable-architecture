@@ -869,11 +869,11 @@ mod local {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::{run, run_control};
 
-    #[test]
-    fn capacity_one_pool_completes_only_the_captured_work() {
+    #[cfg_attr(not(feature = "allocations"), test)]
+    pub(crate) fn capacity_one_pool_completes_only_the_captured_work() {
         #[cfg(feature = "allocations")]
         if !crate::tests::in_child(
             "mixed_pool::tests::capacity_one_pool_completes_only_the_captured_work",
@@ -929,8 +929,8 @@ mod tests {
         }
     }
 
-    #[test]
-    fn rejects_skipped_admission_and_retained_concrete_work() {
+    #[cfg_attr(not(feature = "allocations"), test)]
+    pub(crate) fn rejects_skipped_admission_and_retained_concrete_work() {
         #[cfg(feature = "allocations")]
         if !crate::tests::in_child(
             "mixed_pool::tests::rejects_skipped_admission_and_retained_concrete_work",

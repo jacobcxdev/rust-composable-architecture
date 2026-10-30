@@ -396,7 +396,7 @@ mod local {
     assay!("Local");
 }
 
-#[test]
+/// Checks allocation costs across each owning-removal phase.
 fn owning_removal_phase_costs() {
     let profiler = dhat::Profiler::builder().testing().build();
     shared::exercise();
@@ -404,3 +404,8 @@ fn owning_removal_phase_costs() {
     local::exercise();
     drop(profiler);
 }
+
+/// Preserves the exact names of the isolated allocation cases.
+const CASES: &[(&str, fn())] = &[("owning_removal_phase_costs", owning_removal_phase_costs)];
+
+include!("support/allocation_main.rs");

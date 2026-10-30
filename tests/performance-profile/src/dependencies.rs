@@ -406,7 +406,7 @@ pub(crate) fn run(config: Config) -> Result<String, &'static str> {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     //! Mutations separate lookup correctness, factory timing and final owner release.
 
     use super::*;
@@ -477,8 +477,8 @@ mod tests {
 
     /// Separates failed-work cleanup from a real cache owner retained past profiling.
     #[cfg(feature = "allocations")]
-    #[test]
-    fn allocation_failure_cleanup_and_retention_controls() {
+    #[cfg_attr(not(feature = "allocations"), test)]
+    pub(crate) fn allocation_failure_cleanup_and_retention_controls() {
         if !crate::tests::in_child(
             "dependencies::tests::allocation_failure_cleanup_and_retention_controls",
         ) {

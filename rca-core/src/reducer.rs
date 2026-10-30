@@ -133,32 +133,29 @@ impl<State, Action, F> fmt::Debug for Reduce<State, Action, F> {
 }
 
 #[cfg(test)]
-ordinary_test_items! {
-    #[cfg(test)]
-    pub(crate) trait ErasedReducer<State, Action>: Send {
-        fn reduce(
-            &mut self,
-            state: &mut State,
-            action: &Action,
-            context: &mut ReduceContext<'_>,
-        ) -> Effect<Action>;
-    }
+pub(crate) trait ErasedReducer<State, Action>: Send {
+    fn reduce(
+        &mut self,
+        state: &mut State,
+        action: &Action,
+        context: &mut ReduceContext<'_>,
+    ) -> Effect<Action>;
+}
 
-    #[cfg(test)]
-    impl<State, Action, R> ErasedReducer<State, Action> for R
-    where
-        R: Reducer<State = State, Action = Action> + Send,
-        State: Send + 'static,
-        Action: Send + 'static,
-    {
-        fn reduce(
-            &mut self,
-            state: &mut State,
-            action: &Action,
-            context: &mut ReduceContext<'_>,
-        ) -> Effect<Action> {
-            Reducer::reduce(self, state, action, context)
-        }
+#[cfg(test)]
+impl<State, Action, R> ErasedReducer<State, Action> for R
+where
+    R: Reducer<State = State, Action = Action> + Send,
+    State: Send + 'static,
+    Action: Send + 'static,
+{
+    fn reduce(
+        &mut self,
+        state: &mut State,
+        action: &Action,
+        context: &mut ReduceContext<'_>,
+    ) -> Effect<Action> {
+        Reducer::reduce(self, state, action, context)
     }
 }
 

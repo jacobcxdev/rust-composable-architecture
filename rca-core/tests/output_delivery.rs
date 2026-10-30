@@ -1033,8 +1033,11 @@ fn weak_output_handle_traits_do_not_inherit_payload_bounds() {
 }
 
 #[cfg(all(feature = "allocation-measurement", feature = "test-util"))]
-#[test]
-fn output_phase_costs() {
+/// Checks output phases in the dedicated allocation host.
+///
+/// # Panics
+/// Panics if output ownership or allocation counts change.
+pub fn output_phase_costs() {
     /// Counts requested allocations, including fixture work inside the supplied phase.
     fn measure<T>(run: impl FnOnce() -> T) -> (T, (u64, u64)) {
         let before = dhat::HeapStats::get();
