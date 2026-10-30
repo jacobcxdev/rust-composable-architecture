@@ -15,6 +15,7 @@ use std::any::{Any, TypeId};
 use std::collections::hash_map::DefaultHasher;
 use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};
+use std::num::NonZeroU64;
 use std::sync::Arc;
 use std::sync::Weak;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -191,14 +192,24 @@ impl core::fmt::Debug for ScopeNodeId {
 }
 
 /// Identifies one structural incarnation within its issuing registry.
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-pub(crate) struct ScopeToken(u64);
+///
+/// Stores each diagnostic ID plus one so optional tokens need no extra word.
+#[derive(Clone, Copy, Eq, Hash, PartialEq)]
+#[repr(transparent)]
+pub(crate) struct ScopeToken(NonZeroU64);
+
+impl core::fmt::Debug for ScopeToken {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_tuple("ScopeToken")
+            .field(&self.diagnostic_id())
+            .finish()
+    }
+}
 
 impl ScopeToken {
     /// Exposes a Store-local diagnostic label, not transferable authority.
-    #[cfg(any(feature = "test-util", feature = "diagnostics"))]
     pub(crate) const fn diagnostic_id(self) -> u64 {
-        self.0
+        self.0.get() - 1
     }
 }
 
@@ -963,7 +974,7 @@ impl ScopeRegistry {
 
     /// Creates an empty registry using the lifecycle's existing root identity.
     pub(crate) fn new(lifecycle: &Arc<super::lifecycle::Lifecycle>) -> Self {
-        let root = ScopeToken(0);
+        let root = ScopeToken(NonZeroU64::MIN);
         Self {
             root,
             authority: lifecycle.root_identity(),
@@ -1235,12 +1246,11 @@ impl ScopeRegistry {
             candidate = mount.next_collision;
         }
 
-        let token = ScopeToken(self.next_token);
-        let next_token = self
-            .next_token
-            .checked_add(1)
+        let encoded = NonZeroU64::MIN
+            .checked_add(self.next_token)
             .expect("scope token ID space exhausted");
-        self.next_token = next_token;
+        let token = ScopeToken(encoded);
+        self.next_token = encoded.get();
         let previous = self.records.insert(
             token,
             ScopeRecord {
@@ -1976,7 +1986,7 @@ mod tests {
             &registry.root_identity()
         ));
         assert!(registry.is_current(registry.root()));
-        assert!(!registry.is_current(ScopeToken(1)));
+        assert!(!registry.is_current(ScopeToken(NonZeroU64::MAX)));
         assert!(registry.records.is_empty());
         let weak_lifecycle = Arc::downgrade(&lifecycle);
         drop(lifecycle);
@@ -2348,11 +2358,33 @@ mod tests {
     }
 
     #[test]
-    fn scope_token_occupies_one_u64_word() {
+    fn scope_token_and_option_each_occupy_one_u64_word() {
         assert_eq!(
             std::mem::size_of::<ScopeToken>(),
             std::mem::size_of::<u64>()
         );
+        assert_eq!(
+            std::mem::size_of::<Option<ScopeToken>>(),
+            std::mem::size_of::<u64>()
+        );
+    }
+
+    #[test]
+    fn scope_token_labels_follow_installation_order() {
+        let (_lifecycle, mut registry) = ScopeRegistry::for_test();
+        let root = registry.root();
+        let first = registry.mount(root, ScopeNodeId::new(), ScopeIdentity::unit());
+        let second = registry.mount(root, ScopeNodeId::new(), ScopeIdentity::unit());
+
+        assert_eq!(root.diagnostic_id(), 0);
+        assert_eq!(first.diagnostic_id(), 1);
+        assert_eq!(second.diagnostic_id(), 2);
+        #[expect(clippy::clone_on_copy, reason = "Exercise the derived Clone body in production coverage.")]
+        let cloned = first.clone();
+        assert_eq!(cloned, first);
+        assert_eq!(format!("{root:?}"), "ScopeToken(0)");
+        assert_eq!(format!("{first:?}"), "ScopeToken(1)");
+        assert_eq!(format!("{second:?}"), "ScopeToken(2)");
     }
 
     #[test]
@@ -2627,6 +2659,33 @@ mod tests {
         assert!(registry.active_mounts.is_empty());
         assert!(registry.child_lists.is_empty());
         assert_eq!(registry.next_token, u64::MAX);
+    }
+
+    #[test]
+    fn last_scope_token_remains_reusable_after_exhaustion() {
+        let node = ScopeNodeId::new();
+        let (_lifecycle, mut registry) = ScopeRegistry::for_test();
+        registry.next_token = u64::MAX - 1;
+        let root = registry.root();
+        let last = registry.mount(root, node.clone(), ScopeIdentity::unit());
+
+        assert_eq!(last.diagnostic_id(), u64::MAX - 1);
+        assert_eq!(format!("{last:?}"), "ScopeToken(18446744073709551614)");
+        assert_eq!(registry.next_token, u64::MAX);
+        assert_eq!(registry.mount(root, node, ScopeIdentity::unit()), last);
+
+        let panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            registry.mount(root, ScopeNodeId::new(), ScopeIdentity::unit());
+        }));
+
+        assert!(panic.is_err());
+        assert_eq!(registry.next_token, u64::MAX);
+        assert_eq!(registry.records.len(), 1);
+        assert_eq!(registry.active_mounts.len(), 1);
+        assert_eq!(registry.child_lists.len(), 1);
+        assert_eq!(registry.child_lists[&root].first, last);
+        assert_eq!(registry.child_lists[&root].last, last);
+        assert!(registry.is_current(last));
     }
 
     #[test]
