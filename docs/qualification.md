@@ -48,6 +48,26 @@ the public repository. Historical local audit receipts are not public reproducti
 instructions. Current tests, required regression inputs and maintained development
 tools remain part of the snapshot.
 
+## Later regression and macro changes
+
+The 30 October changes add child-routing and named-task regressions without changing
+runtime implementation. They check replacement before routing, rejection of old child
+authority, private child-state lifetimes and task replacement across handlers.
+Both Shared and Local paths retain their existing contracts. Each explicit replacement
+still replaces earlier work; coexistence remains a separate choice.
+
+Macro fixes prevent caller type parameters from hiding source types or generated
+companion types. Private type aliases preserve caller bounds, embedded type macros
+and capture expressions. Compiler fixtures cover conditional domains, independent
+binding generics, function-local types, renamed dependencies and library-name collisions.
+Existing non-colliding expansion snapshots remain unchanged.
+
+These changes require their own focused tests, compiler checks, strict lint,
+independent review and coverage evidence. The earlier coverage counts above remain
+historical, not a recalculated total for the amended source. Unchanged runtime
+performance evidence retains its original scope; no new speed claim is made.
+The pull request records the checks for the delivered head.
+
 ## Hosted checks and publication
 
 Hosted CI is a separate requirement. A local result does not establish that GitHub

@@ -10,7 +10,7 @@ use quote::quote;
 use syn::visit_mut::{self, VisitMut};
 use syn::{Attribute, Data, DeriveInput, Field, Fields, Generics, Ident, Lifetime, Type, Variant};
 
-use crate::{canonical_ident, path_is_ident, rca_path, snake_case_ident};
+use crate::{canonical_ident, path_is_ident, rca_path, snake_case_ident, type_reference};
 
 /// Selects the field adapter, or omits a field or case constructor.
 #[derive(Clone, Copy, Eq, PartialEq)]
@@ -39,7 +39,7 @@ impl Projection {
 
 /// Lowers a complete derive input after rustc has applied conditional attributes.
 pub(crate) fn expand(input: &DeriveInput) -> syn::Result<TokenStream> {
-    Ok(expand_parts(input, None)?.into_tokens())
+    Ok(expand_parts(input, None, input)?.into_tokens())
 }
 
 /// Keeps owned top-level item boundaries available to conditional domains.
@@ -59,6 +59,8 @@ pub(crate) type CaseItems = [TokenStream; 2];
 pub(crate) struct VariantContext<'a> {
     /// Supplies domain visibility, generics and names that generated bindings avoid.
     pub(crate) input: &'a DeriveInput,
+    /// Names the source enum without being shadowed by its type parameters.
+    pub(crate) root: &'a Ident,
     /// Supplies the selected case's fields and conditional attributes.
     pub(crate) variant: &'a Variant,
     /// Matches other enabled cases, even when the caller lowers only this variant.
@@ -87,14 +89,29 @@ impl PathExpansion {
 ///
 /// Direct derives infer that arm from their enabled variants. Reducer domains
 /// supply it when they lower one variant under a symbolic condition.
+/// Alias names use the whole declaration, even when only one member is lowered.
 pub(crate) fn expand_parts(
     input: &DeriveInput,
     enum_fallback: Option<&TokenStream>,
+    declaration: &DeriveInput,
 ) -> syn::Result<PathExpansion> {
     validate_type_attributes(&input.attrs)?;
     let rca = rca_path()?;
-    let state = &input.ident;
-    let paths = paths_ident(state)?;
+    let paths = paths_ident(&input.ident)?;
+    let (state, state_alias) = type_reference(
+        declaration,
+        &input.generics,
+        &input.generics,
+        &input.ident,
+        "StatePaths",
+    );
+    let (paths_reference, paths_alias) = type_reference(
+        declaration,
+        &input.generics,
+        &input.generics,
+        &paths,
+        "StatePaths",
+    );
     let visibility = &input.vis;
     let generics = &input.generics;
     let projection_lifetime = projection_lifetime(input);
@@ -121,6 +138,7 @@ pub(crate) fn expand_parts(
                 &projection_lifetime,
                 &rca,
                 input,
+                &state,
                 &fallback,
             )?
         }
@@ -153,15 +171,16 @@ pub(crate) fn expand_parts(
         )
     };
 
+    let constructors = quote! {
+        #[automatically_derived]
+        impl #impl_generics #paths_reference #type_generics #where_clause {
+            #(#constructors)*
+        }
+    };
     Ok(PathExpansion {
-        namespace: quote!(#[automatically_derived] #namespace),
+        namespace: quote!(#state_alias #paths_alias #[automatically_derived] #namespace),
         cases,
-        constructors: quote! {
-            #[automatically_derived]
-            impl #impl_generics #paths #type_generics #where_clause {
-                #(#constructors)*
-            }
-        },
+        constructors,
     })
 }
 
@@ -330,6 +349,7 @@ fn expand_enum(
     lifetime: &Lifetime,
     rca: &TokenStream,
     input: &DeriveInput,
+    root: &Ident,
     fallback: &TokenStream,
 ) -> syn::Result<(Vec<TokenStream>, Vec<CaseItems>)> {
     let mut constructors = Vec::new();
@@ -339,6 +359,7 @@ fn expand_enum(
         let Some((method, constructor, case)) = expand_variant(
             &VariantContext {
                 input,
+                root,
                 variant,
                 fallback,
             },
@@ -378,7 +399,7 @@ fn expand_variant(
     let input = context.input;
     let variant = context.variant;
     let fallback = context.fallback;
-    let state_ident = &input.ident;
+    let state_ident = context.root;
     let visibility = &input.vis;
     let projection = projection(&variant.attrs)?;
     for field in &variant.fields {
@@ -472,7 +493,7 @@ pub(crate) fn aggregate_variant(
     let input = context.input;
     let variant = context.variant;
     let fallback = context.fallback;
-    let root_ident = &input.ident;
+    let root_ident = context.root;
     let variant_ident = &variant.ident;
     let visibility = &input.vis;
     let kind = if mutable { "state" } else { "action" };
@@ -1273,6 +1294,7 @@ mod tests {
         let (method, constructor, case) = super::expand_variant(
             &super::VariantContext {
                 input: &input,
+                root: &input.ident,
                 variant: &data.variants[0],
                 fallback: &proc_macro2::TokenStream::new(),
             },
@@ -1393,7 +1415,8 @@ mod tests {
                 bytes: [u8; PacketPaths],
             }
         };
-        let parts = super::expand_parts(&input, None).expect("const-only expansion succeeds");
+        let parts =
+            super::expand_parts(&input, None, &input).expect("const-only expansion succeeds");
         let namespace: syn::ItemStruct =
             syn::parse2(parts.namespace).expect("const-only path namespace");
         assert_eq!(namespace.ident, "PacketPaths");
