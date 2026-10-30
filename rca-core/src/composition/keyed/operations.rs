@@ -378,6 +378,14 @@ impl<Id, State> KeyedState<Id, State> {
         if sources.is_empty() {
             return Ok(());
         }
+        if let &[source] = sources {
+            if source >= self.len() {
+                return Err(KeyedPositionError::new());
+            }
+            self.move_index(source, destination - usize::from(source < destination));
+            return Ok(());
+        }
+
         let mut sources = sources.to_vec();
         sources.sort_unstable();
         if sources.last().is_some_and(|i| *i >= self.len())
@@ -934,7 +942,7 @@ mod tests {
     #[test]
     fn sort_and_move_share_unchanged_revision_exhaustion_boundaries() {
         use std::sync::atomic::Ordering::Relaxed;
-        for sort in [false, true] {
+        for operation in ["sort", "single_move", "batch_move"] {
             for changed in [false, true] {
                 for revision in [u64::MAX - 1, u64::MAX] {
                     let mut states: KeyedState<_, _> = (0..4).map(|id| (id, id)).collect();
@@ -942,7 +950,7 @@ mod tests {
                     let before = states.structural_stamp().to_owned();
                     states.lineage().next_revision.store(revision, Relaxed);
                     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                        if sort {
+                        if operation == "sort" {
                             states
                                 .try_sort_by(|_, left, _, right| {
                                     Ok::<_, ()>(if changed {
@@ -952,10 +960,14 @@ mod tests {
                                     })
                                 })
                                 .unwrap();
-                        } else if changed {
-                            states.try_move_indices(&[0, 2], 4).unwrap();
-                        } else {
+                        } else if !changed && operation == "batch_move" {
+                            states.try_move_indices(&[1, 2], 3).unwrap();
+                        } else if !changed {
                             states.try_move_indices(&[1], 2).unwrap();
+                        } else if operation == "single_move" {
+                            states.try_move_indices(&[0], 4).unwrap();
+                        } else {
+                            states.try_move_indices(&[0, 2], 4).unwrap();
                         }
                     }));
                     let applied = changed && revision != u64::MAX;
@@ -970,8 +982,10 @@ mod tests {
                     }
                     let expected = if !applied {
                         [0, 1, 2, 3]
-                    } else if sort {
+                    } else if operation == "sort" {
                         [3, 2, 1, 0]
+                    } else if operation == "single_move" {
+                        [1, 2, 3, 0]
                     } else {
                         [1, 3, 0, 2]
                     };
@@ -1498,6 +1512,12 @@ mod allocation_tests {
                 "keyed_move/{count}/{shape}/{destination}: sources={sources} blocks={} bytes={} peak_bytes={}",
                 heap.total_blocks, heap.total_bytes, heap.max_bytes
             );
+            if sources == 1 {
+                assert_eq!(heap.total_blocks, 0);
+                assert_eq!(heap.total_bytes, 0);
+                assert_eq!(heap.max_bytes, 0);
+                continue;
+            }
             assert_eq!(heap.total_blocks, 3);
             assert_eq!(
                 heap.total_bytes,

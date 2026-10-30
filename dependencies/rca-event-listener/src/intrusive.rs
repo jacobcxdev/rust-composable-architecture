@@ -637,6 +637,28 @@ mod tests {
         assert_eq!(inner.list.try_total_listeners(), Some(0));
     }
 
+    #[cfg(feature = "critical-section")]
+    #[test]
+    fn dropping_a_completed_listener_does_not_access_the_list() {
+        use core::future::Future;
+        use core::task::{Context, Waker};
+
+        let event = crate::Event::new();
+        let mut listener = event.listen();
+        let inner = crate::sync::Arc::clone(&listener.listener().event);
+        let mut context = Context::from_waker(Waker::noop());
+        assert!(Pin::new(&mut listener).poll(&mut context).is_pending());
+        assert_eq!(event.notify(1), 1);
+        assert!(Pin::new(&mut listener).poll(&mut context).is_ready());
+
+        critical_section::with(|cs| {
+            // An unnecessary list access fails immediately instead of blocking.
+            let _list = inner.list.0.borrow_ref_mut(cs);
+            drop(listener);
+        });
+        assert_eq!(inner.list.try_total_listeners(), Some(0));
+    }
+
     #[test]
     fn drop_non_notified() {
         let inner = crate::Inner::new();

@@ -421,8 +421,8 @@ impl Compatibility {
 struct Entry {
     /// Detects incompatible codecs after the map key established address equality.
     codec: TypeId,
-    /// Retains codec settings once; the map key already owns the resource address.
-    configuration: String,
+    /// Retains compact codec settings; the map key already owns the resource address.
+    configuration: Box<str>,
     /// Erases the value type while retaining only weak allocation identity.
     reference: Weak<dyn Any + Send + Sync>,
 }
@@ -430,7 +430,8 @@ struct Entry {
 impl Entry {
     /// Compares remaining identity fields after lookup matched the resource address.
     fn matches_at_same_address(&self, other: &Compatibility) -> bool {
-        self.codec == other.identity.codec && self.configuration == other.identity.configuration
+        self.codec == other.identity.codec
+            && self.configuration.as_ref() == other.identity.configuration.as_str()
     }
 }
 
@@ -441,7 +442,7 @@ struct KeyResource<Key: SharedReaderKey> {
     /// Binds later reloads to the original complete provider identity.
     compatibility: Compatibility,
     /// Rejects reload through a different namespace without retaining this cache.
-    namespace: Weak<Mutex<HashMap<String, Entry>>>,
+    namespace: Weak<Mutex<HashMap<Box<str>, Entry>>>,
     /// Unregisters delivery when the final captured reference drops.
     _subscription: Key::Subscription,
     /// Holds only the latest request's weak identity; attempts own their tokens.
@@ -452,7 +453,7 @@ struct KeyResource<Key: SharedReaderKey> {
 #[derive(Clone, Default)]
 pub struct SharedKeyCache {
     /// Shares weak lookup metadata between clones, never strong value ownership.
-    entries: Arc<Mutex<HashMap<String, Entry>>>,
+    entries: Arc<Mutex<HashMap<Box<str>, Entry>>>,
 }
 
 impl fmt::Debug for SharedKeyCache {
@@ -531,7 +532,7 @@ impl SharedKeyCache {
             value,
             SharedSubscribeContext::Initial,
         )?;
-        self.publish::<Key>(&compatibility, reference)
+        self.publish::<Key>(compatibility, reference)
     }
 
     /// Constructs with a default closure while preserving the base key identity.
@@ -618,7 +619,7 @@ impl SharedKeyCache {
             loaded,
             SharedSubscribeContext::UserInitiated,
         )?;
-        self.publish::<Key>(&compatibility, reference)
+        self.publish::<Key>(compatibility, reference)
     }
 
     /// Reloads a captured writable reference, retaining its current value on absence.
@@ -765,7 +766,7 @@ impl SharedKeyCache {
             value,
             SharedSubscribeContext::UserInitiated,
         )?;
-        self.publish::<Key>(&compatibility, reference)
+        self.publish::<Key>(compatibility, reference)
     }
 
     /// Upgrades a compatible live entry, releasing the metadata lock before drops.
@@ -779,15 +780,17 @@ impl SharedKeyCache {
     ) -> Result<Option<Arc<SharedReference<Key::Value>>>, SharedKeyError<Key::Error>> {
         let found = {
             let entries = self.entries.lock().map_err(|_error| poisoned())?;
-            entries.get(&compatibility.identity.address).map(|entry| {
-                // Compatibility contains only owned strings and type IDs, so
-                // comparing it runs no provider code. Carry the owner out
-                // even on collision: its final drop may reenter this cache.
-                (
-                    entry.matches_at_same_address(compatibility),
-                    entry.reference.upgrade(),
-                )
-            })
+            entries
+                .get(compatibility.identity.address.as_str())
+                .map(|entry| {
+                    // Compatibility contains only owned strings and type IDs, so
+                    // comparing it runs no provider code. Carry the owner out
+                    // even on collision: its final drop may reenter this cache.
+                    (
+                        entry.matches_at_same_address(compatibility),
+                        entry.reference.upgrade(),
+                    )
+                })
         };
         match found {
             Some((compatible, Some(reference))) => {
@@ -808,26 +811,26 @@ impl SharedKeyCache {
     /// Losing candidates and displaced weak entries are destroyed after unlocking.
     fn publish<Key: SharedReaderKey>(
         &self,
-        compatibility: &Compatibility,
+        compatibility: Compatibility,
         candidate: Arc<SharedReference<Key::Value>>,
     ) -> Result<SharedReader<Key::Value>, SharedKeyError<Key::Error>> {
         let erased: Arc<dyn Any + Send + Sync> = Arc::clone(&candidate) as Arc<_>;
         let (winner, previous) = {
             let mut entries = self.entries.lock().map_err(|_error| poisoned())?;
             let winner = entries
-                .get(&compatibility.identity.address)
+                .get(compatibility.identity.address.as_str())
                 .and_then(|entry| {
                     entry
                         .reference
                         .upgrade()
-                        .map(|reference| (entry.matches_at_same_address(compatibility), reference))
+                        .map(|reference| (entry.matches_at_same_address(&compatibility), reference))
                 });
             let previous = if winner.is_none() {
                 entries.insert(
-                    compatibility.identity.address.clone(),
+                    compatibility.identity.address.into_boxed_str(),
                     Entry {
                         codec: compatibility.identity.codec,
-                        configuration: compatibility.identity.configuration.clone(),
+                        configuration: compatibility.identity.configuration.into_boxed_str(),
                         reference: Arc::downgrade(&erased),
                     },
                 )
@@ -869,7 +872,7 @@ fn cohort<Value>(reader: SharedReader<Value>) -> Shared<Value> {
 fn build_reference<Key: SharedReaderKey>(
     key: Key,
     compatibility: Compatibility,
-    namespace: Weak<Mutex<HashMap<String, Entry>>>,
+    namespace: Weak<Mutex<HashMap<Box<str>, Entry>>>,
     value: Key::Value,
     context: SharedSubscribeContext,
 ) -> Result<Arc<SharedReference<Key::Value>>, SharedKeyError<Key::Error>> {
@@ -1141,7 +1144,7 @@ ordinary_test_items! {
             let errors = [
                 futures_executor::block_on(cache.reader(LayoutKey, seed)).unwrap_err(),
                 cache
-                    .publish::<LayoutKey>(&compatibility, candidate)
+                    .publish::<LayoutKey>(compatibility, candidate)
                     .unwrap_err(),
                 cache.reset().unwrap_err(),
             ];
@@ -1167,10 +1170,10 @@ ordinary_test_items! {
             let owner = Arc::new(SharedReference::new("private-wrong-value"));
             let erased: Arc<dyn Any + Send + Sync> = Arc::clone(&owner) as Arc<_>;
             cache.entries.lock().unwrap().insert(
-                compatibility.identity.address.clone(),
+                compatibility.identity.address.clone().into_boxed_str(),
                 Entry {
                     codec: compatibility.identity.codec,
-                    configuration: compatibility.identity.configuration.clone(),
+                    configuration: compatibility.identity.configuration.clone().into_boxed_str(),
                     reference: Arc::downgrade(&erased),
                 },
             );
@@ -1215,10 +1218,10 @@ ordinary_test_items! {
             let erased: Arc<dyn Any + Send + Sync> = Arc::clone(&owner) as Arc<_>;
             let retained = Arc::downgrade(&erased);
             cache.entries.lock().unwrap().insert(
-                compatibility.identity.address.clone(),
+                compatibility.identity.address.clone().into_boxed_str(),
                 Entry {
                     codec: compatibility.identity.codec,
-                    configuration: compatibility.identity.configuration.clone(),
+                    configuration: compatibility.identity.configuration.clone().into_boxed_str(),
                     reference: Weak::clone(&retained),
                 },
             );
@@ -1232,7 +1235,7 @@ ordinary_test_items! {
             let provisional = Arc::downgrade(&candidate);
 
             let error = cache
-                .publish::<LayoutKey>(&compatibility, candidate)
+                .publish::<LayoutKey>(compatibility.clone(), candidate)
                 .unwrap_err();
             assert!(error.is_collision());
             assert_eq!(
@@ -1246,7 +1249,7 @@ ordinary_test_items! {
             let entries = cache.entries.lock().unwrap();
             assert_eq!(entries.len(), 1);
             assert!(Weak::ptr_eq(
-                &entries[&compatibility.identity.address].reference,
+                &entries[compatibility.identity.address.as_str()].reference,
                 &retained
             ));
             drop(entries);

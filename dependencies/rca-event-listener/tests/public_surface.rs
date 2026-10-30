@@ -102,6 +102,8 @@ fn owned_listeners_keep_their_event_identity() {
     assert_eq!(poll(&mut first), Poll::Ready(()));
     assert!(first.listens_to(&event));
     assert!(first.same_event(&second));
+    // Completion already consumed the notification.
+    assert!(!first.discard());
     assert!(!second.discard());
     assert!(!other.discard());
     #[cfg(feature = "std")]

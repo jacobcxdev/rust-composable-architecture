@@ -522,7 +522,12 @@ fn invalid_offsets_ranges_and_duplicate_moves_never_mutate() {
             assert!(error.source().is_none());
         }
     }
-    for (sources, target) in [(&[0, 0][..], 1), (&[2][..], 0), (&[][..], 3)] {
+    for (sources, target) in [
+        (&[0, 0][..], 1),
+        (&[2][..], 0),
+        (&[0, 2][..], 0),
+        (&[][..], 3),
+    ] {
         assert!(states.try_move_indices(sources, target).is_err());
     }
     assert!(states.try_swap_indices(2, 0).is_err());
