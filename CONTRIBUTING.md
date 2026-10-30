@@ -32,6 +32,25 @@ check those remote settings separately before release. Local test results do not
 prove that hosted checks passed. Code review does not authorise publication or
 release actions.
 
+## Repository protection
+
+The default branch requires a pull request, verified commit signatures, resolved
+review discussions and every required CI check from GitHub Actions.
+The branch must include the current base revision. Administrators cannot bypass
+these rules. Force pushes and deletion of the default branch are blocked.
+Other published branches also reject force pushes.
+Published tags cannot be changed or deleted.
+
+Merge commits preserve the signed review commits. Squash, rebase and automatic
+merge are disabled. The sole maintainer cannot approve their own pull request,
+so GitHub does not require a numerical approval count.
+The source-review requirements below still apply.
+
+Actions defaults to read-only tokens and cannot approve pull requests.
+External contributors require workflow approval. Remote actions must come from
+the approved sources and use full commit SHAs. Documentation signing retains
+its separate protected environment.
+
 ## Toolchain and formatting
 
 The repository pins Rust, rustfmt and Clippy through `rust-toolchain.toml`.
