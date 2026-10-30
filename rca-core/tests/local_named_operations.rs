@@ -146,6 +146,164 @@ fn pending_task<S: 'static, A: 'static>(capture: Rc<Cell<usize>>) -> Task<S, A> 
     })
 }
 
+/// Distinguishes owner-local factory entry from physical capture destruction.
+#[derive(Default)]
+struct TaskObservation {
+    /// Counts factory calls without making the fixture thread-transferable.
+    starts: Cell<usize>,
+    /// Counts captures released by either skipped or previously polled factories.
+    drops: Cell<usize>,
+}
+
+/// Remains non-Send even before its deferred task factory is called.
+struct TaskCapture(Rc<TaskObservation>);
+
+impl Drop for TaskCapture {
+    fn drop(&mut self) {
+        self.0.drops.set(self.0.drops.get() + 1);
+    }
+}
+
+/// Supplies independently observed captures in declaration order.
+struct ReplacementTasks {
+    /// Supplies each declaration with a distinct externally observed lifetime.
+    observations: std::vec::IntoIter<Rc<TaskObservation>>,
+}
+
+/// Changes action cases while addressing the same owner-local named operation.
+enum ReplacementAction {
+    /// Starts an existing generation before the replacement transaction.
+    Seed,
+    /// Declares unnamed work followed by two explicitly governed named tasks.
+    Pair([OperationPolicy; 2]),
+}
+
+impl Feature for ReplacementTasks {
+    type State = ();
+    type Action = ReplacementAction;
+
+    fn reduce(
+        &mut self,
+        (): &mut (),
+        action: &Self::Action,
+        context: &mut FeatureContext<'_, (), Self::Action>,
+    ) {
+        let policies: &[_] = match action {
+            ReplacementAction::Seed => &[Some(OperationPolicy::Coexist)],
+            ReplacementAction::Pair(policies) => &[None, Some(policies[0]), Some(policies[1])],
+        };
+        for &policy in policies {
+            let capture = TaskCapture(self.observations.next().unwrap());
+            let run = move |_| {
+                capture.0.starts.set(capture.0.starts.get() + 1);
+                async move {
+                    let _capture = capture;
+                    std::future::pending::<()>().await;
+                }
+            };
+            context.task(match policy {
+                Some(policy) => Task::run_named("work", policy, run),
+                None => Task::run(run),
+            });
+        }
+    }
+}
+
+/// Local tasks preserve per-declaration replacement and unnamed-task independence.
+#[test]
+fn local_task_replacement_is_per_declaration_and_leaves_unnamed_work_alone() {
+    use OperationPolicy::{Coexist, Replace};
+
+    for (policies, cancelled, active) in [
+        ([Coexist, Coexist], [false, false], 3),
+        ([Coexist, Replace], [true, true], 1),
+        ([Replace, Coexist], [true, false], 2),
+        ([Replace, Replace], [true, true], 1),
+    ] {
+        let host = Driver::new();
+        let observations: [_; 4] = std::array::from_fn(|_| Rc::new(TaskObservation::default()));
+        let store = Store::feature_builder(
+            (),
+            ReplacementTasks {
+                observations: Vec::from(observations.clone()).into_iter(),
+            },
+            Runtime::new(host.clone()),
+        )
+        .build()
+        .unwrap();
+        let operation = store.operation("work");
+        let mut actor = host.take();
+        let first_receipt = ordered(&mut actor, store.send(ReplacementAction::Seed)).unwrap();
+        let mut first = host.take();
+        assert!(poll(first.as_mut()).is_pending());
+        let mut first_wait = Box::pin(ordered(&mut actor, operation.capture()).unwrap());
+
+        let receipt = ordered(&mut actor, store.send(ReplacementAction::Pair(policies))).unwrap();
+        let mut bodies = std::mem::take(&mut *host.queued.borrow_mut());
+        assert_eq!(bodies.len(), 3);
+        let mut captured = Box::pin(ordered(&mut actor, operation.capture()).unwrap());
+        assert!(poll(first_wait.as_mut()).is_pending());
+        assert!(poll(captured.as_mut()).is_pending());
+        assert!(!first_receipt.is_finished());
+
+        assert_eq!(poll(first.as_mut()).is_ready(), cancelled[0]);
+        assert!(
+            poll(bodies[0].as_mut()).is_pending(),
+            "unnamed work survives"
+        );
+        assert_eq!(poll(bodies[1].as_mut()).is_ready(), cancelled[1]);
+        assert!(poll(bodies[2].as_mut()).is_pending());
+        assert_eq!(poll(first_wait.as_mut()).is_ready(), cancelled[0]);
+        assert_eq!(
+            observations.each_ref().map(|item| item.starts.get()),
+            [1, 1, usize::from(!cancelled[1]), 1]
+        );
+        assert_eq!(
+            observations.each_ref().map(|item| item.drops.get()),
+            [usize::from(cancelled[0]), 0, usize::from(cancelled[1]), 0]
+        );
+        assert_eq!(
+            ordered(&mut actor, operation.status())
+                .unwrap()
+                .active_count(),
+            active
+        );
+        assert_eq!(first_receipt.is_finished(), cancelled[0]);
+
+        ordered(&mut actor, operation.cancel()).unwrap();
+        assert!(poll(captured.as_mut()).is_pending());
+        if !cancelled[0] {
+            assert!(poll(first.as_mut()).is_ready());
+        }
+        if !cancelled[1] {
+            assert!(poll(bodies[1].as_mut()).is_ready());
+        }
+        assert!(poll(bodies[2].as_mut()).is_ready());
+        assert_eq!(poll(first_wait.as_mut()), Poll::Ready(Ok(())));
+        assert_eq!(poll(captured.as_mut()), Poll::Ready(Ok(())));
+        assert!(poll(bodies[0].as_mut()).is_pending());
+        assert!(
+            !receipt.is_finished(),
+            "unnamed work retains its causal receipt"
+        );
+        assert_eq!(
+            ordered(&mut actor, operation.status())
+                .unwrap()
+                .active_count(),
+            0
+        );
+
+        drop(store);
+        assert!(poll(actor.as_mut()).is_ready());
+        assert!(poll(bodies[0].as_mut()).is_ready());
+        assert!(receipt.is_finished());
+        assert_eq!(
+            observations.each_ref().map(|item| item.drops.get()),
+            [1, 1, 1, 1]
+        );
+    }
+}
+
 /// Shares counters without making the owner-local projected child Send.
 struct State {
     root: Rc<Cell<usize>>,
