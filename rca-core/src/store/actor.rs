@@ -264,6 +264,12 @@ pub(crate) struct Actor<State, Action, C: Carriers<State, Action> = Shared> {
     before_cancelled_gate_skip: Option<std::pin::Pin<Box<dyn Future<Output = ()> + Send + Sync>>>,
     #[cfg(all(test, feature = "test-util"))]
     before_gate_listen: Option<Box<dyn FnOnce() + Send + Sync>>,
+    /// Inserts a test notification before timer-free listener registration.
+    #[cfg(test)]
+    before_untimed_listener: Option<Box<dyn FnOnce() + Send + Sync>>,
+    /// Inserts test admission or closure after the final timer-free epoch check.
+    #[cfg(test)]
+    before_untimed_recheck: Option<Box<dyn FnOnce() + Send + Sync>>,
     /// Legacy effect gate, dropped after user-owned fields that may rebind it.
     #[cfg(feature = "test-util")]
     assertion_gate: Option<crate::testing::AssertionGateBinding<Action>>,
@@ -374,6 +380,10 @@ impl<State: 'static, Action: 'static, C: Execution<State, Action> + 'static>
             before_cancelled_gate_skip: None,
             #[cfg(all(test, feature = "test-util"))]
             before_gate_listen: None,
+            #[cfg(test)]
+            before_untimed_listener: None,
+            #[cfg(test)]
+            before_untimed_recheck: None,
         }
     }
 
@@ -671,27 +681,44 @@ impl<State: 'static, Action: 'static, C: Execution<State, Action> + 'static>
 
     /// Waits for admission or control, resetting the budget only on an actual pending poll.
     async fn wait_without_timers(&mut self, timer_free_turns: &mut usize) -> WaitOutcome {
-        let command = {
-            event_listener::listener!(self.control.event() => listener);
-            if self.control.epoch() != self.control_epoch {
-                return WaitOutcome::Continue;
-            }
+        if self.control.epoch() != self.control_epoch {
+            return WaitOutcome::Continue;
+        }
 
-            match self.receiver.try_recv() {
-                Ok(command) => Some(Ok(command)),
-                Err(async_channel::TryRecvError::Closed) => Some(Err(async_channel::RecvError)),
-                Err(async_channel::TryRecvError::Empty) => {
-                    let mut listener = std::pin::pin!(listener);
-                    std::future::poll_fn(|context| {
-                        let result = listener.as_mut().poll(context);
-                        // Empty alone is insufficient: a racing notification can be ready.
-                        if result.is_pending() {
-                            *timer_free_turns = 0;
-                        }
-                        result
-                    })
-                    .await;
-                    None
+        let command = match self.receiver.try_recv() {
+            Ok(command) => Some(Ok(command)),
+            Err(async_channel::TryRecvError::Closed) => Some(Err(async_channel::RecvError)),
+            Err(async_channel::TryRecvError::Empty) => {
+                // Ready commands need no listener. Before waiting, register and recheck both sources.
+                #[cfg(test)]
+                if let Some(before_listener) = self.before_untimed_listener.take() {
+                    before_listener();
+                }
+                event_listener::listener!(self.control.event() => listener);
+                if self.control.epoch() != self.control_epoch {
+                    return WaitOutcome::Continue;
+                }
+
+                #[cfg(test)]
+                if let Some(before_recheck) = self.before_untimed_recheck.take() {
+                    before_recheck();
+                }
+                match self.receiver.try_recv() {
+                    Ok(command) => Some(Ok(command)),
+                    Err(async_channel::TryRecvError::Closed) => Some(Err(async_channel::RecvError)),
+                    Err(async_channel::TryRecvError::Empty) => {
+                        let mut listener = std::pin::pin!(listener);
+                        std::future::poll_fn(|context| {
+                            let result = listener.as_mut().poll(context);
+                            // Empty alone is insufficient: a racing notification can be ready.
+                            if result.is_pending() {
+                                *timer_free_turns = 0;
+                            }
+                            result
+                        })
+                        .await;
+                        None
+                    }
                 }
             }
         };
@@ -1855,6 +1882,74 @@ ordinary_test_items! {
         use crate::store::scope::{ScopeIdentity, ScopeSlot, ScopeTransitionBatch};
         use crate::{ActionTask, MonotonicInstant, Reducer, RuntimeDriver};
 
+        /// Checks a control notification that precedes listener registration and cannot wake that listener.
+        #[test]
+        fn untimed_wait_rechecks_control_after_listener_registration() {
+            let (mut actor, _ingress) = launch_actor(Effect::none(), Runtime::new(TestDriver));
+            let control = Arc::clone(&actor.control);
+            actor.before_untimed_listener = Some(Box::new(move || control.notify()));
+            let mut turns = 17;
+
+            assert!(matches!(
+                actor.wait_without_timers(&mut turns).now_or_never(),
+                Some(WaitOutcome::Continue)
+            ));
+            assert_eq!(turns, 17, "a ready control wake does not reset the budget");
+            assert_eq!(actor.control.epoch(), 1);
+            assert_eq!(
+                actor.control_epoch, 0,
+                "the outer control pass must harvest the wake"
+            );
+            assert_eq!(actor.commit_version, 0);
+            assert!(actor.before_untimed_listener.is_none());
+        }
+
+        /// Checks admission after the final epoch read without requiring another actor poll.
+        #[test]
+        fn untimed_wait_rechecks_admission_after_the_final_epoch_read() {
+            let (mut actor, ingress) = launch_actor(Effect::none(), Runtime::new(TestDriver));
+            let (reply, receive) = crate::store::command::commit_channel();
+            let admission = Arc::clone(&ingress);
+            actor.before_untimed_recheck = Some(Box::new(move || {
+                admission
+                    .try_send(Command::Action(ActionCommand::external((), reply)))
+                    .unwrap();
+            }));
+            let mut turns = 17;
+
+            assert!(matches!(
+                actor.wait_without_timers(&mut turns).now_or_never(),
+                Some(WaitOutcome::Continue)
+            ));
+            let task = receive
+                .now_or_never()
+                .expect("the same actor poll acknowledges the action")
+                .expect("the actor retains the commit sender")
+                .expect("the action commits");
+            assert!(task.finish().now_or_never().is_some());
+            assert!(!task.is_cancelled());
+            assert_eq!(turns, 17, "a ready command does not reset the budget");
+            assert_eq!(actor.commit_version, 1);
+            assert!(actor.before_untimed_recheck.is_none());
+        }
+
+        /// Checks final-owner loss after the final epoch read without parking on an obsolete listener.
+        #[test]
+        fn untimed_wait_rechecks_closure_after_the_final_epoch_read() {
+            let (mut actor, ingress) = launch_actor(Effect::none(), Runtime::new(TestDriver));
+            actor.before_untimed_recheck = Some(Box::new(move || drop(ingress)));
+            let mut turns = 17;
+
+            assert!(matches!(
+                actor.wait_without_timers(&mut turns).now_or_never(),
+                Some(WaitOutcome::Closed)
+            ));
+            assert_eq!(turns, 17, "a closed mailbox does not reset the budget");
+            assert!(actor.receiver.is_closed());
+            assert_eq!(actor.commit_version, 0);
+            assert!(actor.before_untimed_recheck.is_none());
+        }
+
         #[cfg(feature = "test-util")]
         type GateAction = (u8, Arc<()>);
 
@@ -2722,7 +2817,7 @@ ordinary_test_items! {
             }
         }
 
-        /// Supplies the private stale-scope check, which must never launch work.
+        /// Supplies actor checks that must never launch work.
         ///
         /// Unexpected spawning fails explicitly instead of silently discarding a task.
         #[derive(Clone, Copy)]
@@ -2736,7 +2831,7 @@ ordinary_test_items! {
 
         impl RuntimeDriver for TestDriver {
             fn spawn(&self, _task: RuntimeFuture) {
-                panic!("stale-scope fixture must not spawn work");
+                panic!("actor fixture must not spawn work");
             }
 
             fn now(&self) -> MonotonicInstant {

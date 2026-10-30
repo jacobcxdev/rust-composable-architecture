@@ -163,7 +163,7 @@ struct PublicationProbe {
 
 /// Uses one fixed identity for cold and deliberately losing publication scenarios.
 #[derive(Clone)]
-struct PublicationKey(std::sync::Arc<PublicationProbe>);
+struct PublicationKey(std::sync::Arc<PublicationProbe>, usize);
 
 /// Records the exact lifetime of one admitted provider subscription.
 struct PublicationSubscription(std::sync::Arc<PublicationProbe>);
@@ -182,7 +182,11 @@ impl SharedReaderKey for PublicationKey {
     type Subscription = PublicationSubscription;
 
     fn identity(&self) -> SharedKeyIdentity {
-        SharedKeyIdentity::new::<u64>("shared-profile", "v1")
+        let mut address = String::with_capacity(self.1.max("shared-profile".len()));
+        address.push_str("shared-profile");
+        let mut configuration = String::with_capacity(self.1.max("v1".len()));
+        configuration.push_str("v1");
+        SharedKeyIdentity::new::<u64>(address, configuration)
     }
 
     fn load(
@@ -223,16 +227,18 @@ fn poll_publication<Output>(future: impl Future<Output = Output>) -> Output {
 ///
 /// A nested live winner selects the losing-publication path. Optional raw profiles
 /// use a fresh caller-selected path and remain available after a failed assertion.
-fn publication_allocations(late_winner: bool) -> u64 {
+fn publication_allocations(late_winner: bool, identity_capacity: usize) -> (u64, usize, usize) {
     use std::sync::atomic::Ordering::SeqCst;
 
     let cache = SharedKeyCache::new();
     let probe = std::sync::Arc::new(PublicationProbe::default());
-    let key = PublicationKey(std::sync::Arc::clone(&probe));
+    let key = PublicationKey(std::sync::Arc::clone(&probe), identity_capacity);
     let case = if late_winner { "late-winner" } else { "cold" };
     // Explicit qualification opt-in; ordinary tests never overwrite dhat-heap.json.
-    let output = std::env::var_os("RCA_R09_DHAT_DIR")
-        .map(|directory| std::path::PathBuf::from(directory).join(format!("{case}.json")));
+    let output = std::env::var_os("RCA_R09_DHAT_DIR").map(|directory| {
+        std::path::PathBuf::from(directory)
+            .join(format!("{case}-capacity-{identity_capacity}.json"))
+    });
     let profiler = if let Some(path) = &output {
         // Reserve a new path before DHAT begins; a stale result is an error.
         drop(
@@ -286,7 +292,11 @@ fn publication_allocations(late_winner: bool) -> u64 {
     drop(winner);
     assert_eq!(probe.drops.load(SeqCst), constructors - 1);
     assert_eq!(returned.read(|value| *value).unwrap(), expected_value);
-    drop((returned, key, cache));
+    drop((returned, key));
+    assert_eq!(probe.drops.load(SeqCst), constructors);
+    assert_eq!(std::sync::Arc::strong_count(&probe), 1);
+    let dead = dhat::HeapStats::get();
+    drop(cache);
     let released = dhat::HeapStats::get();
     drop(profiler);
 
@@ -294,14 +304,16 @@ fn publication_allocations(late_winner: bool) -> u64 {
     if let Some(path) = output {
         assert!(std::fs::metadata(path).unwrap().len() > 0);
     }
-    assert_eq!(probe.drops.load(SeqCst), constructors);
-    assert_eq!(std::sync::Arc::strong_count(&probe), 1);
     assert_eq!(released.curr_blocks, 0);
     assert_eq!(released.curr_bytes, 0);
     println!(
-        "publication case={case} seeds={seeds} loads={constructors} subscriptions={constructors} drops={constructors} value={expected_value} before={before:?} after={after:?} released={released:?}"
+        "publication case={case} capacity={identity_capacity} seeds={seeds} loads={constructors} subscriptions={constructors} drops={constructors} value={expected_value} before={before:?} after={after:?} dead={dead:?} released={released:?}"
     );
-    after.total_blocks - before.total_blocks
+    (
+        after.total_blocks - before.total_blocks,
+        after.curr_bytes,
+        dead.curr_bytes,
+    )
 }
 
 /// Checks the construction budget and ownership of a cold publication.
@@ -313,8 +325,23 @@ pub(crate) fn cold_publication_keeps_its_required_construction_allocations() {
     {
         return;
     }
-    // Five construction blocks below, one map address, one config and one table.
-    assert_eq!(publication_allocations(false), 8);
+    // Five construction blocks below and one table. The entry takes ownership
+    // of the caller's existing address and configuration strings.
+    let (compact_blocks, compact_retained, compact_dead) = publication_allocations(false, 0);
+    let (spare_blocks, spare_retained, spare_dead) = publication_allocations(false, 4096);
+    assert_eq!(compact_blocks, 6);
+    assert!(
+        spare_blocks <= 8,
+        "compaction must not exceed the original copy budget"
+    );
+    assert_eq!(
+        spare_retained, compact_retained,
+        "cache metadata must not retain unused capacity"
+    );
+    assert_eq!(
+        spare_dead, compact_dead,
+        "dead cache entries must not retain unused capacity"
+    );
 }
 
 /// Checks that a losing publication reuses the winner's existing metadata.
@@ -327,5 +354,5 @@ pub(crate) fn losing_publication_does_not_clone_winner_metadata() {
     }
     // Two retained compatibility strings, reference Arc, load coordinator Arc,
     // and the retained key-resource Box. No copied winner identity is needed.
-    assert_eq!(publication_allocations(true), 5);
+    assert_eq!(publication_allocations(true, 0).0, 5);
 }

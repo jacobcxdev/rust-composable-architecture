@@ -60,7 +60,7 @@ impl ControlWake {
 
     /// Borrows the event for stack-based listener registration in the actor loop.
     ///
-    /// Register before comparing epochs so a concurrent notification cannot be lost.
+    /// Before waiting, register and compare epochs again so a notification cannot be lost.
     pub(crate) fn event(&self) -> &Event {
         &self.changed
     }

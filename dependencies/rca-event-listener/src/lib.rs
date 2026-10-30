@@ -1071,9 +1071,11 @@ pin_project_lite::pin_project! {
         B: Unpin,
     {
         fn drop(mut this: Pin<&mut Self>) {
-            // If we're being dropped, we need to remove ourself from the list.
             let this = this.project();
-            (*this.event).borrow().remove(this.listener, true);
+            // Completed listeners are already unlinked and need no list access.
+            if this.listener.is_some() {
+                (*this.event).borrow().remove(this.listener, true);
+            }
         }
     }
 }
