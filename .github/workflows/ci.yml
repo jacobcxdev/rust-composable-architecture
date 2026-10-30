@@ -2,10 +2,10 @@ name: CI
 
 on:
     push:
-        branches: ["main", "dev/next"]
+        branches: ["main"]
         tags: ["*"]
     pull_request:
-        branches: ["main", "dev/next"]
+        branches: ["main"]
     workflow_dispatch:
 
 concurrency:
@@ -91,7 +91,7 @@ jobs:
         strategy:
             fail-fast: false
             matrix:
-                engine: [candidate, upstream, historical]
+                engine: [candidate, upstream]
         steps:
             - name: Checkout
               uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -101,6 +101,16 @@ jobs:
               with:
                   toolchain: 1.98.0
                   components: clippy, rustfmt
+
+            - name: Restore Cargo cache
+              uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+              with:
+                  key: ${{ matrix.engine }}
+                  workspaces: |
+                      tests/composable-counter/${{ matrix.engine }}
+                      tests/composable-stream/${{ matrix.engine }}
+                      tests/composable-timers/${{ matrix.engine }}
+                      tests/composable-observation/${{ matrix.engine }}
 
             - name: Check counter fixture formatting
               run: cargo fmt --manifest-path tests/composable-counter/${{ matrix.engine }}/Cargo.toml --check
@@ -126,7 +136,7 @@ jobs:
               id: counter-fixture
               timeout-minutes: 2
               # Upstream runtime results are observations of a failed reference.
-              # Its lint/build checks and every RCA/historical check stay required.
+              # Its lint/build checks and every RCA check stay required.
               # See tests/composable-counter/README.md#failed-upstream-reference.
               continue-on-error: ${{ matrix.engine == 'upstream' }}
               run: cargo test --locked --manifest-path tests/composable-counter/${{ matrix.engine }}/Cargo.toml
@@ -218,7 +228,7 @@ jobs:
         strategy:
             fail-fast: false
             matrix:
-                engine: [candidate, historical]
+                engine: [candidate]
         steps:
             - name: Checkout
               uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -228,6 +238,12 @@ jobs:
               with:
                   toolchain: 1.98.0
                   components: clippy, rustfmt
+
+            - name: Restore Cargo cache
+              uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+              with:
+                  key: ${{ matrix.engine }}
+                  workspaces: tests/composable-keyed-policy/${{ matrix.engine }}
 
             - name: Check keyed fixture formatting
               run: cargo fmt --manifest-path tests/composable-keyed-policy/${{ matrix.engine }}/Cargo.toml --check
@@ -431,9 +447,13 @@ jobs:
                   cargo test -p rca-core --lib store::mailbox::tests --release
                   cargo test -p rca-test --lib host_teardown_tests --release
 
-    miri:
-        name: Miri runtime-neutral core
+    miri-shards:
+        name: Miri (${{ matrix.suite }})
         runs-on: ubuntu-24.04
+        strategy:
+            fail-fast: false
+            matrix:
+                suite: [library, integration]
         steps:
             - name: Checkout
               uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -446,12 +466,49 @@ jobs:
 
             - name: Restore Cargo cache
               uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+              with:
+                  key: ${{ matrix.suite }}
 
-            - name: Run Miri
-              run: rustup run nightly-2026-08-23 cargo miri test -p rca-core
+            - name: Run library and documentation tests under Miri
+              if: matrix.suite == 'library'
+              run: |
+                  rustup run nightly-2026-08-23 cargo miri test --locked -p rca-core --lib
+                  rustup run nightly-2026-08-23 cargo miri test --locked -p rca-core --doc
+
+            - name: Run integration tests under Miri
+              if: matrix.suite == 'integration'
+              # Ask Cargo which targets the original default command selects.
+              # A wildcard would select disabled feature-gated tests as well.
+              run: |
+                  graph=$(rustup run nightly-2026-08-23 cargo test --locked -Z unstable-options --unit-graph -p rca-core)
+                  targets=$(jq -er '
+                      . as $graph | [.roots[] | $graph.units[.]] |
+                      if all(.[];
+                          (.mode == "test" and (.target.kind == ["lib"] or .target.kind == ["test"])) or
+                          (.mode == "doctest" and .target.kind == ["lib"]))
+                      then .[] | select(.target.kind == ["test"]) | .target.name
+                      else error("Miri shards do not cover every default Cargo target") end
+                  ' <<< "$graph")
+                  arguments=()
+                  while IFS= read -r target; do
+                      arguments+=(--test "$target")
+                  done <<< "$targets"
+                  rustup run nightly-2026-08-23 cargo miri test --locked -p rca-core "${arguments[@]}"
 
             - name: Run feature-gated composition properties under Miri
+              if: matrix.suite == 'library'
               run: rustup run nightly-2026-08-23 cargo miri test --locked -p rca-core --features test-util --test lifecycle_properties --test keyed_properties --test scoped_properties
+
+    miri:
+        name: Miri runtime-neutral core
+        runs-on: ubuntu-24.04
+        needs: miri-shards
+        if: always()
+        steps:
+            - name: Require every Miri shard
+              env:
+                  MIRI_RESULT: ${{ needs.miri-shards.result }}
+              run: test "$MIRI_RESULT" = success
 
     supply-chain:
         name: Dependency and licence policy
@@ -512,6 +569,11 @@ jobs:
               uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772
               with:
                   toolchain: 1.98.0
+
+            - name: Restore Cargo cache
+              # Qualification creates isolated consumer targets. This cache covers
+              # the package builder's dependencies, not those disposable consumers.
+              uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
 
             - name: Verify archives through local registry
               run: scripts/verify-packaged-downstream.sh

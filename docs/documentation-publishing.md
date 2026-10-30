@@ -5,8 +5,8 @@ toolchain, all features and warnings denied. It first builds documentation for
 `futures-core` and the owned event-listener fork. These separate builds supply the
 metadata for inherited and re-exported API links. It then builds the workspace
 without other dependency documentation. The private index repository holds
-the published pages. `main` selects the stable channel, `dev/next` selects the
-develop channel, and tags retain separate paths.
+the published pages. `main` selects the stable channel.
+Tags that match `v*` retain separate paths. No development branch is published.
 
 Both CI workflows use this build order:
 
@@ -58,7 +58,7 @@ an ephemeral GitHub-hosted runner.
 A dedicated key supports separate revocation. It does not restrict signatures to
 RCA. A compromised key can sign other commits under the registered GitHub account.
 The environment requires approval from `jacobcxdev`, with administrator bypass
-disabled. It accepts only `main`, `dev/next` and `v*` tags. Self-review remains
+disabled. It accepts only `main` and `v*` tags. Self-review remains
 available so that the owner can approve runs from the owner's own pushes.
 
 ## First publication requires owner approval
