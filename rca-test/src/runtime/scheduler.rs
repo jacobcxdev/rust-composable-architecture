@@ -15,9 +15,13 @@ use crate::error::DriveFailure;
 use crate::{DriveError, PendingSleep};
 
 #[cfg(all(test, loom))]
+use loom::sync::atomic::{AtomicBool, Ordering};
+#[cfg(all(test, loom))]
 use loom::sync::{Mutex, MutexGuard};
 #[cfg(not(all(test, loom)))]
 use parking_lot::{Mutex, MutexGuard};
+#[cfg(not(all(test, loom)))]
+use std::sync::atomic::{AtomicBool, Ordering};
 
 /// Uses instrumented locks in Loom models and non-poisoning locks otherwise.
 pub(super) fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -60,6 +64,8 @@ impl<W> std::panic::RefUnwindSafe for Scheduler<W> {}
 pub(crate) struct WakeState {
     /// Durable readiness and virtual time inspected by every host operation.
     pub(crate) state: Mutex<SchedulerState>,
+    /// Ends admission under the state guard and stops polls without taking it.
+    pub(super) closed: AtomicBool,
     /// Broadcasts changes to stalled drives; readiness remains authoritative.
     changed: Event,
 }
@@ -77,8 +83,8 @@ impl<W: Future<Output = ()> + Unpin> Scheduler<W> {
                     next_sleep_id: 0,
                     now,
                     active_target: None,
-                    closed: false,
                 }),
+                closed: AtomicBool::new(false),
                 changed: Event::new(),
             }),
             tasks: Mutex::new(BTreeMap::new()),
@@ -88,7 +94,7 @@ impl<W: Future<Output = ()> + Unpin> Scheduler<W> {
     /// Admits without polling, or drops outside the locks after host closure.
     pub(crate) fn spawn(&self, future: W) {
         let mut state = lock(&self.wake.state);
-        if state.closed {
+        if self.wake.closed.load(Ordering::Relaxed) {
             drop(state);
             drop(future);
             return;
@@ -145,14 +151,13 @@ impl<W: Future<Output = ()> + Unpin> Scheduler<W> {
         };
         for (id, mut task) in batch.remaining.by_ref() {
             batch.current_id = Some(id);
-            let closed = {
-                let state = lock(&self.wake.state);
-                if state.closed {
-                    lock(&self.tasks).remove(&id);
-                }
-                state.closed
-            };
-            if closed {
+            if self.wake.closed.load(Ordering::Acquire) {
+                {
+                    // Closure can still own both guards. Wait for its cleanup,
+                    // then remove this reserved slot before dropping the future.
+                    let _state = lock(&self.wake.state);
+                    lock(&self.tasks).remove(&id)
+                };
                 drop(task);
                 batch.current_id = None;
                 continue;
@@ -171,7 +176,7 @@ impl<W: Future<Output = ()> + Unpin> Scheduler<W> {
             let mut state = lock(&self.wake.state);
             let mut tasks = lock(&self.tasks);
             match result {
-                Poll::Pending if !state.closed => {
+                Poll::Pending if !self.wake.closed.load(Ordering::Relaxed) => {
                     let ready = state.live_tasks.contains(&id) && state.ready_tasks.contains(&id);
                     let replaced = tasks.insert(id, Some(task));
                     debug_assert!(replaced.is_none_or(|value| value.is_none()));
@@ -212,7 +217,9 @@ impl<W: Future<Output = ()> + Unpin> Scheduler<W> {
         let (tasks, sleeps) = {
             let mut state = lock(&self.wake.state);
             let mut tasks = lock(&self.tasks);
-            state.closed = true;
+            // Locked readers share this guard. Detached polls use an acquire
+            // load, then take the guards before any closed-path cleanup.
+            self.wake.closed.store(true, Ordering::Release);
             state.live_tasks.clear();
             state.ready_tasks.clear();
             state.active_target = None;
@@ -407,13 +414,14 @@ impl<W: Future<Output = ()> + Unpin> Scheduler<W> {
         loop {
             let state = lock(&self.wake.state);
             let tasks = lock(&self.tasks);
-            let runnable = !state.closed
+            let closed = self.wake.closed.load(Ordering::Relaxed);
+            let runnable = !closed
                 && state.active_target.is_none()
                 && state
                     .ready_tasks
                     .iter()
                     .any(|id| tasks.get(id).is_some_and(Option::is_some));
-            let failure = if state.closed {
+            let failure = if closed {
                 Some(DriveFailure::Closed)
             } else if state.active_target.is_some() {
                 Some(DriveFailure::PartialAdvance)
@@ -703,7 +711,7 @@ impl WakeState {
                     SleepRegistration::Elapsed,
                     state.sleeps.remove(&(deadline, id)),
                 )
-            } else if state.closed {
+            } else if self.closed.load(Ordering::Relaxed) {
                 (SleepRegistration::Closed, None)
             } else {
                 (
@@ -775,8 +783,6 @@ pub(crate) struct SchedulerState {
     pub(super) now: MonotonicInstant,
     /// Target retained across partial `TestStore` advances.
     pub(super) active_target: Option<MonotonicInstant>,
-    /// Final host teardown has ended admission and timer registration.
-    pub(super) closed: bool,
 }
 
 /// Owned diagnostic data that cannot extend task or waker lifetimes.

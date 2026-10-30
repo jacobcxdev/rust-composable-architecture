@@ -463,6 +463,52 @@ mod host_teardown_tests {
     }
 
     #[test]
+    fn close_racing_ready_batch_releases_detached_and_pending_tasks_once() {
+        struct ReentrantDrop {
+            runtime: rca_core::Runtime,
+            drops: Arc<AtomicUsize>,
+        }
+
+        impl Drop for ReentrantDrop {
+            fn drop(&mut self) {
+                let _ = self.runtime.now();
+                self.drops.fetch_add(1, Ordering::SeqCst);
+            }
+        }
+
+        loom::model(|| {
+            let host = DeterministicRuntime::new();
+            let driver = host.driver.clone();
+            let drops = Arc::new(AtomicUsize::new(0));
+            for _ in 0..2 {
+                let probe = ReentrantDrop {
+                    runtime: host.runtime(),
+                    drops: Arc::clone(&drops),
+                };
+                host.spawn_task(Box::pin(std::future::poll_fn(move |cx| {
+                    let _ = &probe;
+                    cx.waker().wake_by_ref();
+                    std::task::Poll::Pending
+                })));
+            }
+
+            let polling_driver = driver.clone();
+            let poll = loom::thread::spawn(move || polling_driver.shared.poll_ready_batch(2));
+            let teardown = loom::thread::spawn(move || drop(host));
+            let polls = poll.join().expect("batch poll returns");
+            teardown.join().expect("host drops");
+
+            assert!(polls <= 2);
+            assert_eq!(drops.load(Ordering::SeqCst), 2);
+            assert_eq!(driver.shared.poll_ready_batch(2), 0);
+            let snapshot = driver.shared.snapshot();
+            assert!(snapshot.live_task_ids.is_empty());
+            assert!(snapshot.ready_task_ids.is_empty());
+            assert!(super::scheduler::lock(&driver.shared.tasks).is_empty());
+        });
+    }
+
+    #[test]
     fn owned_sleep_drop_racing_deadline_drain_leaves_no_pending_time() {
         use std::task::{Context, Poll, Waker};
         use std::time::Duration;
@@ -738,7 +784,7 @@ mod tests {
             .unwrap_err();
             assert_eq!(panic.downcast_ref::<&str>(), Some(&"poll panic fixture"));
             let state = scheduler::lock(&scheduler.wake.state);
-            assert_eq!(state.closed, close_host);
+            assert_eq!(scheduler.wake.closed.load(Ordering::Relaxed), close_host);
             assert!(scheduler::lock(&scheduler.tasks).is_empty());
             if close_host {
                 assert!(state.live_tasks.is_empty());
