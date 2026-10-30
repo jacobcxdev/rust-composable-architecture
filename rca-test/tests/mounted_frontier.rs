@@ -21,7 +21,7 @@ macro_rules! mounted_frontier {
         impl Feature for Root {
             type State = Option<usize>;
             type Action = ();
-            fn reduce(
+            fn update(
                 &mut self,
                 _: &mut Self::State,
                 _: &(),
@@ -35,7 +35,7 @@ macro_rules! mounted_frontier {
         impl Feature for Child {
             type State = usize;
             type Action = Owned;
-            fn reduce(
+            fn update(
                 &mut self,
                 state: &mut usize,
                 action: &Owned,
@@ -50,7 +50,7 @@ macro_rules! mounted_frontier {
         impl Feature for EffectChild {
             type State = usize;
             type Action = Owned;
-            fn reduce(
+            fn update(
                 &mut self,
                 state: &mut usize,
                 action: &Owned,
@@ -86,7 +86,7 @@ macro_rules! mounted_frontier {
                 move |_| EffectChild(effect.take()),
             );
             let (builder, site) =
-                TestStore::feature_builder(Some(2), Root).mount_with_site(mount);
+                TestStore::builder(Some(2), Root).mount_with_site(mount);
             (builder.with_exhaustivity(exhaustivity).build(), site)
         }
 
@@ -349,7 +349,7 @@ macro_rules! mounted_frontier {
                         })
                     },
                 );
-                let (builder, site) = TestStore::feature_builder(Some(2), Root).mount_with_site(mount);
+                let (builder, site) = TestStore::builder(Some(2), Root).mount_with_site(mount);
                 let (builder, output) = builder.output::<usize>(&site, |handlers| {
                     handlers.at_root(|state, value, _| {
                         *state.as_mut().unwrap() += value;
@@ -438,7 +438,7 @@ macro_rules! mounted_frontier {
             impl Feature for RowsFeature {
                 type State = Rows;
                 type Action = ();
-                fn reduce(
+                fn update(
                     &mut self,
                     _: &mut Rows,
                     _: &(),
@@ -466,7 +466,7 @@ macro_rules! mounted_frontier {
                     |_| Some(MountIdentity { key: (), replacement: 0, configuration: 0 }),
                     |_| RowsFeature,
                 );
-                let (builder, _) = TestStore::feature_builder(
+                let (builder, _) = TestStore::builder(
                     [(0, 2), (1, 2)].into_iter().collect::<Rows>(),
                     RowsFeature,
                 ).mount_with_children(collection, move |_, children| {
@@ -578,7 +578,7 @@ macro_rules! mounted_frontier {
                     },
                 );
                 let (builder, site) =
-                    TestStore::feature_builder(Some(2), Root).mount_with_site(mount);
+                    TestStore::builder(Some(2), Root).mount_with_site(mount);
                 let mut store = builder.build();
                 let error = store.acquire(&site).await.unwrap_err();
                 let access = error.task_access_error().unwrap();
@@ -636,7 +636,7 @@ macro_rules! mounted_frontier {
         impl Feature for PairRoot {
             type State = Pair;
             type Action = u8;
-            fn reduce(
+            fn update(
                 &mut self,
                 state: &mut Pair,
                 action: &u8,
@@ -690,7 +690,7 @@ macro_rules! mounted_frontier {
                     replacement: 0,
                     configuration: 0,
                 };
-                let (builder, site) = TestStore::feature_builder(state.clone(), PairRoot)
+                let (builder, site) = TestStore::builder(state.clone(), PairRoot)
                     .mount_with_site(descriptor());
                 let (builder, sibling_site) = builder.mount_with_site(sibling);
                 let mut store = builder.build();
@@ -705,7 +705,7 @@ macro_rules! mounted_frontier {
                 let original = store.acquire(&site).await.unwrap().unwrap();
                 let sibling = store.acquire(&sibling_site).await.unwrap().unwrap();
                 let (builder, foreign_site) =
-                    TestStore::feature_builder(state, PairRoot).mount_with_site(descriptor());
+                    TestStore::builder(state, PairRoot).mount_with_site(descriptor());
                 let mut foreign = builder.build();
                 foreign
                     .receive_structural(|_| {})
@@ -858,7 +858,7 @@ macro_rules! mounted_frontier {
                     |_| Child,
                 );
                 let (builder, site) =
-                    TestStore::feature_builder(Some(2), Root).mount_with_site(mount);
+                    TestStore::builder(Some(2), Root).mount_with_site(mount);
                 let mut store = builder
                     .with_exhaustivity(rca_test::Exhaustivity::NonExhaustive)
                     .build();
@@ -928,7 +928,7 @@ macro_rules! mounted_frontier {
                         },
                     );
                     let (builder, site) =
-                        TestStore::feature_builder(Some(2), Root).mount_with_site(mount);
+                        TestStore::builder(Some(2), Root).mount_with_site(mount);
                     let mut store = builder.build();
                     let initial = store.receive_structural(|_| {}).await.unwrap();
                     let context = store.acquire(&site).await.unwrap().unwrap();
@@ -989,7 +989,7 @@ macro_rules! mounted_frontier {
             impl Feature for SelectedRoot {
                 type State = Selected;
                 type Action = ();
-                fn reduce(&mut self, _: &mut Selected, _: &(), _: &mut FeatureContext<'_, Selected, ()>) {}
+                fn update(&mut self, _: &mut Selected, _: &(), _: &mut FeatureContext<'_, Selected, ()>) {}
             }
             block_on(async {
                 let available = Arc::new(AtomicBool::new(true));
@@ -1001,7 +1001,7 @@ macro_rules! mounted_frontier {
                     |state: &Selected| state.child.map(|_| MountIdentity { key: (), replacement: 0, configuration: 0 }),
                     |_| Child,
                 );
-                let (builder, site) = TestStore::projected_feature_builder(
+                let (builder, site) = TestStore::projected_builder(
                     Selected { child: Some(2), available: Arc::clone(&available) },
                     SelectedRoot, |state| state.child,
                 ).mount_with_site(mount);
@@ -1084,7 +1084,7 @@ macro_rules! mounted_frontier {
                     },
                 );
                 let (builder, site) =
-                    TestStore::feature_builder(Some(2), Root).mount_with_site(mount);
+                    TestStore::builder(Some(2), Root).mount_with_site(mount);
                 let mut store = builder.build();
                 let initial = store.receive_structural(|_| {}).await.unwrap();
                 release.try_send(()).unwrap();
@@ -1125,7 +1125,7 @@ macro_rules! mounted_frontier {
                         |_| Child,
                     );
                     let (builder, site) =
-                        TestStore::feature_builder(Some(2), Root).mount_with_site(mount);
+                        TestStore::builder(Some(2), Root).mount_with_site(mount);
                     let mut store = builder
                         .with_capture::<Count>(|state| Ok(state.unwrap_or(0)))
                         .unwrap()
@@ -1274,7 +1274,7 @@ mod shared {
                     },
                 );
                 let gate = rca_core::testing::TransactionGate::new();
-                let (builder, site) = CoreStore::feature_builder(Some(2), Root, host.runtime())
+                let (builder, site) = CoreStore::builder(Some(2), Root, host.runtime())
                     .transaction_gate(gate.clone())
                     .mount_with_site(mount);
                 let store = builder.build().unwrap();

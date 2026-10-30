@@ -160,7 +160,7 @@ fn keyed_owned_removal_preserves_other_entries_and_never_retargets_replacement()
     impl Feature for RowsFeature {
         type State = Rows;
         type Action = ();
-        fn reduce(&mut self, _: &mut Rows, (): &(), _: &mut FeatureContext<'_, Rows, ()>) {}
+        fn update(&mut self, _: &mut Rows, (): &(), _: &mut FeatureContext<'_, Rows, ()>) {}
     }
     let driver = Driver::default();
     let old = Rc::new(Cell::new(4));
@@ -359,7 +359,7 @@ fn cancelled_child_producer_does_not_cancel_parent_owned_removal() {
     impl Feature for Parent {
         type State = Option<Owned>;
         type Action = ();
-        fn reduce(
+        fn update(
             &mut self,
             _: &mut Self::State,
             (): &(),
@@ -373,7 +373,7 @@ fn cancelled_child_producer_does_not_cancel_parent_owned_removal() {
     impl Feature for Worker {
         type State = Owned;
         type Action = ();
-        fn reduce(&mut self, _: &mut Owned, (): &(), context: &mut FeatureContext<'_, Owned, ()>) {
+        fn update(&mut self, _: &mut Owned, (): &(), context: &mut FeatureContext<'_, Owned, ()>) {
             let export = std::rc::Rc::clone(&self.0);
             context.task(rca_core::local::Task::run(move |task| async move {
                 *export.borrow_mut() = Some(task);
@@ -482,7 +482,7 @@ fn cancelled_child_producer_does_not_cancel_parent_owned_removal() {
 impl Feature for Root {
     type State = StackState<Owned>;
     type Action = ();
-    fn reduce(
+    fn update(
         &mut self,
         _: &mut Self::State,
         (): &(),
@@ -496,7 +496,7 @@ struct Leaf;
 impl Feature for Leaf {
     type State = Owned;
     type Action = ();
-    fn reduce(&mut self, _: &mut Owned, (): &(), _: &mut FeatureContext<'_, Owned, ()>) {}
+    fn update(&mut self, _: &mut Owned, (): &(), _: &mut FeatureContext<'_, Owned, ()>) {}
 }
 
 #[test]
@@ -512,7 +512,7 @@ fn nested_stack_recipe_removes_only_last_child_through_parent_context() {
     impl Feature for Outer {
         type State = Option<StackState<Owned>>;
         type Action = ();
-        fn reduce(
+        fn update(
             &mut self,
             _: &mut Self::State,
             (): &(),
@@ -563,42 +563,40 @@ fn nested_stack_recipe_removes_only_last_child_through_parent_context() {
     );
     let entries = Rc::new(RefCell::new(Vec::new()));
     let export = Rc::clone(&entries);
-    let (builder, parent_site) =
-        Store::feature_builder(Some(stack), Outer, Runtime::new(driver.clone()))
-            .mount_with_children(descriptor, move |_, children| {
-                let export = Rc::clone(&export);
-                let parent_source = children.site().clone();
-                children.stack_removable(
-                    |state| state,
-                    |state| state,
-                    move |id, _| {
-                        let export = Rc::clone(&export);
-                        let parent_source = parent_source.clone();
-                        let id = id.clone();
-                        (
-                            EntryMount::new(Leaf),
-                            move |_: &Owned,
-                                  children: &mut rca_core::local::MountChildren<
-                                '_,
-                                Option<StackState<Owned>>,
-                                (),
-                                Owned,
-                                (),
-                            >,
-                                  removal| {
-                                let output =
-                                    children.output::<Rc<Cell<usize>>>(&parent_source, |_| {});
-                                export.borrow_mut().push((
-                                    id.clone(),
-                                    children.site().clone(),
-                                    removal,
-                                    output,
-                                ));
-                            },
-                        )
-                    },
-                );
-            });
+    let (builder, parent_site) = Store::builder(Some(stack), Outer, Runtime::new(driver.clone()))
+        .mount_with_children(descriptor, move |_, children| {
+            let export = Rc::clone(&export);
+            let parent_source = children.site().clone();
+            children.stack_removable(
+                |state| state,
+                |state| state,
+                move |id, _| {
+                    let export = Rc::clone(&export);
+                    let parent_source = parent_source.clone();
+                    let id = id.clone();
+                    (
+                        EntryMount::new(Leaf),
+                        move |_: &Owned,
+                              children: &mut rca_core::local::MountChildren<
+                            '_,
+                            Option<StackState<Owned>>,
+                            (),
+                            Owned,
+                            (),
+                        >,
+                              removal| {
+                            let output = children.output::<Rc<Cell<usize>>>(&parent_source, |_| {});
+                            export.borrow_mut().push((
+                                id.clone(),
+                                children.site().clone(),
+                                removal,
+                                output,
+                            ));
+                        },
+                    )
+                },
+            );
+        });
     let store = builder.build().unwrap();
     driver.finish(store.ready()).unwrap();
     driver.turn();

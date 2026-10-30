@@ -44,7 +44,7 @@ impl Feature for Root {
     type State = State;
     type Action = ();
 
-    fn reduce(&mut self, _: &mut State, (): &(), _: &mut FeatureContext<'_, State, ()>) {}
+    fn update(&mut self, _: &mut State, (): &(), _: &mut FeatureContext<'_, State, ()>) {}
 }
 
 /// Arms the next identity read and requests a real scope leave in one reduction.
@@ -53,7 +53,7 @@ impl Feature for Parent {
     type State = ParentState;
     type Action = ();
 
-    fn reduce(
+    fn update(
         &mut self,
         _: &mut ParentState,
         (): &(),
@@ -79,7 +79,7 @@ impl Feature for ObservedParent {
     type State = ParentState;
     type Action = ();
 
-    fn reduce(
+    fn update(
         &mut self,
         _: &mut ParentState,
         (): &(),
@@ -100,7 +100,7 @@ impl Feature for Child {
     type State = Cell<usize>;
     type Action = ();
 
-    fn reduce(
+    fn update(
         &mut self,
         _: &mut Cell<usize>,
         (): &(),
@@ -136,7 +136,7 @@ fn parent_path_after_declaration(read: ParentRead, removable: bool) {
         },
         move |_| Parent(Arc::clone(&parent_armed)),
     );
-    let (builder, _) = Store::feature_builder(
+    let (builder, _) = Store::builder(
         State {
             parent: Some(ParentState {
                 child: Some(Cell::new(1)),
@@ -272,7 +272,7 @@ fn parent_lookup_closure_after_construction_suppresses_descendant_recipe() {
         let capture = DropWatch(Arc::clone(&recipe_drops));
         let child_count = Arc::clone(&child_makes);
         let child_disposal = Arc::clone(&child_drops);
-        let (builder, parent_site) = Store::feature_builder(
+        let (builder, parent_site) = Store::builder(
             State {
                 parent: Some(ParentState {
                     child: Some(Cell::new(1)),
@@ -408,7 +408,7 @@ fn parent_leave_then_identity_close_discards_unvisited_child() {
     let identities = Arc::clone(&child_identities);
     let makes = Arc::clone(&child_makes);
     let drops = Arc::clone(&child_drops);
-    let (builder, parent_site) = Store::feature_builder(
+    let (builder, parent_site) = Store::builder(
         State {
             parent: Some(ParentState {
                 child: Some(Cell::new(1)),

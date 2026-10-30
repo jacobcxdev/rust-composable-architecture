@@ -95,7 +95,7 @@ struct Root;
 impl Feature for Root {
     type State = State;
     type Action = Action;
-    fn reduce(
+    fn update(
         &mut self,
         state: &mut State,
         action: &Action,
@@ -120,7 +120,7 @@ struct Worker;
 impl Feature for Worker {
     type State = Upload;
     type Action = Receipt;
-    fn reduce(
+    fn update(
         &mut self,
         state: &mut Upload,
         action: &Receipt,
@@ -234,10 +234,9 @@ async fn main() {
     client.fetch.release(b"hello".to_vec());
     client.token.release("upload-7".into());
     let output = Arc::new(OnceLock::new());
-    let (builder, site) =
-        Store::feature_builder(State::new(), Root, TokioRuntime::current().unwrap())
-            .with_dependency::<UploadClient>(client)
-            .mount_with_site(automatic(Arc::clone(&output)));
+    let (builder, site) = Store::builder(State::new(), Root, TokioRuntime::current().unwrap())
+        .with_dependency::<UploadClient>(client)
+        .mount_with_site(automatic(Arc::clone(&output)));
     let (builder, receipt) = builder.output::<Receipt>(&site, |handlers| {
         handlers.at_root(|state, receipt, _| {
             state.receipts.push(receipt);
@@ -426,7 +425,7 @@ mod tests {
     }
     fn fixture(client: Client) -> (TestStore<State, Action, Snapshot>, Output<Receipt>) {
         let output = Arc::new(OnceLock::new());
-        let (builder, site) = TestStore::projected_feature_builder(State::new(), Root, snapshot)
+        let (builder, site) = TestStore::projected_builder(State::new(), Root, snapshot)
             .with_dependency::<UploadClient>(client)
             .mount_with_site(automatic(Arc::clone(&output)));
         let (builder, receipt) = builder.output::<Receipt>(&site, |handlers| {
@@ -644,7 +643,7 @@ mod tests {
     fn same_key_replacement_rejects_a_suspended_external_upload_and_old_commands() {
         block_on(async {
             let runtime = DeterministicRuntime::new();
-            let (builder, site) = Store::feature_builder(State::new(), Root, runtime.runtime())
+            let (builder, site) = Store::builder(State::new(), Root, runtime.runtime())
                 .mailbox_capacity(1)
                 .mount_with_site(mount());
             let store = builder.build().unwrap();
@@ -751,8 +750,8 @@ mod tests {
     fn replacement_during_upload_keeps_the_request_but_rejects_old_progress() {
         block_on(async {
             let runtime = DeterministicRuntime::new();
-            let (builder, site) = Store::feature_builder(State::new(), Root, runtime.runtime())
-                .mount_with_site(mount());
+            let (builder, site) =
+                Store::builder(State::new(), Root, runtime.runtime()).mount_with_site(mount());
             let store = builder.build().unwrap();
             runtime.run(store.ready()).await.unwrap().unwrap();
             let old = runtime
@@ -860,7 +859,7 @@ mod tests {
     fn full_mailbox_keeps_owned_completion_until_shutdown_rejects_it() {
         block_on(async {
             let runtime = DeterministicRuntime::new();
-            let (builder, site) = Store::feature_builder(State::new(), Root, runtime.runtime())
+            let (builder, site) = Store::builder(State::new(), Root, runtime.runtime())
                 .mailbox_capacity(1)
                 .mount_with_site(mount());
             let store = builder.build().unwrap();

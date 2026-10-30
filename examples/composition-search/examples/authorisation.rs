@@ -194,7 +194,7 @@ impl Feature for DetailFeature {
     type State = DetailState;
     type Action = DetailAction;
 
-    fn reduce(
+    fn update(
         &mut self,
         _: &mut DetailState,
         action: &DetailAction,
@@ -236,7 +236,7 @@ impl Feature for AppFeature {
     type State = AppState;
     type Action = AppAction;
 
-    fn reduce(
+    fn update(
         &mut self,
         state: &mut AppState,
         _: &AppAction,

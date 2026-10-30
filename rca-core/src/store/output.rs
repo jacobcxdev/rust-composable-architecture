@@ -1336,7 +1336,7 @@ mod tests {
             type State = (Option<usize>, Option<usize>);
             type Action = ();
 
-            fn reduce(
+            fn update(
                 &mut self,
                 state: &mut Self::State,
                 (): &(),
@@ -1352,7 +1352,7 @@ mod tests {
             type State = usize;
             type Action = ();
 
-            fn reduce(&mut self, _: &mut usize, (): &(), _: &mut FeatureContext<'_, usize, ()>) {}
+            fn update(&mut self, _: &mut usize, (): &(), _: &mut FeatureContext<'_, usize, ()>) {}
         }
 
         struct DropProbe(Arc<AtomicUsize>);

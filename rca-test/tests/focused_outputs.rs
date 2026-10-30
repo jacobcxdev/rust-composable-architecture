@@ -28,7 +28,7 @@ macro_rules! focused_outputs {
             type State = State;
             type Action = ();
 
-            fn reduce(&mut self, _: &mut State, (): &(), _: &mut FeatureContext<'_, State, ()>) {}
+            fn update(&mut self, _: &mut State, (): &(), _: &mut FeatureContext<'_, State, ()>) {}
         }
 
         /// Adds the original payload to the child state.
@@ -38,7 +38,7 @@ macro_rules! focused_outputs {
             type State = usize;
             type Action = Payload<usize>;
 
-            fn reduce(
+            fn update(
                 &mut self,
                 state: &mut usize,
                 action: &Payload<usize>,
@@ -99,7 +99,7 @@ macro_rules! focused_outputs {
                 },
                 |_| Child,
             );
-            let (builder, site) = TestStore::projected_feature_builder(
+            let (builder, site) = TestStore::projected_builder(
                 State {
                     child: Some(2),
                     available: Arc::clone(&available),
@@ -197,7 +197,7 @@ macro_rules! focused_outputs {
                         })
                     },
                 );
-                let (builder, site) = TestStore::projected_feature_builder(
+                let (builder, site) = TestStore::projected_builder(
                     State {
                         child: Some(2),
                         available: Arc::new(AtomicBool::new(true)),

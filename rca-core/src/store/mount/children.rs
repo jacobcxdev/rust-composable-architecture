@@ -180,7 +180,7 @@ impl<R: Send + 'static, A: Send + 'static, S: 'static, X: 'static> MountChildren
     /// # impl Feature for RowFeature {
     /// #     type State = usize;
     /// #     type Action = ();
-    /// #     fn reduce(&mut self, state: &mut usize, _: &(), _: &mut FeatureContext<'_, usize, ()>) { self.0.set(*state); }
+    /// #     fn update(&mut self, state: &mut usize, _: &(), _: &mut FeatureContext<'_, usize, ()>) { self.0.set(*state); }
     /// # }
     /// # type Rows = KeyedState<String, usize>;
     /// # fn declare(children: &mut MountChildren<'_, Rows, (), Rows, ()>) {

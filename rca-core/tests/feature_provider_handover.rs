@@ -273,7 +273,7 @@ impl Feature for Parent {
     type State = RootState;
     type Action = RootAction;
 
-    fn reduce(
+    fn update(
         &mut self,
         state: &mut RootState,
         action: &RootAction,
@@ -298,7 +298,7 @@ impl Feature for Child {
     type State = ChildState;
     type Action = ChildAction;
 
-    fn reduce(
+    fn update(
         &mut self,
         _: &mut ChildState,
         _: &ChildAction,
@@ -508,7 +508,7 @@ impl Feature for ReaderFeature {
     type State = SharedReader<u32>;
     type Action = ();
 
-    fn reduce(
+    fn update(
         &mut self,
         _: &mut Self::State,
         (): &(),

@@ -15,7 +15,7 @@ struct Child;
 impl Feature for Root {
     type State = Option<i32>;
     type Action = ();
-    fn reduce(
+    fn update(
         &mut self,
         _: &mut Option<i32>,
         (): &(),
@@ -26,7 +26,7 @@ impl Feature for Root {
 impl Feature for Child {
     type State = i32;
     type Action = ();
-    fn reduce(&mut self, state: &mut i32, (): &(), _: &mut FeatureContext<'_, i32, ()>) {
+    fn update(&mut self, state: &mut i32, (): &(), _: &mut FeatureContext<'_, i32, ()>) {
         *state += 1;
     }
 }
@@ -88,7 +88,7 @@ fn closing_initial_factories_drop_returned_tasks_without_creating_fresh_authorit
         } else {
             mount.on_initial(|value| *value, factory)
         };
-        let store = Store::feature_builder(Some(4), Root, Runtime::new(driver.clone()))
+        let store = Store::builder(Some(4), Root, Runtime::new(driver.clone()))
             .mount(mount)
             .build()
             .unwrap();
@@ -241,8 +241,8 @@ fn every_projection_equality_factory_and_history_drop_panic_reports_entered_prog
                 Task::run(|_| async {})
             },
         );
-        let (builder, site) = Store::feature_builder(Some(4), Root, Runtime::new(driver.clone()))
-            .mount_with_site(mount);
+        let (builder, site) =
+            Store::builder(Some(4), Root, Runtime::new(driver.clone())).mount_with_site(mount);
         let store = builder.build().unwrap();
         driver.finish(store.ready()).unwrap();
         let child = driver.finish(store.acquire(&site)).unwrap().unwrap();
@@ -305,8 +305,8 @@ fn pre_capture_closure_reports_store_closed_after_entry_and_returns_unconsumed_o
             InitialPolicy::Skip,
             |_, _| panic!("capture closure must stop before factory"),
         );
-        let (builder, site) = Store::feature_builder(Some(4), Root, Runtime::new(driver.clone()))
-            .mount_with_site(mount);
+        let (builder, site) =
+            Store::builder(Some(4), Root, Runtime::new(driver.clone())).mount_with_site(mount);
         let (builder, output) = builder.output::<Box<i32>>(&site, |handlers| {
             handlers.at_root(move |_, _, _| {
                 callback_mutations.fetch_add(1, Ordering::SeqCst);

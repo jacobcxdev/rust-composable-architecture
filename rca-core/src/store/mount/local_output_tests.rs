@@ -150,7 +150,7 @@ struct Source;
 impl Feature for Root {
     type State = State;
     type Action = RootAction;
-    fn reduce(
+    fn update(
         &mut self,
         _: &mut State,
         action: &RootAction,
@@ -162,7 +162,7 @@ impl Feature for Root {
 impl Feature for Parent {
     type State = Row;
     type Action = RowAction;
-    fn reduce(
+    fn update(
         &mut self,
         state: &mut Row,
         action: &RowAction,
@@ -174,7 +174,7 @@ impl Feature for Parent {
 impl Feature for Source {
     type State = ();
     type Action = SourceAction;
-    fn reduce(
+    fn update(
         &mut self,
         (): &mut (),
         _: &SourceAction,
@@ -237,7 +237,7 @@ fn local_descendant_output_lowers_distinct_ancestor_effect_and_task() {
         },
     );
     *parent_cell.borrow_mut() = Some(parent);
-    let store = Store::feature_builder(
+    let store = Store::builder(
         State {
             rows: [(
                 "one".to_owned(),
@@ -313,7 +313,7 @@ mod mounted_effect_sender {
         type State = Option<Rc<Cell<usize>>>;
         type Action = ();
 
-        fn reduce(
+        fn update(
             &mut self,
             state: &mut Self::State,
             (): &(),
@@ -333,7 +333,7 @@ mod mounted_effect_sender {
         type State = Rc<Cell<usize>>;
         type Action = Action;
 
-        fn reduce(
+        fn update(
             &mut self,
             state: &mut Self::State,
             action: &Action,
@@ -410,7 +410,7 @@ mod mounted_effect_sender {
                     completion: completion.clone(),
                 },
             );
-            let (builder, site) = Store::feature_builder(
+            let (builder, site) = Store::builder(
                 Some(Rc::clone(&value)),
                 RootFeature,
                 Runtime::new(driver.clone()),
@@ -661,7 +661,7 @@ mod mounted_effect_sender {
             type State = Rc<Cell<usize>>;
             type Action = EndpointAction;
 
-            fn reduce(
+            fn update(
                 &mut self,
                 state: &mut Self::State,
                 action: &EndpointAction,
@@ -727,7 +727,7 @@ mod mounted_effect_sender {
                 }
             },
         );
-        let (builder, site) = Store::feature_builder(
+        let (builder, site) = Store::builder(
             Some(Rc::clone(&value)),
             RootFeature,
             Runtime::new(driver.clone()),
@@ -957,7 +957,7 @@ mod mounted_effect_sender {
             type State = Rc<Cell<usize>>;
             type Action = Action;
 
-            fn reduce(
+            fn update(
                 &mut self,
                 state: &mut Self::State,
                 action: &Action,
@@ -1002,7 +1002,7 @@ mod mounted_effect_sender {
                 move |_| EndpointFeature(Rc::clone(&export))
             },
         );
-        let (builder, site) = Store::feature_builder(
+        let (builder, site) = Store::builder(
             Some(Rc::clone(&value)),
             RootFeature,
             Runtime::new(driver.clone()),

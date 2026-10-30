@@ -37,7 +37,7 @@ struct Root;
 impl Feature for Root {
     type State = State;
     type Action = ();
-    fn reduce(&mut self, _: &mut State, (): &(), _: &mut FeatureContext<'_, State, ()>) {}
+    fn update(&mut self, _: &mut State, (): &(), _: &mut FeatureContext<'_, State, ()>) {}
 }
 
 /// Supplies a Local mounted feature whose initial task emits the test output.
@@ -46,7 +46,7 @@ struct Child;
 impl Feature for Child {
     type State = ();
     type Action = Rc<str>;
-    fn reduce(&mut self, (): &mut (), _: &Rc<str>, _: &mut FeatureContext<'_, (), Rc<str>>) {}
+    fn update(&mut self, (): &mut (), _: &Rc<str>, _: &mut FeatureContext<'_, (), Rc<str>>) {}
 }
 
 /// Declares a separate projection of the committed output's owned allocation.
@@ -105,7 +105,7 @@ fn local_mount_initial_output_uses_common_snapshot_and_capture_boundary() {
                 })
             },
         );
-        let (builder, site) = TestStore::projected_feature_builder(
+        let (builder, site) = TestStore::projected_builder(
             State {
                 child: Some(()),
                 value: None,

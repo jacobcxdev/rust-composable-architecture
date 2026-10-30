@@ -80,7 +80,7 @@ mod stopped_receipts {
         type State = usize;
         type Action = Action;
 
-        fn reduce(
+        fn update(
             &mut self,
             state: &mut usize,
             action: &Action,
@@ -129,7 +129,7 @@ mod stopped_receipts {
         let timer_drops = Arc::new(AtomicUsize::new(0));
         let drops = Arc::new(AtomicUsize::new(0));
         let commits = Arc::new(AtomicUsize::new(0));
-        let mut store = TestStore::feature_builder(
+        let mut store = TestStore::builder(
             0,
             Work {
                 timer: Some(Timer {

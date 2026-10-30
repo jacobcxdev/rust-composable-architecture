@@ -119,20 +119,18 @@ fn inner_acquisition_future_rejects_expired_lifecycle_without_retaining_payload(
         move |_| {
             let _ = &capture;
             constructed.fetch_add(1, Ordering::SeqCst);
-            crate::ReducerFeature::new(crate::Reduce::new(
-                |_: &mut usize, (): &(), _: &mut ReduceContext<'_>| {
-                    panic!("metadata acquisition cannot reduce the child")
-                },
-            ))
+            crate::Reduce::new(|_: &mut usize, (): &(), _: &mut ReduceContext<'_>| {
+                panic!("metadata acquisition cannot reduce the child")
+            })
         },
     );
-    let root = crate::ReducerFeature::new(crate::Reduce::new(
+    let root = crate::Reduce::new(
         |_: &mut Option<usize>, (): &(), _: &mut ReduceContext<'_>| {
             panic!("metadata acquisition cannot reduce the root")
         },
-    ));
-    let (builder, site) = Store::feature_builder(Some(7), root, Runtime::new(driver.clone()))
-        .mount_with_site(descriptor);
+    );
+    let (builder, site) =
+        Store::builder(Some(7), root, Runtime::new(driver.clone())).mount_with_site(descriptor);
     let store = builder.build().unwrap();
     driver.finish(store.ready()).unwrap();
     assert_eq!(constructors.load(Ordering::SeqCst), 1);
@@ -175,7 +173,7 @@ fn command_acquisition_rejects_ingress_lost_after_validation() {
     impl Feature for Root {
         type State = Option<usize>;
         type Action = ();
-        fn reduce(
+        fn update(
             &mut self,
             _: &mut Option<usize>,
             (): &(),
@@ -187,7 +185,7 @@ fn command_acquisition_rejects_ingress_lost_after_validation() {
     impl Feature for Child {
         type State = usize;
         type Action = usize;
-        fn reduce(
+        fn update(
             &mut self,
             state: &mut usize,
             action: &usize,
@@ -221,7 +219,7 @@ fn command_acquisition_rejects_ingress_lost_after_validation() {
                 },
                 move |_| Child(Arc::clone(&reduced)),
             );
-            let builder = Store::feature_builder(Some(7), Root, Runtime::new(driver.clone()));
+            let builder = Store::builder(Some(7), Root, Runtime::new(driver.clone()));
             let (builder, mount_site, static_site) = if recipe {
                 let (builder, mount_site) =
                     builder.mount_with_children(descriptor, move |_, children| {
@@ -313,7 +311,7 @@ fn recipe_command_recovers_original_when_last_owner_drops_after_admission() {
     impl Feature for Root {
         type State = Option<usize>;
         type Action = ();
-        fn reduce(
+        fn update(
             &mut self,
             _: &mut Self::State,
             (): &(),
@@ -325,7 +323,7 @@ fn recipe_command_recovers_original_when_last_owner_drops_after_admission() {
     impl Feature for Child {
         type State = usize;
         type Action = usize;
-        fn reduce(
+        fn update(
             &mut self,
             state: &mut usize,
             action: &usize,
@@ -353,7 +351,7 @@ fn recipe_command_recovers_original_when_last_owner_drops_after_admission() {
             },
             |_| Child,
         );
-        let (builder, _) = Store::feature_builder(Some(0), Root, Runtime::new(driver.clone()))
+        let (builder, _) = Store::builder(Some(0), Root, Runtime::new(driver.clone()))
             .mailbox_capacity(1)
             .mount_with_children(descriptor, move |_, children| {
                 let mapped = Arc::clone(&mapped);
@@ -458,7 +456,7 @@ fn fold_and_acquire_reject_after_final_store_close_before_ingress() {
     impl Feature for Root {
         type State = Option<usize>;
         type Action = ();
-        fn reduce(
+        fn update(
             &mut self,
             _: &mut Self::State,
             (): &(),
@@ -470,7 +468,7 @@ fn fold_and_acquire_reject_after_final_store_close_before_ingress() {
     impl Feature for Child {
         type State = usize;
         type Action = ();
-        fn reduce(
+        fn update(
             &mut self,
             _: &mut Self::State,
             (): &(),
@@ -515,7 +513,7 @@ fn fold_and_acquire_reject_after_final_store_close_before_ingress() {
             },
             |_| Child,
         );
-        let (builder, site) = Store::feature_builder(Some(7), Root, Runtime::new(driver.clone()))
+        let (builder, site) = Store::builder(Some(7), Root, Runtime::new(driver.clone()))
             .mount_with_children(descriptor, move |_, children| {
                 let capture = Capture(Arc::clone(&disposals));
                 let contributed = Arc::clone(&contributed);
@@ -598,7 +596,7 @@ impl Feature for RootRequestFeature {
     type State = usize;
     type Action = RootRequestAction;
 
-    fn reduce(
+    fn update(
         &mut self,
         state: &mut usize,
         action: &RootRequestAction,
@@ -654,7 +652,7 @@ impl RootRequestHost {
         let export = Arc::new(Mutex::new(None));
         let completion = Arc::new(std::sync::atomic::AtomicBool::new(false));
         let reductions = Arc::new(AtomicUsize::new(0));
-        let store = Store::feature_builder(
+        let store = Store::builder(
             0,
             RootRequestFeature {
                 export: Arc::clone(&export),
@@ -912,7 +910,7 @@ fn removal_last_store_close_before_ingress_rejects_unentered_callbacks() {
     impl crate::Feature for Parent {
         type State = Option<Arc<AtomicUsize>>;
         type Action = ();
-        fn reduce(
+        fn update(
             &mut self,
             _: &mut Self::State,
             (): &(),
@@ -924,7 +922,7 @@ fn removal_last_store_close_before_ingress_rejects_unentered_callbacks() {
     impl crate::Feature for Child {
         type State = Arc<AtomicUsize>;
         type Action = ();
-        fn reduce(
+        fn update(
             &mut self,
             _: &mut Self::State,
             (): &(),
@@ -1127,7 +1125,7 @@ fn command_port_last_store_close_before_ingress_returns_unmapped_command() {
         type State = Option<Arc<AtomicUsize>>;
         type Action = ();
 
-        fn reduce(
+        fn update(
             &mut self,
             _: &mut Self::State,
             (): &(),
@@ -1140,7 +1138,7 @@ fn command_port_last_store_close_before_ingress_returns_unmapped_command() {
         type State = Arc<AtomicUsize>;
         type Action = Outcome;
 
-        fn reduce(
+        fn update(
             &mut self,
             state: &mut Self::State,
             action: &Outcome,
@@ -1166,7 +1164,7 @@ fn command_port_last_store_close_before_ingress_returns_unmapped_command() {
         },
         |_| Child,
     );
-    let (builder, mount, site) = Store::feature_builder(
+    let (builder, mount, site) = Store::builder(
         Some(Arc::clone(&value)),
         Parent,
         Runtime::new(driver.clone()),
@@ -1233,7 +1231,7 @@ fn mounted_try_command_returns_original_after_admission_owner_or_actor_loss() {
     impl Feature for Parent {
         type State = Option<Arc<AtomicUsize>>;
         type Action = ();
-        fn reduce(
+        fn update(
             &mut self,
             _: &mut Self::State,
             (): &(),
@@ -1245,7 +1243,7 @@ fn mounted_try_command_returns_original_after_admission_owner_or_actor_loss() {
     impl Feature for Child {
         type State = Arc<AtomicUsize>;
         type Action = Outcome;
-        fn reduce(
+        fn update(
             &mut self,
             state: &mut Self::State,
             action: &Outcome,
@@ -1272,7 +1270,7 @@ fn mounted_try_command_returns_original_after_admission_owner_or_actor_loss() {
             },
             |_| Child,
         );
-        let (builder, mount, site) = Store::feature_builder(
+        let (builder, mount, site) = Store::builder(
             Some(Arc::clone(&value)),
             Parent,
             Runtime::new(driver.clone()),
@@ -1351,7 +1349,7 @@ fn mounted_command_inspection_rejects_after_actor_abandons_mapper() {
     impl Feature for Parent {
         type State = Option<Arc<AtomicUsize>>;
         type Action = ();
-        fn reduce(
+        fn update(
             &mut self,
             _: &mut Self::State,
             (): &(),
@@ -1363,7 +1361,7 @@ fn mounted_command_inspection_rejects_after_actor_abandons_mapper() {
     impl Feature for Child {
         type State = Arc<AtomicUsize>;
         type Action = Outcome;
-        fn reduce(
+        fn update(
             &mut self,
             state: &mut Self::State,
             action: &Outcome,
@@ -1390,7 +1388,7 @@ fn mounted_command_inspection_rejects_after_actor_abandons_mapper() {
         },
         |_| Child,
     );
-    let (builder, mount, site) = Store::feature_builder(
+    let (builder, mount, site) = Store::builder(
         Some(Arc::clone(&value)),
         Parent,
         Runtime::new(driver.clone()),
@@ -1478,7 +1476,7 @@ fn shared_endpoint_admission_control(schedule: SharedEndpointAdmission) {
         type State = Option<Arc<AtomicUsize>>;
         type Action = ();
 
-        fn reduce(
+        fn update(
             &mut self,
             _: &mut Self::State,
             (): &(),
@@ -1495,7 +1493,7 @@ fn shared_endpoint_admission_control(schedule: SharedEndpointAdmission) {
         type State = Arc<AtomicUsize>;
         type Action = Action;
 
-        fn reduce(
+        fn update(
             &mut self,
             state: &mut Self::State,
             action: &Action,
@@ -1557,7 +1555,7 @@ fn shared_endpoint_admission_control(schedule: SharedEndpointAdmission) {
             }
         },
     );
-    let (builder, site) = Store::feature_builder(
+    let (builder, site) = Store::builder(
         Some(Arc::clone(&value)),
         Parent,
         Runtime::new(driver.clone()),
@@ -2119,7 +2117,7 @@ fn shared_effect_sender_retention_control(cancel_after_retain: bool) {
         type State = Option<Arc<AtomicUsize>>;
         type Action = ();
 
-        fn reduce(
+        fn update(
             &mut self,
             _: &mut Self::State,
             (): &(),
@@ -2136,7 +2134,7 @@ fn shared_effect_sender_retention_control(cancel_after_retain: bool) {
         type State = Arc<AtomicUsize>;
         type Action = Action;
 
-        fn reduce(
+        fn update(
             &mut self,
             state: &mut Self::State,
             action: &Action,
@@ -2191,7 +2189,7 @@ fn shared_effect_sender_retention_control(cancel_after_retain: bool) {
             }
         },
     );
-    let (builder, site) = Store::feature_builder(
+    let (builder, site) = Store::builder(
         Some(Arc::clone(&value)),
         Parent,
         Runtime::new(driver.clone()),
@@ -2323,7 +2321,7 @@ struct RootFeature;
 impl Feature for RootFeature {
     type State = State;
     type Action = RootAction;
-    fn reduce(
+    fn update(
         &mut self,
         state: &mut State,
         action: &RootAction,
@@ -2408,7 +2406,7 @@ fn nested_output_retirement_control(gated: bool) {
             recipe_outputs.lock().push(output);
         },
     );
-    let mut builder = Store::feature_builder(
+    let mut builder = Store::builder(
         State {
             rows: [(
                 "one".to_owned(),
@@ -2491,7 +2489,7 @@ struct RowFeature;
 impl Feature for RowFeature {
     type State = Row;
     type Action = RowAction;
-    fn reduce(
+    fn update(
         &mut self,
         state: &mut Row,
         _: &RowAction,
@@ -2505,7 +2503,7 @@ struct SourceFeature;
 impl Feature for SourceFeature {
     type State = ();
     type Action = SourceAction;
-    fn reduce(
+    fn update(
         &mut self,
         (): &mut (),
         _: &SourceAction,
@@ -2595,7 +2593,7 @@ fn descendant_output_lowers_ancestor_effect_and_task_with_distinct_root_action()
         .set(parent)
         .as_ref()
         .expect("parent site is installed once");
-    let store = Store::feature_builder(
+    let store = Store::builder(
         State {
             rows: [(
                 "one".to_owned(),

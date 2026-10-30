@@ -150,7 +150,7 @@ struct ChildFeature;
 impl Feature for RootFeature {
     type State = Root;
     type Action = RootAction;
-    fn reduce(
+    fn update(
         &mut self,
         _: &mut Root,
         action: &RootAction,
@@ -164,7 +164,7 @@ impl Feature for RootFeature {
 impl Feature for ChildFeature {
     type State = Rc<Cell<usize>>;
     type Action = Input;
-    fn reduce(
+    fn update(
         &mut self,
         state: &mut Self::State,
         action: &Input,

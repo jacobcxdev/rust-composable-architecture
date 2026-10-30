@@ -59,7 +59,7 @@ impl Feature for Root {
     type State = State;
     type Action = ();
 
-    fn reduce(&mut self, state: &mut State, (): &(), _: &mut FeatureContext<'_, State, ()>) {
+    fn update(&mut self, state: &mut State, (): &(), _: &mut FeatureContext<'_, State, ()>) {
         state.probe.reductions.fetch_add(1, Ordering::SeqCst);
     }
 }
@@ -101,7 +101,7 @@ fn replacing_builder_sink_and_failed_build_drop_captures_without_invocation() {
             _not_sync: Cell::new(()),
         };
         let failed = if feature {
-            let builder = Store::feature_builder(state, Root, runtime.runtime())
+            let builder = Store::builder(state, Root, runtime.runtime())
                 .with_lifecycle_diagnostics(first_sink)
                 .with_lifecycle_diagnostics(last_sink);
             assert_eq!(first_drops.load(Ordering::SeqCst), 1);
@@ -150,7 +150,7 @@ fn build(
         .with_lifecycle_diagnostics(sink)
         .build()
         .unwrap(),
-        Surface::Feature => Store::feature_builder(state, Root, runtime)
+        Surface::Feature => Store::builder(state, Root, runtime)
             .with_lifecycle_diagnostics(sink)
             .build()
             .unwrap(),
@@ -549,7 +549,7 @@ fn keyed_selectors_closing_root_stop_reconciliation_before_retiring_or_reconstru
     impl Feature for Replace {
         type State = ClosingState;
         type Action = ();
-        fn reduce(
+        fn update(
             &mut self,
             state: &mut ClosingState,
             (): &(),
@@ -572,7 +572,7 @@ fn keyed_selectors_closing_root_stop_reconciliation_before_retiring_or_reconstru
     impl Feature for Panel {
         type State = PanelState;
         type Action = ();
-        fn reduce(
+        fn update(
             &mut self,
             _: &mut PanelState,
             (): &(),
@@ -587,7 +587,7 @@ fn keyed_selectors_closing_root_stop_reconciliation_before_retiring_or_reconstru
     impl Feature for Row {
         type State = u8;
         type Action = ();
-        fn reduce(&mut self, _: &mut u8, (): &(), _: &mut FeatureContext<'_, u8, ()>) {
+        fn update(&mut self, _: &mut u8, (): &(), _: &mut FeatureContext<'_, u8, ()>) {
             panic!("root replacement must not reduce a row");
         }
     }
@@ -634,7 +634,7 @@ fn keyed_selectors_closing_root_stop_reconciliation_before_retiring_or_reconstru
         let row_drop = Arc::clone(&feature_drops);
         let row_capture_drops = Arc::clone(&capture_drops);
         let sink = Arc::clone(&probe);
-        let (builder, _) = Store::feature_builder(
+        let (builder, _) = Store::builder(
             ClosingState {
                 panel: Some(PanelState {
                     rows: [(1, 7)].into_iter().collect(),

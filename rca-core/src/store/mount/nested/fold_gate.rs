@@ -496,7 +496,7 @@ struct Parent;
 impl Feature for Parent {
     type State = Row;
     type Action = bool;
-    fn reduce(&mut self, _: &mut Row, _: &bool, _: &mut crate::FeatureContext<'_, Row, bool>) {}
+    fn update(&mut self, _: &mut Row, _: &bool, _: &mut crate::FeatureContext<'_, Row, bool>) {}
 }
 /// Owns the real mount roster and the prototype's callback index.
 struct Fixture<K: Contribution> {
@@ -857,7 +857,7 @@ struct Leaf;
 impl Feature for Leaf {
     type State = usize;
     type Action = u8;
-    fn reduce(&mut self, _: &mut usize, _: &u8, _: &mut crate::FeatureContext<'_, usize, u8>) {}
+    fn update(&mut self, _: &mut usize, _: &u8, _: &mut crate::FeatureContext<'_, usize, u8>) {}
 }
 
 #[test]

@@ -11,7 +11,7 @@ macro_rules! root_closing_cases {
             impl Feature for Root {
                 type State = i32;
                 type Action = ();
-                fn reduce(&mut self, _: &mut i32, _: &(), _: &mut FeatureContext<'_, i32, ()>) {}
+                fn update(&mut self, _: &mut i32, _: &(), _: &mut FeatureContext<'_, i32, ()>) {}
             }
 
             struct Child(Arc<AtomicUsize>);
@@ -21,7 +21,7 @@ macro_rules! root_closing_cases {
             impl Feature for Child {
                 type State = i32;
                 type Action = ();
-                fn reduce(&mut self, _: &mut i32, _: &(), _: &mut FeatureContext<'_, i32, ()>) {}
+                fn update(&mut self, _: &mut i32, _: &(), _: &mut FeatureContext<'_, i32, ()>) {}
             }
 
             #[test]
@@ -239,7 +239,7 @@ macro_rules! root_closing_cases {
                 impl Feature for CommandChild {
                     type State = i32;
                     type Action = i32;
-                    fn reduce(
+                    fn update(
                         &mut self,
                         state: &mut i32,
                         action: &i32,

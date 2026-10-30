@@ -37,7 +37,7 @@ struct Noop<S>(PhantomData<fn() -> S>);
 impl<S: 'static> Feature for Noop<S> {
     type State = S;
     type Action = ();
-    fn reduce(&mut self, _: &mut S, (): &(), _: &mut FeatureContext<'_, S, ()>) {}
+    fn update(&mut self, _: &mut S, (): &(), _: &mut FeatureContext<'_, S, ()>) {}
 }
 /// Provides ordered descendants for deep, wide and transformed subtree checks.
 struct Node {
@@ -137,7 +137,7 @@ fn finite_depths_and_widths_visit_each_committed_contributor_once_per_read() {
                 children: [(0, root)].into_iter().collect(),
             };
         }
-        let (builder, _) = Store::feature_builder(
+        let (builder, _) = Store::builder(
             Some(root),
             Noop::<Tree>(PhantomData),
             Runtime::new(driver.clone()),
@@ -167,7 +167,7 @@ fn finite_depths_and_widths_visit_each_committed_contributor_once_per_read() {
         let calls = Arc::new(AtomicUsize::new(0));
         let selected = Arc::clone(&calls);
         let rows: Rows = (0..width).map(|id| (id, 1)).collect();
-        let store = Store::feature_builder(
+        let store = Store::builder(
             rows,
             Noop::<Rows>(PhantomData),
             Runtime::new(driver.clone()),
@@ -247,7 +247,7 @@ fn nested_break_finishes_each_transform_once_and_skips_only_its_group() {
         .into_iter()
         .collect(),
     };
-    let (builder, _) = Store::feature_builder(
+    let (builder, _) = Store::builder(
         Some(tree),
         Noop::<Tree>(PhantomData),
         Runtime::new(driver.clone()),
@@ -309,7 +309,7 @@ fn three_node_read<K: FoldKey<Value = Owned>>(transforms: u8) -> usize {
         value: 1,
         children: [(0, leaf(2)), (1, leaf(3))].into_iter().collect(),
     };
-    let (builder, _) = Store::feature_builder(
+    let (builder, _) = Store::builder(
         Some(tree),
         Noop::<Tree>(PhantomData),
         Runtime::new(driver.clone()),
@@ -345,7 +345,7 @@ fn root_break_skips_later_root_sibling() {
     let declared = fold.clone();
     let trace = Arc::new(Mutex::new(Vec::new()));
     let selected = Arc::clone(&trace);
-    let (builder, _) = Store::feature_builder(
+    let (builder, _) = Store::builder(
         Some(leaf(5)),
         Noop::<Tree>(PhantomData),
         Runtime::new(driver.clone()),
@@ -385,7 +385,7 @@ fn missing_fold_registration_skips_live_mount() {
     let selected_calls = Arc::clone(&calls);
     let trace = Arc::new(Mutex::new(Vec::new()));
     let selected_trace = Arc::clone(&trace);
-    let (builder, _) = Store::feature_builder(
+    let (builder, _) = Store::builder(
         Some(leaf(5)),
         Noop::<Tree>(PhantomData),
         Runtime::new(driver.clone()),

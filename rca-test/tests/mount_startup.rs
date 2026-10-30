@@ -14,7 +14,7 @@ struct RootFeature;
 impl Feature for RootFeature {
     type State = Option<usize>;
     type Action = ();
-    fn reduce(
+    fn update(
         &mut self,
         _: &mut Self::State,
         (): &(),
@@ -27,7 +27,7 @@ struct ChildFeature;
 impl Feature for ChildFeature {
     type State = usize;
     type Action = u8;
-    fn reduce(&mut self, _: &mut usize, _: &u8, _: &mut FeatureContext<'_, usize, u8>) {}
+    fn update(&mut self, _: &mut usize, _: &u8, _: &mut FeatureContext<'_, usize, u8>) {}
 }
 /// Exposes construction count at the structural assertion frontier.
 struct Constructions;
@@ -79,7 +79,7 @@ fn structural_frontier_captures_private_construction_before_initial_update() {
         let capture_calls = Arc::new(AtomicUsize::new(0));
         let captured = Arc::clone(&constructions);
         let calls = Arc::clone(&capture_calls);
-        let mut store = TestStore::feature_builder(Some(2), RootFeature)
+        let mut store = TestStore::builder(Some(2), RootFeature)
             .mount(descriptor(Arc::clone(&constructions)))
             .with_capture::<Constructions>(move |_| {
                 calls.fetch_add(1, Ordering::Relaxed);
@@ -135,7 +135,7 @@ fn structural_frontier_captures_private_construction_before_initial_update() {
 #[test]
 fn structural_mismatch_retains_original_debt() {
     block_on(async {
-        let mut store = TestStore::feature_builder(Some(2), RootFeature)
+        let mut store = TestStore::builder(Some(2), RootFeature)
             .mount(descriptor(Arc::new(AtomicUsize::new(0))))
             .build();
         let failed = std::panic::AssertUnwindSafe(store.receive_structural(|state| *state = None))

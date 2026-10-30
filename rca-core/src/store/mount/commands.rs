@@ -503,7 +503,7 @@ mod tests {
         impl Feature for Root {
             type State = Option<usize>;
             type Action = ();
-            fn reduce(
+            fn update(
                 &mut self,
                 state: &mut Option<usize>,
                 (): &(),
@@ -516,7 +516,7 @@ mod tests {
         impl Feature for Child {
             type State = usize;
             type Action = u8;
-            fn reduce(&mut self, _: &mut usize, _: &u8, _: &mut FeatureContext<'_, usize, u8>) {}
+            fn update(&mut self, _: &mut usize, _: &u8, _: &mut FeatureContext<'_, usize, u8>) {}
         }
         struct DropProbe(Arc<AtomicUsize>);
         impl Drop for DropProbe {

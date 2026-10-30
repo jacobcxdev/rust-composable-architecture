@@ -5,9 +5,9 @@ use super::erased_path::LocalPath;
 use super::erased_path::SharedPath;
 use super::path::BorrowPath;
 use super::*;
+use crate::Reduce;
 use crate::store::scope::{ScopeIdentity, ScopeRegistry, ScopeSlot};
 use crate::store::transaction::tests::Host;
-use crate::{Reduce, ReducerFeature};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::task::{Context, Poll, Waker};
 
@@ -62,7 +62,7 @@ impl Drop for Child {
 impl Feature for Child {
     type State = usize;
     type Action = u8;
-    fn reduce(&mut self, _: &mut usize, _: &u8, _: &mut FeatureContext<'_, usize, u8>) {}
+    fn update(&mut self, _: &mut usize, _: &u8, _: &mut FeatureContext<'_, usize, u8>) {}
 }
 #[cfg(feature = "local")]
 /// Prevents the Local fixture from passing through accidental Send compatibility.
@@ -76,7 +76,7 @@ struct LocalChild {
 impl local::Feature for LocalChild {
     type State = usize;
     type Action = u8;
-    fn reduce(&mut self, _: &mut usize, _: &u8, _: &mut local::FeatureContext<'_, usize, u8>) {
+    fn update(&mut self, _: &mut usize, _: &u8, _: &mut local::FeatureContext<'_, usize, u8>) {
         let _ = &self.child;
     }
 }
@@ -156,9 +156,9 @@ macro_rules! lifetime {
 lifetime!(
     shared_metadata_lifetime_follows_last_context_not_feature,
     Shared,
-    Box::new(ReducerFeature::new(Reduce::new(
+    Box::new(Reduce::new(
         |_: &mut usize, (): &(), _: &mut ReduceContext<'_>| crate::Effect::none()
-    ))),
+    )),
     |counts| SharedPath::new(TrackedPath { counts, marker: () }),
     |counts, token| SharedNode::new(Child(counts), token, 0),
     |node: &SharedNode<Child>, path: SharedPath<usize, usize>, host: &Host<usize, (), Shared>| {
@@ -174,9 +174,9 @@ lifetime!(
 lifetime!(
     local_metadata_lifetime_follows_last_context_not_feature,
     local::Local,
-    Box::new(local::Driver(local::ReducerFeature(local::Reduce::new(
+    Box::new(local::Driver(local::Reduce::new(
         |_: &mut usize, (): &(), _: &mut ReduceContext<'_>| local::Effect::none()
-    )))),
+    ))),
     |counts| LocalPath::new(TrackedPath {
         counts,
         marker: std::rc::Rc::new(())

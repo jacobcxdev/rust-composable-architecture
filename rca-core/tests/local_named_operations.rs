@@ -182,7 +182,7 @@ impl Feature for ReplacementTasks {
     type State = ();
     type Action = ReplacementAction;
 
-    fn reduce(
+    fn update(
         &mut self,
         (): &mut (),
         action: &Self::Action,
@@ -222,7 +222,7 @@ fn local_task_replacement_is_per_declaration_and_leaves_unnamed_work_alone() {
     ] {
         let host = Driver::new();
         let observations: [_; 4] = std::array::from_fn(|_| Rc::new(TaskObservation::default()));
-        let store = Store::feature_builder(
+        let store = Store::builder(
             (),
             ReplacementTasks {
                 observations: Vec::from(observations.clone()).into_iter(),
@@ -331,7 +331,7 @@ impl Feature for Root {
     type State = State;
     type Action = Action;
 
-    fn reduce(
+    fn update(
         &mut self,
         state: &mut State,
         action: &Action,
@@ -357,7 +357,7 @@ impl Feature for Child {
     type State = Rc<Cell<usize>>;
     type Action = ();
 
-    fn reduce(
+    fn update(
         &mut self,
         state: &mut Self::State,
         (): &(),
@@ -527,7 +527,7 @@ impl Feature for WaitFeature {
     type State = Rc<Cell<usize>>;
     type Action = ();
 
-    fn reduce(
+    fn update(
         &mut self,
         _: &mut Self::State,
         (): &(),
@@ -563,7 +563,7 @@ fn local_passive_wait_rechecks_self_wait_on_the_actual_managed_poll() {
         let wait = Rc::new(RefCell::new(None));
         let result = Rc::new(RefCell::new(None));
         let count = Rc::new(Cell::new(0));
-        let store = Store::feature_builder(
+        let store = Store::builder(
             Rc::new(Cell::new(0)),
             WaitFeature {
                 wait: Rc::clone(&wait),
@@ -623,7 +623,7 @@ fn local_escaped_operation_rejects_completed_producer_and_blocked_requests_close
     let selections = Rc::new(Cell::new(0));
     let calls = Rc::new(Cell::new(0));
     let exported = Rc::new(RefCell::new(None));
-    let store = Store::feature_builder(
+    let store = Store::builder(
         State {
             root: Rc::clone(&lifetime),
             child: None,

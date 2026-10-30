@@ -32,7 +32,7 @@ macro_rules! focused_controls {
             type State = Vec<u8>;
             type Action = Action;
 
-            fn reduce(
+            fn update(
                 &mut self,
                 state: &mut Vec<u8>,
                 action: &Action,
@@ -57,7 +57,7 @@ macro_rules! focused_controls {
             type State = Vec<u8>;
             type Action = Action;
 
-            fn reduce(
+            fn update(
                 &mut self,
                 state: &mut Vec<u8>,
                 action: &Action,
@@ -99,7 +99,7 @@ macro_rules! focused_controls {
             type State = Vec<u8>;
             type Action = Action;
 
-            fn reduce(
+            fn update(
                 &mut self,
                 state: &mut Vec<u8>,
                 action: &Action,
@@ -127,7 +127,7 @@ macro_rules! focused_controls {
         #[test]
         fn focused_receive_executes_intermediate_work_and_calls_matcher_once_per_action() {
             block_on(async {
-                let mut store = TestStore::feature_builder(Vec::new(), Pipeline).build();
+                let mut store = TestStore::builder(Vec::new(), Pipeline).build();
                 let task = store.send(Action::Start).await.unwrap();
                 let mut seen = Vec::new();
                 let _ = store
@@ -164,7 +164,7 @@ macro_rules! focused_controls {
         #[test]
         fn explicit_wrong_expectation_retains_debt_after_silent_omissions() {
             block_on(async {
-                let mut store = TestStore::feature_builder(Vec::new(), Pipeline).build();
+                let mut store = TestStore::builder(Vec::new(), Pipeline).build();
                 let _ = store.send(Action::Start).await.unwrap();
                 let panic = AssertUnwindSafe(store.receive_until(
                     |action| *action == Action::Done,
@@ -196,7 +196,7 @@ macro_rules! focused_controls {
         #[test]
         fn one_omission_does_not_finish_the_remaining_pipeline() {
             block_on(async {
-                let mut store = TestStore::feature_builder(Vec::new(), Pipeline).build();
+                let mut store = TestStore::builder(Vec::new(), Pipeline).build();
                 let task = store.send(Action::Start).await.unwrap();
                 let _ = store
                     .receive_omitting(OmissionReporting::Silent)
@@ -237,7 +237,7 @@ macro_rules! focused_controls {
                 type State = Vec<u8>;
                 type Action = Action;
 
-                fn reduce(
+                fn update(
                     &mut self,
                     state: &mut Vec<u8>,
                     action: &Action,
@@ -265,7 +265,7 @@ macro_rules! focused_controls {
             }
 
             block_on(async {
-                let mut store = TestStore::feature_builder(Vec::new(), ContinueAfterSkip)
+                let mut store = TestStore::builder(Vec::new(), ContinueAfterSkip)
                     .with_exhaustivity(rca_test::Exhaustivity::NonExhaustive)
                     .build();
                 let started = store.send(Action::Start).await.unwrap();
@@ -294,7 +294,7 @@ macro_rules! focused_controls {
         #[test]
         fn endless_unmatched_actions_share_one_finite_budget() {
             block_on(async {
-                let mut store = TestStore::feature_builder(Vec::new(), Pipeline)
+                let mut store = TestStore::builder(Vec::new(), Pipeline)
                     .with_step_budget(100)
                     .build();
                 let _ = store.send(Action::Again).await.unwrap();
@@ -312,7 +312,7 @@ macro_rules! focused_controls {
         #[test]
         fn idle_selection_is_ready_only_and_unpolled_omission_is_inert() {
             block_on(async {
-                let mut store = TestStore::feature_builder(Vec::new(), Pipeline).build();
+                let mut store = TestStore::builder(Vec::new(), Pipeline).build();
                 let task = store.send(Action::Start).await.unwrap();
                 drop(store.receive_omitting(OmissionReporting::Warn));
                 store.assert_state_eq(vec![]).await.unwrap();
@@ -341,7 +341,7 @@ macro_rules! focused_controls {
         fn selection_does_not_advance_a_real_pending_timer() {
             block_on(async {
                 let duration = std::time::Duration::from_secs(1);
-                let mut store = TestStore::feature_builder(
+                let mut store = TestStore::builder(
                     Vec::new(),
                     Deferred(Some(core::Effect::send_after(duration, Action::Done))),
                 )
@@ -384,8 +384,7 @@ macro_rules! focused_controls {
                     response.await.unwrap();
                     Some(Action::Done)
                 });
-                let mut store =
-                    TestStore::feature_builder(Vec::new(), Deferred(Some(effect))).build();
+                let mut store = TestStore::builder(Vec::new(), Deferred(Some(effect))).build();
                 let started = store.send(Action::Start).await.unwrap();
                 assert!(
                     store
@@ -429,7 +428,7 @@ macro_rules! focused_controls {
                     })
                     .await
                 });
-                let mut store = TestStore::feature_builder(Vec::new(), Deferred(Some(effect)))
+                let mut store = TestStore::builder(Vec::new(), Deferred(Some(effect)))
                     .with_step_budget(7)
                     .build();
                 let started = store.send(Action::Start).await.unwrap();
@@ -473,7 +472,7 @@ macro_rules! focused_controls {
                     None::<Action>
                 });
                 let commits = Arc::new(AtomicUsize::new(0));
-                let mut store = TestStore::feature_builder(
+                let mut store = TestStore::builder(
                     Vec::new(),
                     PostReceipt {
                         effect: Some(effect),
@@ -538,7 +537,7 @@ macro_rules! focused_controls {
                     .await
                 });
                 let commits = Arc::new(AtomicUsize::new(0));
-                let mut store = TestStore::feature_builder(
+                let mut store = TestStore::builder(
                     Vec::new(),
                     PostReceipt {
                         effect: Some(effect),
@@ -628,7 +627,7 @@ macro_rules! focused_controls {
                     .await
                 });
                 let commits = Arc::new(AtomicUsize::new(0));
-                let mut store = TestStore::projected_feature_builder(
+                let mut store = TestStore::projected_builder(
                     Vec::new(),
                     PostReceipt {
                         effect: Some(effect),
@@ -687,7 +686,7 @@ macro_rules! focused_controls {
         fn preparation_cancellation_retires_the_selected_action_before_release() {
             block_on(async {
                 let commits = Arc::new(AtomicUsize::new(0));
-                let mut store = TestStore::feature_builder(
+                let mut store = TestStore::builder(
                     Vec::new(),
                     PostReceipt {
                         effect: Some(core::Effect::none()),
@@ -858,7 +857,7 @@ macro_rules! focused_controls {
             type State = Vec<u8>;
             type Action = ReservedAction;
 
-            fn reduce(
+            fn update(
                 &mut self,
                 state: &mut Vec<u8>,
                 action: &ReservedAction,
@@ -949,7 +948,7 @@ macro_rules! focused_controls {
                     })
                     .await
                 });
-                let mut store = TestStore::feature_builder(
+                let mut store = TestStore::builder(
                     Vec::new(),
                     ReservedReceipt {
                         timer: Some(timer),
@@ -1039,7 +1038,7 @@ macro_rules! focused_controls {
                 let armed = Arc::new(AtomicBool::new(false));
                 let task = TaskOwner::new(std::sync::Mutex::new(None));
                 let cancellations = Arc::new(AtomicUsize::new(0));
-                let mut store = TestStore::feature_builder(
+                let mut store = TestStore::builder(
                     Vec::new(),
                     PostReceipt {
                         effect: Some(core::Effect::none()),
@@ -1088,7 +1087,7 @@ macro_rules! focused_controls {
         #[test]
         fn declared_captures_adopt_omissions_but_selected_expectation_remains_explicit() {
             block_on(async {
-                let mut store = TestStore::feature_builder(Vec::new(), Pipeline)
+                let mut store = TestStore::builder(Vec::new(), Pipeline)
                     .with_capture::<Count>(|state| Ok(state.len()))
                     .unwrap()
                     .build();
@@ -1229,7 +1228,7 @@ macro_rules! focused_controls {
         #[test]
         fn unknown_selected_capture_keeps_the_action_pending_for_retry() {
             block_on(async {
-                let mut store = TestStore::feature_builder(Vec::new(), Pipeline)
+                let mut store = TestStore::builder(Vec::new(), Pipeline)
                     .with_capture::<Count>(|state| Ok(state.len()))
                     .unwrap()
                     .build();
@@ -1269,7 +1268,7 @@ macro_rules! focused_controls {
         #[test]
         fn selected_capture_mismatch_retains_the_committed_boundary() {
             block_on(async {
-                let mut store = TestStore::feature_builder(Vec::new(), Pipeline)
+                let mut store = TestStore::builder(Vec::new(), Pipeline)
                     .with_capture::<Count>(|state| Ok(state.len()))
                     .unwrap()
                     .build();
@@ -1302,7 +1301,7 @@ macro_rules! focused_controls {
             block_on(async {
                 let external = Arc::new(AtomicUsize::new(0));
                 let captured = Arc::clone(&external);
-                let mut store = TestStore::feature_builder(Vec::new(), Pipeline)
+                let mut store = TestStore::builder(Vec::new(), Pipeline)
                     .with_capture::<Count>(move |_| Ok(captured.load(Ordering::Relaxed)))
                     .unwrap()
                     .build();
@@ -1325,7 +1324,7 @@ macro_rules! focused_controls {
             block_on(async {
                 let reject = Arc::new(AtomicBool::new(false));
                 let captured = Arc::clone(&reject);
-                let mut store = TestStore::feature_builder(Vec::new(), Pipeline)
+                let mut store = TestStore::builder(Vec::new(), Pipeline)
                     .with_capture::<Count>(move |_| {
                         if captured.load(Ordering::Relaxed) {
                             Err(())
@@ -1365,7 +1364,7 @@ macro_rules! focused_controls {
             block_on(async {
                 let external = Arc::new(AtomicUsize::new(0));
                 let captured = Arc::clone(&external);
-                let mut store = TestStore::feature_builder(Vec::new(), Pipeline)
+                let mut store = TestStore::builder(Vec::new(), Pipeline)
                     .with_capture::<Count>(move |_| Ok(captured.load(Ordering::Relaxed)))
                     .unwrap()
                     .build();
@@ -1404,7 +1403,7 @@ macro_rules! focused_controls {
         #[test]
         fn warning_renderer_panic_retains_the_committed_boundary() {
             block_on(async {
-                let mut store = TestStore::feature_builder(Vec::new(), Pipeline)
+                let mut store = TestStore::builder(Vec::new(), Pipeline)
                     .with_snapshot_renderer(|_| panic!("omission renderer"))
                     .build();
                 let _ = store.send(Action::Start).await.unwrap();
@@ -1423,7 +1422,7 @@ macro_rules! focused_controls {
         #[test]
         fn failed_omission_capture_retains_the_committed_boundary() {
             block_on(async {
-                let mut store = TestStore::feature_builder(Vec::new(), Pipeline)
+                let mut store = TestStore::builder(Vec::new(), Pipeline)
                     .with_capture::<Count>(|state| if state.is_empty() { Ok(0) } else { Err(()) })
                     .unwrap()
                     .build();
@@ -1502,14 +1501,13 @@ macro_rules! focused_controls {
             block_on(async {
                 let clones = Arc::new(AtomicUsize::new(0));
                 let captured = Arc::clone(&clones);
-                let mut store =
-                    TestStore::projected_feature_builder(Vec::new(), Pipeline, move |state| {
-                        CountedSnapshot {
-                            value: state.len(),
-                            clones: Arc::clone(&captured),
-                        }
-                    })
-                    .build();
+                let mut store = TestStore::projected_builder(Vec::new(), Pipeline, move |state| {
+                    CountedSnapshot {
+                        value: state.len(),
+                        clones: Arc::clone(&captured),
+                    }
+                })
+                .build();
                 let started = store.send(Action::Start).await.unwrap();
                 clones.store(0, Ordering::Relaxed);
                 let _ = store.receive_omitting(reporting).await.unwrap();
@@ -1553,7 +1551,7 @@ macro_rules! focused_controls {
             type State = Vec<u8>;
             type Action = Action;
 
-            fn reduce(
+            fn update(
                 &mut self,
                 state: &mut Vec<u8>,
                 action: &Action,
@@ -1636,7 +1634,7 @@ macro_rules! focused_controls {
                     let captured = TaskOwner::clone(&finish_on_drop);
                     let reads = Arc::new(AtomicUsize::new(0));
                     let captured_reads = Arc::clone(&reads);
-                    let mut store = TestStore::projected_feature_builder(
+                    let mut store = TestStore::projected_builder(
                         Vec::new(),
                         ReadBetweenActions(Arc::clone(&reads)),
                         move |state| RetiredBaselineSnapshot {
@@ -1704,16 +1702,15 @@ macro_rules! focused_controls {
             block_on(async {
                 let armed = Arc::new(AtomicBool::new(false));
                 let captured = Arc::clone(&armed);
-                let mut store =
-                    TestStore::projected_feature_builder(Vec::new(), Pipeline, move |state| {
-                        RetiredBaselineSnapshot {
-                            value: state.len(),
-                            panic_on_drop: Arc::clone(&captured),
-                            finish_on_drop: TaskOwner::new(std::sync::Mutex::new(None)),
-                            reads: Arc::new(AtomicUsize::new(0)),
-                        }
-                    })
-                    .build();
+                let mut store = TestStore::projected_builder(Vec::new(), Pipeline, move |state| {
+                    RetiredBaselineSnapshot {
+                        value: state.len(),
+                        panic_on_drop: Arc::clone(&captured),
+                        finish_on_drop: TaskOwner::new(std::sync::Mutex::new(None)),
+                        reads: Arc::new(AtomicUsize::new(0)),
+                    }
+                })
+                .build();
                 let _ = store.send(Action::Start).await.unwrap();
                 armed.store(true, Ordering::Relaxed);
                 let panic = AssertUnwindSafe(store.receive_omitting(OmissionReporting::Silent))
@@ -1738,15 +1735,14 @@ macro_rules! focused_controls {
             block_on(async {
                 let armed = Arc::new(AtomicBool::new(false));
                 let captured = Arc::clone(&armed);
-                let mut store =
-                    TestStore::projected_feature_builder(Vec::new(), Pipeline, move |state| {
-                        OwnedSnapshot {
-                            value: state.len(),
-                            expected: false,
-                            panic_on_drop: Arc::clone(&captured),
-                        }
-                    })
-                    .build();
+                let mut store = TestStore::projected_builder(Vec::new(), Pipeline, move |state| {
+                    OwnedSnapshot {
+                        value: state.len(),
+                        expected: false,
+                        panic_on_drop: Arc::clone(&captured),
+                    }
+                })
+                .build();
                 armed.store(true, Ordering::Relaxed);
                 let panic =
                     AssertUnwindSafe(store.send_with(Action::Done, |state| state.value = 1))

@@ -52,7 +52,7 @@ use std::hash::Hash;
 use std::sync::Arc;
 
 use actor::Actor;
-pub use builder::{DEFAULT_MAILBOX_CAPACITY, FeatureStoreBuilder, StoreBuilder};
+pub use builder::{DEFAULT_MAILBOX_CAPACITY, StoreBuilder};
 use command::{ActionCommand, Command, CommitError, OwnedActionCommand, TerminalReply};
 pub use command_port::{CommandPort, CommandReceipt, CommandSite, TryCommandError};
 #[cfg(feature = "test-util")]
@@ -84,9 +84,9 @@ use crate::observation::wait::{
     PredicateWait, PredicateWaitOutcome, WaitCancellation, WaitTerminal, wait_for_false,
 };
 use crate::{
-    ActionPath, CaseStatePath, KeyedAction, KeyedActionPath, KeyedState, KeyedStatePath,
-    Observation, OptionalStatePath, Reducer, Runtime, ScopedStoreEnded, ShutdownError, StackAction,
-    StackId, StackState, StatePath, StoreStopped, TrySendError,
+    ActionPath, CaseStatePath, Feature, KeyedAction, KeyedActionPath, KeyedState, KeyedStatePath,
+    Observation, OptionalStatePath, Runtime, ScopedStoreEnded, ShutdownError, StackAction, StackId,
+    StackState, StatePath, StoreStopped, TrySendError,
 };
 
 /// Sends actions to one serial feature actor.
@@ -98,7 +98,7 @@ use crate::{
 /// [`Self::send`] waits for a committed action and returns its [`ActionTask`].
 /// Call [`ActionTask::finish`] to wait for that action's causal work. Ordered
 /// reads and observations borrow actor-owned state without requiring `State: Clone`.
-/// A feature Store's [`Self::ready`] future waits for structural installation.
+/// The [`Self::ready`] future waits for structural installation.
 ///
 /// Creating a scope-registration future prepares its projection and embedding
 /// synchronously, dropping unused mutable projections and action extractors.
@@ -336,55 +336,30 @@ impl<State, Action> Store<State, Action> {
         }
     }
 
-    /// Creates a typed feature Store with default configuration.
-    ///
-    /// The runtime receives the actor before this method returns. Structural
-    /// installation runs when the actor is polled; use [`Self::ready`] to await it.
-    pub fn feature<F>(state: State, feature: F, runtime: Runtime) -> Self
-    where
-        State: Send + 'static,
-        Action: Send + 'static,
-        F: crate::Feature<State = State, Action = Action> + Send + 'static,
-    {
-        FeatureStoreBuilder::build_default(state, feature, runtime)
-    }
-
-    /// Starts configuring a typed feature Store.
-    pub fn feature_builder<F>(
-        state: State,
-        feature: F,
-        runtime: Runtime,
-    ) -> FeatureStoreBuilder<State, Action, F>
-    where
-        State: Send + 'static,
-        Action: Send + 'static,
-        F: crate::Feature<State = State, Action = Action> + Send + 'static,
-    {
-        FeatureStoreBuilder::new(state, feature, runtime)
-    }
-
     /// Creates a Store with default configuration.
     ///
     /// The runtime receives the actor before this method returns. No executor
-    /// is installed. Use [`Self::builder`] to configure dependencies and capacity.
+    /// is installed. Structural installation starts on the first actor poll.
+    /// [`Self::ready`] waits for installation. [`Self::builder`] configures dependencies,
+    /// capacity and child declarations. Every [`crate::Reducer`] is also a [`Feature`].
     #[must_use]
-    pub fn new<R>(state: State, reducer: R, runtime: Runtime) -> Self
+    pub fn new<F>(state: State, feature: F, runtime: Runtime) -> Self
     where
         State: Send + 'static,
         Action: Send + 'static,
-        R: Reducer<State = State, Action = Action> + Send + 'static,
+        F: Feature<State = State, Action = Action> + Send + 'static,
     {
-        StoreBuilder::build_default(state, reducer, runtime)
+        StoreBuilder::build_default(state, feature, runtime)
     }
 
     /// Starts configuring a Store.
-    pub fn builder<R>(state: State, reducer: R, runtime: Runtime) -> StoreBuilder<State, Action, R>
+    pub fn builder<F>(state: State, feature: F, runtime: Runtime) -> StoreBuilder<State, Action, F>
     where
         State: Send + 'static,
         Action: Send + 'static,
-        R: Reducer<State = State, Action = Action> + Send + 'static,
+        F: Feature<State = State, Action = Action> + Send + 'static,
     {
-        StoreBuilder::new(state, reducer, runtime)
+        StoreBuilder::new(state, feature, runtime)
     }
 
     /// Wraps parts whose lifecycle already counts this initial Store owner.

@@ -12,12 +12,12 @@ macro_rules! closing_cases {
             impl Feature for Root {
                 type State = Option<i32>;
                 type Action = ();
-                fn reduce(&mut self, _: &mut Self::State, _: &(), _: &mut FeatureContext<'_, Self::State, ()>) {}
+                fn update(&mut self, _: &mut Self::State, _: &(), _: &mut FeatureContext<'_, Self::State, ()>) {}
             }
             impl Feature for Child {
                 type State = i32;
                 type Action = ();
-                fn reduce(&mut self, _: &mut i32, _: &(), _: &mut FeatureContext<'_, i32, ()>) {}
+                fn update(&mut self, _: &mut i32, _: &(), _: &mut FeatureContext<'_, i32, ()>) {}
             }
             type Owner = Arc<Mutex<Option<Store<Option<i32>, ()>>>>;
             type Trace = Arc<Mutex<Vec<&'static str>>>;
@@ -59,7 +59,7 @@ macro_rules! closing_cases {
             impl Feature for InitialRoot {
                 type State = InitialState;
                 type Action = ();
-                fn reduce(&mut self, _: &mut InitialState, _: &(), _: &mut FeatureContext<'_, InitialState, ()>) {}
+                fn update(&mut self, _: &mut InitialState, _: &(), _: &mut FeatureContext<'_, InitialState, ()>) {}
             }
 
             fn initial_projection_closure(close_structural: bool, close_factory: bool) {
@@ -136,7 +136,7 @@ macro_rules! closing_cases {
                         let bodies = Arc::clone(&later_bodies);
                         Task::run(move |_| async move { bodies.fetch_add(1, Ordering::SeqCst); })
                     });
-                    let store = Store::feature_builder(InitialState {
+                    let store = Store::builder(InitialState {
                         child: Some(4),
                         owner: Arc::clone(&owner),
                         constructed,
@@ -267,7 +267,7 @@ macro_rules! closing_cases {
                         },
                     );
                     let (builder, site) =
-                        Store::feature_builder(Some(4), Root, Runtime::new(driver.clone()))
+                        Store::builder(Some(4), Root, Runtime::new(driver.clone()))
                             .mount_with_site(mount);
                     let store = builder.build().unwrap();
                     driver.finish(store.ready()).unwrap();
@@ -335,7 +335,7 @@ macro_rules! closing_cases {
             impl Feature for CaptureRoot {
                 type State = CaptureState;
                 type Action = ();
-                fn reduce(&mut self, _: &mut CaptureState, _: &(), _: &mut FeatureContext<'_, CaptureState, ()>) {}
+                fn update(&mut self, _: &mut CaptureState, _: &(), _: &mut FeatureContext<'_, CaptureState, ()>) {}
             }
             fn projection(state: &CaptureState) -> Option<&i32> {
                 let phase = state.armed.load(Ordering::SeqCst);
@@ -389,7 +389,7 @@ macro_rules! closing_cases {
                         later_count.fetch_add(1, Ordering::SeqCst);
                         Task::run(|_| async {})
                     });
-                    let (builder, site) = Store::feature_builder(CaptureState {
+                    let (builder, site) = Store::builder(CaptureState {
                         child: Some(4),
                         owner: Arc::clone(&owner),
                         trace: Arc::clone(&trace),

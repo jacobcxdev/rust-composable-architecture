@@ -90,7 +90,7 @@ impl Feature for Root {
     type State = State;
     type Action = Action;
 
-    fn reduce(
+    fn update(
         &mut self,
         state: &mut State,
         action: &Action,
@@ -123,7 +123,7 @@ impl Feature for Child {
     type State = ();
     type Action = ();
 
-    fn reduce(&mut self, (): &mut (), (): &(), _: &mut FeatureContext<'_, (), ()>) {}
+    fn update(&mut self, (): &mut (), (): &(), _: &mut FeatureContext<'_, (), ()>) {}
 }
 
 impl Drop for Child {
@@ -242,7 +242,7 @@ fn workload(with_sink: bool) -> Report {
                 Child(Arc::clone(&factory))
             },
         );
-        Store::feature_builder(
+        Store::builder(
             State {
                 child: Some(()),
                 configuration: 41,
@@ -455,7 +455,7 @@ fn lifecycle_delivery_adds_no_phase_allocations_beyond_the_sink_box() {
         std::mem::size_of::<State>(),
         std::mem::align_of::<State>(),
         std::mem::size_of::<Action>(),
-        std::mem::size_of::<rca_core::FeatureStoreBuilder<State, Action, Root>>(),
+        std::mem::size_of::<rca_core::StoreBuilder<State, Action, Root>>(),
         std::mem::size_of::<Store<State, Action>>(),
         std::mem::size_of::<RuntimeFuture>(),
         std::mem::size_of::<Counts>(),

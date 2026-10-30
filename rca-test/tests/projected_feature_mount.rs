@@ -8,7 +8,7 @@ use std::sync::{
 
 use futures_executor::block_on;
 use rca_core::{
-    Feature, FeatureContext, MountIdentity, MountSite, OptionalMount, StoreBuilder, Task,
+    Feature, FeatureContext, MountIdentity, MountSite, OptionalMount, Store, StoreBuilder, Task,
 };
 use rca_test::{DeterministicRuntime, TestStore, TestStoreBuilder};
 
@@ -23,7 +23,7 @@ struct Root(Cell<usize>);
 impl Feature for Root {
     type State = State;
     type Action = Action;
-    fn reduce(
+    fn update(
         &mut self,
         state: &mut State,
         action: &Action,
@@ -39,7 +39,7 @@ struct Child;
 impl Feature for Child {
     type State = Cell<usize>;
     type Action = ();
-    fn reduce(
+    fn update(
         &mut self,
         _: &mut Cell<usize>,
         (): &(),
@@ -100,9 +100,8 @@ fn projected_feature_mount_preserves_gated_startup_and_private_state() {
                         .unwrap();
                 })
             });
-        let (builder, site) =
-            TestStore::projected_feature_builder(state(), Root(Cell::new(0)), snapshot)
-                .mount_with_site(mount);
+        let (builder, site) = TestStore::projected_builder(state(), Root(Cell::new(0)), snapshot)
+            .mount_with_site(mount);
         send(&builder);
         send_sync(&site);
         let mut store = builder.build();
@@ -147,12 +146,12 @@ fn deferred_attachment_site_acquires_the_installed_production_child() {
             Arc::clone(&constructions),
         ));
         assert_eq!(constructions.load(Ordering::Relaxed), 0);
-        let store = attach(StoreBuilder::feature(
+        let store = attach(Store::builder(
             state(),
             Root(Cell::new(0)),
             runtime.runtime(),
         ))
-        .build_feature()
+        .build()
         .unwrap();
         runtime.run(store.ready()).await.unwrap().unwrap();
         let child = runtime
@@ -198,8 +197,7 @@ fn retained_site_does_not_keep_dropped_builder_captures_alive() {
         },
     );
     let (builder, site): (Builder, Site) =
-        TestStore::projected_feature_builder(state(), Root(Cell::new(0)), snapshot)
-            .mount_with_site(mount);
+        TestStore::projected_builder(state(), Root(Cell::new(0)), snapshot).mount_with_site(mount);
     assert!(weak.upgrade().is_some());
     drop(builder);
     assert!(weak.upgrade().is_none());

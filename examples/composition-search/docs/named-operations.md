@@ -8,7 +8,7 @@ cargo run -p rca-example-composition-search --example named_operations
 cargo test -p rca-example-composition-search --example named_operations
 ```
 
-Read `SearchFeature::reduce` for application authoring. The `controlled` module
+Read `SearchFeature::update` for application authoring. The `controlled` module
 only makes the proof deterministic: it retains **actual runtime futures**, and
 its client responses remain Pending until released or destroyed. Applications
 use their normal runtime and async clients; they need no retaining scheduler.

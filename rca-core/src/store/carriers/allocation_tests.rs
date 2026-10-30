@@ -19,6 +19,12 @@ pub(crate) fn effect_registration_costs() {
         return;
     }
 
+    // The critical-section backend lazily allocates a process-global mutex.
+    // Initialise it separately so measured controls keep cold per-object storage.
+    let warm_control = ControlWake::new();
+    warm_control.notify();
+    drop(warm_control);
+
     let _profiler = dhat::Profiler::builder().testing().build();
     let mut baseline = [0; 3];
     for depth in [0, 1, 4, 16] {

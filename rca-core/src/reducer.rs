@@ -14,6 +14,10 @@ use crate::{Effect, ReduceContext};
 /// requires parent and child Action types to be `'static` for total effect
 /// mapping. Owned non-`Send` actions remain valid there; arbitrary-lifetime
 /// borrowed actions do not, even when the child returns no effects.
+///
+/// Every reducer also implements [`crate::Feature`] without an adapter.
+/// Both forms use the same Store and `TestStore` constructors. Implement
+/// `Feature` directly when the callback needs tasks with typed state access.
 pub trait Reducer {
     /// State exclusively borrowed during one reduction.
     type State;

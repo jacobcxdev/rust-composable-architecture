@@ -3,7 +3,7 @@ use super::tests::panic_message;
 use super::*;
 use crate::store::scope::{ScopeIdentity, ScopeSlot};
 use crate::store::transaction::tests::Host;
-use crate::{Reduce, ReducerFeature, TaskSendError};
+use crate::{Reduce, TaskSendError};
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -152,7 +152,7 @@ impl Drop for Child {
 impl Feature for Child {
     type State = usize;
     type Action = Input;
-    fn reduce(
+    fn update(
         &mut self,
         state: &mut usize,
         action: &Input,
@@ -184,7 +184,7 @@ struct LocalChild {
 impl local::Feature for LocalChild {
     type State = usize;
     type Action = Input;
-    fn reduce(
+    fn update(
         &mut self,
         state: &mut usize,
         action: &Input,
@@ -352,24 +352,24 @@ macro_rules! witnesses {
 fn shared_driver(
     mut reduce: impl FnMut(&mut State, &(), &mut ReduceContext<'_>) + Send + 'static,
 ) -> Box<<Shared as Carriers<State, ()>>::Driver> {
-    Box::new(ReducerFeature::new(Reduce::new(
+    Box::new(Reduce::new(
         move |state: &mut State, action: &(), context: &mut ReduceContext<'_>| {
             reduce(state, action, context);
             crate::Effect::none()
         },
-    )))
+    ))
 }
 #[cfg(feature = "local")]
 /// Adapts root setup without imposing Send on the Local closure.
 fn local_driver(
     mut reduce: impl FnMut(&mut State, &(), &mut ReduceContext<'_>) + 'static,
 ) -> Box<<local::Local as Carriers<State, ()>>::Driver> {
-    Box::new(local::Driver(local::ReducerFeature(local::Reduce::new(
+    Box::new(local::Driver(local::Reduce::new(
         move |state: &mut State, action: &(), context: &mut ReduceContext<'_>| {
             reduce(state, action, context);
             local::Effect::none()
         },
-    ))))
+    )))
 }
 witnesses!(
     shared_feature_lease_callbacks_and_unwind,

@@ -8,7 +8,7 @@ use crate::store::command::Provenance;
 use crate::store::local;
 use crate::store::scope::{ScopeIdentity, ScopeSlot, ScopeToken};
 use crate::store::transaction::tests::Host;
-use crate::{Feature, FeatureContext, Reduce, ReduceContext, ReducerFeature};
+use crate::{Feature, FeatureContext, Reduce, ReduceContext};
 use std::cell::Cell;
 #[cfg(feature = "local")]
 use std::rc::Rc;
@@ -93,7 +93,7 @@ struct LocalChildFeature {
 impl local::Feature for LocalChildFeature {
     type State = Rc<Cell<usize>>;
     type Action = LocalChildAction;
-    fn reduce(
+    fn update(
         &mut self,
         state: &mut Self::State,
         action: &Self::Action,
@@ -137,7 +137,7 @@ impl local::Feature for LocalChildFeature {
 #[cfg(feature = "local")]
 fn local_child_rc_task_and_mapped_run_use_the_existing_kernel() {
     let mut slot = ScopeSlot::new();
-    let root = local::ReducerFeature(local::Reduce::new(
+    let root = local::Reduce::new(
         move |state: &mut LocalRoot, action: &LocalRootAction, context: &mut ReduceContext<'_>| {
             let LocalRootAction::Install(capture) = action;
             assert_eq!(Rc::strong_count(capture), 1);
@@ -145,7 +145,7 @@ fn local_child_rc_task_and_mapped_run_use_the_existing_kernel() {
                 Some(context.mount(ReduceContext::node(&mut slot), ScopeIdentity::new(())));
             local::Effect::none()
         },
-    ));
+    );
     let mut host = Host::<_, _, local::Local>::new(
         LocalRoot {
             child: Some(Rc::new(Cell::new(1))),
@@ -219,7 +219,7 @@ struct ChildFeature(Cell<usize>);
 impl Feature for ChildFeature {
     type State = Cell<usize>;
     type Action = ChildAction;
-    fn reduce(
+    fn update(
         &mut self,
         state: &mut Self::State,
         action: &ChildAction,
@@ -233,13 +233,13 @@ impl Feature for ChildFeature {
 #[test]
 fn independent_child_send_reads_and_updates_send_not_sync_state() {
     let mut slot = ScopeSlot::new();
-    let root = ReducerFeature::new(Reduce::new(
+    let root = Reduce::new(
         move |state: &mut Root, _: &RootAction, context: &mut ReduceContext<'_>| {
             state.token =
                 Some(context.mount(ReduceContext::node(&mut slot), ScopeIdentity::new(())));
             crate::Effect::none()
         },
-    ));
+    );
     let mut host = Host::<_, _, Shared>::new(
         Root {
             child: Some(Cell::new(3)),
@@ -282,13 +282,13 @@ fn independent_child_send_reads_and_updates_send_not_sync_state() {
 #[cfg(feature = "test-util")]
 fn ancestor_refresh_rejects_stale_inspection_without_taking_current_input() {
     let mut slot = ScopeSlot::new();
-    let root = ReducerFeature::new(Reduce::new(
+    let root = Reduce::new(
         move |state: &mut Root, _: &RootAction, context: &mut ReduceContext<'_>| {
             state.token =
                 Some(context.mount(ReduceContext::node(&mut slot), ScopeIdentity::new(())));
             crate::Effect::none()
         },
-    ));
+    );
     let mut host = Host::<_, _, Shared>::new(
         Root {
             child: Some(Cell::new(3)),
@@ -367,7 +367,7 @@ impl Drop for RetiringFeature {
 impl Feature for RetiringFeature {
     type State = Cell<usize>;
     type Action = ChildAction;
-    fn reduce(
+    fn update(
         &mut self,
         state: &mut Self::State,
         action: &ChildAction,
@@ -392,7 +392,7 @@ fn retirement_destroys_feature_while_endpoint_and_queued_send_remain() {
     let reductions = Arc::new(AtomicUsize::new(0));
     let selections = Arc::new(AtomicUsize::new(0));
     let mut slot = ScopeSlot::new();
-    let root = ReducerFeature::new(Reduce::new(
+    let root = Reduce::new(
         move |state: &mut RetiringRoot,
               action: &RetiringAction,
               context: &mut ReduceContext<'_>| {
@@ -409,7 +409,7 @@ fn retirement_destroys_feature_while_endpoint_and_queued_send_remain() {
             }
             crate::Effect::none()
         },
-    ));
+    );
     let mut host = Host::<_, _, Shared>::new(
         RetiringRoot {
             child: None,

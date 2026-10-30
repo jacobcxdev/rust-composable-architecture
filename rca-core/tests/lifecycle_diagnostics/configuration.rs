@@ -33,7 +33,7 @@ impl Feature for Root {
     type State = State;
     type Action = Action;
 
-    fn reduce(
+    fn update(
         &mut self,
         state: &mut State,
         action: &Action,
@@ -73,7 +73,7 @@ impl Feature for Child {
     type State = Cell<usize>;
     type Action = ChildAction;
 
-    fn reduce(
+    fn update(
         &mut self,
         state: &mut Cell<usize>,
         action: &ChildAction,
@@ -207,7 +207,7 @@ impl Feature for KeyedRoot {
     type State = KeyedState<u8, Cell<usize>>;
     type Action = ();
 
-    fn reduce(
+    fn update(
         &mut self,
         state: &mut Self::State,
         (): &(),
@@ -234,7 +234,7 @@ fn keyed_pruning_reports_the_departing_subtree_before_constructing_its_successor
     let made = Arc::clone(&constructions);
     let sites = Arc::new(Mutex::new(Vec::new()));
     let saved_sites = Arc::clone(&sites);
-    let store = Store::feature_builder(
+    let store = Store::builder(
         [(1, Cell::new(4)), (2, Cell::new(6))]
             .into_iter()
             .collect::<Rows>(),
@@ -370,7 +370,7 @@ fn keyed_entry_hidden_before_installation_is_disposed_before_reconstruction() {
     impl Feature for Restore {
         type State = Projection;
         type Action = bool;
-        fn reduce(
+        fn update(
             &mut self,
             state: &mut Projection,
             action: &bool,
@@ -383,7 +383,7 @@ fn keyed_entry_hidden_before_installation_is_disposed_before_reconstruction() {
     impl Feature for Panel {
         type State = Rows;
         type Action = ();
-        fn reduce(&mut self, _: &mut Rows, (): &(), _: &mut FeatureContext<'_, Rows, ()>) {
+        fn update(&mut self, _: &mut Rows, (): &(), _: &mut FeatureContext<'_, Rows, ()>) {
             panic!("projection recovery must not reduce the parent");
         }
     }
@@ -429,7 +429,7 @@ fn keyed_entry_hidden_before_installation_is_disposed_before_reconstruction() {
     let made_drops = Arc::clone(&drops);
     let made_visible = Arc::clone(&visible);
     let construction_events = Arc::clone(&events);
-    let (builder, parent_site) = Store::feature_builder(
+    let (builder, parent_site) = Store::builder(
         Projection {
             rows: Some([(1, Cell::new(7))].into_iter().collect()),
             visible: Arc::clone(&visible),

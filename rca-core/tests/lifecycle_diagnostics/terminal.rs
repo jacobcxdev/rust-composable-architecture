@@ -69,7 +69,7 @@ impl Feature for Idle {
     type State = State;
     type Action = ();
 
-    fn reduce(&mut self, _: &mut State, (): &(), _: &mut FeatureContext<'_, State, ()>) {}
+    fn update(&mut self, _: &mut State, (): &(), _: &mut FeatureContext<'_, State, ()>) {}
 }
 
 /// Selects mutually exclusive callback and sink-destructor failure points.

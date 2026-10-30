@@ -58,7 +58,7 @@ impl Feature for Parent {
     type State = Option<usize>;
     type Action = ();
 
-    fn reduce(
+    fn update(
         &mut self,
         _: &mut Self::State,
         (): &(),
@@ -74,7 +74,7 @@ impl Feature for Child {
     type State = usize;
     type Action = usize;
 
-    fn reduce(
+    fn update(
         &mut self,
         state: &mut usize,
         action: &usize,
@@ -106,13 +106,10 @@ fn measured_recipe_dispatch_and_unchanged_ordinary_root_mapped_controls() {
     let driver = Driver::default();
     let declared = Arc::new(Mutex::new(None));
     let sites = Arc::clone(&declared);
-    let (builder, ordinary_site) =
-        Store::feature_builder(Some(0), Parent, Runtime::new(driver.clone())).mount_with_children(
-            descriptor(),
-            move |_, children| {
-                *sites.lock().unwrap() = Some(children.command(|input: u8| usize::from(input)));
-            },
-        );
+    let (builder, ordinary_site) = Store::builder(Some(0), Parent, Runtime::new(driver.clone()))
+        .mount_with_children(descriptor(), move |_, children| {
+            *sites.lock().unwrap() = Some(children.command(|input: u8| usize::from(input)));
+        });
     let store = builder.build().unwrap();
     driver.finish(store.ready()).unwrap();
     let site = declared.lock().unwrap().take().unwrap();
@@ -140,7 +137,7 @@ fn measured_recipe_dispatch_and_unchanged_ordinary_root_mapped_controls() {
     drop(store);
     driver.turn();
 
-    let (builder, _, site) = Store::feature_builder(Some(0), Parent, Runtime::new(driver.clone()))
+    let (builder, _, site) = Store::builder(Some(0), Parent, Runtime::new(driver.clone()))
         .mount_with_command(descriptor(), |input: u8| usize::from(input));
     let store = builder.build().unwrap();
     driver.finish(store.ready()).unwrap();
@@ -163,7 +160,7 @@ fn measured_recipe_dispatch_and_unchanged_ordinary_root_mapped_controls() {
         let gate = rca_core::testing::TransactionGate::new();
         let declared = Arc::new(Mutex::new(None));
         let sites = Arc::clone(&declared);
-        let (builder, _) = Store::feature_builder(Some(0), Parent, Runtime::new(driver.clone()))
+        let (builder, _) = Store::builder(Some(0), Parent, Runtime::new(driver.clone()))
             .transaction_gate(gate.clone())
             .mount_with_children(descriptor(), move |_, children| {
                 *sites.lock().unwrap() = Some(children.command(|input: u8| usize::from(input)));
@@ -252,7 +249,7 @@ mod collection_retention {
         type State = State;
         type Action = bool;
 
-        fn reduce(
+        fn update(
             &mut self,
             state: &mut State,
             action: &bool,
@@ -274,7 +271,7 @@ mod collection_retention {
         type State = Row;
         type Action = ();
 
-        fn reduce(&mut self, state: &mut Row, (): &(), _: &mut FeatureContext<'_, Row, ()>) {
+        fn update(&mut self, state: &mut Row, (): &(), _: &mut FeatureContext<'_, Row, ()>) {
             let _ = &self.0;
             state.value += 1;
         }
@@ -300,7 +297,7 @@ mod collection_retention {
             let make_counts = Arc::clone(&counts);
             let site = Arc::new(Mutex::new(None::<MountSite<State, Row, (), bool>>));
             let make_site = Arc::clone(&site);
-            let store = Store::feature_builder(
+            let store = Store::builder(
                 State {
                     ticks: 0,
                     rows: (0..4)
@@ -457,7 +454,7 @@ mod local {
         type State = Option<usize>;
         type Action = ();
 
-        fn reduce(
+        fn update(
             &mut self,
             _: &mut Self::State,
             (): &(),
@@ -473,7 +470,7 @@ mod local {
         type State = usize;
         type Action = usize;
 
-        fn reduce(
+        fn update(
             &mut self,
             state: &mut usize,
             action: &usize,
@@ -507,14 +504,16 @@ mod local {
             |_| Child,
         );
         let (builder, ordinary_site) =
-            Store::feature_builder(Some(0), Parent, Runtime::new(driver.clone()))
-                .mount_with_children(descriptor, move |_, children| {
+            Store::builder(Some(0), Parent, Runtime::new(driver.clone())).mount_with_children(
+                descriptor,
+                move |_, children| {
                     let mapped = Rc::clone(&mapped);
                     *sites.borrow_mut() = Some(children.command(move |input: u8| {
                         mapped.set(mapped.get() + 1);
                         usize::from(input)
                     }));
-                });
+                },
+            );
         let store = builder.build().unwrap();
         driver.finish(store.ready()).unwrap();
         let site = declared.borrow_mut().take().unwrap();
@@ -558,13 +557,11 @@ mod local {
                 },
                 |_| Child,
             );
-            let (builder, _) =
-                Store::feature_builder(Some(0), Parent, Runtime::new(driver.clone()))
-                    .transaction_gate(gate.clone())
-                    .mount_with_children(descriptor, move |_, children| {
-                        *sites.borrow_mut() =
-                            Some(children.command(|input: u8| usize::from(input)));
-                    });
+            let (builder, _) = Store::builder(Some(0), Parent, Runtime::new(driver.clone()))
+                .transaction_gate(gate.clone())
+                .mount_with_children(descriptor, move |_, children| {
+                    *sites.borrow_mut() = Some(children.command(|input: u8| usize::from(input)));
+                });
             let store = builder.build().unwrap();
             driver.turn();
             let boundary = gate.boundary().unwrap();

@@ -176,7 +176,7 @@ impl Feature for Parent {
     type State = RootState;
     type Action = RootAction;
 
-    fn reduce(
+    fn update(
         &mut self,
         _: &mut RootState,
         _: &RootAction,
@@ -189,7 +189,7 @@ impl Feature for Child {
     type State = ();
     type Action = ChildAction;
 
-    fn reduce(
+    fn update(
         &mut self,
         (): &mut (),
         _: &ChildAction,
@@ -222,12 +222,12 @@ fn remounted_output_keeps_ancestor_order_before_transform_and_consumption() {
         let declarations = Arc::new(Mutex::new(Vec::new()));
         let recipe_trace = Arc::clone(&trace);
         let recipe_declarations = Arc::clone(&declarations);
-        let root = rca_core::ReducerFeature::new(rca_core::Reduce::new(
+        let root = rca_core::Reduce::new(
             |state: &mut State, present: &bool, _: &mut rca_core::ReduceContext<'_>| {
                 state.branch = present.then_some(Branch { leaf: () });
                 rca_core::Effect::none()
             },
-        ));
+        );
         let branch = OptionalMount::new(
             |state: &State| state.branch.as_ref(),
             |state: &mut State| state.branch.as_mut(),
@@ -239,11 +239,11 @@ fn remounted_output_keeps_ancestor_order_before_transform_and_consumption() {
                 })
             },
             |_| {
-                rca_core::ReducerFeature::new(rca_core::Reduce::new(
+                rca_core::Reduce::new(
                     |_: &mut Branch, (): &(), _: &mut rca_core::ReduceContext<'_>| {
                         rca_core::Effect::none()
                     },
-                ))
+                )
             },
         );
         let (builder, _) = RootMount::new(root)
@@ -404,12 +404,12 @@ fn retiring_nested_collection_preserves_surviving_root_output_route() {
         source: (),
         outcome: Option<Outcome>,
     }
-    let root = rca_core::ReducerFeature::new(rca_core::Reduce::new(
+    let root = rca_core::Reduce::new(
         |state: &mut State, (): &(), _: &mut rca_core::ReduceContext<'_>| {
             state.rows = None;
             rca_core::Effect::none()
         },
-    ));
+    );
     let driver = Driver::default();
     let captures = Arc::new(OnceLock::new());
     let observed_captures = Arc::clone(&captures);
@@ -424,11 +424,11 @@ fn retiring_nested_collection_preserves_surviving_root_output_route() {
             })
         },
         |_| {
-            rca_core::ReducerFeature::new(rca_core::Reduce::new(
+            rca_core::Reduce::new(
                 |_: &mut rca_core::KeyedState<u8, ()>,
                  (): &(),
                  _: &mut rca_core::ReduceContext<'_>| rca_core::Effect::none(),
-            ))
+            )
         },
     );
     let (builder, branch_site) = RootMount::new(root)
@@ -1360,7 +1360,7 @@ fn continuing_handler_hides_later_route_and_returns_original_output() {
     impl Feature for ProjectedParent {
         type State = ProjectedRoot;
         type Action = RootAction;
-        fn reduce(
+        fn update(
             &mut self,
             _: &mut ProjectedRoot,
             _: &RootAction,
@@ -1539,7 +1539,7 @@ fn output_prunes_retired_parent_work_after_root_consumes_original() {
         type State = ProjectedRoot;
         type Action = RootAction;
 
-        fn reduce(
+        fn update(
             &mut self,
             _: &mut ProjectedRoot,
             _: &RootAction,
@@ -1715,7 +1715,7 @@ fn queued_output_returns_original_when_only_its_child_owner_retires() {
     impl Feature for RetireChild {
         type State = RootState;
         type Action = RootAction;
-        fn reduce(
+        fn update(
             &mut self,
             state: &mut RootState,
             _: &RootAction,
@@ -2518,7 +2518,7 @@ fn dying_child_handler_is_skipped_before_its_declaration_is_destroyed() {
         type State = ();
         type Action = ChildAction;
 
-        fn reduce(
+        fn update(
             &mut self,
             (): &mut (),
             _: &ChildAction,

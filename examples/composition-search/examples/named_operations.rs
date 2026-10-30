@@ -68,7 +68,7 @@ impl Feature for SearchFeature {
     type State = SearchState;
     type Action = SearchAction;
 
-    fn reduce(
+    fn update(
         &mut self,
         state: &mut SearchState,
         action: &SearchAction,
@@ -152,7 +152,7 @@ fn run_trace() -> Trace {
         releases.push(release);
         drops.push(destroyed);
     }
-    let store = Store::feature_builder(
+    let store = Store::builder(
         SearchState::default(),
         SearchFeature { responses },
         Runtime::new(host.clone()),

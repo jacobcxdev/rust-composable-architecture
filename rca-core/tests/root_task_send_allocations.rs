@@ -59,7 +59,7 @@ impl Feature for Capture {
     type State = State;
     type Action = Action;
 
-    fn reduce(
+    fn update(
         &mut self,
         state: &mut State,
         action: &Action,
@@ -121,7 +121,7 @@ fn root_task_send_reports_origin_cold_reused_and_full_costs() {
     let payload_drops = Arc::new(AtomicUsize::new(0));
     let state_drops = Arc::new(AtomicUsize::new(0));
     let runtime = support::ManualRuntime::new();
-    let store = Store::feature_builder(
+    let store = Store::builder(
         State(Cell::new(0), Arc::clone(&state_drops)),
         Capture(Arc::clone(&captured)),
         runtime.runtime(),

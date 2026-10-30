@@ -637,7 +637,7 @@ fn interval_cancellation_inside_factory_or_reducer_retires_without_rescheduling(
 )]
 fn mounted_interval_cancellation_or_route_retirement_prevents_renewal() {
     use futures_util::FutureExt as _;
-    use rca_core::{Feature, FeatureContext, MountIdentity, OptionalMount, ReducerFeature};
+    use rca_core::{Feature, FeatureContext, MountIdentity, OptionalMount};
 
     /// Starts one interval, then changes state so the mount can invalidate its route.
     struct Child(Option<Effect<bool>>);
@@ -646,7 +646,7 @@ fn mounted_interval_cancellation_or_route_retirement_prevents_renewal() {
         type State = usize;
         type Action = bool;
 
-        fn reduce(
+        fn update(
             &mut self,
             state: &mut usize,
             action: &bool,
@@ -705,10 +705,8 @@ fn mounted_interval_cancellation_or_route_retirement_prevents_renewal() {
             }
         };
         let mount = OptionalMount::new(read, write, identity, move |_| Child(effect.take()));
-        let root = ReducerFeature::new(rca_core::Reduce::new(
-            |_: &mut Option<usize>, (): &(), _| Effect::none(),
-        ));
-        let (builder, site) = Store::feature_builder(
+        let root = rca_core::Reduce::new(|_: &mut Option<usize>, (): &(), _| Effect::none());
+        let (builder, site) = Store::builder(
             Some(0),
             root,
             Runtime::new(TimerConstructionDriver {
@@ -808,7 +806,7 @@ fn mounted_interval_cancellation_or_route_retirement_prevents_renewal() {
 )]
 fn mounted_interval_factory_owner_close_stops_routed_delivery() {
     use futures_util::FutureExt as _;
-    use rca_core::{Feature, FeatureContext, MountIdentity, OptionalMount, ReducerFeature};
+    use rca_core::{Feature, FeatureContext, MountIdentity, OptionalMount};
 
     /// Counts child reduction separately from interval-factory entry.
     struct Child {
@@ -822,7 +820,7 @@ fn mounted_interval_factory_owner_close_stops_routed_delivery() {
         type State = usize;
         type Action = bool;
 
-        fn reduce(
+        fn update(
             &mut self,
             state: &mut usize,
             action: &bool,
@@ -873,10 +871,8 @@ fn mounted_interval_factory_owner_close_stops_routed_delivery() {
             entered: Arc::clone(&child_entered),
         },
     );
-    let root = ReducerFeature::new(rca_core::Reduce::new(
-        |_: &mut Option<usize>, (): &(), _| Effect::none(),
-    ));
-    let (builder, site) = Store::feature_builder(
+    let root = rca_core::Reduce::new(|_: &mut Option<usize>, (): &(), _| Effect::none());
+    let (builder, site) = Store::builder(
         Some(0),
         root,
         Runtime::new(TimerConstructionDriver {
@@ -934,7 +930,7 @@ fn mounted_interval_factory_owner_close_stops_routed_delivery() {
 )]
 fn mounted_one_shot_self_retirement_does_not_recomplete_timer() {
     use futures_util::FutureExt as _;
-    use rca_core::{Feature, FeatureContext, MountIdentity, OptionalMount, ReducerFeature};
+    use rca_core::{Feature, FeatureContext, MountIdentity, OptionalMount};
 
     /// Counts destruction of the actual one-shot action payload.
     struct Payload(Arc<AtomicUsize>);
@@ -959,7 +955,7 @@ fn mounted_one_shot_self_retirement_does_not_recomplete_timer() {
         type State = usize;
         type Action = ChildAction;
 
-        fn reduce(
+        fn update(
             &mut self,
             state: &mut usize,
             action: &ChildAction,
@@ -996,10 +992,8 @@ fn mounted_one_shot_self_retirement_does_not_recomplete_timer() {
         },
         move |_| Child(effect.take()),
     );
-    let root = ReducerFeature::new(rca_core::Reduce::new(
-        |_: &mut Option<usize>, (): &(), _| Effect::none(),
-    ));
-    let (builder, site) = Store::feature_builder(
+    let root = rca_core::Reduce::new(|_: &mut Option<usize>, (): &(), _| Effect::none());
+    let (builder, site) = Store::builder(
         Some(0),
         root,
         Runtime::new(TimerConstructionDriver {
@@ -1068,7 +1062,7 @@ fn mounted_one_shot_self_retirement_does_not_recomplete_timer() {
 )]
 fn mounted_due_sibling_cancellation_rejects_popped_timer_payload_and_interval_factory() {
     use futures_util::FutureExt as _;
-    use rca_core::{Feature, FeatureContext, MountIdentity, OptionalMount, ReducerFeature};
+    use rca_core::{Feature, FeatureContext, MountIdentity, OptionalMount};
 
     /// Counts destruction of both the one-shot payload and interval capture.
     struct Payload(Arc<AtomicUsize>);
@@ -1102,7 +1096,7 @@ fn mounted_due_sibling_cancellation_rejects_popped_timer_payload_and_interval_fa
         type State = Vec<u8>;
         type Action = Action;
 
-        fn reduce(
+        fn update(
             &mut self,
             state: &mut Vec<u8>,
             action: &Action,
@@ -1158,10 +1152,8 @@ fn mounted_due_sibling_cancellation_rejects_popped_timer_payload_and_interval_fa
             task: Arc::clone(&child_task),
         },
     );
-    let root = ReducerFeature::new(rca_core::Reduce::new(
-        |_: &mut Option<Vec<u8>>, (): &(), _| Effect::none(),
-    ));
-    let (builder, site) = Store::feature_builder(
+    let root = rca_core::Reduce::new(|_: &mut Option<Vec<u8>>, (): &(), _| Effect::none());
+    let (builder, site) = Store::builder(
         Some(Vec::new()),
         root,
         Runtime::new(TimerConstructionDriver {

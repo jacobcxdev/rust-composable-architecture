@@ -844,7 +844,7 @@ fn receipt_waker_panic_during_actor_drop_preserves_typed_failure() {
     impl Feature for Root {
         type State = ();
         type Action = ();
-        fn reduce(&mut self, (): &mut (), (): &(), context: &mut FeatureContext<'_, (), ()>) {
+        fn update(&mut self, (): &mut (), (): &(), context: &mut FeatureContext<'_, (), ()>) {
             let supply = self.0.clone();
             context.task(Task::run(move |context| async move {
                 supply.try_send(context).unwrap();
@@ -861,7 +861,7 @@ fn receipt_waker_panic_during_actor_drop_preserves_typed_failure() {
 
     let runtime = ManualRuntime::new();
     let (supply, supplied) = async_channel::bounded(1);
-    let store = Store::feature_builder((), Root(supply), runtime.runtime())
+    let store = Store::builder((), Root(supply), runtime.runtime())
         .mailbox_capacity(2)
         .build()
         .unwrap();

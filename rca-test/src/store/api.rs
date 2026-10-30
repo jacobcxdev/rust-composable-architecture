@@ -50,10 +50,6 @@ macro_rules! test_store_api {
             shutdown: bool,
         }
 
-        /// Selects reducer or typed-feature construction without storing another closure.
-        type FinishStore<State, Action, R> =
-            fn(StoreBuilder<State, Action, R>) -> Result<Store<State, Action>, rca_core::StoreBuildError>;
-
         /// Configures one deterministic test store.
         ///
         /// Deferred constructors are owned but need not be shared. The portable builder
@@ -62,7 +58,7 @@ macro_rules! test_store_api {
         pub struct TestStoreBuilder<State: $($send +)? 'static, Action: $($send +)? 'static, R, Snapshot = State> {
             /// Initial state, retained here until production actor construction.
             state: State,
-            /// Reducer or typed feature selected by `construct` and `finish`.
+            /// Feature retained until production actor construction.
             reducer: R,
             /// Deferred configuration, including dependency, mount and output declarations.
             dependencies: Vec<ConfigureDependency<State, Action, R>>,
@@ -72,10 +68,6 @@ macro_rules! test_store_api {
             step_budget: usize,
             /// Initial snapshot and capture history, sampled before actor construction.
             assertions: Assertions<State, Snapshot>,
-            /// Creates the matching production builder from owned state and behaviour.
-            construct: fn(State, R, $core::Runtime) -> StoreBuilder<State, Action, R>,
-            /// Finishes that builder using the same reducer or typed-feature path.
-            finish: FinishStore<State, Action, R>,
         }
 
         impl<State, Action, R, Snapshot> TestStoreBuilder<State, Action, R, Snapshot>
@@ -320,13 +312,17 @@ macro_rules! test_store_api {
             /// Panics if `step_budget` or mailbox capacity is zero, the Store configuration
             /// is invalid, or a deferred dependency constructor panics.
             #[must_use]
-            pub fn build(self) -> TestStore<State, Action, Snapshot> {
+            #[inline(always)]
+            pub fn build(self) -> TestStore<State, Action, Snapshot>
+            where
+                R: $core::Feature<State = State, Action = Action>,
+            {
                 let runtime = DeterministicRuntime::with_step_budget(self.step_budget);
                 let handle = runtime.runtime();
                 let clock = handle.clock();
                 let gate = TransactionGate::new();
                 let issues = IssueRecorder::new();
-                let mut builder = (self.construct)(self.state, self.reducer, handle);
+                let mut builder = Store::builder(self.state, self.reducer, handle);
                 for configure in self.dependencies {
                     builder = configure(builder, clock.clone());
                 }
@@ -334,7 +330,7 @@ macro_rules! test_store_api {
                     .with_test_dependency_defaults()
                     .transaction_gate(gate.clone())
                     .issue_recorder(issues.clone());
-                let store = (self.finish)(builder).expect("TestStore configuration must be valid");
+                let store = builder.build().expect("TestStore configuration must be valid");
                 TestStore {
                     store,
                     runtime,
@@ -370,38 +366,9 @@ macro_rules! test_store_api {
             /// # Panics
             ///
             /// Propagates a panic from cloning the initial state.
-            pub fn feature_builder<F>(state: State, feature: F) -> TestStoreBuilder<State, Action, F>
-            where
-                F: $core::Feature<State = State, Action = Action> + $($send +)? 'static,
-            {
-                let baseline = state.clone();
-                TestStoreBuilder {
-                    state,
-                    reducer: feature,
-                    dependencies: Vec::new(),
-                    mode: Exhaustivity::Exhaustive,
-                    step_budget: DEFAULT_STEP_BUDGET,
-                    construct: StoreBuilder::feature,
-                    finish: StoreBuilder::build_feature,
-                    assertions: Assertions {
-                        baseline: std::panic::AssertUnwindSafe(parking_lot::Mutex::new(baseline)),
-                        pending: std::panic::AssertUnwindSafe(parking_lot::Mutex::new(None)),
-                        capture: CaptureOwner::new(State::clone),
-                        render: None,
-                        coverage: Coverage::Full,
-                        declared: DeclaredCaptures::default(),
-                    },
-                }
-            }
-
-            /// Starts configuring an exhaustive deterministic test store.
-            ///
-            /// # Panics
-            ///
-            /// Propagates a panic from cloning the initial state.
             pub fn builder<R>(state: State, reducer: R) -> TestStoreBuilder<State, Action, R>
             where
-                R: Reducer<State = State, Action = Action> + $($send +)? 'static,
+                R: $core::Feature<State = State, Action = Action> + $($send +)? 'static,
             {
                 Self::configured_builder(
                     state,
@@ -419,7 +386,7 @@ macro_rules! test_store_api {
             #[must_use]
             pub fn new<R>(state: State, reducer: R) -> Self
             where
-                R: Reducer<State = State, Action = Action> + $($send +)? 'static,
+                R: $core::Feature<State = State, Action = Action> + $($send +)? 'static,
             {
                 Self::builder(state, reducer).build()
             }
@@ -432,7 +399,7 @@ macro_rules! test_store_api {
             #[must_use]
             pub fn with_exhaustivity<R>(state: State, reducer: R, mode: Exhaustivity) -> Self
             where
-                R: Reducer<State = State, Action = Action> + $($send +)? 'static,
+                R: $core::Feature<State = State, Action = Action> + $($send +)? 'static,
             {
                 Self::with_exhaustivity_and_step_budget(state, reducer, mode, DEFAULT_STEP_BUDGET)
             }
@@ -445,7 +412,7 @@ macro_rules! test_store_api {
             #[must_use]
             pub fn with_step_budget<R>(state: State, reducer: R, step_budget: usize) -> Self
             where
-                R: Reducer<State = State, Action = Action> + $($send +)? 'static,
+                R: $core::Feature<State = State, Action = Action> + $($send +)? 'static,
             {
                 Self::with_exhaustivity_and_step_budget(
                     state,
@@ -468,7 +435,7 @@ macro_rules! test_store_api {
                 step_budget: usize,
             ) -> Self
             where
-                R: Reducer<State = State, Action = Action> + $($send +)? 'static,
+                R: $core::Feature<State = State, Action = Action> + $($send +)? 'static,
             {
                 Self::configured_builder(state, reducer, mode, step_budget).build()
             }
@@ -481,7 +448,7 @@ macro_rules! test_store_api {
                 step_budget: usize,
             ) -> TestStoreBuilder<State, Action, R>
             where
-                R: Reducer<State = State, Action = Action> + $($send +)? 'static,
+                R: $core::Feature<State = State, Action = Action> + $($send +)? 'static,
             {
                 let mut builder = Self::projected_builder(state, reducer, State::clone)
                     .with_exhaustivity(mode)
@@ -496,44 +463,6 @@ macro_rules! test_store_api {
             State: $($send +)? 'static,
             Action: $($send +)? 'static,
         {
-            /// Configures a typed Feature exhaustive over an independent selected snapshot.
-            ///
-            /// Captures the initial snapshot immediately, before State enters the runtime.
-            /// Only the snapshot requires Clone and equality; omitted State fields are
-            /// not compared. The projection must not alias mutable historical state.
-            ///
-            /// # Panics
-            ///
-            /// Propagates a panic from the initial snapshot callback.
-            pub fn projected_feature_builder<F, Snapshot>(
-                state: State,
-                feature: F,
-                snapshot: impl Fn(&State) -> Snapshot + $($send +)? $($sync +)? 'static,
-            ) -> TestStoreBuilder<State, Action, F, Snapshot>
-            where
-                F: $core::Feature<State = State, Action = Action> + $($send +)? 'static,
-                Snapshot: Clone + fmt::Debug + PartialEq + $($send +)? 'static,
-            {
-                let baseline = snapshot(&state);
-                TestStoreBuilder {
-                    state,
-                    reducer: feature,
-                    construct: StoreBuilder::feature,
-                    finish: StoreBuilder::build_feature,
-                    dependencies: Vec::new(),
-                    mode: Exhaustivity::Exhaustive,
-                    step_budget: DEFAULT_STEP_BUDGET,
-                    assertions: Assertions {
-                        baseline: std::panic::AssertUnwindSafe(parking_lot::Mutex::new(baseline)),
-                        pending: std::panic::AssertUnwindSafe(parking_lot::Mutex::new(None)),
-                        capture: CaptureOwner::new(snapshot),
-                        render: None,
-                        coverage: Coverage::Projected,
-                        declared: DeclaredCaptures::default(),
-                    },
-                }
-            }
-
             /// Creates a store exhaustive over the selected independent snapshot.
             ///
             /// Omitted State fields are not compared. The projection must produce independent
@@ -549,7 +478,7 @@ macro_rules! test_store_api {
                 snapshot: impl Fn(&State) -> Snapshot + $($send +)? $($sync +)? 'static,
             ) -> TestStore<State, Action, Snapshot>
             where
-                R: Reducer<State = State, Action = Action> + $($send +)? 'static,
+                R: $core::Feature<State = State, Action = Action> + $($send +)? 'static,
                 Snapshot: Clone + fmt::Debug + PartialEq + $($send +)? 'static,
             {
                 Self::projected_builder(state, reducer, snapshot).build()
@@ -570,15 +499,13 @@ macro_rules! test_store_api {
                 snapshot: impl Fn(&State) -> Snapshot + $($send +)? $($sync +)? 'static,
             ) -> TestStoreBuilder<State, Action, R, Snapshot>
             where
-                R: Reducer<State = State, Action = Action> + $($send +)? 'static,
+                R: $core::Feature<State = State, Action = Action> + $($send +)? 'static,
                 Snapshot: Clone + fmt::Debug + PartialEq + $($send +)? 'static,
             {
                 let baseline = snapshot(&state);
                 TestStoreBuilder {
                     state,
                     reducer,
-                    construct: Store::builder,
-                    finish: StoreBuilder::build,
                     dependencies: Vec::new(),
                     mode: Exhaustivity::Exhaustive,
                     step_budget: DEFAULT_STEP_BUDGET,

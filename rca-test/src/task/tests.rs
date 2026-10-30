@@ -33,7 +33,7 @@ impl Feature for Delayed {
     type State = Rc<Cell<usize>>;
     type Action = Rc<()>;
 
-    fn reduce(
+    fn update(
         &mut self,
         state: &mut Self::State,
         _: &Self::Action,
@@ -64,7 +64,7 @@ fn local_task_owns_causal_work_and_captures_real_gate_diagnostics() {
         let state = Rc::new(Cell::new(0));
         let drops = Rc::new(Cell::new(0));
         let completed = Rc::new(Cell::new(0));
-        let store = Store::feature_builder(
+        let store = Store::builder(
             Rc::clone(&state),
             Delayed {
                 runtime: host.runtime(),

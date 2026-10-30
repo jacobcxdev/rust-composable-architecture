@@ -145,7 +145,7 @@ struct Child(Rc<Cell<usize>>);
 impl Feature for Root {
     type State = RootState;
     type Action = RootAction;
-    fn reduce(
+    fn update(
         &mut self,
         _: &mut RootState,
         _: &RootAction,
@@ -156,7 +156,7 @@ impl Feature for Root {
 impl Feature for Child {
     type State = Rc<Cell<usize>>;
     type Action = ChildAction;
-    fn reduce(
+    fn update(
         &mut self,
         state: &mut Self::State,
         action: &ChildAction,
@@ -215,7 +215,7 @@ fn local_required_child_identity_replacement_resets_private_state() {
         type State = State;
         type Action = ParentAction;
 
-        fn reduce(
+        fn update(
             &mut self,
             state: &mut State,
             action: &ParentAction,
@@ -241,7 +241,7 @@ fn local_required_child_identity_replacement_resets_private_state() {
         type State = RequiredState;
         type Action = PrivateAction;
 
-        fn reduce(
+        fn update(
             &mut self,
             state: &mut RequiredState,
             action: &PrivateAction,
@@ -281,7 +281,7 @@ fn local_required_child_identity_replacement_resets_private_state() {
             }
         },
     );
-    let (builder, site) = Store::feature_builder(
+    let (builder, site) = Store::builder(
         State {
             child: RequiredState { id: 0, reported: 9 },
             configuration: 0,
@@ -423,7 +423,7 @@ fn local_keyed_recipes_accept_owner_thread_keys() {
         type State = Rows;
         type Action = ();
 
-        fn reduce(&mut self, _: &mut Rows, (): &(), _: &mut FeatureContext<'_, Rows, ()>) {}
+        fn update(&mut self, _: &mut Rows, (): &(), _: &mut FeatureContext<'_, Rows, ()>) {}
     }
 
     let driver = Driver::default();
@@ -439,71 +439,69 @@ fn local_keyed_recipes_accept_owner_thread_keys() {
     let exported_removal = Rc::clone(&removable);
     let reduced = Rc::clone(&reductions);
     let made = Rc::clone(&factories);
-    let (builder, parent_site) =
-        Store::feature_builder(rows, RowsFeature, Runtime::new(driver.clone()))
-            .mount_with_children(
-                OptionalMount::new(
-                    |rows: &Rows| Some(rows),
-                    |rows: &mut Rows| Some(rows),
-                    |_| {
-                        Some(MountIdentity {
-                            key: (),
-                            replacement: 0,
-                            configuration: 0,
-                        })
-                    },
-                    |_| RowsFeature,
-                ),
-                move |_, children| {
-                    let made_plain = Rc::clone(&made);
-                    let reduced_plain = Rc::clone(&reduced);
-                    children.keyed(
-                        |rows| rows,
-                        |rows| rows,
-                        move |_, _| {
-                            made_plain.set(made_plain.get() + 1);
-                            EntryMount::new(Child(Rc::clone(&reduced_plain)))
-                        },
-                    );
-
-                    let made_recipe = Rc::clone(&made);
-                    let reduced_recipe = Rc::clone(&reduced);
-                    let exported = Rc::clone(&exported);
-                    children.keyed_with_children(
-                        |rows| rows,
-                        |rows| rows,
-                        move |_, _| {
-                            made_recipe.set(made_recipe.get() + 1);
-                            let exported = Rc::clone(&exported);
-                            (
-                                EntryMount::new(Child(Rc::clone(&reduced_recipe))),
-                                move |_, children| {
-                                    *exported.borrow_mut() = Some(children.site().clone());
-                                },
-                            )
-                        },
-                    );
-
-                    let made_removable = Rc::clone(&made);
-                    let reduced_removable = Rc::clone(&reduced);
-                    let exported = Rc::clone(&exported_removal);
-                    children.keyed_removable(
-                        |rows| rows,
-                        |rows| rows,
-                        move |_, _| {
-                            made_removable.set(made_removable.get() + 1);
-                            let exported = Rc::clone(&exported);
-                            (
-                                EntryMount::new(Child(Rc::clone(&reduced_removable))),
-                                move |_, children, removal| {
-                                    *exported.borrow_mut() =
-                                        Some((children.site().clone(), removal));
-                                },
-                            )
-                        },
-                    );
+    let (builder, parent_site) = Store::builder(rows, RowsFeature, Runtime::new(driver.clone()))
+        .mount_with_children(
+            OptionalMount::new(
+                |rows: &Rows| Some(rows),
+                |rows: &mut Rows| Some(rows),
+                |_| {
+                    Some(MountIdentity {
+                        key: (),
+                        replacement: 0,
+                        configuration: 0,
+                    })
                 },
-            );
+                |_| RowsFeature,
+            ),
+            move |_, children| {
+                let made_plain = Rc::clone(&made);
+                let reduced_plain = Rc::clone(&reduced);
+                children.keyed(
+                    |rows| rows,
+                    |rows| rows,
+                    move |_, _| {
+                        made_plain.set(made_plain.get() + 1);
+                        EntryMount::new(Child(Rc::clone(&reduced_plain)))
+                    },
+                );
+
+                let made_recipe = Rc::clone(&made);
+                let reduced_recipe = Rc::clone(&reduced);
+                let exported = Rc::clone(&exported);
+                children.keyed_with_children(
+                    |rows| rows,
+                    |rows| rows,
+                    move |_, _| {
+                        made_recipe.set(made_recipe.get() + 1);
+                        let exported = Rc::clone(&exported);
+                        (
+                            EntryMount::new(Child(Rc::clone(&reduced_recipe))),
+                            move |_, children| {
+                                *exported.borrow_mut() = Some(children.site().clone());
+                            },
+                        )
+                    },
+                );
+
+                let made_removable = Rc::clone(&made);
+                let reduced_removable = Rc::clone(&reduced);
+                let exported = Rc::clone(&exported_removal);
+                children.keyed_removable(
+                    |rows| rows,
+                    |rows| rows,
+                    move |_, _| {
+                        made_removable.set(made_removable.get() + 1);
+                        let exported = Rc::clone(&exported);
+                        (
+                            EntryMount::new(Child(Rc::clone(&reduced_removable))),
+                            move |_, children, removal| {
+                                *exported.borrow_mut() = Some((children.site().clone(), removal));
+                            },
+                        )
+                    },
+                );
+            },
+        );
     let store = builder.build().unwrap();
     driver.finish(store.ready()).unwrap();
     assert_eq!(factories.get(), 3);
@@ -541,7 +539,7 @@ fn local_keyed_recipes_accept_owner_thread_keys() {
     let root_reductions = Rc::clone(&reductions);
     let recipe_reductions = Rc::clone(&reductions);
     let removal_reductions = Rc::clone(&reductions);
-    let store = Store::feature_builder(rows, RowsFeature, Runtime::new(driver.clone()))
+    let store = Store::builder(rows, RowsFeature, Runtime::new(driver.clone()))
         .keyed(
             |rows| rows,
             |rows| rows,
@@ -607,7 +605,7 @@ fn local_hidden_parent_suppresses_descendant_recipe() {
                 Child(Rc::clone(&feature_owner))
             },
         );
-        let (builder, _) = Store::feature_builder(
+        let (builder, _) = Store::builder(
             RootState(Some(Rc::clone(&value))),
             Root,
             Runtime::new(driver.clone()),
@@ -697,7 +695,7 @@ fn local_identity_clone_closure_is_rechecked_before_child_path() {
         },
         |_| -> Child { panic!("closed identity clone cannot enter constructor") },
     );
-    let store = Store::feature_builder(
+    let store = Store::builder(
         RootState(Some(Rc::clone(&selections))),
         Root,
         Runtime::new(driver.clone()),
@@ -776,7 +774,7 @@ fn public_local_mount_pairs_independent_actions_and_owned_rc_context() {
     let (builder, site): (
         _,
         MountSite<RootState, Rc<Cell<usize>>, ChildAction, RootAction>,
-    ) = Store::feature_builder(
+    ) = Store::builder(
         RootState(Some(Rc::new(Cell::new(3)))),
         Root,
         Runtime::new(driver.clone()),
@@ -788,7 +786,7 @@ fn public_local_mount_pairs_independent_actions_and_owned_rc_context() {
 
     // A live but unbuilt declaration must not manufacture a child context for
     // another Store, select its state or run the deferred initial task.
-    let other = Store::feature_builder(RootState(None), Root, Runtime::new(driver.clone()))
+    let other = Store::builder(RootState(None), Root, Runtime::new(driver.clone()))
         .build()
         .unwrap();
     driver.finish(other.ready()).unwrap();
@@ -827,7 +825,7 @@ fn public_local_mount_pairs_independent_actions_and_owned_rc_context() {
     assert_eq!(format!("{ended_site:?}"), site_debug);
     assert_eq!(Rc::strong_count(&reductions), 1);
 
-    let other = Store::feature_builder(RootState(None), Root, Runtime::new(driver.clone()))
+    let other = Store::builder(RootState(None), Root, Runtime::new(driver.clone()))
         .build()
         .unwrap();
     driver.finish(other.ready()).unwrap();
@@ -877,10 +875,10 @@ fn local_absent_output_source_returns_original_without_entering_handler() {
         move |_| Child(Rc::clone(&child_reductions)),
     );
     let state = Rc::new(Cell::new(3));
-    let root = rca_core::local::ReducerFeature::new(rca_core::local::Reduce::new(
+    let root = rca_core::local::Reduce::new(
         |_: &mut State, _: &RootAction, _: &mut rca_core::ReduceContext<'_>| Effect::none(),
-    ));
-    let (builder, live_site) = Store::feature_builder(
+    );
+    let (builder, live_site) = Store::builder(
         (Some(Rc::clone(&state)), None),
         root,
         Runtime::new(driver.clone()),
@@ -964,7 +962,7 @@ fn local_child_requests_reject_missing_ingress_and_return_original_rc() {
         },
         move |_| Child(Rc::clone(&child_reductions)),
     );
-    let (builder, site) = Store::feature_builder(
+    let (builder, site) = Store::builder(
         RootState(Some(Rc::clone(&state))),
         Root,
         Runtime::new(driver.clone()),
@@ -1053,7 +1051,7 @@ fn local_admitted_and_blocked_acquisitions_close_without_retaining_the_child() {
         },
         move |_| Child(Rc::clone(&child_reductions)),
     );
-    let (builder, site) = Store::feature_builder(
+    let (builder, site) = Store::builder(
         RootState(Some(Rc::clone(&state))),
         Root,
         Runtime::new(driver.clone()),
@@ -1125,7 +1123,7 @@ fn local_mounted_access_waiting_for_capacity_returns_owners_when_store_closes() 
         type State = Rc<Cell<usize>>;
         type Action = Rc<Owned>;
 
-        fn reduce(
+        fn update(
             &mut self,
             state: &mut Self::State,
             action: &Self::Action,
@@ -1152,7 +1150,7 @@ fn local_mounted_access_waiting_for_capacity_returns_owners_when_store_closes() 
         },
         move |_| AdmissionChild(Rc::clone(&child_reductions)),
     );
-    let (builder, site) = Store::feature_builder(
+    let (builder, site) = Store::builder(
         RootState(Some(Rc::clone(&state))),
         Root,
         Runtime::new(driver.clone()),
@@ -1296,7 +1294,7 @@ impl Feature for HandoffFeature {
     type State = Vec<usize>;
     type Action = HandoffAction;
 
-    fn reduce(
+    fn update(
         &mut self,
         state: &mut Self::State,
         action: &Self::Action,
@@ -1367,7 +1365,7 @@ fn local_handoff_removes_only_inherited_keys_and_retains_owned_teardown() {
         let weak = Rc::downgrade(&value);
         let started = Rc::new(Cell::new(false));
         let ready = Rc::new(Cell::new(false));
-        let store = Store::feature(
+        let store = Store::new(
             Vec::new(),
             HandoffFeature {
                 mode,
@@ -1426,7 +1424,7 @@ impl Feature for SequenceChild {
     type State = Rc<Cell<usize>>;
     type Action = SequenceAction;
 
-    fn reduce(
+    fn update(
         &mut self,
         state: &mut Self::State,
         action: &SequenceAction,
@@ -1489,7 +1487,7 @@ fn local_mounted_concatenate_preserves_order_and_releases_owned_rc_actions() {
     let (builder, site): (
         _,
         MountSite<RootState, Rc<Cell<usize>>, SequenceAction, RootAction>,
-    ) = Store::feature_builder(RootState(Some(state)), Root, Runtime::new(driver.clone()))
+    ) = Store::builder(RootState(Some(state)), Root, Runtime::new(driver.clone()))
         .mount_with_site(descriptor);
     let store = builder.build().unwrap();
     driver.finish(store.ready()).unwrap();
@@ -1540,7 +1538,7 @@ impl Feature for EffectChild {
     type State = Rc<Cell<usize>>;
     type Action = SequenceAction;
 
-    fn reduce(
+    fn update(
         &mut self,
         state: &mut Self::State,
         action: &Self::Action,
@@ -1567,7 +1565,7 @@ impl Feature for PruningChild {
     type State = Rc<Cell<usize>>;
     type Action = SequenceAction;
 
-    fn reduce(
+    fn update(
         &mut self,
         state: &mut Self::State,
         action: &Self::Action,
@@ -1649,7 +1647,7 @@ fn local_mounted_retirement_prunes_owned_work_but_retains_a_live_route() {
             |_| Child(Rc::new(Cell::new(0))),
         );
         let state = Rc::new(Cell::new(2));
-        let (builder, site) = Store::feature_builder(
+        let (builder, site) = Store::builder(
             RootState(Some(Rc::clone(&state))),
             Root,
             Runtime::new(driver.clone()),
@@ -1759,7 +1757,7 @@ fn sibling_retirement_preserves_a_local_deferred_sequence_and_its_owners() {
         |_| Child(Rc::new(Cell::new(0))),
     );
     let state = Rc::new(Cell::new(1));
-    let (builder, site) = Store::feature_builder(
+    let (builder, site) = Store::builder(
         RootState(Some(Rc::clone(&state))),
         Root,
         Runtime::new(driver.clone()),
@@ -1860,7 +1858,7 @@ fn local_mounted_timers_preserve_deadlines_order_and_cancel_owned_interval() {
         move |_| EffectChild(effect.take()),
     );
     let state = Rc::new(Cell::new(1));
-    let (builder, site) = Store::feature_builder(
+    let (builder, site) = Store::builder(
         RootState(Some(Rc::clone(&state))),
         Root,
         Runtime::new(driver.clone()),
@@ -1964,7 +1962,7 @@ fn local_mounted_reported_failure_routes_owned_action_and_retains_original_cause
         },
         move |_| EffectChild(effect.take()),
     );
-    let (builder, site) = Store::feature_builder(
+    let (builder, site) = Store::builder(
         RootState(Some(Rc::new(Cell::new(1)))),
         Root,
         Runtime::new(driver.clone()),
@@ -2022,7 +2020,7 @@ struct InnerFeature;
 impl Feature for TreeFeature {
     type State = Tree;
     type Action = RootAction;
-    fn reduce(
+    fn update(
         &mut self,
         _: &mut Tree,
         _: &RootAction,
@@ -2033,14 +2031,14 @@ impl Feature for TreeFeature {
 impl Feature for BranchFeature {
     type State = BranchState;
     type Action = u8;
-    fn reduce(&mut self, _: &mut BranchState, _: &u8, _: &mut FeatureContext<'_, BranchState, u8>) {
+    fn update(&mut self, _: &mut BranchState, _: &u8, _: &mut FeatureContext<'_, BranchState, u8>) {
         self.0.set(self.0.get() + 1);
     }
 }
 impl Feature for InnerFeature {
     type State = InnerState;
     type Action = bool;
-    fn reduce(
+    fn update(
         &mut self,
         _: &mut InnerState,
         _: &bool,
@@ -2085,68 +2083,67 @@ fn local_nested_recipes_preserve_typed_routes_and_postorder_initials() {
     let child_cache = std::rc::Rc::clone(&caches);
     let leaf = Rc::new(Cell::new(3));
     let state = Tree(Some(BranchState(Some(InnerState(Some(leaf))))));
-    let (builder, parent_site) =
-        Store::feature_builder(state, TreeFeature, Runtime::new(driver.clone()))
-            .mount_with_children(descriptor, move |_, children| {
-                let _actual_parent = children.site().clone();
-                let factories = child_trace.borrow().len();
-                assert_eq!(format!("{children:?}"), "MountChildren { depth: 0, .. }");
-                assert_eq!(child_trace.borrow().len(), factories);
-                let trace = std::rc::Rc::clone(&child_trace);
-                let inner = OptionalMount::new(
-                    |state: &BranchState| state.0.as_ref(),
-                    |state: &mut BranchState| state.0.as_mut(),
-                    |state| {
-                        state.0.as_ref().map(|_| MountIdentity {
-                            key: (),
-                            replacement: 0,
-                            configuration: 0,
-                        })
-                    },
-                    |_| InnerFeature,
-                )
-                .on_initial(
-                    |_| Rc::new(0),
-                    move |_, _| {
-                        trace.borrow_mut().push("inner");
-                        Task::run(|_| async {})
-                    },
+    let (builder, parent_site) = Store::builder(state, TreeFeature, Runtime::new(driver.clone()))
+        .mount_with_children(descriptor, move |_, children| {
+            let _actual_parent = children.site().clone();
+            let factories = child_trace.borrow().len();
+            assert_eq!(format!("{children:?}"), "MountChildren { depth: 0, .. }");
+            assert_eq!(child_trace.borrow().len(), factories);
+            let trace = std::rc::Rc::clone(&child_trace);
+            let inner = OptionalMount::new(
+                |state: &BranchState| state.0.as_ref(),
+                |state: &mut BranchState| state.0.as_mut(),
+                |state| {
+                    state.0.as_ref().map(|_| MountIdentity {
+                        key: (),
+                        replacement: 0,
+                        configuration: 0,
+                    })
+                },
+                |_| InnerFeature,
+            )
+            .on_initial(
+                |_| Rc::new(0),
+                move |_, _| {
+                    trace.borrow_mut().push("inner");
+                    Task::run(|_| async {})
+                },
+            );
+            let sites = std::rc::Rc::clone(&leaf_sites);
+            let trace = std::rc::Rc::clone(&child_trace);
+            let cache = std::rc::Rc::clone(&child_cache);
+            children.optional_with_children(inner, move |_, children| {
+                let factories = trace.borrow().len();
+                assert_eq!(format!("{children:?}"), "MountChildren { depth: 1, .. }");
+                assert_eq!(trace.borrow().len(), factories);
+                let cache = std::rc::Rc::clone(&cache);
+                let trace = std::rc::Rc::clone(&trace);
+                let site = children.optional(
+                    OptionalMount::new(
+                        |state: &InnerState| state.0.as_ref(),
+                        |state: &mut InnerState| state.0.as_mut(),
+                        |state| {
+                            state.0.as_ref().map(|_| MountIdentity {
+                                key: (),
+                                replacement: 0,
+                                configuration: 0,
+                            })
+                        },
+                        move |_| Child(std::rc::Rc::clone(&cache)),
+                    )
+                    .on_initial(
+                        |state| Rc::new(state.get()),
+                        move |_, _| {
+                            trace.borrow_mut().push("leaf");
+                            Task::run(|_| async {})
+                        },
+                    ),
                 );
-                let sites = std::rc::Rc::clone(&leaf_sites);
-                let trace = std::rc::Rc::clone(&child_trace);
-                let cache = std::rc::Rc::clone(&child_cache);
-                children.optional_with_children(inner, move |_, children| {
-                    let factories = trace.borrow().len();
-                    assert_eq!(format!("{children:?}"), "MountChildren { depth: 1, .. }");
-                    assert_eq!(trace.borrow().len(), factories);
-                    let cache = std::rc::Rc::clone(&cache);
-                    let trace = std::rc::Rc::clone(&trace);
-                    let site = children.optional(
-                        OptionalMount::new(
-                            |state: &InnerState| state.0.as_ref(),
-                            |state: &mut InnerState| state.0.as_mut(),
-                            |state| {
-                                state.0.as_ref().map(|_| MountIdentity {
-                                    key: (),
-                                    replacement: 0,
-                                    configuration: 0,
-                                })
-                            },
-                            move |_| Child(std::rc::Rc::clone(&cache)),
-                        )
-                        .on_initial(
-                            |state| Rc::new(state.get()),
-                            move |_, _| {
-                                trace.borrow_mut().push("leaf");
-                                Task::run(|_| async {})
-                            },
-                        ),
-                    );
-                    sites.borrow_mut().push(site);
-                    assert_eq!(format!("{children:?}"), "MountChildren { depth: 1, .. }");
-                });
-                assert_eq!(format!("{children:?}"), "MountChildren { depth: 0, .. }");
+                sites.borrow_mut().push(site);
+                assert_eq!(format!("{children:?}"), "MountChildren { depth: 1, .. }");
             });
+            assert_eq!(format!("{children:?}"), "MountChildren { depth: 0, .. }");
+        });
     let store = builder.build().unwrap();
     driver.finish(store.ready()).unwrap();
     assert_eq!(*trace.borrow(), ["leaf", "inner", "branch"]);
@@ -2210,16 +2207,16 @@ fn local_mounted_future_none_finishes_without_reduction_and_releases_capture() {
         move |_| {
             let mut effect = effect.take();
             let reductions = Rc::clone(&calls);
-            rca_core::local::ReducerFeature::new(rca_core::local::Reduce::new(
+            rca_core::local::Reduce::new(
                 move |_: &mut Rc<Cell<usize>>, (): &(), _: &mut rca_core::ReduceContext<'_>| {
                     reductions.set(reductions.get() + 1);
                     effect.take().expect("one child start")
                 },
-            ))
+            )
         },
     );
     let state = Rc::new(Cell::new(4));
-    let (builder, site) = Store::feature_builder(
+    let (builder, site) = Store::builder(
         RootState(Some(Rc::clone(&state))),
         Root,
         Runtime::new(driver.clone()),
@@ -2272,7 +2269,7 @@ fn local_mounted_send_waiting_for_capacity_returns_action_after_actor_teardown()
         },
         move |_| {
             let reductions = Rc::clone(&calls);
-            rca_core::local::ReducerFeature::new(rca_core::local::Reduce::new(
+            rca_core::local::Reduce::new(
                 move |state: &mut Rc<Cell<usize>>,
                       action: &ReportedCause,
                       _: &mut rca_core::ReduceContext<'_>| {
@@ -2280,10 +2277,10 @@ fn local_mounted_send_waiting_for_capacity_returns_action_after_actor_teardown()
                     state.set(state.get() + *action.value);
                     Effect::none()
                 },
-            ))
+            )
         },
     );
-    let (builder, site) = Store::feature_builder(
+    let (builder, site) = Store::builder(
         RootState(Some(Rc::clone(&state))),
         Root,
         Runtime::new(driver.clone()),

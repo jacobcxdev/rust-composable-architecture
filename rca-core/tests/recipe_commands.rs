@@ -128,7 +128,7 @@ struct Parent;
 impl Feature for Parent {
     type State = State;
     type Action = ParentAction;
-    fn reduce(
+    fn update(
         &mut self,
         state: &mut State,
         action: &ParentAction,
@@ -147,7 +147,7 @@ struct Child(Cell<usize>);
 impl Feature for Child {
     type State = usize;
     type Action = usize;
-    fn reduce(
+    fn update(
         &mut self,
         state: &mut usize,
         action: &usize,
@@ -186,7 +186,7 @@ fn diagnostic_recipe_acquisitions_reject_closed_admission_without_retaining_the_
         },
         |_| Child(Cell::new(0)),
     );
-    let (builder, _) = Store::feature_builder(
+    let (builder, _) = Store::builder(
         State {
             child: Some(3),
             replacement: 0,
@@ -260,13 +260,13 @@ fn unpublished_recipe_call_preserves_held_input_during_actor_teardown() {
         type State = State;
         type Action = ParentAction;
 
-        fn reduce(
+        fn update(
             &mut self,
             state: &mut State,
             action: &ParentAction,
             context: &mut FeatureContext<'_, State, ParentAction>,
         ) {
-            Parent.reduce(state, action, context);
+            Parent.update(state, action, context);
         }
     }
     impl Drop for InspectParent {
@@ -300,7 +300,7 @@ fn unpublished_recipe_call_preserves_held_input_during_actor_teardown() {
             },
             |_| Child(Cell::new(0)),
         );
-        let (builder, _) = Store::feature_builder(
+        let (builder, _) = Store::builder(
             State {
                 child: Some(0),
                 replacement: 0,
@@ -453,7 +453,7 @@ fn mapper_destructor_cannot_inspect_its_retired_command_frontier() {
             },
             |_| Child(Cell::new(0)),
         );
-        let builder = Store::feature_builder(
+        let builder = Store::builder(
             State {
                 child: Some(3),
                 replacement: 0,
@@ -587,7 +587,7 @@ fn independent_ordinary_and_control_ports_share_one_installed_child() {
         },
         |_| Child(Cell::new(0)),
     );
-    let (builder, child_site) = Store::feature_builder(
+    let (builder, child_site) = Store::builder(
         State {
             child: Some(0),
             replacement: 0,
@@ -603,7 +603,7 @@ fn independent_ordinary_and_control_ports_share_one_installed_child() {
     let store = builder.build().unwrap();
     driver.finish(store.ready()).unwrap();
     let (ordinary_site, control_site) = sites.lock().unwrap()[0].clone();
-    let foreign = Store::feature_builder(
+    let foreign = Store::builder(
         State {
             child: None,
             replacement: 0,
@@ -700,7 +700,7 @@ struct WorkingChild(Arc<Mutex<Vec<TaskAccessReason>>>);
 impl Feature for WorkingChild {
     type State = usize;
     type Action = WorkAction;
-    fn reduce(
+    fn update(
         &mut self,
         state: &mut usize,
         action: &WorkAction,
@@ -746,7 +746,7 @@ fn control_bypasses_only_its_input_not_direct_child_or_generated_work() {
         },
         move |_| WorkingChild(Arc::clone(&child_outcomes)),
     );
-    let (builder, site) = Store::feature_builder(
+    let (builder, site) = Store::builder(
         State {
             child: Some(0),
             replacement: 0,
@@ -805,7 +805,7 @@ enum KeyedAction {
 impl Feature for KeyedParent {
     type State = Rows;
     type Action = KeyedAction;
-    fn reduce(
+    fn update(
         &mut self,
         state: &mut Rows,
         action: &KeyedAction,
@@ -826,7 +826,7 @@ fn keyed_current_entry_owns_independent_ports_and_same_id_replacement_does_not_r
     let driver = Driver::default();
     let sites = Arc::new(Mutex::new(Vec::new()));
     let declared = Arc::clone(&sites);
-    let store = Store::feature_builder(
+    let store = Store::builder(
         [(7, 0)].into_iter().collect::<Rows>(),
         KeyedParent,
         Runtime::new(driver.clone()),
@@ -951,7 +951,7 @@ fn gate_callback_closure_rejects_already_queued_recipe_acquisition() {
             },
             |_| Child(Cell::new(0)),
         );
-        let builder = Store::feature_builder(
+        let builder = Store::builder(
             State {
                 child: Some(3),
                 replacement: 0,
@@ -1102,7 +1102,7 @@ fn foreign_gate_rejects_live_recipe_acquisition_and_expired_query_admission() {
             },
             |_| Child(Cell::new(0)),
         );
-        let (builder, mount_site) = Store::feature_builder(
+        let (builder, mount_site) = Store::builder(
             State {
                 child: Some(5),
                 replacement: 0,
@@ -1135,7 +1135,7 @@ fn foreign_gate_rejects_live_recipe_acquisition_and_expired_query_admission() {
             },
             |_| Child(Cell::new(0)),
         );
-        let (foreign_builder, _) = Store::feature_builder(
+        let (foreign_builder, _) = Store::builder(
             State {
                 child: Some(23),
                 replacement: 0,

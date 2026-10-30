@@ -392,7 +392,7 @@ impl Feature for Session {
     type State = State;
     type Action = Action;
 
-    fn reduce(
+    fn update(
         &mut self,
         state: &mut State,
         action: &Action,
@@ -507,7 +507,7 @@ fn store(construction: &Client, admission: &Client) -> TestStore<State, Action, 
     let session = Session::new(&state);
     // This explicit State handover precedes admission, not State construction.
     state.current = admission.clone();
-    TestStore::projected_feature_builder(state, session, snapshot)
+    TestStore::projected_builder(state, session, snapshot)
         .with_dependency::<ClientKey>(admission.clone())
         .build()
 }

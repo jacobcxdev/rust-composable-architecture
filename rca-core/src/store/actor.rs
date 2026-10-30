@@ -2916,6 +2916,12 @@ ordinary_test_items! {
         /// Measures retained generations through real sequence compilation and full cleanup.
         #[cfg(feature = "allocation-measurement")]
         fn assert_sequence_storage_budget() {
+            // The critical-section backend lazily allocates a process-global mutex.
+            // Initialise it separately so the measurement includes only per-object costs.
+            let warm_control = ControlWake::new();
+            warm_control.notify();
+            drop(warm_control);
+
             for (depth, blocks) in [(0_u32, 8), (1, 17), (4, 27), (16, 67)] {
                 let effect = (0..depth).fold(
                     Effect::concatenate([

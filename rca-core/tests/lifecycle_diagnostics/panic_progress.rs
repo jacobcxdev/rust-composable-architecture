@@ -28,7 +28,7 @@ struct Root {
 impl Feature for Root {
     type State = State;
     type Action = Action;
-    fn reduce(
+    fn update(
         &mut self,
         state: &mut State,
         action: &Action,
@@ -57,7 +57,7 @@ struct Child;
 impl Feature for Child {
     type State = ();
     type Action = ();
-    fn reduce(&mut self, (): &mut (), (): &(), _: &mut FeatureContext<'_, (), ()>) {}
+    fn update(&mut self, (): &mut (), (): &(), _: &mut FeatureContext<'_, (), ()>) {}
 }
 
 #[test]
@@ -87,7 +87,7 @@ fn lifecycle_callback_panic_preserves_typed_progress_and_cannot_satisfy_assertio
             },
             |()| Child,
         );
-        let store = Store::feature_builder(
+        let store = Store::builder(
             State {
                 child: None,
                 mutations: Arc::clone(&mutations),
@@ -203,7 +203,7 @@ struct DropFeature(DropBomb);
 impl Feature for DropFeature {
     type State = DropBomb;
     type Action = ();
-    fn reduce(&mut self, _: &mut DropBomb, (): &(), _: &mut FeatureContext<'_, DropBomb, ()>) {
+    fn update(&mut self, _: &mut DropBomb, (): &(), _: &mut FeatureContext<'_, DropBomb, ()>) {
         let _ = &self.0;
     }
 }
@@ -226,7 +226,7 @@ fn actor_owned_state_or_feature_drop_panic_suppresses_terminal_facts_and_success
         let capture = SinkDrop(Arc::clone(&sink_drops));
         let events = Arc::new(Mutex::new(Events::default()));
         let sink_events = Arc::clone(&events);
-        let store = Store::feature_builder(
+        let store = Store::builder(
             DropBomb {
                 armed: Arc::clone(&armed),
                 selected: state_panics,

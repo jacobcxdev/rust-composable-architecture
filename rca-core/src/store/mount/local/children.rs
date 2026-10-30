@@ -164,7 +164,7 @@ impl<R: 'static, A: 'static, S: 'static, X: 'static> MountChildren<'_, R, A, S, 
     /// # impl Feature for RowFeature {
     /// #     type State = Rc<Cell<usize>>;
     /// #     type Action = ();
-    /// #     fn reduce(&mut self, state: &mut Self::State, _: &(), _: &mut FeatureContext<'_, Self::State, ()>) { self.0.set(state.get()); }
+    /// #     fn update(&mut self, state: &mut Self::State, _: &(), _: &mut FeatureContext<'_, Self::State, ()>) { self.0.set(state.get()); }
     /// # }
     /// # type Rows = KeyedState<String, Rc<Cell<usize>>>;
     /// # fn declare(children: &mut MountChildren<'_, Rows, (), Rows, ()>) {

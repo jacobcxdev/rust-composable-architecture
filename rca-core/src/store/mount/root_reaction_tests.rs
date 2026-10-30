@@ -11,7 +11,7 @@ struct Root;
 impl Feature for Root {
     type State = usize;
     type Action = ();
-    fn reduce(&mut self, _: &mut usize, (): &(), _: &mut crate::FeatureContext<'_, usize, ()>) {}
+    fn update(&mut self, _: &mut usize, (): &(), _: &mut crate::FeatureContext<'_, usize, ()>) {}
 }
 
 /// Compares captured values and counts their disposal independently.

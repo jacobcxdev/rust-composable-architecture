@@ -221,7 +221,7 @@ struct Root;
 impl Feature for Root {
     type State = State;
     type Action = ();
-    fn reduce(&mut self, _: &mut State, (): &(), _: &mut crate::FeatureContext<'_, State, ()>) {}
+    fn update(&mut self, _: &mut State, (): &(), _: &mut crate::FeatureContext<'_, State, ()>) {}
 }
 
 /// Compares actual flat and empty-recipe initial freezes for 1 and 64 siblings.
@@ -247,7 +247,7 @@ pub(super) fn run() {
                 })),
             };
             let driver = Driver::default();
-            let mut builder = crate::Store::feature_builder(
+            let mut builder = crate::Store::builder(
                 Some(ParentState { child: Some(1) }),
                 Root,
                 Runtime::new(driver.clone()),

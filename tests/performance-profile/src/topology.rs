@@ -184,7 +184,7 @@ impl Feature for RootFeature {
     type State = State;
     type Action = RootAction;
 
-    fn reduce(
+    fn update(
         &mut self,
         state: &mut State,
         action: &RootAction,
@@ -307,7 +307,7 @@ impl Feature for NodeFeature {
     type State = Node;
     type Action = ();
 
-    fn reduce(&mut self, state: &mut Node, (): &(), _: &mut FeatureContext<'_, Node, ()>) {
+    fn update(&mut self, state: &mut Node, (): &(), _: &mut FeatureContext<'_, Node, ()>) {
         let payload = self
             .payload
             .as_ref()

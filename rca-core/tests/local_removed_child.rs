@@ -209,19 +209,19 @@ impl Drop for ChildFeature {
 impl Feature for RootFeature {
     type State = Root;
     type Action = ();
-    fn reduce(&mut self, state: &mut Root, (): &(), _: &mut FeatureContext<'_, Root, ()>) {
+    fn update(&mut self, state: &mut Root, (): &(), _: &mut FeatureContext<'_, Root, ()>) {
         state.parent = None;
     }
 }
 impl Feature for ParentFeature {
     type State = Parent;
     type Action = ();
-    fn reduce(&mut self, _: &mut Parent, (): &(), _: &mut FeatureContext<'_, Parent, ()>) {}
+    fn update(&mut self, _: &mut Parent, (): &(), _: &mut FeatureContext<'_, Parent, ()>) {}
 }
 impl Feature for ChildFeature {
     type State = Child;
     type Action = ();
-    fn reduce(&mut self, _: &mut Child, (): &(), _: &mut FeatureContext<'_, Child, ()>) {}
+    fn update(&mut self, _: &mut Child, (): &(), _: &mut FeatureContext<'_, Child, ()>) {}
 }
 /// Pairs child access with its parent's owning-removal declaration.
 type Sites = (
@@ -287,7 +287,7 @@ fn fixture_with_gate(
     let exported = std::rc::Rc::clone(&sites);
     let feature_capture = std::rc::Rc::clone(&feature_drops);
     let retirement_hook = std::rc::Rc::clone(&driver.3);
-    let (builder, parent_site) = Store::feature_builder(
+    let (builder, parent_site) = Store::builder(
         Root {
             parent: Some(Parent {
                 child: Some(Child(Owned {
@@ -488,7 +488,7 @@ fn owned_sibling_values_survive_queued_parent_inputs() {
         type State = Siblings;
         type Action = Input;
 
-        fn reduce(
+        fn update(
             &mut self,
             state: &mut Siblings,
             action: &Input,
@@ -540,7 +540,7 @@ fn owned_sibling_values_survive_queued_parent_inputs() {
     let weak_values = [Rc::downgrade(&first), Rc::downgrade(&second)];
     let (notify_first_ping, first_ping) = futures_channel::oneshot::channel();
     let (release, wait) = futures_channel::oneshot::channel();
-    let builder = Store::feature_builder(
+    let builder = Store::builder(
         Siblings {
             children: [first, second].map(|value| {
                 Some(Child(Owned {
@@ -641,7 +641,7 @@ fn local_keyed_removal_receipt_awaits_parent_owned_cleanup() {
     impl Feature for RowsRoot {
         type State = Option<Rows>;
         type Action = ();
-        fn reduce(
+        fn update(
             &mut self,
             _: &mut Self::State,
             (): &(),
@@ -652,7 +652,7 @@ fn local_keyed_removal_receipt_awaits_parent_owned_cleanup() {
     impl Feature for RowsFeature {
         type State = Rows;
         type Action = ();
-        fn reduce(&mut self, _: &mut Rows, (): &(), _: &mut FeatureContext<'_, Rows, ()>) {}
+        fn update(&mut self, _: &mut Rows, (): &(), _: &mut FeatureContext<'_, Rows, ()>) {}
     }
     let driver = Driver::default();
     let drops = Rc::new(Cell::new(0));
@@ -678,52 +678,51 @@ fn local_keyed_removal_receipt_awaits_parent_owned_cleanup() {
     .collect();
     let sites = Rc::new(RefCell::new(Vec::<(u8, RowSites)>::new()));
     let exported = Rc::clone(&sites);
-    let (builder, parent_site) =
-        Store::feature_builder(Some(rows), RowsRoot, Runtime::new(driver.clone()))
-            .mount_with_children(
-                OptionalMount::new(
-                    Option::as_ref,
-                    Option::as_mut,
-                    |rows: &Option<Rows>| {
-                        rows.as_ref().map(|_| MountIdentity {
-                            key: (),
-                            replacement: 0,
-                            configuration: 0,
-                        })
-                    },
-                    |_| RowsFeature,
-                ),
-                move |_, children| {
-                    let exported = Rc::clone(&exported);
-                    children.keyed_removable(
-                        |rows| rows,
-                        |rows| rows,
-                        move |key, _| {
-                            let key = *key;
-                            let exported = Rc::clone(&exported);
-                            (
-                                rca_core::local::EntryMount::new(ChildFeature(
-                                    Rc::new(Cell::new(0)),
-                                    DropHook::default(),
-                                )),
-                                move |_: &Child,
-                                      children: &mut rca_core::local::MountChildren<
-                                    '_,
-                                    Option<Rows>,
-                                    (),
-                                    Child,
-                                    (),
-                                >,
-                                      removal| {
-                                    exported
-                                        .borrow_mut()
-                                        .push((key, (children.site().clone(), removal)));
-                                },
-                            )
-                        },
-                    );
+    let (builder, parent_site) = Store::builder(Some(rows), RowsRoot, Runtime::new(driver.clone()))
+        .mount_with_children(
+            OptionalMount::new(
+                Option::as_ref,
+                Option::as_mut,
+                |rows: &Option<Rows>| {
+                    rows.as_ref().map(|_| MountIdentity {
+                        key: (),
+                        replacement: 0,
+                        configuration: 0,
+                    })
                 },
-            );
+                |_| RowsFeature,
+            ),
+            move |_, children| {
+                let exported = Rc::clone(&exported);
+                children.keyed_removable(
+                    |rows| rows,
+                    |rows| rows,
+                    move |key, _| {
+                        let key = *key;
+                        let exported = Rc::clone(&exported);
+                        (
+                            rca_core::local::EntryMount::new(ChildFeature(
+                                Rc::new(Cell::new(0)),
+                                DropHook::default(),
+                            )),
+                            move |_: &Child,
+                                  children: &mut rca_core::local::MountChildren<
+                                '_,
+                                Option<Rows>,
+                                (),
+                                Child,
+                                (),
+                            >,
+                                  removal| {
+                                exported
+                                    .borrow_mut()
+                                    .push((key, (children.site().clone(), removal)));
+                            },
+                        )
+                    },
+                );
+            },
+        );
     let store = builder.build().unwrap();
     driver.finish(store.ready()).unwrap();
     let parent = driver.finish(store.acquire(&parent_site)).unwrap().unwrap();
@@ -1401,7 +1400,7 @@ fn uninstalled_output_rejection(drop_declaration: bool) {
     let handler_capture = DropWatch(Rc::clone(&handler_drops));
     let handlers = Rc::new(Cell::new(0));
     let calls = Rc::clone(&handlers);
-    let (unbuilt, output) = Store::feature_builder(
+    let (unbuilt, output) = Store::builder(
         Root {
             parent: None,
             outcome: None,
@@ -1496,7 +1495,7 @@ fn sibling_output_rejection(sibling_owner: bool) {
     impl Feature for PairFeature {
         type State = Pair;
         type Action = ();
-        fn reduce(&mut self, _: &mut Pair, (): &(), _: &mut FeatureContext<'_, Pair, ()>) {}
+        fn update(&mut self, _: &mut Pair, (): &(), _: &mut FeatureContext<'_, Pair, ()>) {}
     }
     let driver = Driver::default();
     let old = Rc::new(Cell::new(41));
@@ -2508,7 +2507,7 @@ fn local_removal_entry_rechecks_capture_and_mutable_parent_projection() {
         type State = SelectingRoot;
         type Action = ();
 
-        fn reduce(
+        fn update(
             &mut self,
             _: &mut SelectingRoot,
             (): &(),
@@ -2851,7 +2850,7 @@ fn local_named_parent_removal_rejects_completed_ancestry_and_cancelled_producer(
         type State = Parent;
         type Action = u8;
 
-        fn reduce(
+        fn update(
             &mut self,
             _: &mut Parent,
             action: &u8,
@@ -3088,7 +3087,7 @@ mod endpoint_validation {
     impl Feature for Leaf {
         type State = Value;
         type Action = ();
-        fn reduce(&mut self, _: &mut Value, (): &(), _: &mut FeatureContext<'_, Value, ()>) {}
+        fn update(&mut self, _: &mut Value, (): &(), _: &mut FeatureContext<'_, Value, ()>) {}
     }
 
     /// Supplies optional and keyed children under one distinguishable parent identity.
@@ -3118,7 +3117,7 @@ mod endpoint_validation {
     impl Feature for RootFeature {
         type State = Root;
         type Action = ();
-        fn reduce(&mut self, state: &mut Root, (): &(), _: &mut FeatureContext<'_, Root, ()>) {
+        fn update(&mut self, state: &mut Root, (): &(), _: &mut FeatureContext<'_, Root, ()>) {
             state.fixed = None;
             state.keyed = KeyedState::new();
         }
@@ -3126,7 +3125,7 @@ mod endpoint_validation {
     impl Feature for ParentFeature {
         type State = Parent;
         type Action = ();
-        fn reduce(&mut self, _: &mut Parent, (): &(), _: &mut FeatureContext<'_, Parent, ()>) {}
+        fn update(&mut self, _: &mut Parent, (): &(), _: &mut FeatureContext<'_, Parent, ()>) {}
     }
     /// Associates exported authority with its parent and child storage kind.
     struct Sites {
@@ -3246,7 +3245,7 @@ mod endpoint_validation {
                     },
                 );
             };
-        let (builder, _) = Store::feature_builder(
+        let (builder, _) = Store::builder(
             Root {
                 live: Some(parent(1)),
                 fixed: Some(parent(2)),

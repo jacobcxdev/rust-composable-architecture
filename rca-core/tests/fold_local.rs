@@ -176,7 +176,7 @@ struct RootFeature;
 impl Feature for RootFeature {
     type State = Root;
     type Action = Replace;
-    fn reduce(
+    fn update(
         &mut self,
         state: &mut Root,
         action: &Replace,
@@ -198,7 +198,7 @@ struct ParentFeature;
 impl Feature for ParentFeature {
     type State = Parent;
     type Action = ();
-    fn reduce(&mut self, _: &mut Parent, (): &(), _: &mut FeatureContext<'_, Parent, ()>) {}
+    fn update(&mut self, _: &mut Parent, (): &(), _: &mut FeatureContext<'_, Parent, ()>) {}
 }
 
 struct LeafFeature;
@@ -206,7 +206,7 @@ struct LeafFeature;
 impl Feature for LeafFeature {
     type State = Rc<Cell<usize>>;
     type Action = Rc<()>;
-    fn reduce(
+    fn update(
         &mut self,
         _: &mut Self::State,
         _: &Self::Action,
@@ -245,7 +245,7 @@ fn local_owned_subtree_and_replacement_keep_rc_callbacks_nominally_local() {
         },
         |_| ParentFeature,
     );
-    let (builder, parent_site) = Store::feature_builder(
+    let (builder, parent_site) = Store::builder(
         Root {
             parent: Some(Parent {
                 leaf: Some(Rc::new(Cell::new(2))),
@@ -298,7 +298,7 @@ fn local_owned_subtree_and_replacement_keep_rc_callbacks_nominally_local() {
         });
         declared_sites.borrow_mut().push(site);
     });
-    let other = Store::feature(
+    let other = Store::new(
         Root {
             parent: Some(Parent {
                 leaf: Some(Rc::new(Cell::new(5))),
@@ -452,7 +452,7 @@ fn local_transform_only_group_preserves_its_first_descendant() {
         },
         |_| ParentFeature,
     );
-    let (builder, site) = Store::feature_builder(
+    let (builder, site) = Store::builder(
         Root {
             parent: Some(Parent {
                 leaf: Some(Rc::new(Cell::new(2))),
@@ -527,7 +527,7 @@ fn duplicate_local_channel_drains_rc_captures_without_evaluating_them() {
         },
         |_| ParentFeature,
     );
-    let (builder, _) = Store::feature_builder(
+    let (builder, _) = Store::builder(
         Root {
             parent: Some(Parent {
                 leaf: None,

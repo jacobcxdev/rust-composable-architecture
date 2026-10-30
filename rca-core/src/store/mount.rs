@@ -226,7 +226,7 @@ impl<F: Feature> RootMount<F> {
     /// # impl Feature for Counter {
     /// #     type State = i32;
     /// #     type Action = i32;
-    /// #     fn reduce(&mut self, state: &mut i32, action: &i32, _: &mut FeatureContext<'_, i32, i32>) { *state += action; }
+    /// #     fn update(&mut self, state: &mut i32, action: &i32, _: &mut FeatureContext<'_, i32, i32>) { *state += action; }
     /// # }
     /// let root = RootMount::new(Counter)
     ///     .on_change(|state| *state, InitialPolicy::Skip, |change, _| {
@@ -289,7 +289,7 @@ impl<F: Feature> RootMount<F> {
         self,
         state: F::State,
         runtime: crate::Runtime,
-    ) -> super::builder::FeatureStoreBuilder<F::State, F::Action, F>
+    ) -> super::builder::StoreBuilder<F::State, F::Action, F>
     where
         F: Send + 'static,
         F::State: Send + 'static,
@@ -301,7 +301,7 @@ impl<F: Feature> RootMount<F> {
             reactions,
             configuration,
         } = self.0;
-        super::builder::FeatureStoreBuilder::new(state, feature, runtime).with_root_mount(Box::new(
+        super::builder::StoreBuilder::new(state, feature, runtime).with_root_mount(Box::new(
             RootDeclaration::<F::State, F::Action> {
                 payload: Mutex::new(Some(RootInitial {
                     hook: initial,
@@ -608,7 +608,7 @@ pub struct MountIdentity<K> {
 /// impl Feature for Root {
 ///     type State = State;
 ///     type Action = RootAction;
-///     fn reduce(&mut self, state: &mut State, _: &RootAction,
+///     fn update(&mut self, state: &mut State, _: &RootAction,
 ///         _: &mut FeatureContext<'_, State, RootAction>) {
 ///         state.configuration += 1;
 ///     }
@@ -616,7 +616,7 @@ pub struct MountIdentity<K> {
 /// impl Feature for Child {
 ///     type State = usize;
 ///     type Action = ChildAction;
-///     fn reduce(&mut self, state: &mut usize, _: &ChildAction,
+///     fn update(&mut self, state: &mut usize, _: &ChildAction,
 ///         _: &mut FeatureContext<'_, usize, ChildAction>) {
 ///         *state += 1;
 ///     }

@@ -44,7 +44,7 @@ struct Root;
 impl Feature for Root {
     type State = State;
     type Action = Action;
-    fn reduce(
+    fn update(
         &mut self,
         state: &mut State,
         action: &Action,
@@ -66,7 +66,7 @@ struct Leaf;
 impl Feature for Leaf {
     type State = usize;
     type Action = ();
-    fn reduce(&mut self, _: &mut usize, (): &(), _: &mut FeatureContext<'_, usize, ()>) {}
+    fn update(&mut self, _: &mut usize, (): &(), _: &mut FeatureContext<'_, usize, ()>) {}
 }
 
 #[test]
@@ -96,7 +96,7 @@ fn captured_subtree_rejects_refresh_replacement_absence_and_other_root_before_se
         },
         |_| Leaf,
     );
-    let (builder, site) = Store::feature_builder(
+    let (builder, site) = Store::builder(
         State {
             leaf: Some(2),
             replacement: 0,
@@ -117,7 +117,7 @@ fn captured_subtree_rejects_refresh_replacement_absence_and_other_root_before_se
             Owned(Cell::new(*value))
         });
     });
-    let other = Store::feature(
+    let other = Store::new(
         State {
             leaf: None,
             replacement: 0,

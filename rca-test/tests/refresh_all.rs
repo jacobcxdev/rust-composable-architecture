@@ -328,7 +328,7 @@ impl Feature for Parent {
     type State = State;
     type Action = Action;
 
-    fn reduce(
+    fn update(
         &mut self,
         state: &mut State,
         action: &Action,
@@ -426,7 +426,7 @@ fn parent(
         wait: Some(wait),
     };
     (
-        TestStore::projected_feature_builder(
+        TestStore::projected_builder(
             State {
                 document,
                 report: None,
@@ -459,7 +459,7 @@ struct RecipientParent;
 impl Feature for RecipientParent {
     type State = RecipientState;
     type Action = RecipientAction;
-    fn reduce(
+    fn update(
         &mut self,
         state: &mut RecipientState,
         action: &RecipientAction,
@@ -476,7 +476,7 @@ struct Child(Option<ControlledFuture<()>>);
 impl Feature for Child {
     type State = ChildState;
     type Action = Refresh;
-    fn reduce(
+    fn update(
         &mut self,
         state: &mut ChildState,
         action: &Refresh,

@@ -3,10 +3,7 @@ use super::*;
 use crate::store::mounted::tests::panic_message;
 use crate::store::mounted::{OptionalPath, SharedNode};
 use crate::store::scope::{ScopeIdentity, ScopeSlot};
-use crate::{
-    Feature, FeatureContext, MonotonicInstant, Reduce, ReducerFeature, RuntimeDriver, Task,
-    TaskContext,
-};
+use crate::{Feature, FeatureContext, MonotonicInstant, Reduce, RuntimeDriver, Task, TaskContext};
 use std::sync::{
     Mutex,
     atomic::{AtomicU64, AtomicUsize, Ordering},
@@ -113,7 +110,7 @@ impl Drop for Capture {
 impl Feature for Child {
     type State = Vec<u8>;
     type Action = ChildAction;
-    fn reduce(
+    fn update(
         &mut self,
         state: &mut Vec<u8>,
         action: &ChildAction,
@@ -219,13 +216,13 @@ fn fixture() -> (
         crate::store::mailbox::bounded(std::num::NonZeroUsize::new(1).unwrap());
     let ingress = Arc::new(Ingress::new(sender, ControlWake::new()));
     let mut slot = ScopeSlot::new();
-    let feature = ReducerFeature::new(Reduce::new(
+    let feature = Reduce::new(
         move |state: &mut State, _: &RootAction, context: &mut ReduceContext<'_>| {
             state.token =
                 Some(context.mount(ReduceContext::node(&mut slot), ScopeIdentity::new(())));
             Effect::none()
         },
-    ));
+    );
     let mut actor = Actor::<State, RootAction>::with_driver(
         State {
             child: Some(Vec::new()),

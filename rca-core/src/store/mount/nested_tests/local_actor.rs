@@ -107,7 +107,7 @@ struct LocalRoot;
 impl profile::Feature for LocalRoot {
     type State = LocalState;
     type Action = LocalRootAction;
-    fn reduce(
+    fn update(
         &mut self,
         state: &mut LocalState,
         action: &LocalRootAction,
@@ -133,7 +133,7 @@ impl Drop for LocalParent {
 impl profile::Feature for LocalParent {
     type State = LocalRow;
     type Action = LocalRowAction;
-    fn reduce(
+    fn update(
         &mut self,
         _: &mut LocalRow,
         _: &LocalRowAction,
@@ -151,7 +151,7 @@ impl Drop for LocalChild {
 impl profile::Feature for LocalChild {
     type State = Rc<Cell<usize>>;
     type Action = LocalChildAction;
-    fn reduce(
+    fn update(
         &mut self,
         state: &mut Self::State,
         action: &LocalChildAction,
@@ -218,7 +218,7 @@ fn owner_local_actor_discovers_rc_child_and_replaces_parent_incarnation() {
                 recipe_sites.borrow_mut().push(site);
             },
         );
-    let store = profile::Store::feature_builder(
+    let store = profile::Store::builder(
         LocalState {
             rows: [(
                 "one".to_owned(),
@@ -305,7 +305,7 @@ fn mixed_retirement_precedes_changed_factory_and_tasks() {
         type State = MixedState;
         type Action = ();
 
-        fn reduce(
+        fn update(
             &mut self,
             state: &mut MixedState,
             (): &(),
@@ -326,7 +326,7 @@ fn mixed_retirement_precedes_changed_factory_and_tasks() {
         type State = usize;
         type Action = ();
 
-        fn reduce(
+        fn update(
             &mut self,
             _: &mut usize,
             (): &(),

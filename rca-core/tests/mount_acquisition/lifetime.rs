@@ -14,7 +14,7 @@ struct Root;
 impl Feature for Root {
     type State = Option<usize>;
     type Action = ();
-    fn reduce(
+    fn update(
         &mut self,
         _: &mut Self::State,
         (): &(),
@@ -35,7 +35,7 @@ struct Child {
 impl Feature for Child {
     type State = usize;
     type Action = u8;
-    fn reduce(&mut self, _: &mut usize, _: &u8, _: &mut FeatureContext<'_, usize, u8>) {}
+    fn update(&mut self, _: &mut usize, _: &u8, _: &mut FeatureContext<'_, usize, u8>) {}
 }
 /// Declares a child whose callback capture and Feature have separate drop counts.
 fn descriptor(
@@ -80,7 +80,7 @@ fn missing_mounted_projection_drops_input_before_terminal_wake() {
         type State = usize;
         type Action = Dropped;
 
-        fn reduce(
+        fn update(
             &mut self,
             _: &mut usize,
             _: &Dropped,
@@ -104,7 +104,7 @@ fn missing_mounted_projection_drops_input_before_terminal_wake() {
     }
 
     let driver = Driver::default();
-    let (builder, site) = Store::feature_builder(Some(1), Root, Runtime::new(driver.clone()))
+    let (builder, site) = Store::builder(Some(1), Root, Runtime::new(driver.clone()))
         .mount_with_site(OptionalMount::new(
             Option::as_ref,
             |state: &mut Option<usize>| {
@@ -165,7 +165,7 @@ struct SendingChild {
 impl Feature for SendingChild {
     type State = usize;
     type Action = EffectAction;
-    fn reduce(
+    fn update(
         &mut self,
         state: &mut usize,
         action: &EffectAction,
@@ -210,12 +210,12 @@ fn dropped_builder_site_and_lazy_future_do_not_retain_callbacks() {
     let driver = Driver::default();
     let drops = Arc::new(AtomicUsize::new(0));
     let feature_drops = Arc::new(AtomicUsize::new(0));
-    let (builder, site) = Store::feature_builder(Some(1), Root, Runtime::new(driver.clone()))
+    let (builder, site) = Store::builder(Some(1), Root, Runtime::new(driver.clone()))
         .mount_with_site(descriptor(
             std::sync::Arc::clone(&drops),
             std::sync::Arc::clone(&feature_drops),
         ));
-    let other = Store::feature_builder(Some(1), Root, Runtime::new(driver.clone()))
+    let other = Store::builder(Some(1), Root, Runtime::new(driver.clone()))
         .build()
         .unwrap();
     let lazy = other.acquire(&site);
@@ -235,7 +235,7 @@ fn readiness_is_checked_on_first_poll_and_retained_capabilities_do_not_own_store
     let driver = Driver::default();
     let callbacks = Arc::new(AtomicUsize::new(0));
     let features = Arc::new(AtomicUsize::new(0));
-    let (builder, site) = Store::feature_builder(Some(1), Root, Runtime::new(driver.clone()))
+    let (builder, site) = Store::builder(Some(1), Root, Runtime::new(driver.clone()))
         .mount_with_site(descriptor(
             std::sync::Arc::clone(&callbacks),
             std::sync::Arc::clone(&features),
@@ -248,7 +248,7 @@ fn readiness_is_checked_on_first_poll_and_retained_capabilities_do_not_own_store
     );
     finish(&driver, store.ready()).unwrap();
     let child = finish(&driver, before_ready).unwrap().unwrap();
-    let other = Store::feature_builder(Some(1), Root, Runtime::new(driver.clone()))
+    let other = Store::builder(Some(1), Root, Runtime::new(driver.clone()))
         .build()
         .unwrap();
     assert_eq!(
@@ -280,7 +280,7 @@ fn capacity_blocked_acquisition_closes_when_last_store_owner_drops() {
     let driver = Driver::default();
     let callbacks = Arc::new(AtomicUsize::new(0));
     let features = Arc::new(AtomicUsize::new(0));
-    let (builder, site) = Store::feature_builder(Some(1), Root, Runtime::new(driver.clone()))
+    let (builder, site) = Store::builder(Some(1), Root, Runtime::new(driver.clone()))
         .mailbox_capacity(1)
         .mount_with_site(descriptor(
             std::sync::Arc::clone(&callbacks),
@@ -314,7 +314,7 @@ fn capacity_blocked_child_read_and_update_release_captures_when_store_drops() {
     let driver = Driver::default();
     let callbacks = Arc::new(AtomicUsize::new(0));
     let features = Arc::new(AtomicUsize::new(0));
-    let (builder, site) = Store::feature_builder(Some(1), Root, Runtime::new(driver.clone()))
+    let (builder, site) = Store::builder(Some(1), Root, Runtime::new(driver.clone()))
         .mailbox_capacity(1)
         .mount_with_site(descriptor(Arc::clone(&callbacks), Arc::clone(&features)));
     let store = builder.build().unwrap();
@@ -375,7 +375,7 @@ fn capacity_blocked_child_send_returns_original_action_when_store_drops() {
     impl Feature for OwnedChild {
         type State = usize;
         type Action = Box<Dropped>;
-        fn reduce(
+        fn update(
             &mut self,
             state: &mut usize,
             _: &Self::Action,
@@ -410,7 +410,7 @@ fn capacity_blocked_child_send_returns_original_action_when_store_drops() {
             }
         },
     );
-    let (builder, site) = Store::feature_builder(Some(1), Root, Runtime::new(driver.clone()))
+    let (builder, site) = Store::builder(Some(1), Root, Runtime::new(driver.clone()))
         .mailbox_capacity(1)
         .mount_with_site(mount);
     let store = builder.build().unwrap();
@@ -450,7 +450,7 @@ fn capacity_blocked_child_send_returns_original_action_when_store_drops() {
 fn child_requests_reject_missing_ingress_without_entering_or_losing_payload() {
     let driver = Driver::default();
     let observed = Arc::new(AtomicUsize::new(0));
-    let (builder, site) = Store::feature_builder(Some(1), Root, Runtime::new(driver.clone()))
+    let (builder, site) = Store::builder(Some(1), Root, Runtime::new(driver.clone()))
         .mount_with_site(sending_child(Effect::none(), Arc::clone(&observed)));
     let store = builder.build().unwrap();
     finish(&driver, store.ready()).unwrap();
@@ -530,7 +530,7 @@ fn mounted_effect_send_waits_for_capacity_then_reduction_commit() {
         *result.lock().unwrap() = Some(sent);
         drop(capture);
     });
-    let (builder, site) = Store::feature_builder(Some(1), Root, Runtime::new(driver.clone()))
+    let (builder, site) = Store::builder(Some(1), Root, Runtime::new(driver.clone()))
         .mailbox_capacity(1)
         .mount_with_site(sending_child(effect, Arc::clone(&observed)));
     let store = builder.build().unwrap();
@@ -615,7 +615,7 @@ fn mounted_effect_send_reports_cancelled_after_projection_disappears() {
     impl Feature for ProjectedChild {
         type State = usize;
         type Action = EffectAction;
-        fn reduce(
+        fn update(
             &mut self,
             state: &mut usize,
             action: &EffectAction,
@@ -665,7 +665,7 @@ fn mounted_effect_send_reports_cancelled_after_projection_disappears() {
         },
     );
     let (builder, site) =
-        Store::feature_builder(Some(1), Root, Runtime::new(driver.clone())).mount_with_site(mount);
+        Store::builder(Some(1), Root, Runtime::new(driver.clone())).mount_with_site(mount);
     let store = builder.build().unwrap();
     finish(&driver, store.ready()).unwrap();
     let child = finish(&driver, store.acquire(&site)).unwrap().unwrap();
@@ -739,7 +739,7 @@ fn admitted_mounted_effect_is_rejected_when_store_closes_before_actor_entry() {
         *result.lock().unwrap() = Some(sender.send(EffectAction::Value(action)).await);
         drop(capture);
     });
-    let (builder, site) = Store::feature_builder(Some(1), Root, Runtime::new(driver.clone()))
+    let (builder, site) = Store::builder(Some(1), Root, Runtime::new(driver.clone()))
         .mailbox_capacity(1)
         .mount_with_site(sending_child(effect, Arc::clone(&observed)));
     let store = builder.build().unwrap();
@@ -801,7 +801,7 @@ fn mounted_effect_send_reports_store_closed_without_reducing_or_retaining_action
             *result.lock().unwrap() = Some(sent);
             drop(capture);
         });
-        let (builder, site) = Store::feature_builder(Some(1), Root, Runtime::new(driver.clone()))
+        let (builder, site) = Store::builder(Some(1), Root, Runtime::new(driver.clone()))
             .mailbox_capacity(1)
             .mount_with_site(sending_child(effect, Arc::clone(&observed)));
         let store = builder.build().unwrap();
@@ -876,10 +876,11 @@ fn mounted_effect_send_reports_store_closed_without_reducing_or_retaining_action
 #[test]
 fn ready_admission_revalidates_closure_at_ordered_handling() {
     let driver = Driver::default();
-    let (builder, site) =
-        Store::feature_builder(Some(1), Root, Runtime::new(driver.clone())).mount_with_site(
-            descriptor(Arc::new(AtomicUsize::new(0)), Arc::new(AtomicUsize::new(0))),
-        );
+    let (builder, site) = Store::builder(Some(1), Root, Runtime::new(driver.clone()))
+        .mount_with_site(descriptor(
+            Arc::new(AtomicUsize::new(0)),
+            Arc::new(AtomicUsize::new(0)),
+        ));
     let store = builder.build().unwrap();
     finish(&driver, store.ready()).unwrap();
     let mut shutdown = Box::pin(store.shutdown());
@@ -902,7 +903,7 @@ fn actor_panic_rejects_queued_acquisition_as_failed_and_drops_owned_payload_once
     impl Feature for PanickingRoot {
         type State = Option<usize>;
         type Action = ();
-        fn reduce(
+        fn update(
             &mut self,
             _: &mut Self::State,
             (): &(),
@@ -914,12 +915,11 @@ fn actor_panic_rejects_queued_acquisition_as_failed_and_drops_owned_payload_once
     let driver = Driver::default();
     let callbacks = Arc::new(AtomicUsize::new(0));
     let features = Arc::new(AtomicUsize::new(0));
-    let (builder, site) =
-        Store::feature_builder(Some(1), PanickingRoot, Runtime::new(driver.clone()))
-            .mount_with_site(descriptor(
-                std::sync::Arc::clone(&callbacks),
-                std::sync::Arc::clone(&features),
-            ));
+    let (builder, site) = Store::builder(Some(1), PanickingRoot, Runtime::new(driver.clone()))
+        .mount_with_site(descriptor(
+            std::sync::Arc::clone(&callbacks),
+            std::sync::Arc::clone(&features),
+        ));
     let store = builder.build().unwrap();
     finish(&driver, store.ready()).unwrap();
     let mut action = Box::pin(store.send(()));
@@ -1001,8 +1001,8 @@ fn installation_callback_panic_fails_readiness_and_drops_payload_once() {
                 rca_core::Task::run(|_| async { panic!("failed startup cannot poll task body") })
             },
         );
-        let (builder, site) = Store::feature_builder(Some(1), Root, Runtime::new(driver.clone()))
-            .mount_with_site(descriptor);
+        let (builder, site) =
+            Store::builder(Some(1), Root, Runtime::new(driver.clone())).mount_with_site(descriptor);
         let store = builder.build().unwrap();
         let mut ready = Box::pin(store.ready());
         let notified = Arc::new(ReadyWake(AtomicUsize::new(0)));

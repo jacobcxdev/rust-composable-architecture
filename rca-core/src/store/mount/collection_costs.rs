@@ -95,7 +95,7 @@ struct Parent {
 impl Feature for Parent {
     type State = Row;
     type Action = u8;
-    fn reduce(&mut self, _: &mut Row, _: &u8, _: &mut crate::FeatureContext<'_, Row, u8>) {
+    fn update(&mut self, _: &mut Row, _: &u8, _: &mut crate::FeatureContext<'_, Row, u8>) {
         self.cache.set(self.cache.get() + 1);
     }
 }
@@ -116,7 +116,7 @@ struct Leaf(Arc<Counts>);
 impl Feature for Leaf {
     type State = usize;
     type Action = char;
-    fn reduce(&mut self, _: &mut usize, _: &char, _: &mut crate::FeatureContext<'_, usize, char>) {}
+    fn update(&mut self, _: &mut usize, _: &char, _: &mut crate::FeatureContext<'_, usize, char>) {}
 }
 impl Drop for Leaf {
     fn drop(&mut self) {

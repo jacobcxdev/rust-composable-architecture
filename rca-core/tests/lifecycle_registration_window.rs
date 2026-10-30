@@ -17,8 +17,7 @@ use std::task::{Context, Poll, Waker};
 
 use futures_util::FutureExt as _;
 use rca_core::{
-    Effect, MountIdentity, OptionalMount, Reduce, ReducerFeature, Store, TaskAccessReason,
-    TaskProgress,
+    Effect, MountIdentity, OptionalMount, Reduce, Store, TaskAccessReason, TaskProgress,
 };
 
 #[test]
@@ -95,18 +94,14 @@ fn readiness_observes_last_owner_loss_before_cold_listener_registration() {
         },
         move |_| {
             constructed.fetch_add(1, Ordering::Relaxed);
-            ReducerFeature::new(Reduce::<Arc<()>, (), _>::new(|_, (), _| Effect::none()))
+            Reduce::<Arc<()>, (), _>::new(|_, (), _| Effect::none())
         },
     );
     let reducer = Reduce::<Option<Arc<()>>, (), _>::new(|_, (), _| Effect::none());
-    let store = Store::feature_builder(
-        Some(Arc::clone(&state)),
-        ReducerFeature::new(reducer),
-        runtime.runtime(),
-    )
-    .mount(mount)
-    .build()
-    .unwrap();
+    let store = Store::builder(Some(Arc::clone(&state)), reducer, runtime.runtime())
+        .mount(mount)
+        .build()
+        .unwrap();
     let mut actor = runtime.take_only_queued_task();
     let waiting = store.ready();
     let after_teardown = store.ready();

@@ -1,7 +1,7 @@
 //! Authors typed asynchronous work alongside synchronous reduction.
 //!
 //! [`Feature`] appends effects and typed tasks through [`FeatureContext`].
-//! [`ReducerFeature`] adapts an existing [`Reducer`] without changing its effects.
+//! Every [`Reducer`] is a `Feature` without an adapter or additional allocation.
 //! Tasks start after the originating transaction commits, not during reduction.
 //!
 //! Mount reactions receive owned [`ReactionChange`] values and a [`ReactionContext`].
@@ -90,7 +90,13 @@ impl<S, A> fmt::Debug for ReactionContext<'_, S, A> {
 ///
 /// Reduction borrows state exclusively and cannot suspend. [`FeatureContext`]
 /// collects work for the Store to register after the synchronous transaction.
-/// Existing [`Reducer`] implementations can use [`ReducerFeature`] instead.
+/// Every [`Reducer`] implements this trait automatically. Reducers return
+/// action-based effects and support static composition with borrowed state paths.
+/// Implement `Feature` directly when the callback also declares typed tasks.
+/// Both forms use the same Store and `TestStore` constructors.
+///
+/// A type defines its behaviour through either `Reducer` or `Feature`, not both.
+/// Use separate wrapper types when the same data needs different behaviours.
 pub trait Feature {
     /// State exclusively borrowed for this turn.
     type State;
@@ -101,7 +107,7 @@ pub trait Feature {
     /// Mutates state and appends follow-up work synchronously.
     ///
     /// Keep blocking I/O and long-running computation out of this callback.
-    fn reduce(
+    fn update(
         &mut self,
         state: &mut Self::State,
         action: &Self::Action,
@@ -109,41 +115,17 @@ pub trait Feature {
     );
 }
 
-/// Adapts an ordinary reducer without changing its effect program.
-///
-/// The adapter owns the reducer and preserves its mutable captures across turns.
-/// [`Self::into_inner`] returns that same reducer without cloning it.
-#[derive(Debug)]
-pub struct ReducerFeature<R> {
-    /// Retains the same reducer instance and its mutable captures between turns.
-    reducer: R,
-}
-
-impl<R> ReducerFeature<R> {
-    /// Wraps an existing synchronous reducer.
-    pub const fn new(reducer: R) -> Self {
-        Self { reducer }
-    }
-
-    /// Returns the wrapped reducer.
-    pub fn into_inner(self) -> R {
-        self.reducer
-    }
-}
-
-impl<R: Reducer> Feature for ReducerFeature<R> {
+impl<R: Reducer + ?Sized> Feature for R {
     type State = R::State;
     type Action = R::Action;
 
-    fn reduce(
+    fn update(
         &mut self,
         state: &mut R::State,
         action: &R::Action,
         context: &mut FeatureContext<'_, R::State, R::Action>,
     ) {
-        let effect = self
-            .reducer
-            .reduce(state, action, context.reducer_context());
+        let effect = Reducer::reduce(self, state, action, context.reducer_context());
         context.effect(effect);
     }
 }
@@ -320,7 +302,7 @@ impl<S, A, F: Feature<State = S, Action = A>> ReduceDriver<S, A> for F {
         context: ReduceContext<'_>,
     ) -> Work<Self::Effect, Self::Task> {
         let mut context = FeatureContext::new(context);
-        Feature::reduce(self, state, action, &mut context);
+        Feature::update(self, state, action, &mut context);
         context.into_work()
     }
 }
@@ -343,14 +325,14 @@ mod tests {
             &mut dependencies, MonotonicInstant::ZERO, &mut scopes, &mut transitions,
         );
         let mut context = FeatureContext::new(context);
-        let mut feature = ReducerFeature::new(Reduce::new(
+        let mut feature = Reduce::new(
             |state: &mut usize, action: &usize, _| {
                 *state += action;
                 Effect::send(7)
             },
-        ));
+        );
         let mut state = 2;
-        Feature::reduce(&mut feature, &mut state, &3, &mut context);
+        Feature::update(&mut feature, &mut state, &3, &mut context);
         context.effect(Effect::none());
         let work = context.into_work();
         assert_eq!(state, 5);

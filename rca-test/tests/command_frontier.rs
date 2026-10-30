@@ -49,7 +49,7 @@ macro_rules! command_frontier {
         impl Feature for Root {
             type State = Option<usize>;
             type Action = ();
-            fn reduce(
+            fn update(
                 &mut self,
                 _: &mut Self::State,
                 _: &(),
@@ -62,7 +62,7 @@ macro_rules! command_frontier {
         impl Feature for Child {
             type State = usize;
             type Action = usize;
-            fn reduce(
+            fn update(
                 &mut self,
                 state: &mut usize,
                 action: &usize,
@@ -100,7 +100,7 @@ macro_rules! command_frontier {
                 },
                 |_| Child,
             );
-            let (builder, _) = TestStore::feature_builder(Some(2), Root)
+            let (builder, _) = TestStore::builder(Some(2), Root)
                 .mailbox_capacity(1)
                 .mount_with_children(mount, move |_, children| {
                     let calls = Arc::clone(&mapped_calls);
@@ -384,7 +384,7 @@ macro_rules! command_frontier {
         #[test]
         fn zero_capacity_keeps_the_existing_build_failure() {
             let panic = std::panic::catch_unwind(|| {
-                let _ = TestStore::feature_builder(Some(2), Root)
+                let _ = TestStore::builder(Some(2), Root)
                     .mailbox_capacity(0)
                     .build();
             })
@@ -417,7 +417,7 @@ macro_rules! command_frontier {
             impl Feature for RoutesRoot {
                 type State = Routes;
                 type Action = Edit;
-                fn reduce(
+                fn update(
                     &mut self,
                     state: &mut Routes,
                     action: &Edit,
@@ -466,7 +466,7 @@ macro_rules! command_frontier {
                     },
                     |_| Child,
                 );
-                let (builder, _) = TestStore::feature_builder(
+                let (builder, _) = TestStore::builder(
                     Routes { first: Some(2), second: Some(3), revision: 0 },
                     RoutesRoot,
                 )
@@ -575,7 +575,7 @@ macro_rules! command_frontier {
             impl Feature for RetiringRoot {
                 type State = Option<usize>;
                 type Action = bool;
-                fn reduce(
+                fn update(
                     &mut self,
                     state: &mut Self::State,
                     retire: &bool,
@@ -609,7 +609,7 @@ macro_rules! command_frontier {
                     |_| Child,
                 );
                 let (builder, child_site) =
-                    CoreStore::feature_builder(Some(2), RetiringRoot, host.runtime())
+                    CoreStore::builder(Some(2), RetiringRoot, host.runtime())
                         .mailbox_capacity(2)
                         .mount_with_children(mount, move |_, children| {
                             let capture = capture.take().unwrap();
@@ -721,7 +721,7 @@ mod shared {
         type State = Option<usize>;
         type Action = ();
 
-        fn reduce(
+        fn update(
             &mut self,
             _: &mut Self::State,
             (): &(),
@@ -755,13 +755,12 @@ mod shared {
                 },
                 |_| Child,
             );
-            let (builder, child_site, site) =
-                CoreStore::feature_builder(Some(2), Root, host.runtime())
-                    .mailbox_capacity(1)
-                    .mount_with_command(mount, move |command: Owned| {
-                        mapped_calls.fetch_add(1, Ordering::SeqCst);
-                        command.value.get() + capture.value.get()
-                    });
+            let (builder, child_site, site) = CoreStore::builder(Some(2), Root, host.runtime())
+                .mailbox_capacity(1)
+                .mount_with_command(mount, move |command: Owned| {
+                    mapped_calls.fetch_add(1, Ordering::SeqCst);
+                    command.value.get() + capture.value.get()
+                });
             let (mut probe, _, _) = fixture().await;
             let child_error = probe.acquire(&child_site).await.unwrap_err();
             let command_error = probe.command_port(&site).await.unwrap_err();
@@ -771,7 +770,7 @@ mod shared {
                 assert_eq!(access.progress(), TaskProgress::NotStarted);
             }
             probe.finish().await.unwrap();
-            let other = CoreStore::feature_builder(Some(2), Root, host.runtime())
+            let other = CoreStore::builder(Some(2), Root, host.runtime())
                 .build()
                 .unwrap();
             host.run(other.ready()).await.unwrap().unwrap();
@@ -902,7 +901,7 @@ mod shared {
                 },
                 |_| Child,
             );
-            let (builder, _, site) = CoreStore::feature_builder(
+            let (builder, _, site) = CoreStore::builder(
                 Some(2),
                 CountedRoot(Arc::clone(&reductions)),
                 host.runtime(),
@@ -962,7 +961,7 @@ mod shared {
                     },
                     |_| Child,
                 );
-                let (builder, _, site) = CoreStore::feature_builder(
+                let (builder, _, site) = CoreStore::builder(
                     Some(2),
                     CountedRoot(Arc::clone(&reductions)),
                     host.runtime(),
@@ -1042,7 +1041,7 @@ mod shared {
                 },
                 |_| Child,
             );
-            let (builder, _, site) = TestStore::feature_builder(Some(2), Root)
+            let (builder, _, site) = TestStore::builder(Some(2), Root)
                 .mailbox_capacity(1)
                 .mount_with_command(mount, move |command: Owned| {
                     mapped_calls.fetch_add(1, Ordering::SeqCst);
@@ -1148,7 +1147,7 @@ mod shared {
         impl Feature for RoutesRoot {
             type State = Routes;
             type Action = ();
-            fn reduce(
+            fn update(
                 &mut self,
                 state: &mut Routes,
                 (): &(),
@@ -1194,7 +1193,7 @@ mod shared {
                 second: Some(3),
                 configuration: 0,
             };
-            let (builder, _, first_site) = TestStore::feature_builder(initial.clone(), RoutesRoot)
+            let (builder, _, first_site) = TestStore::builder(initial.clone(), RoutesRoot)
                 .mount_with_command(first_mount(), move |command: Owned| {
                     mapped_first.fetch_add(1, Ordering::SeqCst);
                     command.value.get()
@@ -1217,7 +1216,7 @@ mod shared {
 
             let foreign_calls = Arc::new(AtomicUsize::new(0));
             let mapped_foreign = Arc::clone(&foreign_calls);
-            let (builder, _, foreign_site) = TestStore::feature_builder(initial, RoutesRoot)
+            let (builder, _, foreign_site) = TestStore::builder(initial, RoutesRoot)
                 .mount_with_command(first_mount(), move |command: Owned| {
                     mapped_foreign.fetch_add(1, Ordering::SeqCst);
                     command.value.get()

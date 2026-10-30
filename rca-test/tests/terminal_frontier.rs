@@ -28,7 +28,7 @@ macro_rules! terminal_frontier {
             type State = usize;
             type Action = Action;
 
-            fn reduce(
+            fn update(
                 &mut self,
                 state: &mut usize,
                 action: &Action,
@@ -54,7 +54,7 @@ macro_rules! terminal_frontier {
         /// Separates cancelling execution from acknowledging its terminal result.
         fn cancellation_keeps_selected_boundary(producer: Producer) {
             block_on(async {
-                let mut store = TestStore::feature_builder(0, Root).build();
+                let mut store = TestStore::builder(0, Root).build();
                 let task = store.send(Action::Start(producer)).await.unwrap();
                 let pending = store.finish().await.unwrap_err();
                 assert!(pending.finish_diagnostics().unwrap().has_pending_action());
@@ -113,7 +113,7 @@ macro_rules! terminal_frontier {
         #[test]
         fn terminal_tokens_reject_foreign_roots_and_unterminated_boundaries_without_callbacks() {
             block_on(async {
-                let mut store = TestStore::feature_builder(0, Root).build();
+                let mut store = TestStore::builder(0, Root).build();
                 let task = store.send(Action::Start(Producer::Update)).await.unwrap();
                 let boundary = store.pending_boundary().unwrap();
                 assert!(
@@ -125,7 +125,7 @@ macro_rules! terminal_frontier {
                         .unwrap_err()
                         .is_no_received_action()
                 );
-                let mut other = TestStore::feature_builder(0, Root).build();
+                let mut other = TestStore::builder(0, Root).build();
                 let other_task = other.send(Action::Start(Producer::Send)).await.unwrap();
                 let foreign = other.pending_boundary().unwrap();
                 task.cancel().await.unwrap();
@@ -175,7 +175,7 @@ macro_rules! terminal_frontier {
         fn failed_terminal_comparison_is_sticky_through_correct_acknowledgement() {
             for panics in [false, true] {
                 block_on(async {
-                    let mut store = TestStore::feature_builder(0, Root).build();
+                    let mut store = TestStore::builder(0, Root).build();
                     let task = store.send(Action::Start(Producer::Update)).await.unwrap();
                     task.cancel().await.unwrap();
                     task.finish().await.unwrap();
@@ -248,7 +248,7 @@ macro_rules! terminal_frontier {
             type State = Option<usize>;
             type Action = ();
 
-            fn reduce(
+            fn update(
                 &mut self,
                 _: &mut Option<usize>,
                 (): &(),
@@ -277,7 +277,7 @@ macro_rules! terminal_frontier {
             type State = usize;
             type Action = ();
 
-            fn reduce(&mut self, _: &mut usize, (): &(), _: &mut FeatureContext<'_, usize, ()>) {}
+            fn update(&mut self, _: &mut usize, (): &(), _: &mut FeatureContext<'_, usize, ()>) {}
         }
 
         /// Checks whether exhausting the poll budget happened before or after admission.
@@ -315,7 +315,7 @@ macro_rules! terminal_frontier {
                         })
                     },
                 );
-                let mut store = TestStore::feature_builder(
+                let mut store = TestStore::builder(
                     Some(0),
                     GatedWork {
                         gate: Some(background_gate),
@@ -449,7 +449,7 @@ macro_rules! terminal_frontier {
                         })
                     },
                 );
-                let (builder, site) = TestStore::feature_builder(
+                let (builder, site) = TestStore::builder(
                     Some(0),
                     GatedWork {
                         gate: Some(background_gate),

@@ -398,7 +398,7 @@ fn task_update_notifies_only_the_changed_keyed_row() {
         type State = rca_core::KeyedState<usize, usize>;
         type Action = usize;
 
-        fn reduce(
+        fn update(
             &mut self,
             _: &mut Self::State,
             action: &usize,
@@ -419,7 +419,7 @@ fn task_update_notifies_only_the_changed_keyed_row() {
     for count in [1, 16, 1024] {
         let runtime = ThreadRuntime::new();
         let rows = (0..count).map(|id| (id, 0)).collect();
-        let store = Store::feature_builder(rows, ModifyRow, runtime.runtime())
+        let store = Store::builder(rows, ModifyRow, runtime.runtime())
             .build()
             .unwrap();
         let calls = Arc::new(AtomicUsize::new(0));

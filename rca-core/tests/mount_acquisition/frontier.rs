@@ -11,7 +11,7 @@ struct Root;
 impl Feature for Root {
     type State = State;
     type Action = u8;
-    fn reduce(&mut self, state: &mut State, action: &u8, _: &mut FeatureContext<'_, State, u8>) {
+    fn update(&mut self, state: &mut State, action: &u8, _: &mut FeatureContext<'_, State, u8>) {
         if *action == 1 {
             state.root_configuration += 1;
         } else {
@@ -23,7 +23,7 @@ struct Child;
 impl Feature for Child {
     type State = usize;
     type Action = u8;
-    fn reduce(&mut self, state: &mut usize, action: &u8, _: &mut FeatureContext<'_, usize, u8>) {
+    fn update(&mut self, state: &mut usize, action: &u8, _: &mut FeatureContext<'_, usize, u8>) {
         *state += usize::from(*action);
     }
 }

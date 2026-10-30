@@ -237,7 +237,7 @@ ordinary_test_items! {
             type State = Option<usize>;
             type Action = ();
 
-            fn reduce(
+            fn update(
                 &mut self,
                 _: &mut Self::State,
                 (): &(),
@@ -252,7 +252,7 @@ ordinary_test_items! {
             type State = usize;
             type Action = ();
 
-            fn reduce(
+            fn update(
                 &mut self,
                 _: &mut usize,
                 (): &(),

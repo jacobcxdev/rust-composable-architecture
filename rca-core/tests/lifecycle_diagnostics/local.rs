@@ -133,7 +133,7 @@ struct Counter;
 impl Feature for Counter {
     type State = State;
     type Action = Rc<u8>;
-    fn reduce(
+    fn update(
         &mut self,
         state: &mut State,
         action: &Rc<u8>,
@@ -159,7 +159,7 @@ fn build(
         thread: std::thread::current().id(),
     };
     let store = if feature {
-        Store::feature_builder(state, Counter, runtime)
+        Store::builder(state, Counter, runtime)
             .with_lifecycle_diagnostics(move |event| sink.record(event))
             .build()
             .unwrap()
@@ -261,7 +261,7 @@ struct NativeRoot;
 impl Feature for NativeRoot {
     type State = NativeState;
     type Action = Rc<()>;
-    fn reduce(
+    fn update(
         &mut self,
         state: &mut NativeState,
         _: &Rc<()>,
@@ -274,7 +274,7 @@ struct NativeChild;
 impl Feature for NativeChild {
     type State = Rc<Cell<u8>>;
     type Action = Rc<()>;
-    fn reduce(
+    fn update(
         &mut self,
         _: &mut Rc<Cell<u8>>,
         _: &Rc<()>,
@@ -303,7 +303,7 @@ fn native_local_equal_value_replacement_reports_real_authority_retirement() {
         },
         |_| NativeChild,
     );
-    let (builder, site) = Store::feature_builder(
+    let (builder, site) = Store::builder(
         NativeState {
             child: Some(Rc::new(Cell::new(3))),
             replacement: 0,
@@ -396,7 +396,7 @@ fn local_configuration_refresh_preserves_lifetime_and_reports_precommit_revision
     impl Feature for Root {
         type State = RootState;
         type Action = Action;
-        fn reduce(
+        fn update(
             &mut self,
             state: &mut RootState,
             action: &Action,
@@ -412,7 +412,7 @@ fn local_configuration_refresh_preserves_lifetime_and_reports_precommit_revision
     impl Feature for Child {
         type State = Rc<Cell<u8>>;
         type Action = ();
-        fn reduce(
+        fn update(
             &mut self,
             _: &mut Rc<Cell<u8>>,
             (): &(),
@@ -464,7 +464,7 @@ fn local_configuration_refresh_preserves_lifetime_and_reports_precommit_revision
             Child(Rc::clone(&dropped))
         },
     );
-    let (builder, site) = Store::feature_builder(
+    let (builder, site) = Store::builder(
         RootState {
             child: Some(value),
             marker: 41,

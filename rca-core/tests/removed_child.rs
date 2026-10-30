@@ -208,24 +208,24 @@ impl Drop for ClosingChildFeature {
 impl Feature for ClosingChildFeature {
     type State = Child;
     type Action = ();
-    fn reduce(&mut self, _: &mut Child, (): &(), _: &mut FeatureContext<'_, Child, ()>) {}
+    fn update(&mut self, _: &mut Child, (): &(), _: &mut FeatureContext<'_, Child, ()>) {}
 }
 impl Feature for RootFeature {
     type State = Root;
     type Action = ();
-    fn reduce(&mut self, state: &mut Root, (): &(), _: &mut FeatureContext<'_, Root, ()>) {
+    fn update(&mut self, state: &mut Root, (): &(), _: &mut FeatureContext<'_, Root, ()>) {
         state.parent = None;
     }
 }
 impl Feature for ParentFeature {
     type State = Parent;
     type Action = ();
-    fn reduce(&mut self, _: &mut Parent, (): &(), _: &mut FeatureContext<'_, Parent, ()>) {}
+    fn update(&mut self, _: &mut Parent, (): &(), _: &mut FeatureContext<'_, Parent, ()>) {}
 }
 impl Feature for ChildFeature {
     type State = Child;
     type Action = ();
-    fn reduce(&mut self, _: &mut Child, (): &(), _: &mut FeatureContext<'_, Child, ()>) {}
+    fn update(&mut self, _: &mut Child, (): &(), _: &mut FeatureContext<'_, Child, ()>) {}
 }
 /// Pairs child access with its parent's owning-removal declaration.
 type Sites = (
@@ -489,7 +489,7 @@ fn owned_sibling_values_survive_queued_parent_inputs() {
         type State = Siblings;
         type Action = Input;
 
-        fn reduce(
+        fn update(
             &mut self,
             state: &mut Siblings,
             action: &Input,
@@ -541,7 +541,7 @@ fn owned_sibling_values_survive_queued_parent_inputs() {
         type State = Owned;
         type Action = ();
 
-        fn reduce(&mut self, _: &mut Owned, (): &(), _: &mut FeatureContext<'_, Owned, ()>) {}
+        fn update(&mut self, _: &mut Owned, (): &(), _: &mut FeatureContext<'_, Owned, ()>) {}
     }
 
     let driver = Driver::default();
@@ -554,7 +554,7 @@ fn owned_sibling_values_survive_queued_parent_inputs() {
     let identities = [(&raw const *first).addr(), (&raw const *second).addr()];
     let (notify_first_ping, first_ping) = futures_channel::oneshot::channel();
     let (release, wait) = futures_channel::oneshot::channel();
-    let builder = rca_core::Store::feature_builder(
+    let builder = rca_core::Store::builder(
         Siblings {
             children: [first, second].map(|value| {
                 Some(Owned {
@@ -993,7 +993,7 @@ fn keyed_owned_removal_preserves_other_entries_and_never_retargets_replacement()
     impl Feature for RowsFeature {
         type State = Rows;
         type Action = ();
-        fn reduce(&mut self, _: &mut Rows, (): &(), _: &mut FeatureContext<'_, Rows, ()>) {}
+        fn update(&mut self, _: &mut Rows, (): &(), _: &mut FeatureContext<'_, Rows, ()>) {}
     }
     let driver = Driver::default();
     let old = Box::new(Cell::new(4));
@@ -1348,7 +1348,7 @@ fn actual_root_removal_updates_parent_and_returns_unhandled_owned_output() {
     impl Feature for RemovalParent {
         type State = Parent;
         type Action = ();
-        fn reduce(&mut self, state: &mut Parent, (): &(), _: &mut FeatureContext<'_, Parent, ()>) {
+        fn update(&mut self, state: &mut Parent, (): &(), _: &mut FeatureContext<'_, Parent, ()>) {
             let child = state.child.as_ref().unwrap();
             child.value.set(child.value.get() + 1);
         }
@@ -1573,7 +1573,7 @@ fn sibling_source_output_returns_unconverted_removal_before_conversion() {
     impl Feature for PairFeature {
         type State = Pair;
         type Action = ();
-        fn reduce(&mut self, _: &mut Pair, (): &(), _: &mut FeatureContext<'_, Pair, ()>) {}
+        fn update(&mut self, _: &mut Pair, (): &(), _: &mut FeatureContext<'_, Pair, ()>) {}
     }
     let driver = Driver::default();
     let original = Box::new(Cell::new(41));
@@ -2007,7 +2007,7 @@ fn owning_optional_selector_rechecks_liveness_and_presence_before_callbacks() {
     impl Feature for Selectable {
         type State = State;
         type Action = ();
-        fn reduce(&mut self, _: &mut State, (): &(), _: &mut FeatureContext<'_, State, ()>) {}
+        fn update(&mut self, _: &mut State, (): &(), _: &mut FeatureContext<'_, State, ()>) {}
     }
 
     for close in [false, true] {

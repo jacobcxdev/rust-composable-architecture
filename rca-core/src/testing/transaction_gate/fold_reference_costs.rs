@@ -91,7 +91,7 @@ macro_rules! endpoint_reference_case {
             type State = S;
             type Action = ();
 
-            fn reduce(&mut self, _: &mut S, _: &(), _: &mut domain::FeatureContext<'_, S, ()>) {}
+            fn update(&mut self, _: &mut S, _: &(), _: &mut domain::FeatureContext<'_, S, ()>) {}
         }
 
         /// Adds child values without requiring the folded value to be `Sync`.
@@ -189,7 +189,7 @@ macro_rules! endpoint_reference_case {
                 },
                 |_| Noop::<usize>(std::marker::PhantomData),
             );
-            let (builder, site) = domain::Store::feature_builder(
+            let (builder, site) = domain::Store::builder(
                 Some(2),
                 Noop::<Option<usize>>(std::marker::PhantomData),
                 domain::Runtime::new(driver.clone()),

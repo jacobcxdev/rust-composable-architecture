@@ -47,7 +47,7 @@ macro_rules! gate_cases {
         impl Feature for Root {
             type State = State;
             type Action = Action;
-            fn reduce(
+            fn update(
                 &mut self,
                 state: &mut State,
                 action: &Action,
@@ -65,7 +65,7 @@ macro_rules! gate_cases {
         impl Feature for Child {
             type State = usize;
             type Action = ();
-            fn reduce(&mut self, _: &mut usize, _: &(), _: &mut FeatureContext<'_, usize, ()>) {
+            fn update(&mut self, _: &mut usize, _: &(), _: &mut FeatureContext<'_, usize, ()>) {
                 let _owned_feature = &self.0;
             }
         }
@@ -109,7 +109,7 @@ macro_rules! gate_cases {
                 },
                 move |_| Child(Arc::clone(&feature)),
             );
-            let (builder, site) = Store::feature_builder(
+            let (builder, site) = Store::builder(
                 State {
                     child: Some(2),
                     configuration: 0,

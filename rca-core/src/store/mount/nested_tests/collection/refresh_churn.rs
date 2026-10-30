@@ -22,7 +22,7 @@ impl Feature for Root {
     type State = Pools;
     type Action = Action;
 
-    fn reduce(
+    fn update(
         &mut self,
         state: &mut Pools,
         action: &Action,
@@ -80,7 +80,7 @@ impl Feature for Parent {
     type State = Pool;
     type Action = ();
 
-    fn reduce(&mut self, state: &mut Pool, (): &(), _: &mut FeatureContext<'_, Pool, ()>) {
+    fn update(&mut self, state: &mut Pool, (): &(), _: &mut FeatureContext<'_, Pool, ()>) {
         self.cache += 1;
         state.value = self.cache;
     }
@@ -149,7 +149,7 @@ fn fixture() -> Fixture {
     let make_parents = Arc::clone(&parents);
     let make_workers = Arc::clone(&workers);
     let make_owners = Arc::clone(&owners);
-    let store = Store::feature_builder(
+    let store = Store::builder(
         Pools {
             rows: [(1, pool())].into_iter().collect(),
         },

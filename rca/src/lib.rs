@@ -96,12 +96,11 @@ pub use rca_core::{
 };
 #[doc(inline)]
 pub use rca_core::{
-    CommandPort, CommandReceipt, CommandSite, Committed, EntryMount, Feature, FeatureContext,
-    FeatureStoreBuilder, Fold, FoldKey, FoldView, InitialPolicy, InputGate, MountChildren,
-    MountIdentity, MountSite, OptionalMount, Output, OutputDelivery, OutputError, OutputFlow,
-    OutputHandlers, ReactionChange, ReactionContext, ReducerFeature, RemovalOrigin, RemovalSite,
-    RemovedChild, RemovedOutputError, RootMount, Task, TaskAccessError, TaskAccessReason,
-    TaskContext, TaskProgress, TaskSendError, TryCommandError,
+    CommandPort, CommandReceipt, CommandSite, Committed, EntryMount, Feature, FeatureContext, Fold,
+    FoldKey, FoldView, InitialPolicy, InputGate, MountChildren, MountIdentity, MountSite,
+    OptionalMount, Output, OutputDelivery, OutputError, OutputFlow, OutputHandlers, ReactionChange,
+    ReactionContext, RemovalOrigin, RemovalSite, RemovedChild, RemovedOutputError, RootMount, Task,
+    TaskAccessError, TaskAccessReason, TaskContext, TaskProgress, TaskSendError, TryCommandError,
 };
 #[doc(inline)]
 pub use rca_core::{

@@ -3,11 +3,11 @@
 #[expect(dead_code, reason = "clock and type-bound checks do not start actors")]
 mod support;
 
-use std::{cell::Cell, time::Duration};
+use std::time::Duration;
 
 use rca_core::{
     DependencyKey, DependencyValues, Effect, EffectSendError, MonotonicInstant, ReduceContext,
-    Reducer, ReducerFeature, Runtime, ShutdownError, StoreBuildError, StoreStopped, TrySendError,
+    Reducer, Runtime, ShutdownError, StoreBuildError, StoreStopped, TrySendError,
 };
 use support::ManualRuntime;
 
@@ -113,35 +113,6 @@ fn effect_shell_has_no_domain_trait_bounds() {
     assert_send::<Effect<MoveOnly>>();
     assert_eq!(format!("{effect:?}"), "Effect::None");
     assert_eq!(format!("{defaulted:?}"), "Effect::None");
-}
-
-#[test]
-fn reducer_feature_returns_the_original_move_only_reducer() {
-    /// Keeps a unique allocation so recovery can check identity, not just value.
-    struct OwnedCounter(Box<Cell<usize>>);
-
-    impl Reducer for OwnedCounter {
-        type State = usize;
-        type Action = ();
-
-        fn reduce(
-            &mut self,
-            state: &mut Self::State,
-            _action: &Self::Action,
-            _context: &mut ReduceContext<'_>,
-        ) -> Effect<Self::Action> {
-            *state += self.0.get();
-            Effect::none()
-        }
-    }
-
-    let owned = Box::new(Cell::new(7));
-    let original = std::ptr::from_ref(owned.as_ref());
-    let recovered = ReducerFeature::new(OwnedCounter(owned)).into_inner();
-    assert_eq!(std::ptr::from_ref(recovered.0.as_ref()), original);
-    assert_eq!(recovered.0.get(), 7);
-    recovered.0.set(9);
-    assert_eq!(recovered.0.get(), 9);
 }
 
 #[test]

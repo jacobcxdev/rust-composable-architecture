@@ -772,7 +772,7 @@ mod public_error_cleanup {
         type State = usize;
         type Action = bool;
 
-        fn reduce(
+        fn update(
             &mut self,
             _: &mut usize,
             action: &bool,
@@ -795,7 +795,7 @@ mod public_error_cleanup {
         let root_clones = Arc::new(CloneControl::default());
         let capture_clones = Arc::new(CloneControl::default());
         let mut store =
-            TestStore::projected_feature_builder(0, Transactions { root_action }, move |state| {
+            TestStore::projected_builder(0, Transactions { root_action }, move |state| {
                 Snapshot::new(*state, &root_clones)
             })
             .with_capture::<Declared>(move |state| Ok(Snapshot::new(*state, &capture_clones)))
@@ -841,15 +841,14 @@ mod public_error_cleanup {
         } else {
             &root_clones
         });
-        let mut store = TestStore::projected_feature_builder(
-            0,
-            Transactions { root_action: false },
-            move |state| Snapshot::new(*state, &root_clones),
-        )
-        .with_capture::<Declared>(move |state| Ok(Snapshot::new(*state, &capture_clones)))
-        .unwrap()
-        .with_exhaustivity(Exhaustivity::NonExhaustive)
-        .build();
+        let mut store =
+            TestStore::projected_builder(0, Transactions { root_action: false }, move |state| {
+                Snapshot::new(*state, &root_clones)
+            })
+            .with_capture::<Declared>(move |state| Ok(Snapshot::new(*state, &capture_clones)))
+            .unwrap()
+            .with_exhaustivity(Exhaustivity::NonExhaustive)
+            .build();
         // Declared preflight consumes one valid clone before the speculative
         // skip clone. Root history is cloned only for that speculative skip.
         selected
@@ -922,7 +921,7 @@ mod public_error_cleanup {
     impl Feature for OptionalRoot {
         type State = Option<()>;
         type Action = ();
-        fn reduce(
+        fn update(
             &mut self,
             _: &mut Option<()>,
             (): &(),
@@ -934,7 +933,7 @@ mod public_error_cleanup {
     impl Feature for Child {
         type State = ();
         type Action = ();
-        fn reduce(&mut self, (): &mut (), (): &(), _: &mut FeatureContext<'_, (), ()>) {}
+        fn update(&mut self, (): &mut (), (): &(), _: &mut FeatureContext<'_, (), ()>) {}
     }
 
     fn missing_output_terminal() {
@@ -950,7 +949,7 @@ mod public_error_cleanup {
             },
             |()| Child,
         );
-        let (builder, site) = TestStore::feature_builder(None, OptionalRoot).mount_with_site(mount);
+        let (builder, site) = TestStore::builder(None, OptionalRoot).mount_with_site(mount);
         let (builder, output) = builder.output::<()>(&site, |_| {});
         let mut store = builder.build();
         // Installing the mount itself is a structural transaction even while
@@ -984,7 +983,7 @@ mod public_error_cleanup {
         type State = ();
         type Action = ();
 
-        fn reduce(&mut self, (): &mut (), (): &(), context: &mut FeatureContext<'_, (), ()>) {
+        fn update(&mut self, (): &mut (), (): &(), context: &mut FeatureContext<'_, (), ()>) {
             let gate = self.gate.take().unwrap();
             let polls = Arc::clone(&self.polls);
             context.task(Task::run(move |_| async move {
@@ -1018,7 +1017,7 @@ mod public_error_cleanup {
         let terminal = matches!(target, BudgetTarget::Terminal);
         let (control, gate) = rca_test::controlled_gate();
         let polls = Arc::new(AtomicUsize::new(0));
-        let mut store = TestStore::feature_builder(
+        let mut store = TestStore::builder(
             (),
             BudgetWork {
                 gate: Some(gate),

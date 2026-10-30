@@ -26,7 +26,7 @@ macro_rules! fold_frontier {
         impl Feature for Root {
             type State = Option<usize>;
             type Action = ();
-            fn reduce(
+            fn update(
                 &mut self,
                 _: &mut Self::State,
                 _: &(),
@@ -41,7 +41,7 @@ macro_rules! fold_frontier {
         impl Feature for Child {
             type State = usize;
             type Action = usize;
-            fn reduce(
+            fn update(
                 &mut self,
                 state: &mut usize,
                 action: &usize,
@@ -250,7 +250,7 @@ macro_rules! fold_frontier {
                         })
                     },
                 );
-                let (builder, site) = TestStore::feature_builder(Some(2), Root)
+                let (builder, site) = TestStore::builder(Some(2), Root)
                     .mount_with_children(mount, move |_, children| {
                         let calls = Arc::clone(&declared_calls);
                         let capture = Arc::new(());
@@ -294,7 +294,7 @@ macro_rules! fold_frontier {
                     calls_before,
                     "unpolled diagnostics are inert"
                 );
-                let mut foreign = TestStore::feature_builder(Some(17), Root)
+                let mut foreign = TestStore::builder(Some(17), Root)
                     .mount(OptionalMount::new(
                         Option::as_ref,
                         Option::as_mut,
@@ -395,7 +395,7 @@ macro_rules! fold_frontier {
                         })
                     },
                 );
-                let (builder, site) = TestStore::feature_builder(Some(2), Root)
+                let (builder, site) = TestStore::builder(Some(2), Root)
                     .mount_with_children(mount, |_, _| {});
                 let mut store = builder.build();
                 let initial = store.receive_structural(|_| {}).await.unwrap();
@@ -414,7 +414,7 @@ macro_rules! fold_frontier {
                         _lifetime: Arc::new(()),
                     },
                 );
-                let (foreign_builder, foreign_site) = TestStore::feature_builder(Some(17), Root)
+                let (foreign_builder, foreign_site) = TestStore::builder(Some(17), Root)
                     .mount_with_children(foreign_mount, |_, _| {});
                 let mut foreign = foreign_builder.build();
                 foreign

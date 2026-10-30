@@ -25,14 +25,14 @@ struct Parent;
 impl Feature for Parent {
     type State = Group;
     type Action = bool;
-    fn reduce(&mut self, _: &mut Group, _: &bool, _: &mut FeatureContext<'_, Group, bool>) {}
+    fn update(&mut self, _: &mut Group, _: &bool, _: &mut FeatureContext<'_, Group, bool>) {}
 }
 /// Retains mutable feature-local history so relinking cannot reconstruct the feature.
 struct Entry(Cell<usize>);
 impl Feature for Entry {
     type State = Row;
     type Action = u8;
-    fn reduce(&mut self, _: &mut Row, _: &u8, _: &mut FeatureContext<'_, Row, u8>) {
+    fn update(&mut self, _: &mut Row, _: &u8, _: &mut FeatureContext<'_, Row, u8>) {
         self.0.set(self.0.get() + 1);
     }
 }
@@ -41,7 +41,7 @@ struct Detail;
 impl Feature for Detail {
     type State = usize;
     type Action = char;
-    fn reduce(&mut self, _: &mut usize, _: &char, _: &mut FeatureContext<'_, usize, char>) {}
+    fn update(&mut self, _: &mut usize, _: &char, _: &mut FeatureContext<'_, usize, char>) {}
 }
 /// Creates one row with its descendant present before the first reconciliation.
 fn row() -> Row {

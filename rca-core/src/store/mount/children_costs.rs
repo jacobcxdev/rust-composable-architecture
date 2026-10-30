@@ -23,7 +23,7 @@ struct Parent(Cell<usize>);
 impl Feature for Parent {
     type State = ParentState;
     type Action = bool;
-    fn reduce(
+    fn update(
         &mut self,
         _: &mut ParentState,
         _: &bool,
@@ -37,7 +37,7 @@ struct Leaf;
 impl Feature for Leaf {
     type State = usize;
     type Action = u8;
-    fn reduce(&mut self, _: &mut usize, _: &u8, _: &mut crate::FeatureContext<'_, usize, u8>) {}
+    fn update(&mut self, _: &mut usize, _: &u8, _: &mut crate::FeatureContext<'_, usize, u8>) {}
 }
 /// Lets the actual optional mount select the fixture's parent.
 type State = Option<ParentState>;

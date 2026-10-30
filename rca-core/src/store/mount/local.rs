@@ -139,7 +139,7 @@ impl<F: local::Feature> RootMount<F> {
     /// # impl Feature for Counter {
     /// #     type State = Rc<Cell<i32>>;
     /// #     type Action = i32;
-    /// #     fn reduce(&mut self, state: &mut Self::State, action: &i32, _: &mut FeatureContext<'_, Self::State, i32>) { state.set(state.get() + action); }
+    /// #     fn update(&mut self, state: &mut Self::State, action: &i32, _: &mut FeatureContext<'_, Self::State, i32>) { state.set(state.get() + action); }
     /// # }
     /// let root = RootMount::new(Counter).on_change(
     ///     |state| Rc::new(state.get()),
@@ -171,7 +171,7 @@ impl<F: local::Feature> RootMount<F> {
         self,
         state: F::State,
         runtime: crate::runtime::local::Runtime,
-    ) -> local::FeatureStoreBuilder<F::State, F::Action, F>
+    ) -> local::StoreBuilder<F::State, F::Action, F>
     where
         F: 'static,
         F::State: 'static,
@@ -183,7 +183,7 @@ impl<F: local::Feature> RootMount<F> {
             reactions,
             configuration,
         } = self.0;
-        local::Store::feature_builder(state, feature, runtime).with_mount(Box::new(
+        local::Store::builder(state, feature, runtime).with_mount(Box::new(
             super::RootDeclaration::<F::State, F::Action, Local> {
                 payload: Mutex::new(Some(super::RootInitial {
                     hook: initial,

@@ -96,7 +96,7 @@ impl Feature for ReplacementTasks {
     type State = ();
     type Action = ReplacementAction;
 
-    fn reduce(
+    fn update(
         &mut self,
         (): &mut (),
         action: &Self::Action,
@@ -126,7 +126,7 @@ fn typed_task_replacement_is_per_declaration_and_leaves_unnamed_work_alone() {
     ] {
         let host = support::ManualRuntime::new();
         let observations: [_; 4] = std::array::from_fn(|_| Arc::new(TaskObservation::default()));
-        let store = Store::feature_builder(
+        let store = Store::builder(
             (),
             ReplacementTasks {
                 observations: Vec::from(observations.clone()).into_iter(),
@@ -221,7 +221,7 @@ impl Feature for ReplacementOutputSource {
     type State = ();
     type Action = ();
 
-    fn reduce(&mut self, (): &mut (), (): &(), _: &mut FeatureContext<'_, (), ()>) {}
+    fn update(&mut self, (): &mut (), (): &(), _: &mut FeatureContext<'_, (), ()>) {}
 }
 
 /// The same root operation spans reducer and output-handler transactions.
@@ -229,7 +229,7 @@ impl Feature for ReplacementOutputSource {
 fn typed_task_replacement_crosses_action_and_output_handler_boundaries() {
     let host = support::ManualRuntime::new();
     let observations: [_; 3] = std::array::from_fn(|_| Arc::new(TaskObservation::default()));
-    let (builder, source_site) = Store::feature_builder(
+    let (builder, source_site) = Store::builder(
         (),
         ReplacementTasks {
             observations: vec![Arc::clone(&observations[0]), Arc::clone(&observations[2])]
@@ -366,7 +366,7 @@ impl Feature for CausalFeature {
     type State = Cell<usize>;
     type Action = CausalAction;
 
-    fn reduce(
+    fn update(
         &mut self,
         state: &mut Self::State,
         action: &Self::Action,
@@ -425,7 +425,7 @@ fn typed_descendant_preserves_completion_and_self_wait_after_cancellation_handof
             root_done: AtomicBool::new(false),
             release: released,
         });
-        let store = Store::feature_builder(
+        let store = Store::builder(
             Cell::new(1),
             CausalFeature(Arc::clone(&shared)),
             host.runtime(),
@@ -572,7 +572,7 @@ impl Feature for ScopedFeature {
     type State = ScopedState;
     type Action = ScopedAction;
 
-    fn reduce(
+    fn update(
         &mut self,
         state: &mut Self::State,
         action: &Self::Action,
@@ -604,7 +604,7 @@ impl Feature for ScopedChild {
     type State = Cell<usize>;
     type Action = ScopedChildAction;
 
-    fn reduce(
+    fn update(
         &mut self,
         _: &mut Self::State,
         _: &Self::Action,
@@ -638,10 +638,10 @@ fn assert_stale_operation(
 fn same_root_key_on_two_stores_has_independent_authority() {
     let first_host = support::ManualRuntime::new();
     let second_host = support::ManualRuntime::new();
-    let first = Store::feature_builder(Cell::new(0), ScopedChild, first_host.runtime())
+    let first = Store::builder(Cell::new(0), ScopedChild, first_host.runtime())
         .build()
         .unwrap();
-    let second = Store::feature_builder(Cell::new(0), ScopedChild, second_host.runtime())
+    let second = Store::builder(Cell::new(0), ScopedChild, second_host.runtime())
         .build()
         .unwrap();
     let mut first_actor = first_host.take_only_queued_task();
@@ -687,7 +687,7 @@ fn same_root_key_on_two_stores_has_independent_authority() {
 #[test]
 fn operation_wait_observes_completion_during_cold_listener_creation() {
     let host = support::ManualRuntime::new();
-    let store = Store::feature_builder(Cell::new(0), ScopedChild, host.runtime())
+    let store = Store::builder(Cell::new(0), ScopedChild, host.runtime())
         .build()
         .unwrap();
     let mut actor = host.take_only_queued_task();

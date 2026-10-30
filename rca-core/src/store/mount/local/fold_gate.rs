@@ -274,14 +274,14 @@ struct Parent;
 impl local::Feature for Parent {
     type State = Row;
     type Action = bool;
-    fn reduce(&mut self, _: &mut Row, _: &bool, _: &mut local::FeatureContext<'_, Row, bool>) {}
+    fn update(&mut self, _: &mut Row, _: &bool, _: &mut local::FeatureContext<'_, Row, bool>) {}
 }
 /// Provides an installed local leaf without reducer-side work.
 struct Leaf;
 impl local::Feature for Leaf {
     type State = usize;
     type Action = u8;
-    fn reduce(&mut self, _: &mut usize, _: &u8, _: &mut local::FeatureContext<'_, usize, u8>) {}
+    fn update(&mut self, _: &mut usize, _: &u8, _: &mut local::FeatureContext<'_, usize, u8>) {}
 }
 /// Moves a non-`Send` value without `Clone`, `Debug` or equality implementations.
 struct Owned(Rc<usize>);

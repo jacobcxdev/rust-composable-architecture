@@ -117,14 +117,14 @@ macro_rules! selector_cases {
         impl Feature for Root {
             type State = State;
             type Action = ();
-            fn reduce(&mut self, _: &mut State, _: &(), _: &mut FeatureContext<'_, State, ()>) {}
+            fn update(&mut self, _: &mut State, _: &(), _: &mut FeatureContext<'_, State, ()>) {}
         }
         /// Keeps the intermediate owner present without reducer side effects.
         struct Panel;
         impl Feature for Panel {
             type State = PanelState;
             type Action = ();
-            fn reduce(
+            fn update(
                 &mut self,
                 _: &mut PanelState,
                 _: &(),
@@ -137,7 +137,7 @@ macro_rules! selector_cases {
         impl Feature for Leaf {
             type State = usize;
             type Action = ();
-            fn reduce(&mut self, _: &mut usize, _: &(), _: &mut FeatureContext<'_, usize, ()>) {}
+            fn update(&mut self, _: &mut usize, _: &(), _: &mut FeatureContext<'_, usize, ()>) {}
         }
         /// Removes the owner under the lock, then drops it after unlocking.
         fn close(owner: &Owner) {
@@ -189,7 +189,7 @@ macro_rules! selector_cases {
                 },
                 |_| Panel,
             );
-            let (builder, _) = Store::feature_builder(state, Root, Runtime::new(driver.clone()))
+            let (builder, _) = Store::builder(state, Root, Runtime::new(driver.clone()))
                 .mount_with_children(parent, move |_, children| {
                     let fold = declared.clone();
                     let calls = Arc::clone(&selected_calls);
@@ -280,7 +280,7 @@ macro_rules! selector_cases {
             impl Feature for ProjectionRoot {
                 type State = ProjectionState;
                 type Action = ();
-                fn reduce(
+                fn update(
                     &mut self,
                     _: &mut ProjectionState,
                     _: &(),
@@ -314,7 +314,7 @@ macro_rules! selector_cases {
                 },
                 |_| Leaf,
             );
-            let (builder, _) = Store::feature_builder(
+            let (builder, _) = Store::builder(
                 ProjectionState {
                     leaf: Some(7),
                     visible: Arc::clone(&visible),

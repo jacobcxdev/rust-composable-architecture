@@ -5,7 +5,9 @@
 //!
 //! Shared APIs use root imports such as [`Store`], [`Feature`] and [`Runtime`].
 //! [`Reducer`] handles synchronous state changes and returns [`Effect`] values.
-//! [`Feature`] can also declare typed [`Task`] values through [`FeatureContext`].
+//! Every reducer is a [`Feature`] automatically. A direct `Feature` implementation
+//! can also declare typed [`Task`] values through [`FeatureContext`].
+//! Both use the same [`Store::new`] and [`Store::builder`] constructors.
 //! [`RootMount`] and child mounts connect features to their parent state.
 //! Mount reactions receive owned [`ReactionChange`] values and a [`ReactionContext`].
 //!

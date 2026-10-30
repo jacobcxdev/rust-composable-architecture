@@ -49,7 +49,7 @@ pub(super) type AdmissionFuture =
 pub(super) type SendFuture = EffectSendFuture<AdmissionFuture>;
 
 #[cfg(feature = "local")]
-pub use frontend::{FeatureStoreBuilder, Store, StoreBuilder};
+pub use frontend::{Store, StoreBuilder};
 
 #[cfg(feature = "local")]
 mod frontend {
@@ -61,7 +61,7 @@ mod frontend {
     use std::rc::Rc;
     use std::sync::Arc;
 
-    use super::{Command, CommandIngress, Driver, Feature, Local, Reducer, ReducerFeature};
+    use super::{Command, CommandIngress, Driver, Feature, Local};
     use crate::runtime::local::Runtime;
     use crate::store::command::TerminalReply;
     use crate::store::lifecycle::Lifecycle;
@@ -86,47 +86,12 @@ mod frontend {
     }
 
     impl<S, A> Store<S, A> {
-        /// Creates an owner-local reducer Store with default configuration.
+        /// Creates an owner-local feature Store with default configuration.
         ///
         /// # Panics
         ///
         /// Propagates a panic from the caller-supplied runtime driver.
-        pub fn new<R: Reducer<State = S, Action = A> + 'static>(
-            state: S,
-            reducer: R,
-            runtime: Runtime,
-        ) -> Self
-        where
-            S: 'static,
-            A: 'static,
-        {
-            StoreBuilder::new(state, reducer, runtime).build_with_capacity(
-                crate::store::builder::DEFAULT_NONZERO_MAILBOX_CAPACITY,
-                #[cfg(feature = "test-util")]
-                None,
-                |reducer| Box::new(Driver(ReducerFeature::new(reducer))),
-            )
-        }
-
-        /// Starts configuring an owner-local reducer Store.
-        pub fn builder<R: Reducer<State = S, Action = A> + 'static>(
-            state: S,
-            reducer: R,
-            runtime: Runtime,
-        ) -> StoreBuilder<S, A, R>
-        where
-            S: 'static,
-            A: 'static,
-        {
-            StoreBuilder::new(state, reducer, runtime)
-        }
-
-        /// Creates an owner-local typed feature Store with default configuration.
-        ///
-        /// # Panics
-        ///
-        /// Propagates a panic from the caller-supplied runtime driver.
-        pub fn feature<F: Feature<State = S, Action = A> + 'static>(
+        pub fn new<F: Feature<State = S, Action = A> + 'static>(
             state: S,
             feature: F,
             runtime: Runtime,
@@ -139,24 +104,20 @@ mod frontend {
                 crate::store::builder::DEFAULT_NONZERO_MAILBOX_CAPACITY,
                 #[cfg(feature = "test-util")]
                 None,
-                |feature| Box::new(Driver(feature)),
             )
         }
 
-        /// Starts configuring an owner-local typed feature Store.
-        pub fn feature_builder<F: Feature<State = S, Action = A> + 'static>(
+        /// Starts configuration for an owner-local feature Store.
+        pub fn builder<F: Feature<State = S, Action = A> + 'static>(
             state: S,
             feature: F,
             runtime: Runtime,
-        ) -> FeatureStoreBuilder<S, A, F>
+        ) -> StoreBuilder<S, A, F>
         where
             S: 'static,
             A: 'static,
         {
-            FeatureStoreBuilder {
-                inner: StoreBuilder::new(state, feature, runtime),
-                removal_root: None,
-            }
+            StoreBuilder::new(state, feature, runtime)
         }
 
         /// Waits for installation without retaining a Store owner.
@@ -771,11 +732,11 @@ mod frontend {
     }
 
     /// Configures an owner-local Store using the common validated construction path.
-    pub struct StoreBuilder<S, A, R> {
+    pub struct StoreBuilder<S, A, F> {
         /// Initial state transferred only after configuration validation succeeds.
         state: S,
-        /// Owned reducer or feature, wrapped only after validation.
-        reducer: R,
+        /// Owned feature, wrapped only after validation.
+        feature: F,
         /// Owner-thread host that receives and disposes of the actor future.
         runtime: Runtime,
         /// Portable dependency environment owned by this Store.
@@ -796,14 +757,16 @@ mod frontend {
         /// Deterministic frontier claimed only after capacity validation succeeds.
         #[cfg(feature = "test-util")]
         transaction_gate: Option<crate::testing::local::TransactionGate<S, A>>,
+        /// Shared on demand by root-output and removable-child declarations.
+        removal_root: Option<Rc<crate::store::removal::local::root::RootRegistration<S, A>>>,
     }
 
-    impl<S: 'static, A: 'static, R> StoreBuilder<S, A, R> {
+    impl<S: 'static, A: 'static, F> StoreBuilder<S, A, F> {
         /// Retains construction inputs without wrapping behaviour or spawning work.
-        fn new(state: S, reducer: R, runtime: Runtime) -> Self {
+        fn new(state: S, feature: F, runtime: Runtime) -> Self {
             Self {
                 state,
-                reducer,
+                feature,
                 runtime,
                 dependencies: DependencyValues::new(),
                 issues: crate::IssueReporter::default(),
@@ -815,6 +778,7 @@ mod frontend {
                 action: PhantomData,
                 #[cfg(feature = "test-util")]
                 transaction_gate: None,
+                removal_root: None,
             }
         }
 
@@ -992,34 +956,6 @@ mod frontend {
             )
         }
 
-        /// Constructs a typed Feature builder for deterministic integration.
-        #[cfg(feature = "test-util")]
-        #[doc(hidden)]
-        pub fn feature(state: S, feature: R, runtime: Runtime) -> Self
-        where
-            R: Feature<State = S, Action = A> + 'static,
-        {
-            Self::new(state, feature, runtime)
-        }
-
-        /// Builds a typed Feature through the same validated actor construction.
-        ///
-        /// # Errors
-        ///
-        /// Rejects zero capacity and a gate attached or reserved by unfinished work.
-        ///
-        /// # Panics
-        ///
-        /// Propagates runtime-driver panics and panics from retired gate captures.
-        #[cfg(feature = "test-util")]
-        #[doc(hidden)]
-        pub fn build_feature(self) -> Result<Store<S, A>, StoreBuildError>
-        where
-            R: Feature<State = S, Action = A> + 'static,
-        {
-            self.build_using(|feature| Box::new(Driver(feature)))
-        }
-
         /// Installs the local typed deterministic transaction frontier.
         ///
         /// Replaces the previous gate handle without claiming an attachment.
@@ -1047,16 +983,8 @@ mod frontend {
         /// Propagates runtime-driver panics and panics from retired gate captures.
         pub fn build(self) -> Result<Store<S, A>, StoreBuildError>
         where
-            R: Reducer<State = S, Action = A> + 'static,
+            F: Feature<State = S, Action = A> + 'static,
         {
-            self.build_using(|reducer| Box::new(Driver(ReducerFeature::new(reducer))))
-        }
-
-        /// Validates capacity and claims the selected gate before wrapping behaviour.
-        fn build_using(
-            self,
-            driver: impl FnOnce(R) -> Box<<Local as super::Carriers<S, A>>::Driver>,
-        ) -> Result<Store<S, A>, StoreBuildError> {
             let capacity = NonZeroUsize::new(self.mailbox_capacity)
                 .ok_or_else(StoreBuildError::zero_capacity)?;
 
@@ -1070,7 +998,6 @@ mod frontend {
                 capacity,
                 #[cfg(feature = "test-util")]
                 gate,
-                driver,
             ))
         }
 
@@ -1081,11 +1008,13 @@ mod frontend {
             #[cfg(feature = "test-util")] gate: Option<
                 crate::testing::TransactionGateBinding<S, A, Local>,
             >,
-            driver: impl FnOnce(R) -> Box<<Local as super::Carriers<S, A>>::Driver>,
-        ) -> Store<S, A> {
+        ) -> Store<S, A>
+        where
+            F: Feature<State = S, Action = A> + 'static,
+        {
             let (actor, ingress, lifecycle) = crate::store::builder::prepare_actor::<S, A, Local>(
                 self.state,
-                driver(self.reducer),
+                Box::new(Driver(self.feature)),
                 self.runtime.clone(),
                 self.dependencies,
                 self.issues,
@@ -1104,7 +1033,7 @@ mod frontend {
         }
     }
 
-    impl<S, A, R> fmt::Debug for StoreBuilder<S, A, R> {
+    impl<S, A, F> fmt::Debug for StoreBuilder<S, A, F> {
         fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
             f.debug_struct("StoreBuilder")
                 .field("runtime", &self.runtime)
@@ -1113,25 +1042,14 @@ mod frontend {
         }
     }
 
-    /// Configures an owner-local typed feature through ordinary Store construction.
-    pub struct FeatureStoreBuilder<S, A, F> {
-        /// Common configuration and the owned local feature.
-        inner: StoreBuilder<S, A, F>,
-        /// Shared on demand by root-output and removable-child declarations.
-        removal_root: Option<Rc<crate::store::removal::local::root::RootRegistration<S, A>>>,
-    }
-
-    impl<S: 'static, A: 'static, F: Feature<State = S, Action = A> + 'static>
-        FeatureStoreBuilder<S, A, F>
-    {
+    impl<S: 'static, A: 'static, F: Feature<State = S, Action = A> + 'static> StoreBuilder<S, A, F> {
         /// Creates one root owner on demand and reuses its registration thereafter.
         fn removal_root(
             &mut self,
         ) -> Rc<crate::store::removal::local::root::RootRegistration<S, A>> {
             Rc::clone(self.removal_root.get_or_insert_with(|| {
                 let registration = crate::store::removal::local::root::RootRegistration::new();
-                self.inner
-                    .mounts
+                self.mounts
                     .push(Box::new(crate::store::removal::local::root::RootOwner(
                         Rc::clone(&registration),
                     )));
@@ -1155,7 +1073,7 @@ mod frontend {
                 self.removal_root();
             let (owner, output) =
                 crate::store::output::local::attach(Rc::downgrade(&source), configure);
-            self.inner.mounts.push(owner);
+            self.mounts.push(owner);
             (self, output)
         }
 
@@ -1194,7 +1112,7 @@ mod frontend {
                 site.output_registration(),
                 write,
             );
-            self.inner.mounts.push(owner);
+            self.mounts.push(owner);
             (self, site, removal)
         }
 
@@ -1221,7 +1139,7 @@ mod frontend {
             mut self,
             owner: Box<<Local as super::Carriers<S, A>>::Mount>,
         ) -> Self {
-            self.inner.mounts.push(owner);
+            self.mounts.push(owner);
             self
         }
 
@@ -1249,7 +1167,7 @@ mod frontend {
             K: Eq + std::hash::Hash + Clone + Send + Sync + 'static,
         {
             let (owner, site) = crate::store::mount::local::attach_local(descriptor);
-            self.inner.mounts.push(owner);
+            self.mounts.push(owner);
             (self, site)
         }
 
@@ -1275,7 +1193,7 @@ mod frontend {
             K: Eq + std::hash::Hash + Clone + Send + Sync + 'static,
         {
             let (owner, site) = crate::store::mount::local::children::attach(descriptor, recipe);
-            self.inner.mounts.push(owner);
+            self.mounts.push(owner);
             (self, site)
         }
 
@@ -1321,7 +1239,7 @@ mod frontend {
                     )
                 },
             );
-            self.inner.mounts.push(Box::new(owner));
+            self.mounts.push(Box::new(owner));
             self
         }
 
@@ -1366,7 +1284,7 @@ mod frontend {
                     (entry, Some(recipe))
                 },
             );
-            self.inner.mounts.push(Box::new(owner));
+            self.mounts.push(Box::new(owner));
             self
         }
 
@@ -1405,7 +1323,7 @@ mod frontend {
                 0,
                 make,
             );
-            self.inner.mounts.push(Box::new(owner));
+            self.mounts.push(Box::new(owner));
             self
         }
 
@@ -1444,87 +1362,8 @@ mod frontend {
                 0,
                 make,
             );
-            self.inner.mounts.push(Box::new(owner));
+            self.mounts.push(Box::new(owner));
             self
-        }
-
-        /// Sets bounded command capacity.
-        #[must_use]
-        pub fn mailbox_capacity(mut self, capacity: usize) -> Self {
-            self.inner = self.inner.mailbox_capacity(capacity);
-            self
-        }
-
-        /// Observes lifecycle facts synchronously on this Feature's owner thread.
-        ///
-        /// Uses [`StoreBuilder::with_lifecycle_diagnostics`] semantics without
-        /// imposing `Send`, `Sync`, `Debug` or `Clone` on domain values.
-        #[cfg(feature = "diagnostics")]
-        #[must_use]
-        pub fn with_lifecycle_diagnostics(
-            mut self,
-            sink: impl FnMut(&crate::diagnostics::LifecycleEvent) + 'static,
-        ) -> Self {
-            self.inner = self.inner.with_lifecycle_diagnostics(sink);
-            self
-        }
-
-        /// Overrides one Store-owned dependency.
-        #[must_use]
-        pub fn with_dependency<K: DependencyKey>(mut self, value: K::Value) -> Self {
-            self.inner = self.inner.with_dependency::<K>(value);
-            self
-        }
-
-        /// Replaces the owned dependency environment.
-        #[must_use]
-        pub fn with_dependency_values(mut self, values: DependencyValues) -> Self {
-            self.inner = self.inner.with_dependency_values(values);
-            self
-        }
-
-        /// Installs a synchronous portable issue handler.
-        #[must_use]
-        pub fn with_issue_handler(
-            mut self,
-            handler: impl Fn(&crate::Issue) + Send + Sync + 'static,
-        ) -> Self {
-            self.inner = self.inner.with_issue_handler(handler);
-            self
-        }
-
-        /// Installs the local typed deterministic transaction frontier.
-        #[cfg(feature = "test-util")]
-        #[doc(hidden)]
-        #[must_use]
-        pub fn transaction_gate(
-            mut self,
-            gate: crate::testing::local::TransactionGate<S, A>,
-        ) -> Self {
-            self.inner = self.inner.transaction_gate(gate);
-            self
-        }
-
-        /// Validates configuration and spawns one owner-local actor.
-        ///
-        /// # Errors
-        ///
-        /// Rejects zero capacity and a gate attached or reserved by unfinished work.
-        /// Failed construction drops its owned state, feature and callbacks.
-        ///
-        /// # Panics
-        ///
-        /// Propagates runtime-driver panics and panics from retired gate captures.
-        pub fn build(self) -> Result<Store<S, A>, StoreBuildError> {
-            self.inner.build_using(|feature| Box::new(Driver(feature)))
-        }
-    }
-
-    impl<S, A, F> fmt::Debug for FeatureStoreBuilder<S, A, F> {
-        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-            f.debug_struct("FeatureStoreBuilder")
-                .field("inner", &self.inner)
-                .finish_non_exhaustive()
         }
     }
 }
@@ -2000,8 +1839,10 @@ impl<S: 'static, A: 'static> crate::effect::map::MapLeaves<S, A, LocalEffects, L
 
 /// Reduces owner-local State and Action values synchronously.
 ///
-/// Mutable captures need no `Send` or `Sync`. Reduction runs on the actor thread;
-/// blocking it prevents that thread from processing cancellation or other work.
+/// Mutable captures need no `Send` or `Sync`. Reduction runs on the actor thread.
+/// Blocking reduction prevents cancellation and other work on that thread.
+///
+/// Every reducer also implements [`Feature`], so Stores accept reducers directly.
 pub trait Reducer {
     /// Actor-owned state.
     type State;
@@ -2058,6 +1899,10 @@ where
 ///
 /// Reductions are synchronous. Effect and task factories are retained as owned
 /// declarations and start after commit, when the runtime polls their bodies.
+///
+/// [`Reducer`] implements this trait automatically for action-and-effect logic.
+/// A direct implementation can also declare tasks with typed state access.
+/// Implement either trait on a type, not both. Both use the same Store constructors.
 pub trait Feature {
     /// Actor-owned state.
     type State;
@@ -2066,7 +1911,7 @@ pub trait Feature {
     type Action;
 
     /// Mutates state and appends causal work to this transaction.
-    fn reduce(
+    fn update(
         &mut self,
         state: &mut Self::State,
         action: &Self::Action,
@@ -2133,33 +1978,17 @@ impl<'a, S, A> FeatureContext<'a, S, A> {
     }
 }
 
-/// Adapts an owner-local reducer to a typed feature.
-pub struct ReducerFeature<R>(pub(super) R);
-
-impl<R: std::fmt::Debug> std::fmt::Debug for ReducerFeature<R> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_tuple("ReducerFeature").field(&self.0).finish()
-    }
-}
-
-impl<R> ReducerFeature<R> {
-    /// Wraps a reducer without changing its reduction semantics.
-    pub fn new(reducer: R) -> Self {
-        Self(reducer)
-    }
-}
-
-impl<R: Reducer> Feature for ReducerFeature<R> {
+impl<R: Reducer + ?Sized> Feature for R {
     type State = R::State;
     type Action = R::Action;
 
-    fn reduce(
+    fn update(
         &mut self,
         state: &mut R::State,
         action: &R::Action,
         context: &mut FeatureContext<'_, R::State, R::Action>,
     ) {
-        let effect = self.0.reduce(state, action, context.reducer_context());
+        let effect = Reducer::reduce(self, state, action, context.reducer_context());
         context.effect(effect);
     }
 }
@@ -2178,7 +2007,7 @@ impl<S, A, F: Feature<State = S, Action = A>> ReduceDriver<S, A> for Driver<F> {
         context: ReduceContext<'_>,
     ) -> Work<Self::Effect, Self::Task> {
         let mut context = FeatureContext::new(context);
-        self.0.reduce(state, action, &mut context);
+        self.0.update(state, action, &mut context);
         context.into_work()
     }
 }
@@ -2363,4 +2192,60 @@ fn send_effect_action<S: 'static, A: 'static>(
             Ok(receive)
         })),
     }
+}
+
+#[cfg(test)]
+ordinary_test_items! {
+mod tests {
+    use std::cell::Cell;
+    use std::rc::Rc;
+
+    use super::{Effect, Feature, FeatureContext, Reduce, Reducer, WorkItem};
+    use crate::store::scope::{ScopeRegistry, ScopeTransitionBatch};
+    use crate::{DependencyValues, MonotonicInstant, ReduceContext};
+
+    #[test]
+    fn reducer_is_a_feature_with_borrowed_owner_local_values() {
+        let calls = Cell::new(0);
+        let value = Rc::new(Cell::new(2));
+        let amount = 3;
+        let mut state = &value;
+        let mut reducer = Reduce::new(
+            |state: &mut &Rc<Cell<usize>>, action: &usize, _: &mut ReduceContext<'_>| {
+                calls.set(calls.get() + 1);
+                state.set(state.get() + *action);
+                Effect::send(*action)
+            },
+        );
+
+        let mut dependencies = DependencyValues::new();
+        let (_lifecycle, mut scopes) = ScopeRegistry::for_test();
+        let mut transitions = ScopeTransitionBatch::default();
+        let mut context = ReduceContext::new(
+            &mut dependencies,
+            MonotonicInstant::ZERO,
+            &mut scopes,
+            &mut transitions,
+        );
+
+        let effect = reducer.reduce(&mut state, &amount, &mut context);
+        assert!(matches!(effect.program, crate::effect::Program::Send(action) if action == amount));
+
+        let mut context = FeatureContext::new(context);
+        reducer.update(&mut state, &amount, &mut context);
+        let erased: &mut dyn Reducer<State = &Rc<Cell<usize>>, Action = usize> = &mut reducer;
+        erased.update(&mut state, &amount, &mut context);
+        context.effect(Effect::none());
+        let mut work = context.into_work().into_iter();
+
+        assert_eq!(calls.get(), 3);
+        assert_eq!(state.get(), 11);
+        assert!(matches!(work.next(), Some(WorkItem::Effect(effect))
+            if matches!(effect.program, crate::effect::Program::Send(action) if action == amount)));
+        assert!(matches!(work.next(), Some(WorkItem::Effect(effect))
+            if matches!(effect.program, crate::effect::Program::Send(action) if action == amount)));
+        assert!(work.next().is_none());
+        assert!(transitions.is_empty());
+    }
+}
 }

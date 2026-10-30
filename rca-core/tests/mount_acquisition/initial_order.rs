@@ -11,7 +11,7 @@ struct Root;
 impl Feature for Root {
     type State = State;
     type Action = ();
-    fn reduce(&mut self, _: &mut State, (): &(), _: &mut FeatureContext<'_, State, ()>) {}
+    fn update(&mut self, _: &mut State, (): &(), _: &mut FeatureContext<'_, State, ()>) {}
 }
 
 #[test]
@@ -115,7 +115,7 @@ struct NestedRoot;
 impl Feature for NestedRoot {
     type State = NestedState;
     type Action = ();
-    fn reduce(
+    fn update(
         &mut self,
         _: &mut NestedState,
         (): &(),
@@ -127,7 +127,7 @@ struct Parent(Cell<usize>);
 impl Feature for Parent {
     type State = ParentState;
     type Action = bool;
-    fn reduce(
+    fn update(
         &mut self,
         _: &mut ParentState,
         _: &bool,

@@ -12,7 +12,7 @@ macro_rules! changed_frontier {
         impl Feature for Root {
             type State = Option<usize>;
             type Action = usize;
-            fn reduce(
+            fn update(
                 &mut self,
                 state: &mut Self::State,
                 action: &usize,
@@ -26,7 +26,7 @@ macro_rules! changed_frontier {
         impl Feature for Child {
             type State = usize;
             type Action = usize;
-            fn reduce(
+            fn update(
                 &mut self,
                 state: &mut usize,
                 action: &usize,
@@ -75,7 +75,7 @@ macro_rules! changed_frontier {
                         },
                     );
                     let (builder, site) =
-                        TestStore::feature_builder(Some(2), Root).mount_with_site(mount);
+                        TestStore::builder(Some(2), Root).mount_with_site(mount);
                     let mut store = builder.build();
                     store
                         .receive_structural(|_| {})

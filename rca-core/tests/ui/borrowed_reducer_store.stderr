@@ -14,5 +14,5 @@ error[E0597]: `value` does not live long enough
 note: requirement that the value outlives `'static` introduced here
   --> src/store/mod.rs
    |
-   |         R: Reducer<State = State, Action = Action> + Send + 'static,
+   |         F: Feature<State = State, Action = Action> + Send + 'static,
    |                                                             ^^^^^^^
