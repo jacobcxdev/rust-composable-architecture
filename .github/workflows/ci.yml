@@ -59,6 +59,10 @@ jobs:
             - name: Lint all targets and features
               run: cargo clippy --workspace --all-targets --all-features -- -D warnings
 
+            - name: Link workspace binaries with all features
+              # Normal builds do not use the test-only critical-section provider.
+              run: cargo build --locked --workspace --all-features --features critical-section/std
+
             - name: Test workspace
               # These independent lockfiles can differ from the workspace lockfile.
               # Download their dependencies before the tests run Cargo offline.

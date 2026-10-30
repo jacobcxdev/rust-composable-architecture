@@ -775,9 +775,14 @@ compile_target=${temporary}/compile-target
 compile_time=${temporary}/compile-time.txt
 compile_log=${temporary}/compile.log
 stage=clean-compile
-/usr/bin/time -lp -o "${compile_time}" /usr/bin/env \
+if ! /usr/bin/time -lp -o "${compile_time}" /usr/bin/env \
   DYLD_LIBRARY_PATH="${build_library_path}" CARGO_TARGET_DIR="${compile_target}" \
-  "${cargo}" build --locked --workspace --all-features --release > "${compile_log}" 2>&1
+  "${cargo}" build --locked --workspace --all-features \
+    --features critical-section/std --release > "${compile_log}" 2>&1; then
+  echo "clean release build failed" >&2
+  cat "${compile_log}" >&2
+  exit 1
+fi
 if grep -q 'stripping debug info.*failed' "${compile_log}"; then
   echo "clean release build did not strip debug information" >&2
   exit 1
@@ -975,6 +980,7 @@ jq -n \
         },
         commands: {
           staged_build: "cargo bench --locked --manifest-path <subject>/Cargo.toml --target-dir <subject>/target -p rca-tokio --bench qualification --no-run --message-format=json",
+          clean_compile: "cargo build --locked --workspace --all-features --features critical-section/std --release",
           allocation_build_feature: "qualification-dhat",
           latency: $normal_command,
           allocation: $allocation_command,
