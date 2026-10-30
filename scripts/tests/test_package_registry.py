@@ -1028,16 +1028,34 @@ printf '%s\\n' "$qualification_root" > "$TEST_ROOT/allocated-root"
             "Each result applies to the source, dependencies, toolchain and environment it covers.",
             prose,
         )
-        self.assertIn("Hosted PR CI has not yet run for this candidate.", prose)
-        self.assertIn("Its results remain a separate release gate.", prose)
         self.assertIn(
-            "RCA 0.1.0 is unpublished; local qualification is not a stable-support "
-            "promise, a successful hosted run or a publication receipt.",
+            "Local results do not establish that hosted checks passed.", prose
+        )
+        self.assertIn(
+            "All 18 hosted checks passed for "
+            "`796032f234095596c822ba48f4a54e96d5c3c67a` on 30 October 2026.",
+            prose,
+        )
+        self.assertIn(
+            "[recorded run](https://github.com/jacobcxdev/"
+            "rust-composable-architecture/actions/runs/40994124660) "
+            "qualifies that revision.",
+            prose,
+        )
+        self.assertIn("Later changes require their own applicable checks.", prose)
+        self.assertIn(
+            "[review PR](https://github.com/jacobcxdev/"
+            "rust-composable-architecture/pull/1) records the current head and its results.",
+            prose,
+        )
+        self.assertIn("RCA 0.1.0 remains unpublished.", prose)
+        self.assertIn(
+            "Qualification does not establish a stable-support promise or publication receipt.",
             prose,
         )
 
         targets = support.split("## Targets\n", 1)[1].split("## Features\n", 1)[0]
-        self.assertIn("| Hosted candidate CI |", targets)
+        self.assertIn("| Hosted CI at `796032f` |", targets)
         rows = [
             [cell.strip() for cell in line.strip("|").split("|")]
             for line in targets.splitlines()
@@ -1046,15 +1064,15 @@ printf '%s\\n' "$qualification_root" > "$TEST_ROOT/allocated-root"
         self.assertEqual(
             rows,
             [
-                ["`x86_64-unknown-linux-gnu`", "Required", "Required", "Pending"],
-                ["`aarch64-unknown-linux-gnu`", "Required", "Required", "Pending"],
+                ["`x86_64-unknown-linux-gnu`", "Required", "Required", "Passed"],
+                ["`aarch64-unknown-linux-gnu`", "Required", "Required", "Passed"],
                 [
                     "`x86_64-apple-darwin`", "Required, compile-only",
-                    "Required, compile-only", "Pending",
+                    "Required, compile-only", "Passed",
                 ],
-                ["`aarch64-apple-darwin`", "Required", "Required", "Pending"],
-                ["`x86_64-pc-windows-msvc`", "Required", "Required", "Pending"],
-                ["`wasm32-unknown-unknown`", "Required", "Not applicable", "Pending"],
+                ["`aarch64-apple-darwin`", "Required", "Required", "Passed"],
+                ["`x86_64-pc-windows-msvc`", "Required", "Required", "Passed"],
+                ["`wasm32-unknown-unknown`", "Required", "Not applicable", "Passed"],
             ],
         )
 

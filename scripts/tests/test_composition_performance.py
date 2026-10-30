@@ -25,7 +25,7 @@ class ComposableFiniteStreamTests(unittest.TestCase):
                 for case, values in (("empty", []), ("ordered", [3, 1, 4, 2]))]
 
     def test_accepts_both_complete_traces_for_each_engine(self):
-        for engine in ("composable", "rca-0.7", "rca"):
+        for engine in ("composable", "rca"):
             rows = self.rows(engine)
             self.assertIs(composition_performance.validate_composable_stream_work(rows, engine), rows)
 
@@ -54,6 +54,8 @@ class ComposableFiniteStreamTests(unittest.TestCase):
         for engine in ("unknown", None, True):
             with self.subTest(engine=engine), self.assertRaises(ValueError):
                 composition_performance.validate_composable_stream_work(self.rows(), engine)
+        with self.assertRaises(ValueError):
+            composition_performance.validate_composable_stream_work(self.rows("rca-0.7"), "rca-0.7")
 
     def test_capture_requires_successful_process_and_complete_output(self):
         output = "\n".join(json.dumps(row) for row in self.rows())
@@ -78,7 +80,7 @@ class ComposableReadyFutureTests(unittest.TestCase):
                     completion="causal-finish" if engine == "rca" else "result-acknowledgement")
 
     def test_accepts_engine_specific_completion_without_mutation(self):
-        for engine in ("rca", "composable", "rca-0.7"):
+        for engine in ("rca", "composable"):
             row = self.ledger(engine)
             before = json.dumps(row, sort_keys=True)
             self.assertIs(composition_performance.validate_composable_ready_future_work(row, engine), row)
@@ -104,6 +106,8 @@ class ComposableReadyFutureTests(unittest.TestCase):
         for engine in (None, True, "unknown"):
             with self.subTest(engine=engine), self.assertRaises(ValueError):
                 composition_performance.validate_composable_ready_future_work(self.ledger(), engine)
+        with self.assertRaises(ValueError):
+            composition_performance.validate_composable_ready_future_work(self.ledger("rca-0.7"), "rca-0.7")
         with self.assertRaises(ValueError):
             composition_performance.validate_composable_ready_future_work(
                 dict(self.ledger("composable"), completion="causal-finish"), "composable")
@@ -148,7 +152,7 @@ class ReadyFutureAllocationTests(unittest.TestCase):
         self.assertTrue(callable(getattr(composition_performance,
                                         "validate_composable_ready_future_allocations", None)),
                         "ready-future allocation admission missing")
-        for engine in ("rca", "composable", "rca-0.7"):
+        for engine in ("rca", "composable"):
             for scale in (0, 1):
                 value = self.ledger(engine, scale)
                 before = json.dumps(value, sort_keys=True)
@@ -216,6 +220,8 @@ class ReadyFutureAllocationTests(unittest.TestCase):
         for engine in (None, True, "unknown"):
             with self.assertRaises(ValueError):
                 self.validate(self.ledger(), engine)
+        with self.assertRaises(ValueError):
+            self.validate(self.ledger("rca-0.7"), "rca-0.7")
 
     def test_capture_rejects_duplicate_fields_failed_processes_and_multiple_documents(self):
         output = json.dumps(self.ledger())
@@ -251,7 +257,7 @@ class ComposableCounterWorkTests(unittest.TestCase):
         }
 
     def test_accepts_exact_completed_work_for_all_engines(self):
-        for engine in ("composable", "rca", "rca-0.7"):
+        for engine in ("composable", "rca"):
             with self.subTest(engine=engine):
                 ledger = self.ledger(engine)
                 self.assertIs(
@@ -275,6 +281,7 @@ class ComposableCounterWorkTests(unittest.TestCase):
         for field, bad in (
             ("schema", "composable-counter-work-v2"),
             ("engine", "unknown"),
+            ("engine", "rca-0.7"),
             ("warmup_expected", 19),
             ("warmup_attempted", 19),
             ("warmup_completed", 19),
@@ -434,6 +441,7 @@ class ComposableCounterTimingTests(unittest.TestCase):
         for code, engine, error in (
             (7, "composable", subprocess.CalledProcessError),
             (0, "rca", ValueError),
+            (0, "rca-0.7", ValueError),
         ):
             command = [os.sys.executable, "-c", f"import sys; print({encoded!r}); sys.exit({code})"]
             with self.subTest(code=code, engine=engine), self.assertRaises(error):
@@ -463,7 +471,7 @@ class ComposableCounterLifecycleTests(unittest.TestCase):
         }
 
     def test_accepts_complete_lifecycle_for_all_engines_and_duration_bounds(self):
-        for engine in ("composable", "rca", "rca-0.7"):
+        for engine in ("composable", "rca"):
             for elapsed in (1, 2**128 - 1):
                 with self.subTest(engine=engine, elapsed=elapsed):
                     value = self.measurement(engine)
@@ -490,6 +498,7 @@ class ComposableCounterLifecycleTests(unittest.TestCase):
         for field, invalid in (
             ("schema", "composable-counter-timing-v1"),
             ("clock", "wall"), ("unit", "us"), ("engine", "unknown"),
+            ("engine", "rca-0.7"),
             ("operations_expected", 0), ("operations_expected", 2),
             ("operations_attempted", 0), ("operations_attempted", 2),
             ("operations_completed", 0), ("operations_completed", 2),
@@ -524,11 +533,12 @@ class ComposableCounterLifecycleTests(unittest.TestCase):
         for code, engine, error in (
             (7, "composable", subprocess.CalledProcessError),
             (0, "rca", ValueError), (0, "unknown", ValueError),
+            (0, "rca-0.7", ValueError),
         ):
             command = [os.sys.executable, "-c", f"import sys; print({encoded!r}); sys.exit({code})"]
             with self.subTest(code=code, engine=engine), self.assertRaises(error):
                 composition_performance.capture_composable_counter_lifecycle(command, engine)
-        for engine in ("composable", "rca", "rca-0.7"):
+        for engine in ("composable", "rca"):
             value = self.measurement(engine)
             encoded = json.dumps(value)
             command = [os.sys.executable, "-c", f"print({encoded!r})"]
@@ -613,7 +623,7 @@ def write_compile_observation(
 
 class DivanTranscriptTests(unittest.TestCase):
     def test_parses_complete_task_4_transcript(self):
-        transcript = REPO_ROOT / "docs/performance/0.9/raw/runtime-divan-01.txt"
+        transcript = REPO_ROOT / "scripts/tests/fixtures/composition-performance/raw/runtime-divan-01.txt"
 
         rows = composition_performance.parse_divan_transcript(transcript)
 
@@ -663,7 +673,7 @@ class PairedComparisonTests(unittest.TestCase):
 
     def test_frozen_protocol_has_balanced_seeded_order(self):
         protocol = composition_performance.load_protocol(
-            REPO_ROOT / "docs/performance/0.9/composition-protocol-v5.json"
+            REPO_ROOT / "docs/performance/composition/composition-protocol-v5.json"
         )
 
         schedule = composition_performance.seeded_order_schedule(protocol)
@@ -692,7 +702,7 @@ class PairedComparisonTests(unittest.TestCase):
 
     def test_distribution_free_upper_bound_exceeds_95_percent_joint_coverage(self):
         protocol = composition_performance.load_protocol(
-            REPO_ROOT / "docs/performance/0.9/composition-protocol-v5.json"
+            REPO_ROOT / "docs/performance/composition/composition-protocol-v5.json"
         )
         schedule = composition_performance.seeded_order_schedule(protocol)
         repetitions = []
@@ -724,7 +734,7 @@ class PairedComparisonTests(unittest.TestCase):
 
     def test_upper_bound_rejects_ten_percent_point_estimate_with_noisy_tail(self):
         protocol = composition_performance.load_protocol(
-            REPO_ROOT / "docs/performance/0.9/composition-protocol-v5.json"
+            REPO_ROOT / "docs/performance/composition/composition-protocol-v5.json"
         )
         schedule = composition_performance.seeded_order_schedule(protocol)
         repetitions = []
@@ -755,7 +765,7 @@ class PairedComparisonTests(unittest.TestCase):
 
     def test_upper_bound_rejects_missing_order_stratum_observation(self):
         protocol = composition_performance.load_protocol(
-            REPO_ROOT / "docs/performance/0.9/composition-protocol-v5.json"
+            REPO_ROOT / "docs/performance/composition/composition-protocol-v5.json"
         )
         schedule = composition_performance.seeded_order_schedule(protocol)
         repetitions = [
@@ -775,7 +785,7 @@ class PairedComparisonTests(unittest.TestCase):
 
     def test_measurement_plan_is_frozen_before_results(self):
         protocol = composition_performance.load_protocol(
-            REPO_ROOT / "docs/performance/0.9/composition-protocol-v5.json"
+            REPO_ROOT / "docs/performance/composition/composition-protocol-v5.json"
         )
 
         plan = composition_performance.measurement_plan(
@@ -791,7 +801,7 @@ class PairedComparisonTests(unittest.TestCase):
 
     def test_aa_plan_uses_two_independent_reference_roles(self):
         protocol = composition_performance.load_protocol(
-            REPO_ROOT / "docs/performance/0.9/composition-protocol-v5.json"
+            REPO_ROOT / "docs/performance/composition/composition-protocol-v5.json"
         )
 
         plan = composition_performance.measurement_plan(
@@ -824,7 +834,7 @@ class PairedComparisonTests(unittest.TestCase):
 
     def test_loads_twenty_isolated_pairs_and_parsed_resources(self):
         protocol = composition_performance.load_protocol(
-            REPO_ROOT / "docs/performance/0.9/composition-protocol-v5.json"
+            REPO_ROOT / "docs/performance/composition/composition-protocol-v5.json"
         )
         schedule = composition_performance.seeded_order_schedule(protocol)
         with tempfile.TemporaryDirectory() as directory:
@@ -846,7 +856,7 @@ class PairedComparisonTests(unittest.TestCase):
 
     def test_rejects_missing_per_process_resource_counters(self):
         protocol = composition_performance.load_protocol(
-            REPO_ROOT / "docs/performance/0.9/composition-protocol-v5.json"
+            REPO_ROOT / "docs/performance/composition/composition-protocol-v5.json"
         )
         with tempfile.TemporaryDirectory() as directory:
             root = pathlib.Path(directory)
@@ -870,7 +880,7 @@ class PairedComparisonTests(unittest.TestCase):
 
     def test_loads_contemporaneous_clean_compile_pairs(self):
         protocol = composition_performance.load_protocol(
-            REPO_ROOT / "docs/performance/0.9/composition-protocol-v5.json"
+            REPO_ROOT / "docs/performance/composition/composition-protocol-v5.json"
         )
         with tempfile.TemporaryDirectory() as directory:
             root = pathlib.Path(directory)
@@ -893,9 +903,9 @@ class PairedComparisonTests(unittest.TestCase):
         )
 
     def test_evaluates_isolated_runtime_and_clean_compile_ucbs(self):
-        budget_path = REPO_ROOT / "docs/performance/0.9/composition-budgets.json"
+        budget_path = REPO_ROOT / "docs/performance/composition/composition-budgets.json"
         protocol = composition_performance.load_protocol(
-            REPO_ROOT / "docs/performance/0.9/composition-protocol-v5.json"
+            REPO_ROOT / "docs/performance/composition/composition-protocol-v5.json"
         )
         with tempfile.TemporaryDirectory() as directory:
             root = pathlib.Path(directory)
@@ -931,9 +941,9 @@ class PairedComparisonTests(unittest.TestCase):
         )
 
     def test_evaluates_reference_aa_without_candidate_identity(self):
-        budget_path = REPO_ROOT / "docs/performance/0.9/composition-budgets.json"
+        budget_path = REPO_ROOT / "docs/performance/composition/composition-budgets.json"
         protocol = composition_performance.load_protocol(
-            REPO_ROOT / "docs/performance/0.9/composition-protocol-v5.json"
+            REPO_ROOT / "docs/performance/composition/composition-protocol-v5.json"
         )
         with tempfile.TemporaryDirectory() as directory:
             root = pathlib.Path(directory)
@@ -966,8 +976,8 @@ class PairedComparisonTests(unittest.TestCase):
 
 class AbsoluteBudgetTests(unittest.TestCase):
     def test_current_absolute_uses_isolated_reference_arm_not_historical_timings(self):
-        budget = REPO_ROOT / "docs/performance/0.9/composition-budgets.json"
-        protocol = composition_performance.load_protocol(REPO_ROOT / "docs/performance/0.9/composition-protocol-v5.json")
+        budget = REPO_ROOT / "docs/performance/composition/composition-budgets.json"
+        protocol = composition_performance.load_protocol(REPO_ROOT / "docs/performance/composition/composition-protocol-v5.json")
         with tempfile.TemporaryDirectory() as directory:
             root = pathlib.Path(directory)
             subject, control, plan = PairedComparisonTests()._write_protocol_pair_fixture(root, protocol, "reference-reference-aa")
@@ -977,10 +987,10 @@ class AbsoluteBudgetTests(unittest.TestCase):
             )
             raw = root / "raw"
             raw.mkdir()
-            for path in (REPO_ROOT / "docs/performance/0.9/raw").iterdir():
+            for path in (REPO_ROOT / "scripts/tests/fixtures/composition-performance/raw").iterdir():
                 if path.name != "environment.txt" and not path.name.startswith(("runtime-divan-", "compile-")):
                     (raw / path.name).symlink_to(path)
-            environment = (REPO_ROOT / "docs/performance/0.9/raw/environment.txt").read_text()
+            environment = (REPO_ROOT / "scripts/tests/fixtures/composition-performance/raw/environment.txt").read_text()
             current_environment = environment.replace("os_version=26.6.2", "os_version=27.0").replace("os_build=25G83", "os_build=26A428")
             (raw / "environment.txt").write_text(current_environment)
             absolute = composition_performance.evaluate_absolute(budget, raw, composition_performance.REFERENCE_REVISION, timing_report=report)
@@ -1015,14 +1025,14 @@ class AbsoluteBudgetTests(unittest.TestCase):
 
     def test_corrected_binary_baseline_has_separate_receipt_backed_cohort(self):
         budget = composition_performance.validate_budget_document(
-            REPO_ROOT / "docs/performance/0.9/composition-budgets.json"
+            REPO_ROOT / "docs/performance/composition/composition-budgets.json"
         )
         provenance = budget["binary_baseline"]
         self.assertEqual(provenance["os_version"], "27.0")
         self.assertEqual(provenance["os_build"], "26A428")
         self.assertNotEqual(provenance["runner_cohort"], budget["runner_cohort"])
         raw = composition_performance._parse_binaries(
-            REPO_ROOT / "docs/performance/0.9" / provenance["binary_sizes"]["path"]
+            REPO_ROOT / "docs/performance/composition" / provenance["binary_sizes"]["path"]
         )
         for row in budget["rows"]:
             if row["scenario"].startswith("binary/"):
@@ -1032,7 +1042,7 @@ class AbsoluteBudgetTests(unittest.TestCase):
                 self.assertEqual(row["runner_cohort"], provenance["runner_cohort"])
 
     def test_rejects_corrected_binary_provenance_and_budget_drift(self):
-        root = REPO_ROOT / "docs/performance/0.9"
+        root = REPO_ROOT / "docs/performance/composition"
         original = json.loads((root / "composition-budgets.json").read_text())
         for field, value in (("runner_cohort", composition_performance.BASELINE_RUNNER),
                              ("os_version", "26.0"), ("os_build", "wrong"),
@@ -1057,8 +1067,8 @@ class AbsoluteBudgetTests(unittest.TestCase):
                     composition_performance._validate_binary_baseline(document, root)
 
     def test_historical_unstripped_sizes_fail_corrected_binary_budgets(self):
-        budget_path = REPO_ROOT / "docs/performance/0.9/composition-budgets.json"
-        raw_directory = REPO_ROOT / "docs/performance/0.9/raw"
+        budget_path = REPO_ROOT / "docs/performance/composition/composition-budgets.json"
+        raw_directory = REPO_ROOT / "scripts/tests/fixtures/composition-performance/raw"
 
         report = composition_performance.evaluate_absolute(
             budget_path, raw_directory, expected_revision=None
@@ -1083,10 +1093,10 @@ class AbsoluteBudgetTests(unittest.TestCase):
         self.assertEqual(throughput["direction"], "minimum")
 
     def test_rejects_missing_absolute_evidence(self):
-        budget_path = REPO_ROOT / "docs/performance/0.9/composition-budgets.json"
+        budget_path = REPO_ROOT / "docs/performance/composition/composition-budgets.json"
         with tempfile.TemporaryDirectory() as directory:
             raw_directory = pathlib.Path(directory)
-            source = REPO_ROOT / "docs/performance/0.9/raw"
+            source = REPO_ROOT / "scripts/tests/fixtures/composition-performance/raw"
             for path in source.iterdir():
                 (raw_directory / path.name).symlink_to(path)
             (raw_directory / "runtime-divan-01.txt").unlink()
@@ -1097,8 +1107,8 @@ class AbsoluteBudgetTests(unittest.TestCase):
                 )
 
     def test_rejects_allocation_sample_and_logical_operation_drift(self):
-        budget_path = REPO_ROOT / "docs/performance/0.9/composition-budgets.json"
-        source = REPO_ROOT / "docs/performance/0.9/raw"
+        budget_path = REPO_ROOT / "docs/performance/composition/composition-budgets.json"
+        source = REPO_ROOT / "scripts/tests/fixtures/composition-performance/raw"
         drifts = {
             "samples": "samples=99 logical_operations=100",
             "logical_operations": "samples=100 logical_operations=99",
@@ -1140,7 +1150,7 @@ class AbsoluteBudgetTests(unittest.TestCase):
 
 class BudgetValidationTests(unittest.TestCase):
     def test_rejects_wrong_reference_revision(self):
-        source = REPO_ROOT / "docs/performance/0.9/composition-budgets.json"
+        source = REPO_ROOT / "docs/performance/composition/composition-budgets.json"
         document = json.loads(source.read_text(encoding="utf-8"))
         document["measured_revision"] = "0" * 40
         with tempfile.TemporaryDirectory() as directory:
@@ -1154,7 +1164,7 @@ class BudgetValidationTests(unittest.TestCase):
                 )
 
     def test_rejects_loosened_budget_with_hash_drift(self):
-        source = REPO_ROOT / "docs/performance/0.9/composition-budgets.json"
+        source = REPO_ROOT / "docs/performance/composition/composition-budgets.json"
         document = json.loads(source.read_text(encoding="utf-8"))
         document["rows"][0]["absolute_budget"] *= 2
         with tempfile.TemporaryDirectory() as directory:
@@ -1189,7 +1199,7 @@ class ProtocolEvidenceTests(unittest.TestCase):
 
     def test_rejects_nonfinite_pair_values(self):
         protocol = composition_performance.load_protocol(
-            REPO_ROOT / "docs/performance/0.9/composition-protocol-v5.json"
+            REPO_ROOT / "docs/performance/composition/composition-protocol-v5.json"
         )
         for invalid in (float("nan"), float("inf"), True, "1"):
             pairs = [dict(block=i, order=order, subject=1.0, control=1.0)
@@ -1206,7 +1216,7 @@ class ProtocolEvidenceTests(unittest.TestCase):
         )
 
     def test_quiescence_rejects_nonfinite_and_out_of_range_telemetry(self):
-        protocol = composition_performance.load_protocol(REPO_ROOT / "docs/performance/0.9/composition-protocol-v5.json")
+        protocol = composition_performance.load_protocol(REPO_ROOT / "docs/performance/composition/composition-protocol-v5.json")
         for cpu, load in ((float("nan"), 0), (-1, 0), (0, -1), (0, float("nan"))):
             with self.subTest(cpu=cpu, load=load), self.assertRaises(ValueError):
                 composition_performance.validate_quiescence_sample(
@@ -1239,7 +1249,7 @@ CPU usage: 10.0% user, 4.0% sys, 86.0% idle
                 str(MODULE_PATH),
                 "measurement-plan",
                 "--protocol",
-                str(REPO_ROOT / "docs/performance/0.9/composition-protocol-v5.json"),
+                str(REPO_ROOT / "docs/performance/composition/composition-protocol-v5.json"),
                 "--mode",
                 "candidate-reference",
             ],
@@ -1341,7 +1351,7 @@ sys 0.02
 
     def test_quiescence_uses_frozen_cpu_load_and_thermal_thresholds(self):
         protocol = composition_performance.load_protocol(
-            REPO_ROOT / "docs/performance/0.9/composition-protocol-v5.json"
+            REPO_ROOT / "docs/performance/composition/composition-protocol-v5.json"
         )
         thermal = """Note: No thermal warning level has been recorded
 Note: No performance warning level has been recorded

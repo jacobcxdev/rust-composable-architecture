@@ -1,17 +1,16 @@
 # Paced state publication correctness fixtures
 
-Three independent locked workspaces compare a finite application workload on
-current RCA, upstream Composable `0b5baa80246a625c1bb886e6df20dae27fc97c97`, and
-historical RCA `c6200234cebbbd9b0009cd5788736c78a47f32b0`.
+Two independent locked workspaces compare a finite application workload on
+current RCA and upstream Composable `0b5baa80246a625c1bb886e6df20dae27fc97c97`.
 
-Neither pinned legacy engine exposes native observation. Its adapter therefore
+The upstream engine exposes no native observation. Its adapter therefore
 adds explicit application glue: a reducer-owned channel sender, registration
 and unregistration actions, and publication after each state update. RCA uses
 native `Store::observe`. This is **legacy application publication versus native
 RCA observation**, not equivalent native subscription APIs or a timing result.
 
 Run `cargo test --locked --manifest-path tests/composable-observation/candidate/Cargo.toml`
-and substitute `upstream` or `historical`. Use an external process deadline
+and substitute `upstream`. Use an external process deadline
 (CI uses two minutes). Receive waits are two seconds, candidate scenario/shutdown
 waits are bounded, and each adapter test waits at most ten seconds for its worker. The
 worker bound detects a stuck host but cannot terminate a native worker thread;
@@ -112,11 +111,10 @@ are not a frozen multi-build comparison cohort.
 profiler controls and real-reporter integration tests. CI also lints all targets
 with this feature enabled.
 
-The local 1 October diagnostic receipt records all three engines, 33 passing
-tests and the allocation gap at that revision. It does not establish a current
-comparison. See the [qualification boundary](../../docs/qualification.md).
+These diagnostics do not establish a current numerical comparison.
+See the [qualification boundary](../../docs/qualification.md).
 
-### Reporter contract verification — 1 October
+### Reporter contract checks
 
 The shared `reporter_tests.rs` launches each engine's actual allocation binary
 in a fresh process with a ten-second execution deadline, drains both pipes,
@@ -150,28 +148,6 @@ allocation controls remain. Adapters, callback positions and reporter production
 logic are unchanged. Only the fixture test manifests gain explicit development
 dependencies on already-locked Serde/JSON packages; no dependency version moved.
 
-Pinned Rust 1.98.0 on native macOS ARM64 passed all three complete all-feature
-suites: 13 tests per engine, zero failures or ignores. Strict all-target Clippy,
-formatting and no-default-feature test compilation also passed. Each engine ran
-serially because the shared target directory contains the same binary filename.
-Independent review identified the array-shape issue; its failing control and
-final green suites verify the repair. Existing CI commands include these tests.
-
-Logs: `/tmp/rca-reporter-{candidate,upstream,historical}.log`, corresponding
-`-clippy.log` and `-no-features.log`, `/tmp/rca-reporter-red.log`, and
-`/tmp/rca-reporter-shape-red.log`.
-This qualifies report plumbing and validation, not a release-mode allocation
-comparison or performance claim. Historical failed temporary attribution probes
-remain diagnostics; their count expectations were not rebased.
-
-## Local verification
-
-Parent verification on 30 September 2026 used absolute Rust/Cargo/Clippy 1.98.0
-paths on macOS 27 arm64. All three complete standalone suites passed four tests
-each, including all three negative controls; strict all-target Clippy and
-formatting passed. Independent source review found no actionable issues.
-The CI comparison matrix now runs formatting, lint and tests for each engine,
-with a two-minute test deadline; hosted execution is not claimed.
-
-Logs: `/tmp/rca-publication-parent-{candidate,upstream,historical}.log` and
-`/tmp/rca-publication-parent-{candidate,upstream,historical}-clippy.log`.
+These checks qualify report plumbing and validation, not a release-mode allocation
+comparison or performance claim. The CI matrix runs the current RCA and upstream
+fixtures with their separate acceptance policies.

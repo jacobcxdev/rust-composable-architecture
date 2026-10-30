@@ -4,6 +4,7 @@
 
 Email the maintainer at [me@jacobcx.dev](mailto:me@jacobcx.dev).
 Use the subject `RCA security report`.
+You can also use [GitHub's private reporting form](https://github.com/jacobcxdev/rust-composable-architecture/security/advisories/new).
 Do not open a public issue or pull request with vulnerability details.
 Do not include credentials, private keys or personal data in the report.
 
@@ -24,8 +25,8 @@ This project does not promise a response deadline, bounty or backport to every v
 ## Supported versions
 
 RCA 0.1.0 is an unpublished candidate, not a stable release. Local
-release-readiness qualification is complete for the recorded candidate; hosted
-PR CI has not yet run. Reports about the candidate are welcome. The
+release-readiness qualification and hosted CI passed for recorded revisions.
+Reports about the candidate are welcome. The
 [support policy](docs/support.md) defines intended platforms, features,
 compatibility and the qualification boundary.
 Historical Composable releases and retired prototypes are not the current RCA candidate.

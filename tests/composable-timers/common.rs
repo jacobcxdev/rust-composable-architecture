@@ -1,4 +1,4 @@
-//! Defines a literal trailing-debounce trace shared by all three engines.
+//! Defines a literal trailing-debounce trace shared by RCA and upstream Composable.
 
 use std::time::Duration;
 

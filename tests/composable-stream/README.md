@@ -1,12 +1,11 @@
 # Finite effect correctness fixtures
 
-Three independent workspaces exercise current RCA, upstream Composable
-`0b5baa80246a625c1bb886e6df20dae27fc97c97`, and historical RCA
-`c6200234cebbbd9b0009cd5788736c78a47f32b0`. Each has its own lockfile.
+Two independent workspaces exercise current RCA and upstream Composable
+`0b5baa80246a625c1bb886e6df20dae27fc97c97`. Each has its own lockfile.
 These are correctness fixtures, not a performance protocol.
 
 Run `cargo test --locked --manifest-path tests/composable-stream/candidate/Cargo.toml`
-and substitute `upstream` or `historical` for the other engines. `cargo run`
+and substitute `upstream` for the reference engine. `cargo run`
 with the same manifest emits two JSON lines: empty, then ordered `[3, 1, 4, 2]`.
 The optional `--ready-future` mode is described below; other arguments are rejected.
 Run subprocesses with an external deadline: the internal
@@ -14,7 +13,7 @@ ten-second watchdog bounds completion observation, not a wedged host join.
 
 Native main-test cases run individually in child processes with a 60-second
 deadlock watchdog. This includes stream delivery, ready futures and task ownership
-in all three engines. The parent requires exactly one passing test, captures at
+in both engines. The parent requires exactly one passing test, captures at
 most 1 MiB from each output pipe, and attempts to kill and reap a timed-out child.
 A timeout fails the test; it does not trigger a retry or qualify native teardown.
 These children own their pipe writers and do not spawn surviving child processes.
@@ -44,22 +43,22 @@ can be reported. This does not isolate store closure from retired lineage.
 
 Additional tests put the same finite stream behind a test-only initial gate.
 Its first poll records the current waker, signals a controller thread and returns
-`Pending`. The controller releases the gate and wakes the recorded waker; all
-three adapters then verify empty and ordered delivery, exhaustion and destruction.
+`Pending`. The controller releases the gate and wakes the recorded waker; both
+adapters then verify empty and ordered delivery, exhaustion and destruction.
 A deterministic counting-waker test checks that release wakes the most recently
 registered waker. Omitting that wake fails this test; no test assumes executors
 are forbidden from making spurious polls. Run integration tests with an external
 deadline as above. The executable ledger still describes always-ready streams.
 
 Another test snapshots producer progress at entry to the first value's reducer,
-before updating the trace, for the always-ready ordered workload. Both pinned
-legacy engines have yielded all five actions (four values plus terminal), reached
+before updating the trace, for the always-ready ordered workload. The upstream
+adapter has yielded all five actions (four values plus terminal), reached
 EOF and destroyed the stream. Current RCA has yielded only the first value,
 without reaching EOF or destroying the stream. This is an exact event-boundary
 observation, not progress inferred from elapsed time or concurrent execution.
 
-The legacy task loop (`effects/task.rs`, upstream lines 47–48 and historical
-lines 50–51) polls and synchronously enqueues every ready item in one task poll.
+The upstream task loop polls and synchronously enqueues every ready item in
+one task poll.
 Its single `LocalPool` worker cannot enter the reducer until that poll returns.
 RCA's delivery loop awaits each commit before polling the next item. Both hosts
 remain unchanged; no blocked reducer or extra producer thread is introduced.
@@ -78,8 +77,8 @@ these semantics with legacy `Task` cancellation-on-drop.
 
 Test-only finite-future ownership cases now characterise that difference directly.
 One real future waits behind a controlled gate, then returns `37`; its sole
-`Completed(37)` output is also its reducer terminal acknowledgement. Both pinned
-legacy adapters use `effects.task(once(future))`, retain the native `Task` inside
+`Completed(37)` output is also its reducer terminal acknowledgement. The upstream
+adapter uses `effects.task(once(future))`, retain the native `Task` inside
 the reducer and perform cancel, drop or detach in a reducer action. Explicit
 cancel and drop destroy the still-pending future before host teardown, without
 Ready or output. Detach leaves it alive: releasing/waking the gate produces the
@@ -94,7 +93,7 @@ effect termination before shutdown. Legacy host completion still comes from
 joined extraction, not a public causal-finish API. External controller gates and
 stored wakers remain separately owned throughout the destruction observations.
 
-These tests use the same three pinned workspaces without changing executable
+These tests use the same two workspaces without changing executable
 ledgers. Ownership-inverting mutations fail: replacing legacy cancel/drop with
 detach misses pre-teardown destruction, replacing detach with drop loses Ready,
 omitting RCA cancellation misses destruction, and cancelling before its handle
@@ -111,7 +110,7 @@ a subsequent live reducer inspection and final extraction both verify the empty
 trace. The controller's separately owned gate/waker is not claimed to be freed.
 
 Another legacy test queues two values before first reducer entry, then cancels
-the native task inside that first reduction. Both pins still commit the queued
+the native task inside that first reduction. The upstream adapter still commits the queued
 second value, but destroy the pending producer before teardown without yielding
 the remaining suffix or terminal. A first-entry probe proves both values were
 already yielded; live and extracted state agree. Replacing cancel with detach
@@ -132,12 +131,11 @@ characterisations, not cancellation equivalence or scoped-lifetime qualification
 Partial-delivery tests now pause the shared producer after yielding `3` from
 `[3, 1, 4, 2]`. Each adapter inspects live state and requires `[3]` before the
 ownership operation, rather than treating a yielded item as a committed value.
-Explicit cancellation in all three engines destroys the still-pending stream
+Explicit cancellation in both engines destroys the still-pending stream
 before teardown, preserves `[3]` and emits no terminal. Legacy handle drop has
 the same bounded outcome; legacy detach followed by gate release delivers the
 complete remainder. These cases do not exercise cancellation with already
 queued later outputs. The executable ledgers remain unchanged.
-The historical partial-delivery receipt remains in the local audit records.
 
 This proves finite Send-stream delivery and one controlled Pending/wakeup
 transition for these workloads. It does not qualify arbitrary stream scheduling,
@@ -240,13 +238,13 @@ The parent kills and reaps a timed-out child, reports failure, and does not retr
 The watchdog is outside the workload.
 
 Run `cargo test --locked --manifest-path tests/composable-stream/candidate/Cargo.toml --test outcome`.
-The `upstream` and `historical` manifests expose the same integration target.
+The `upstream` manifest exposes the same integration target.
 The existing CI fixture matrix includes this target through its normal Cargo test command.
 
 The feature-gated `common-outcome-allocations` binary measures the complete
 64-operation lifetime. Run it with `cargo run --locked --manifest-path
 tests/composable-stream/candidate/Cargo.toml --features allocation-measurement
---bin common-outcome-allocations`. The other two manifests provide the same binary.
+--bin common-outcome-allocations`. The upstream manifest provides the same binary.
 The original executable remains each package's default.
 
 Snapshot A precedes runtime, store and probe construction. Snapshot E follows
@@ -260,7 +258,6 @@ retain failures without retries.
 
 Five allocation controls run in the `outcome` target with `allocation-measurement`.
 CI runs these controls and the strict decoder tests.
-The historical instrumentation receipt remains in the local audit records.
 Checkpoint completion does not prove task-wrapper reclamation or executor quiescence.
 Successful final extraction proves fixture host teardown, not process-global allocator quiescence.
 The pinned upstream reference has a shutdown race and a failed broader suite.
@@ -271,7 +268,7 @@ The existing frozen v1 workload, protocol and captures remain unchanged.
 ## Common-outcome allocation capture
 
 The [separate protocol](../../docs/performance/composable-common-outcome-allocation-protocol-v1.json)
-fixes three forward/reverse cycles, six fresh release builds and 18 processes.
+defines the build sequence and sample requirements.
 It was frozen after exploratory debug instrumentation checks, before the first
 qualified capture. Every initial A counter must be zero. The report retains all
 whole-lifetime allocation totals and final live counts, plus candidate-minus-control
@@ -289,6 +286,5 @@ Numerical analysis alone sets both qualification flags to false. A completed
 controller receipt authenticates provenance, not general performance superiority.
 The upstream shutdown race remains part of the pinned baseline. Neither shared
 completion notices nor final live counts prove global allocator quiescence.
-The first capture receipt records the clean revision, retained evidence and
-remaining allocation disadvantage. That receipt remains local. It does not
-establish a numerical comparison for the current public snapshot.
+Each capture applies only to its recorded source and measurement conditions.
+An old capture does not establish a comparison for the current public snapshot.

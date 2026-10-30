@@ -6,12 +6,10 @@
   "runner": "mac15-9-m3-max-16c-48gb-macos27plus-ac-high",
   "strip_version": "LLVM version 22.1.8-rust-1.98.0-stable",
   "repositories": {
-    "composable": "https://github.com/bwoods/Architecture.git",
-    "rca-0.7": "https://github.com/jacobcxdev/rust-composable-architecture.git"
+    "composable": "https://github.com/bwoods/Architecture.git"
   },
   "engines": [
     "composable",
-    "rca-0.7",
     "rca"
   ],
   "builds": [
@@ -36,8 +34,7 @@
     "CARGO_PROFILE_RELEASE_SPLIT_DEBUGINFO": "off"
   },
   "pins": {
-    "composable": "0b5baa80246a625c1bb886e6df20dae27fc97c97",
-    "rca-0.7": "c6200234cebbbd9b0009cd5788736c78a47f32b0"
+    "composable": "0b5baa80246a625c1bb886e6df20dae27fc97c97"
   },
   "inputs": [
     3,

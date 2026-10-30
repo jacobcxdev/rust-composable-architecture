@@ -33,11 +33,12 @@ class MinimalSizeTests(unittest.TestCase):
         result = evidence.evaluate_minimal_size(self.rows, self.protocol)
         self.assertFalse(result["timing_qualified"])
         self.assertFalse(result["qualified_comparison"])
-        self.assertEqual(len(result["observations"]), 6)
+        self.assertEqual(len(result["observations"]), 4)
 
     def test_missing_duplicate_and_wrong_arms_are_rejected(self):
         for rows in (self.rows[:-1], self.rows + [self.rows[0]],
-                     [dict(self.rows[0], engine="unknown"), *self.rows[1:]]):
+                     [dict(self.rows[0], engine="unknown"), *self.rows[1:]],
+                     [dict(self.rows[0], engine="rca-0.7"), *self.rows[1:]]):
             with self.assertRaises(ValueError):
                 evidence.evaluate_minimal_size(rows, self.protocol)
 
@@ -63,10 +64,10 @@ class MinimalSizeTests(unittest.TestCase):
 
     def test_independent_build_sizes_need_not_match(self):
         self.rows[1]["stripped_bytes"] = 101
-        self.assertEqual(len(evidence.evaluate_minimal_size(self.rows, self.protocol)["observations"]), 6)
+        self.assertEqual(len(evidence.evaluate_minimal_size(self.rows, self.protocol)["observations"]), 4)
 
     def test_malformed_rows_raise_value_error(self):
-        for rows in (None, {}, [None] * 6, [dict(self.rows[0], original_sha256=3), *self.rows[1:]]):
+        for rows in (None, {}, [None] * 4, [dict(self.rows[0], original_sha256=3), *self.rows[1:]]):
             with self.subTest(rows=rows), self.assertRaises(ValueError):
                 evidence.evaluate_minimal_size(rows, self.protocol)
 
@@ -104,7 +105,7 @@ class MinimalSizeRunnerTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = pathlib.Path(directory)
             rows, hashes = self.fake_capture(root)
-            self.assertEqual(len(rows), 6)
+            self.assertEqual(len(rows), 4)
             self.assertTrue(all(row["original_bytes"] == 39 and row["stripped_bytes"] == 32 for row in rows))
             runner.verify_counter_inputs({"artifacts": hashes})
             evidence.evaluate_minimal_size(rows, self.protocol)
@@ -305,12 +306,12 @@ class MinimalSizeRunnerTests(unittest.TestCase):
                 {"cargo": "/cargo"}, minimal_size=True)
         return binaries, calls
 
-    def test_size_build_selects_only_minimal_and_six_fresh_targets(self):
+    def test_size_build_selects_only_minimal_and_four_fresh_targets(self):
         with tempfile.TemporaryDirectory() as directory:
             binaries, calls = self.fake_build(pathlib.Path(directory))
             builds = [(command, env) for command, env in calls if "build" in command]
-            self.assertEqual(len(builds), 6)
-            self.assertEqual(len({env["CARGO_TARGET_DIR"] for _, env in builds}), 6)
+            self.assertEqual(len(builds), 4)
+            self.assertEqual(len({env["CARGO_TARGET_DIR"] for _, env in builds}), 4)
             self.assertEqual(set(binaries), set(self.protocol["engines"]))
             for command, env in builds:
                 self.assertEqual(command[command.index("--bin") + 1], "minimal-counter")

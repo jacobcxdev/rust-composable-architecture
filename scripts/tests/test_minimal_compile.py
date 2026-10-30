@@ -29,15 +29,17 @@ class MinimalCompileTests(unittest.TestCase):
 
     def test_schedule_balances_all_engine_orders_and_alternates_workloads(self):
         plan = evidence.minimal_compile_plan(self.protocol)
-        self.assertEqual(len(plan), 36)
+        self.assertEqual(len(plan), 24)
         orders = []
         for block in range(1, 7):
             batch = [row for row in plan if row['block'] == block]
             self.assertEqual([row['workload'] for row in batch],
-                             (['check'] * 3 + ['release'] * 3) if block % 2 else
-                             (['release'] * 3 + ['check'] * 3))
-            orders.append(tuple(row['engine'] for row in batch[:3]))
-        self.assertEqual(set(orders), set(itertools.permutations(['composable', 'rca-0.7', 'rca'])))
+                             (['check'] * 2 + ['release'] * 2) if block % 2 else
+                             (['release'] * 2 + ['check'] * 2))
+            orders.append(tuple(row['engine'] for row in batch[:2]))
+        self.assertEqual(set(orders), set(itertools.permutations(['composable', 'rca'])))
+        self.assertEqual(orders.count(('composable', 'rca')), 3)
+        self.assertEqual(orders.count(('rca', 'composable')), 3)
 
     def test_descriptive_summary_preserves_cpu_and_zero(self):
         rows = self.rows()
@@ -53,8 +55,10 @@ class MinimalCompileTests(unittest.TestCase):
         for row in rows:
             if row['engine'] == 'rca':
                 row['counters']['real_seconds'] = 0.0
+            else:
+                row['counters']['real_seconds'] = 2.0
         result = evidence.evaluate_minimal_compile(rows, self.protocol)
-        self.assertEqual(result['ratios']['rca-0.7']['check']['real_seconds'], [None] * 6)
+        self.assertEqual(result['ratios']['composable']['check']['real_seconds'], [None] * 6)
         self.assertFalse(result['timing_qualified'])
 
     def test_malformed_missing_duplicate_and_changed_protocol_rejected(self):
@@ -67,6 +71,10 @@ class MinimalCompileTests(unittest.TestCase):
             bad[0]['counters']['real_seconds'] = value
             with self.subTest(value=value), self.assertRaises(ValueError):
                 evidence.evaluate_minimal_compile(bad, self.protocol)
+        bad = copy.deepcopy(rows)
+        bad[0]['engine'] = 'rca-0.7'
+        with self.assertRaises(ValueError):
+            evidence.evaluate_minimal_compile(bad, self.protocol)
         for key in ('engine', 'counters'):
             bad = copy.deepcopy(rows)
             del bad[0][key]
@@ -210,11 +218,11 @@ class CompileCommandTests(unittest.TestCase):
             with patch.object(runner, '_counter_command', side_effect=execute):
                 rows, receipts, binaries = runner.capture_minimal_compile(staging, root, protocol,
                     {'CARGO_HOME': str(root / 'cargo-home')}, {'cargo': '/cargo'}, Monitor(), {})
-            self.assertEqual(len(calls), 36)
-            self.assertEqual(len(binaries), 18)
-            self.assertEqual(len({env['CARGO_TARGET_DIR'] for _, env in calls}), 36)
-            self.assertEqual(sum(command[1] == 'check' for command, _ in calls), 18)
-            self.assertEqual(sum('--release' in command for command, _ in calls), 18)
+            self.assertEqual(len(calls), 24)
+            self.assertEqual(len(binaries), 12)
+            self.assertEqual(len({env['CARGO_TARGET_DIR'] for _, env in calls}), 24)
+            self.assertEqual(sum(command[1] == 'check' for command, _ in calls), 12)
+            self.assertEqual(sum('--release' in command for command, _ in calls), 12)
             inputs = dict(build_cwd=str(root), source_root=str(runner.ROOT),
                           capture_directory=str(staging), tools={'cargo': {'path': '/cargo'}})
             self.assertEqual(runner.reload_minimal_compile(staging, protocol, inputs), rows)

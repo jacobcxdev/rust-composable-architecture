@@ -1,12 +1,11 @@
 # Debounce and planned-throttle correctness fixtures
 
-Three independent, locked workspaces exercise current RCA, upstream Composable
-`0b5baa80246a625c1bb886e6df20dae27fc97c97`, and historical RCA
-`c6200234cebbbd9b0009cd5788736c78a47f32b0`. These are virtual-time correctness
+Two independent, locked workspaces exercise current RCA and upstream Composable
+`0b5baa80246a625c1bb886e6df20dae27fc97c97`. These are virtual-time correctness
 tests, not live-clock tests or a timing programme.
 
 Run `cargo test --locked --manifest-path tests/composable-timers/candidate/Cargo.toml`
-and substitute `upstream` or `historical`. Apply an external process deadline
+and substitute `upstream`. Apply an external process deadline
 (CI uses two minutes): the legacy native `TestStore::wait` is unbounded.
 
 The shared literal timeline uses a four-second trailing debounce:
@@ -55,24 +54,9 @@ The debounce trace does not establish live timer accuracy, repeating intervals, 
 leading debounce, simultaneous-deadline ordering, queued-output revocation,
 general cancellation equivalence, allocation costs or comparative performance.
 
-## Local verification
+## Trailing throttle
 
-On 30 September 2026, parent verification with Rust 1.98.0 on macOS 27 arm64
-passed all three complete standalone suites: three tests passed per engine,
-with one subprocess entry point ignored by the ordinary harness in each.
-Each suite invokes both negative-control children. All three strict Clippy and
-formatting checks passed; independent source review found no actionable issues.
-CI now runs these fixtures in its existing three-engine comparison matrix, with
-a two-minute test deadline. No hosted execution is claimed.
-
-Test logs: `/tmp/rca-timers-parent-{candidate,upstream,historical}.log`.
-Lint logs: `/tmp/rca-timers-parent-{candidate,upstream,historical}-clippy.log`.
-The initial shell-dispatched lint selected Clippy 1.94.0 and failed the MSRV
-check; the successful reruns invoked the absolute 1.98.0 Clippy binary.
-
-## Trailing throttle — 1 October 2026
-
-The same three workspaces now compare native `Scheduler::throttle` with an RCA
+The same two workspaces compare native `Scheduler::throttle` with an RCA
 recipe using a stored `Option<MonotonicInstant>`, `Effect::send_at` and scoped
 cancel-in-flight. No core operator, scheduler or runtime state was added.
 The period is four seconds. The shared literal timeline is:
@@ -120,26 +104,14 @@ The third detaches/omits cancellation at reset and fails at time 34 before any
 new input. Subprocesses retain the ten-second deadline and reject timeout as
 evidence. Together with debounce, each engine executes five mutation children.
 
-Final verification: eight tests passed per engine, zero failures, two ignored
-subprocess entry points per ordinary harness. All three strict Clippy and
-formatting checks passed with pinned Rust 1.98.0 on native macOS ARM64. The
-candidate adapter first failed with `ActionMismatch` when replacement
-cancellation was absent, then passed with the wrapper. Independent source review
-covered the scheduling translation; parent review strengthened reset coverage
-and added its mutation before final checks. Existing timer CI commands include
-the new tests automatically; no hosted run is claimed.
-
-Logs: `/tmp/rca-throttle-{candidate,upstream,historical}.log` and corresponding
-`-clippy.log`; initial RED: `/tmp/rca-throttle-candidate-red.log`.
-
 This qualifies only the specified finite virtual-time action schedules. Boundary
 outputs are received before new boundary inputs. It does not prove queued-output
 revocation equivalence, generic effect throttling, scoped-identity isolation,
 overflow/MAX behaviour, native timer precision or comparative performance.
 
-## Leading debounce — 1 October 2026
+## Leading debounce
 
-The three workspaces also compare the pinned engines' leading debounce policy.
+The two workspaces also compare the pinned engines' leading debounce policy.
 This is fixed-window suppression: an accepted input emits at the current clock
 instant and starts a four-second window. Inputs through its inclusive end are
 dropped without moving that window. It is not a resetting quiet-period policy.
@@ -179,23 +151,6 @@ control shortens its period by one nanosecond; RCA changes `<=` to `<`.
 Candidate controls use literal mutation-state assertions so state differences
 do not hide the intended output failures. A timeout is never accepted as a
 successful control. Each full engine suite now executes eight mutation children.
-
-Verification on native macOS 27 ARM64 with pinned Rust 1.98.0: 12 tests passed
-per engine, zero failures, three ignored subprocess entry points per ordinary
-harness. All three strict all-target Clippy and formatting checks passed.
-Existing CI commands automatically include the new modules; hosted execution
-is not claimed. Only standalone test fixtures and documentation changed, so
-core workspace suites were not repeated.
-
-The initial candidate had no suppression and failed at the same-time second
-input with `UnreceivedAction`. A preliminary compile error and incorrect
-candidate harness drive/state assertions were corrected before the final run.
-Independent review verified pinned source semantics, the literal timeline and
-the different executor-driving requirements.
-
-Logs: `/tmp/rca-leading-red-behaviour.log`,
-`/tmp/rca-leading-{candidate,upstream,historical}-verified.log`, and
-`/tmp/rca-leading-{candidate,upstream,historical}-clippy.log`.
 
 All accepted outputs are received before Reset. This proves reset of completed
 scheduling history, not cancellation or revocation of pending/queued output.

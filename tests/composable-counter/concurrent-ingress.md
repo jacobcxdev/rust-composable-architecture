@@ -9,7 +9,7 @@ Four OS producer threads start from one cancellable gate and each submit one ID.
 separate gate action first reports reducer entry and blocks that reducer. The
 gate is not one of the four measured IDs. No effect work is spawned.
 
-- Original Composable and historical RCA share their native Store through
+- Original Composable shares its native Store through
   `Arc` (the Store itself is not Clone). Native `send` returns after unbounded
   enqueue: all four return while the independent reducer counter remains zero.
 - Current RCA uses cloned native Stores with mailbox capacity two. Exactly two
@@ -31,7 +31,7 @@ Only after these boundaries may the executable print a ledger.
 The ledger has exactly these fields: schema, engine, producers, policy,
 capacity, initial_admitted, initial_full, pending_receipts,
 committed_while_blocked, caller_retries, final_trace, state_extracted,
-host_stopped. Engine is composable, rca-0.7 or rca. Legacy policy is
+host_stopped. Engine is composable or rca. The upstream policy is
 unbounded-enqueue with null capacity, counts 4/0/0 and zero retries. RCA policy
 is bounded-try-send-retry with capacity 2, counts 2/2/2 and two retries.
 All successful ledgers have four producers, zero blocked commits, the exact
@@ -58,18 +58,6 @@ No success ledger is emitted after an error. These checks establish
 this finite native overload policy, not sustained saturation, cancellation,
 throughput, latency, allocation cost or general ordering equivalence.
 
-## Local verification
-
-On 2026-09-30, explicit Rust 1.98.0 macOS runs passed all three standalone
-default suites (24 tests each) and all-feature suites (31 each). Strict
-all-target Clippy passed in both configurations, as did formatting. Three
-actual executable runs exited zero; their 13-field ledgers were independently
-parsed against the native outcomes above. Independent source review found no
-remaining actionable issues. The initial four tests failed before the fixture
-was implemented.
-
-Receipts: `/tmp/rca-ingress-{candidate,upstream,historical}-{default,enabled}-{suite,clippy}.log`,
-`/tmp/rca-ingress-{candidate,upstream,historical}.json` and corresponding
-`-run.log` files. Each command had an outer 120-second deadline. Earlier focused
-builds retained linker missing-object debug warnings; final strict Clippy was
-warning-free. No foreign-host or hosted CI execution is claimed.
+Run the candidate and upstream fixture tests with the pinned Rust toolchain.
+Use the current CI results for verification; archived development receipts do
+not establish the status of a new source revision.
