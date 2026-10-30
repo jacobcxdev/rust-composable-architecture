@@ -5,6 +5,33 @@ They need no process-global scheduler, new dependency or standalone timer
 combinator. The executable recipe and consumer witnesses live in
 `rca-core/tests/debounce_throttle.rs`.
 
+## Choose an input policy first
+
+Debounce waits for a quiet period before starting the latest request. Continuous
+input can postpone that start indefinitely. Use it for search text or another
+input where only the latest settled value matters.
+
+Throttle keeps a fixed window instead of restarting it for each input. Use it
+when work must continue during a sustained stream. This guide retains one pending
+value and emits it at the window boundary. `First` retains the first in-window
+value. `Latest` replaces it with each new value.
+
+These policies discard or replace input deliberately. Neither implements a
+lossless queue or bounds concurrent client operations. Use explicit job capacity
+when that bound matters. Cancelling obsolete work cannot undo an external side effect.
+
+### Why the two throttle recipes differ
+
+The [runtime guide's leading/latest recipe](../runtime.md#leading-and-latest-action-throttling)
+defines a different policy. Its `Leading` mode drops in-window input. Its `Latest`
+mode lets a new input at an elapsed boundary supersede the old pending value.
+This guide instead flushes the due pending value before processing that new input.
+
+For inputs `1@0`, `2@2` and `3@12` with a ten-second window, this guide emits
+`1@0, 2@12` and retains `3` for 22. If the new input commits before the old
+boundary in the other recipe, it publishes `3` instead of the older pending `2`.
+Choose the rule your domain needs. The names alone do not define deadline order.
+
 ## Debounce: delay client start
 
 Construct client work lazily and put cancellation outside the delay:
@@ -116,7 +143,7 @@ composition reducer.
 Run the focused executable qualification with:
 
 ```sh
-cargo test -p rca-core --test debounce_throttle
+rustup run 1.98.0 cargo test --locked -p rca-core --test debounce_throttle
 ```
 
 The fixture supplies a deterministic runtime and clock, no wall-clock sleeps or

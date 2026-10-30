@@ -12,6 +12,21 @@ The second run prints `7 -> 12`. The parent directory must already exist. Only
 the supplied target is replaced; use an application-owned directory and a
 dedicated filename. This command is intentionally a writer, not a viewer.
 
+## When to use this pattern
+
+Use this pattern for one application-owned document with one writer. If edits
+belong to actor-owned state and need explicit save acknowledgements, choose `Document`.
+If the application also needs shared-cache integration, use `SharedDocument`.
+Shared access does not itself add cross-process conflict detection.
+The [integration guide](../../docs/integration-boundaries.md#choose-shared-state-or-persistence)
+compares these options with raw backend keys and revision-aware storage.
+
+The example's initial value is a default for missing storage, not permission to
+replace malformed input. The application supplies the codec and decides whether
+unsupported data needs migration or rejection. This codec rejects it.
+
+## Save and close deliberately
+
 The generic `Document` owns value/revision coordination and coalesces edits into
 the latest snapshot, with at most one save in flight. Failures suspend automatic
 saving; flush or close explicitly retries. Close fences edits permanently and
@@ -33,6 +48,17 @@ no legacy migration is silently attempted. The backend's explicit 16-byte limit
 rejects oversized reads with a one-byte-over-limit probe and oversized saves
 before creating a replacement. The adapter itself knows nothing about counters
 or their format.
+
+| Operation | What success establishes | What it does not establish |
+| --- | --- | --- |
+| `Action::flush()` receipt | The requested document revision is acknowledged under the backend's save contract | The document is closed to later edits |
+| `Action::close()` receipt | The final revision is acknowledged and the document is closed | Every external backend operation has physically stopped |
+| `FileBackend::close()` | Previously admitted blocking operations have ended | Domain state was successfully flushed |
+| Store shutdown | RCA stops its owned work | A flush, rollback or external-writer stop |
+
+Use flush to save while the document remains editable. Use document close before
+an orderly exit that requires the final state to be saved. Keep the runtime
+alive until the required document receipt and backend close both finish.
 
 ## File and cancellation boundaries
 

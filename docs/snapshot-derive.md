@@ -5,6 +5,33 @@ available without macros, diagnostics or testing features. Importing
 `rca::Snapshot` brings the trait and, when enabled, derive into their separate
 Rust namespaces.
 
+## When to use a snapshot
+
+A snapshot is an owned record of state at one point in time. Later source
+changes must not change that record. It is not a serialisation format or an
+automatic backup of the running application.
+
+For simple value state, ordinary `TestStore` constructors can compare independent
+state clones. If state owns resources that cannot be cloned, use a projected
+TestStore. Also use a projection for assertions that need a different history shape.
+`Snapshot` gives that projection a reusable name. The derive supplies field-by-field
+capture, while a manual implementation can express a custom finite projection.
+The [testing guide](guides/testing.md#choose-the-state-history) explains the
+constructor choice and its assertion limits.
+
+| Field requirement | Choice | Effect on assertions |
+| --- | --- | --- |
+| Preserve its ordinary owned history | No attribute | Capture through the field's `Snapshot` implementation |
+| Capture a custom owned value | `with` and `value` | Compare the supplied projection, not the original resource |
+| Hide a secret from generated Debug output | `redact` | Keep the value and equality comparison |
+| Exclude a field from the history | `omit` with a reason | Do not compare that field through this snapshot |
+
+If a secret must remain part of correctness assertions, use redaction, not omission.
+Omission suits a task handle whose lifetime has separate checks.
+Cloning a shared mutable handle is not a substitute for capturing its value.
+
+## Declare owned history
+
 ```rust
 use rca::Snapshot;
 

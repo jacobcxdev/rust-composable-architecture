@@ -6,6 +6,12 @@ in [stack scope tests](../rca-test/tests/stack_scopes.rs) compares two delayed l
 updates through nested stacks with the existing flat stack recipe. Both produce
 `10 -> 11` and `30 -> 31`; the tree's ancestor values remain unchanged.
 
+These choices describe ownership, not presentation. A stack can model a headless
+workflow, and a tree can model nested jobs without any UI.
+Use `KeyedState` for independently removable siblings with stable business IDs.
+If removing an entry must also remove everything after it, use `StackState`.
+A `Vec` alone does not express RCA's child lifetime or stale-output checks.
+
 This is application composition with existing public APIs, not an arbitrary
 recursive reducer facility. Its recursive data is `Job { value: u8, children:
 StackState<Job> }`. Two explicit `stack` layers wrap the leaf reducer, admitting
@@ -59,11 +65,14 @@ recursive reducer support. Iterative runtime scope traversal would not establish
 those properties either. The example has no provider codec, relational query,
 pagination, native frontend, distributed replication or performance claim.
 
-After shared-source coordination grants a stable build lane, run:
+From the repository root, run the executable tests:
 
 ```sh
-rtk rustup run 1.98.0 cargo test --locked -p rca-test --test stack_scopes
+rustup run 1.98.0 cargo test --locked -p rca-test --test stack_scopes
 ```
 
-This is one RC14/RC16 recipe slice. Whole RC14 acceptance and final-source RC15
-qualification require their separate integration and release checks.
+The bounds belong to this recipe, not a global maximum for RCA applications.
+Changing them requires new decoder, routing, retirement and destruction tests.
+For installed child instances and private command routes, see
+[structural features](structural-features.md). For the wider evidence boundary,
+see [qualification](qualification.md).

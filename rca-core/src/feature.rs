@@ -97,6 +97,28 @@ impl<S, A> fmt::Debug for ReactionContext<'_, S, A> {
 ///
 /// A type defines its behaviour through either `Reducer` or `Feature`, not both.
 /// Use separate wrapper types when the same data needs different behaviours.
+///
+/// # Choosing an authoring form
+///
+/// Start with [`Reducer`] for action-based inputs and results. An effect can
+/// await a client and return a result action, so asynchronous work alone does
+/// not require a direct `Feature` implementation.
+///
+/// Implement `Feature` directly when a [`Task`] must read current state or
+/// submit an owned update between awaits. For example, a worker can inspect
+/// current retry policy without an action for every internal step. Task access
+/// still passes through the actor and can fail after cancellation or removal.
+/// If a decision must use current state at commit, make that decision inside
+/// the update closure. A separate earlier read can become stale.
+///
+/// A direct Feature can append both effects and tasks. It does not implement
+/// `Reducer` and cannot enter reducer-only combinators such as [`crate::scope`].
+/// Use installed children to compose direct Features with other Features or
+/// reducers. [`crate::RootMount`] and [`crate::OptionalMount`] document that route.
+///
+/// Both forms remain exhaustively testable. Effect feedback is an action
+/// transaction; a typed task update is an update transaction. `TestStore`
+/// asserts each through its corresponding receive method.
 pub trait Feature {
     /// State exclusively borrowed for this turn.
     type State;

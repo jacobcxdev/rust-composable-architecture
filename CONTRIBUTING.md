@@ -173,6 +173,29 @@ unless the implementation adds a distinct requirement. Existing Errors, Panics,
 Safety and empty-documentation checks remain necessary. Empty section headings
 can satisfy a lint, but cannot satisfy a contract review.
 
+### Documentation acceptance
+
+A documented symbol is not enough. Review the consumer's decisions as well as
+the signature. For each affected capability, answer these questions in the API
+docs or a linked guide:
+
+1. What problem does it solve, and what is the usual starting choice?
+2. When does the caller need an alternative, and what does that alternative cost or restrict?
+3. Who owns the State, work and runtime? Which borrows and thread bounds matter?
+4. What happens on success, rejection, cancellation, panic and drop?
+5. Does a returned handle prove admission, commit, completion, durability or none of these?
+6. Which test asserts the behaviour, and which real example demonstrates it?
+
+Explain terms before relying on them. Include common mistakes, not only valid
+calls. Keep decision guidance reachable from the README and the
+[authoring index](docs/guides/authoring.md#find-a-decision). Keep detailed contracts
+beside the API, with links instead of repeated descriptions that can diverge.
+
+Run affected doctests and build documentation with warnings denied. Resolve
+local Markdown links and section links. Reviewers must also compare the claims
+with current source and tests. A formatter, documentation lint or successful
+build cannot prove that a recommendation is correct or understandable.
+
 The independent consumer fixtures run Cargo offline with their own lockfiles.
 Before the workspace tests, download those dependencies:
 

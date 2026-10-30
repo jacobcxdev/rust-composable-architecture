@@ -5,6 +5,28 @@ This document defines observable core runtime behaviour. The
 `rca-core` owns no executor, reactor, wall clock, UI loop, global Store, or
 thread-local authority.
 
+## Choose a runtime and ownership model
+
+An actor is a serial command processor. It does not imply a dedicated thread.
+Cloning a `Store` shares that actor, not a copy of its state.
+
+| Application need | Choice | Important limit |
+| --- | --- | --- |
+| Ordinary asynchronous services with `Send` state and work | `Store` with a shared `Runtime` | The host must drive the runtime until required work finishes. |
+| An existing Tokio application | `TokioRuntime::current()` | The Tokio runtime needs a timer driver. Current-thread Tokio does not remove RCA's `Send` bounds. |
+| State or work that must remain on one thread, such as `Rc` values | `local::Store` with a `local::Runtime` | Enable `local` and supply an owner-thread driver. Local APIs do not provide a native event loop. |
+| Deterministic application tests | `TestStore` | The test drives ready work and virtual time explicitly. |
+| A synchronous caller | A caller-owned runtime, driven directly or on a background thread | Entering a runtime does not drive it. See [synchronous hosts](#synchronous-hosts). |
+
+`Runtime` handles provide access to a driver. They do not guarantee that its host remains alive.
+`Clock` handles provide time and waits, but no task-spawning authority.
+Use the Store runtime's clock when a client deadline must follow that Store.
+A separately created clock can have a different origin, even on the same host.
+
+The [Local composition guide](local-composition.md) separates borrowed synchronous
+composition from owner-thread asynchronous execution. The
+[authoring guide](guides/authoring.md) explains when to implement `Reducer` or `Feature`.
+
 ## Feature execution
 
 The Store actor owns state and its `Feature`. The feature callback runs
@@ -46,6 +68,13 @@ and shutdown linearise through Store authority. An effect's `sender.send`
 returns only after its output commits. Dropping a send future after admission
 does not withdraw its mailbox position. Effect cancellation can still invalidate
 queued output before reduction, as described under structured cancellation.
+
+Use `send` when the caller can await admission and commit. Use `try_send` when
+the caller must return without waiting for mailbox capacity. Handle `Full`
+explicitly: retry, coalesce or discard according to the application's input policy.
+Immediate admission is not immediate execution. Await the returned receipt when
+the caller needs the commit result. See [receipt lifetimes](receipt-lifetimes.md)
+for the separate waits for commit, causal work and shutdown.
 
 Control-plane cancellation, due timers, and observation cleanup are serviced
 without allowing a sustained mailbox flood to starve them.
@@ -314,6 +343,23 @@ registration order. Overdue fixed-rate intervals catch up at their original
 cadence with cooperative fairness between batches. Zero-period intervals panic
 at construction.
 
+| Timing need | Choice | Deadline and missed-work policy |
+| --- | --- | --- |
+| Deliver an already constructed action after a duration | `Effect::send_after` | The duration starts when that effect begins execution. |
+| Deliver an action at an existing monotonic deadline | `Effect::send_at` | A surrounding delay or sequence does not move the deadline. |
+| Wait before starting a client or other effect program | `Effect::delay` | Put the client call inside `Effect::run` to avoid eager work. |
+| Generate actions at a fixed cadence | `Effect::interval` | Overdue ticks catch up at the original cadence. |
+| Let a consumer request ticks and skip missed cadence positions | `ClockTimer` | It emits one observed instant, then schedules from that observed time. |
+
+`ClockTimer` owns its wait but spawns no task. Capturing a Store clock does not
+make it Store-owned. Move the timer into an owned effect or task when that work
+must cancel with the feature. Dropping only a pending `next` future preserves
+the timer's wait. Cancel or drop the timer itself to retire that wait.
+
+The [debounce and throttle guide](guides/debounce-throttle.md) explains which
+input a quiet period or fixed window retains. None of these mechanisms guarantees
+punctual execution or limits concurrent external operations by itself.
+
 ## Dependencies
 
 `DependencyValues` belongs to one Store. Keys and values are `Send + Sync +
@@ -363,6 +409,11 @@ the distinction stable across reads, scopes and test substitution.
 
 ## Observation
 
+Use `read` for one value at an ordered actor position. Use `observe` for an
+initial value followed by the latest projected state. Use `observe_distinct`
+to suppress equal projections. Distinct observation requires `Clone + PartialEq`
+for the projected value, not the whole state.
+
 `Store::observe` registers a projection at an ordered mailbox position and
 returns its initial value first. Selectors execute synchronously on actor-owned
 state and must not block. Values need only `Send + 'static`, not `Clone`.
@@ -371,6 +422,17 @@ Each observation retains at most one value being delivered plus the newest
 pending projection. Intermediate values may coalesce. A cancelled `next` call
 does not lose the newest value. Dropping observation schedules unregister;
 shutdown closes all observations.
+
+Observation is not an event log. A slow consumer can miss intermediate state
+changes, even with `observe_distinct`. Represent required history explicitly in
+domain state or an application-owned event sink. Define storage and backpressure
+for that history separately.
+
+`wait_while` finishes when its initial or a later selected predicate is false.
+`send_and_wait_while` commits its action before registering that predicate.
+Both use coalesced state, so they can miss a transient false value. Use them
+for a state condition, not proof that every transition occurred or every task ended.
+Use the action's causal receipt for tracked work completion.
 
 ## TestStore
 
