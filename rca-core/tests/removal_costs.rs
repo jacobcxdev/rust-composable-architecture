@@ -67,7 +67,7 @@ macro_rules! assay {
         impl Feature for Root {
             type State = State;
             type Action = ();
-            fn reduce(
+            fn update(
                 &mut self,
                 state: &mut State,
                 _: &(),
@@ -83,13 +83,13 @@ macro_rules! assay {
         impl Feature for Parent {
             type State = Rows;
             type Action = ();
-            fn reduce(&mut self, _: &mut Rows, _: &(), _: &mut FeatureContext<'_, Rows, ()>) {}
+            fn update(&mut self, _: &mut Rows, _: &(), _: &mut FeatureContext<'_, Rows, ()>) {}
         }
         struct Child;
         impl Feature for Child {
             type State = ChildState;
             type Action = ();
-            fn reduce(
+            fn update(
                 &mut self,
                 _: &mut ChildState,
                 _: &(),
@@ -107,7 +107,7 @@ macro_rules! assay {
         impl Feature for Descendant {
             type State = ();
             type Action = ();
-            fn reduce(&mut self, _: &mut (), _: &(), _: &mut FeatureContext<'_, (), ()>) {}
+            fn update(&mut self, _: &mut (), _: &(), _: &mut FeatureContext<'_, (), ()>) {}
         }
 
         /// Runs the same cardinality and outcome matrix for this carrier.
@@ -143,7 +143,7 @@ macro_rules! assay {
             let sites = Arc::new(Mutex::new(None));
             let export = Arc::clone(&sites);
             let retired_feature = Arc::clone(&retired);
-            let (builder, parent_site) = Store::feature_builder(
+            let (builder, parent_site) = Store::builder(
                 State { parent: Some(rows) },
                 Root(identity),
                 Runtime::new(driver.clone()),
@@ -218,7 +218,7 @@ macro_rules! assay {
             let recovered_callback = Arc::clone(&recovered);
             // An output from another Store is a real public declaration, not a fake token.
             let foreign_driver = Driver::default();
-            let (foreign_builder, foreign_site) = Store::feature_builder(
+            let (foreign_builder, foreign_site) = Store::builder(
                 State {
                     parent: Some(Rows::new()),
                 },

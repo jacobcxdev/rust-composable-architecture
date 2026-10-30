@@ -147,7 +147,7 @@ struct Selected(Rc<i32>);
 impl Feature for Root {
     type State = State;
     type Action = ParentAction;
-    fn reduce(
+    fn update(
         &mut self,
         _: &mut State,
         _: &ParentAction,
@@ -159,7 +159,7 @@ impl Feature for Root {
 impl Feature for Child {
     type State = Cell<i32>;
     type Action = ChildAction;
-    fn reduce(
+    fn update(
         &mut self,
         state: &mut Cell<i32>,
         action: &ChildAction,
@@ -352,7 +352,7 @@ fn mixed_equal_and_changed_hooks_share_pairing_but_only_changed_work_gets_a_rout
             })
         },
     );
-    let (builder, site) = rca_core::Store::feature_builder(
+    let (builder, site) = rca_core::Store::builder(
         State {
             child: Some(Cell::new(4)),
         },
@@ -495,12 +495,12 @@ mod local {
     impl Feature for Root {
         type State = State;
         type Action = ();
-        fn reduce(&mut self, _: &mut State, (): &(), _: &mut FeatureContext<'_, State, ()>) {}
+        fn update(&mut self, _: &mut State, (): &(), _: &mut FeatureContext<'_, State, ()>) {}
     }
     impl Feature for Child {
         type State = Rc<Cell<i32>>;
         type Action = Rc<i32>;
-        fn reduce(
+        fn update(
             &mut self,
             state: &mut Self::State,
             action: &Self::Action,
@@ -573,7 +573,7 @@ mod local {
                     Task::run(|_| async {})
                 },
             );
-            let (builder, site) = Store::feature_builder(
+            let (builder, site) = Store::builder(
                 State(Some(Rc::new(Cell::new(4)))),
                 Root,
                 Runtime::new(driver.clone()),
@@ -666,7 +666,7 @@ mod local {
             } else {
                 mount.on_initial(|value| value.get(), factory)
             };
-            let store = Store::feature_builder(
+            let store = Store::builder(
                 State(Some(Rc::new(Cell::new(4)))),
                 Root,
                 Runtime::new(driver.clone()),
@@ -791,7 +791,7 @@ mod local {
                 })
             },
         );
-        let (builder, site) = Store::feature_builder(
+        let (builder, site) = Store::builder(
             State(Some(Rc::new(Cell::new(4)))),
             Root,
             Runtime::new(driver.clone()),

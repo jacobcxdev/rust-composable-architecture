@@ -391,11 +391,11 @@ mod request_tests {
 
         let mut host = Host::<(), Action, Shared>::new(
             (),
-            Box::new(crate::ReducerFeature::new(crate::Reduce::new(
+            Box::new(crate::Reduce::new(
                 |(): &mut (), _: &Action, _: &mut crate::ReduceContext<'_>| {
                     panic!("the capacity-blocked action must never enter user code")
                 },
-            ))),
+            )),
         );
         let mut cx = Context::from_waker(Waker::noop());
         let mut filler = Box::pin(host.context().read(|()| ()));
@@ -458,11 +458,11 @@ mod request_tests {
         for admitted in [false, true] {
             let mut host = Host::<usize, (), Shared>::new(
                 7,
-                Box::new(crate::ReducerFeature::new(crate::Reduce::new(
+                Box::new(crate::Reduce::new(
                     |_: &mut usize, (): &(), _: &mut crate::ReduceContext<'_>| {
                         crate::Effect::none()
                     },
-                ))),
+                )),
             );
             let calls = Arc::new(AtomicUsize::new(0));
             let drops = Arc::new(AtomicUsize::new(0));
@@ -516,11 +516,11 @@ mod request_tests {
 
         let mut host = Host::<(), Action, local::Local>::new(
             (),
-            Box::new(local::Driver(local::ReducerFeature::new(local::Reduce::new(
+            Box::new(local::Driver(local::Reduce::new(
                 |(): &mut (), _: &Action, _: &mut crate::ReduceContext<'_>| {
                     panic!("the capacity-blocked local action must never enter user code")
                 },
-            )))),
+            ))),
         );
         let mut cx = Context::from_waker(Waker::noop());
         let mut filler = Box::pin(host.context().read(|()| ()));
@@ -593,7 +593,7 @@ mod request_tests {
             let reduced = Rc::clone(&calls);
             let mut host = Host::<_, _, local::Local>::new(
                 Rc::new(Cell::new(0)),
-                Box::new(local::Driver(local::ReducerFeature::new(local::Reduce::new(
+                Box::new(local::Driver(local::Reduce::new(
                     move |state: &mut Rc<Cell<usize>>,
                           _: &Payload,
                           _: &mut crate::ReduceContext<'_>| {
@@ -601,7 +601,7 @@ mod request_tests {
                         state.set(state.get() + 3);
                         local::Effect::none()
                     },
-                )))),
+                ))),
             );
             let context = host.context();
             let owner = std::thread::current().id();

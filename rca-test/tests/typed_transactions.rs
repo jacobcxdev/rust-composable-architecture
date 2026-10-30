@@ -15,7 +15,7 @@ struct Updates;
 impl Feature for Updates {
     type State = usize;
     type Action = ();
-    fn reduce(&mut self, _: &mut usize, (): &(), context: &mut FeatureContext<'_, usize, ()>) {
+    fn update(&mut self, _: &mut usize, (): &(), context: &mut FeatureContext<'_, usize, ()>) {
         context.task(Task::<usize, ()>::run(|context| async move {
             let _ = context.update(|_| ()).await.unwrap();
             let _ = context.update(|state| *state += 1).await.unwrap();
@@ -26,7 +26,7 @@ impl Feature for Updates {
 #[test]
 fn no_op_update_requires_its_own_expectation_and_diagnostic_does_not_acknowledge() {
     block_on(async {
-        let mut store = TestStore::feature_builder(0, Updates).build();
+        let mut store = TestStore::builder(0, Updates).build();
         let task = store.send(()).await.unwrap();
 
         let pending = store
@@ -79,7 +79,7 @@ fn no_op_update_requires_its_own_expectation_and_diagnostic_does_not_acknowledge
 #[test]
 fn failed_update_comparison_keeps_first_boundary_and_independent_live_state() {
     block_on(async {
-        let mut store = TestStore::feature_builder(0, Updates).build();
+        let mut store = TestStore::builder(0, Updates).build();
         let task = store.send(()).await.unwrap();
         let panic = std::panic::AssertUnwindSafe(store.receive_update(|expected| *expected = 99))
             .catch_unwind()
@@ -127,7 +127,7 @@ fn cancelled_update_expectation_leaves_snapshot_and_capture_baselines_unchanged(
     }
 
     block_on(async {
-        let mut store = TestStore::feature_builder(0, Updates)
+        let mut store = TestStore::builder(0, Updates)
             .with_capture::<Count>(|state| Ok(*state))
             .unwrap()
             .build();
@@ -192,7 +192,7 @@ fn invalid_declared_update_expectation_keeps_the_typed_frontier_for_retry() {
     }
 
     block_on(async {
-        let mut store = TestStore::feature_builder(0, Updates)
+        let mut store = TestStore::builder(0, Updates)
             .with_capture::<Count>(|state| Ok(*state))
             .unwrap()
             .build();
@@ -243,7 +243,7 @@ fn changed_external_capture_blocks_update_before_expectations_and_keeps_prefligh
     block_on(async {
         let external = Arc::new(AtomicUsize::new(0));
         let observed = Arc::clone(&external);
-        let mut store = TestStore::feature_builder(0, Updates)
+        let mut store = TestStore::builder(0, Updates)
             .with_capture::<External>(move |_| Ok(observed.load(Ordering::SeqCst)))
             .unwrap()
             .build();

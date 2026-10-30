@@ -171,7 +171,7 @@ impl Feature for Parent {
     type State = RootState;
     type Action = RootAction;
 
-    fn reduce(
+    fn update(
         &mut self,
         state: &mut RootState,
         action: &RootAction,
@@ -186,7 +186,7 @@ impl Feature for Child {
     type State = Rc<Cell<usize>>;
     type Action = ChildAction;
 
-    fn reduce(
+    fn update(
         &mut self,
         _: &mut Self::State,
         action: &ChildAction,
@@ -217,14 +217,14 @@ fn local_remounted_output_keeps_ancestor_order_before_transform_and_consumption(
         let declarations = Rc::new(RefCell::new(Vec::new()));
         let recipe_trace = Rc::clone(&trace);
         let recipe_declarations = Rc::clone(&declarations);
-        let root = rca_core::local::ReducerFeature::new(rca_core::local::Reduce::new(
+        let root = rca_core::local::Reduce::new(
             |state: &mut State, present: &bool, _: &mut rca_core::ReduceContext<'_>| {
                 state.branch = present.then(|| Branch {
                     leaf: Rc::new(Cell::new(0)),
                 });
                 rca_core::local::Effect::none()
             },
-        ));
+        );
         let branch = OptionalMount::new(
             |state: &State| state.branch.as_ref(),
             |state: &mut State| state.branch.as_mut(),
@@ -236,14 +236,14 @@ fn local_remounted_output_keeps_ancestor_order_before_transform_and_consumption(
                 })
             },
             |_| {
-                rca_core::local::ReducerFeature::new(rca_core::local::Reduce::new(
+                rca_core::local::Reduce::new(
                     |_: &mut Branch, (): &(), _: &mut rca_core::ReduceContext<'_>| {
                         rca_core::local::Effect::none()
                     },
-                ))
+                )
             },
         );
-        let (builder, _) = Store::feature_builder(
+        let (builder, _) = Store::builder(
             State {
                 branch: Some(Branch {
                     leaf: Rc::new(Cell::new(0)),
@@ -416,7 +416,7 @@ fn public_local_child_output_keeps_rc_identity_and_owner_local_captures() {
         },
         |_| Child,
     );
-    let (builder, source) = Store::feature_builder(
+    let (builder, source) = Store::builder(
         RootState {
             child: Some(Rc::new(Cell::new(7))),
             outcome: None,
@@ -518,7 +518,7 @@ fn gated_with_handler(
         },
         |_| Child,
     );
-    let (builder, source) = Store::feature_builder(
+    let (builder, source) = Store::builder(
         RootState {
             child: Some(Rc::new(Cell::new(7))),
             outcome: None,
@@ -761,7 +761,7 @@ fn unbuilt_local_output_returns_original_without_entering_captured_handler() {
         },
         |_| Child,
     );
-    let (builder, source) = Store::feature_builder(
+    let (builder, source) = Store::builder(
         RootState {
             child: Some(Rc::new(Cell::new(7))),
             outcome: None,
@@ -941,7 +941,7 @@ fn local_output_rejects_wrong_declaration_root_and_scope_before_admission() {
             |_| Child,
         )
     };
-    let (builder, source) = Store::feature_builder(
+    let (builder, source) = Store::builder(
         RootState {
             child: Some(Rc::clone(&child)),
             outcome: None,
@@ -967,7 +967,7 @@ fn local_output_rejects_wrong_declaration_root_and_scope_before_admission() {
             OutputFlow::Consumed
         });
     });
-    let (unbuilt_builder, unbuilt_site) = Store::feature_builder(
+    let (unbuilt_builder, unbuilt_site) = Store::builder(
         RootState {
             child: Some(Rc::clone(&child)),
             outcome: None,
@@ -986,7 +986,7 @@ fn local_output_rejects_wrong_declaration_root_and_scope_before_admission() {
     });
     let store = builder.build().unwrap();
     let observed = Rc::clone(&other_calls);
-    let (builder, wrong_root) = Store::feature_builder(
+    let (builder, wrong_root) = Store::builder(
         RootState {
             child: None,
             outcome: None,
@@ -1121,7 +1121,7 @@ fn local_retired_handler_registration_is_skipped_without_releasing_its_capture()
         )
     };
     let retired_child = Rc::new(Cell::new(11));
-    let (builder, retired_site) = Store::feature_builder(
+    let (builder, retired_site) = Store::builder(
         RootState {
             child: Some(Rc::clone(&retired_child)),
             outcome: None,
@@ -1144,7 +1144,7 @@ fn local_retired_handler_registration_is_skipped_without_releasing_its_capture()
     );
     drop(retired_context);
 
-    let (builder, source) = Store::feature_builder(
+    let (builder, source) = Store::builder(
         RootState {
             child: Some(Rc::new(Cell::new(7))),
             outcome: None,
@@ -1316,7 +1316,7 @@ fn local_shutdown_inside_matcher_restores_rc_and_reserves_attachment() {
             assert_eq!(Rc::as_ptr(&value.value), identity);
             assert_eq!(drops.get(), 0);
             assert_eq!(fixture.gate.boundary(), Some(boundary));
-            Store::feature_builder(
+            Store::builder(
                 RootState {
                     child: None,
                     outcome: None,
@@ -1350,7 +1350,7 @@ fn local_shutdown_inside_matcher_restores_rc_and_reserves_attachment() {
     );
     assert!(fixture.gate.acknowledge_terminal(&terminal_boundary));
     assert_eq!(fixture.gate.boundary(), None);
-    let replacement = Store::feature_builder(
+    let replacement = Store::builder(
         RootState {
             child: None,
             outcome: None,
@@ -1631,7 +1631,7 @@ struct NestedParentFeature;
 impl Feature for NestedRootFeature {
     type State = NestedRoot;
     type Action = RootAction;
-    fn reduce(
+    fn update(
         &mut self,
         state: &mut NestedRoot,
         _: &RootAction,
@@ -1646,7 +1646,7 @@ impl Feature for NestedRootFeature {
 impl Feature for NestedParentFeature {
     type State = NestedParent;
     type Action = u8;
-    fn reduce(
+    fn update(
         &mut self,
         _: &mut NestedParent,
         _: &u8,
@@ -1663,7 +1663,7 @@ struct RetireNestedChild;
 impl Feature for RetireNestedChild {
     type State = NestedRoot;
     type Action = RootAction;
-    fn reduce(
+    fn update(
         &mut self,
         state: &mut NestedRoot,
         _: &RootAction,
@@ -1688,7 +1688,7 @@ fn local_queued_output_returns_original_when_only_its_child_owner_retires() {
     let recipe_outputs = Rc::clone(&outputs);
     let recipe_captures = Rc::clone(&captures);
     let recipe_calls = Rc::clone(&calls);
-    let (builder, parent_site) = Store::feature_builder(
+    let (builder, parent_site) = Store::builder(
         NestedRoot {
             parent: Some(NestedParent(Some(Rc::new(Cell::new(7))))),
             epoch: 0,
@@ -1881,7 +1881,7 @@ fn local_continuing_handler_removes_later_ancestor_route_and_returns_original_ou
     let recipe_outputs = Rc::clone(&outputs);
     let callbacks = Rc::clone(&trace);
     let operation_calls = Rc::clone(&operations);
-    let (builder, _parent) = Store::feature_builder(
+    let (builder, _parent) = Store::builder(
         NestedRoot {
             parent: Some(NestedParent(Some(Rc::new(Cell::new(7))))),
             epoch: 0,
@@ -2031,7 +2031,7 @@ fn local_parent_replacement_drains_captures_before_successor_with_weak_outputs_r
     let recipe_sources = std::rc::Rc::clone(&sources);
     let recipe_outputs = std::rc::Rc::clone(&outputs);
     let recipe_captures = std::rc::Rc::clone(&captures);
-    let (builder, _parent) = Store::feature_builder(
+    let (builder, _parent) = Store::builder(
         NestedRoot {
             parent: Some(NestedParent(Some(Rc::new(Cell::new(7))))),
             epoch: 0,
@@ -2218,13 +2218,13 @@ fn local_output_skips_foreign_handler_while_its_feature_is_being_destroyed() {
         type State = <Child as Feature>::State;
         type Action = <Child as Feature>::Action;
 
-        fn reduce(
+        fn update(
             &mut self,
             state: &mut Self::State,
             action: &Self::Action,
             context: &mut FeatureContext<'_, Self::State, Self::Action>,
         ) {
-            Child.reduce(state, action, context);
+            Child.update(state, action, context);
         }
     }
 
@@ -2243,7 +2243,7 @@ fn local_output_skips_foreign_handler_while_its_feature_is_being_destroyed() {
     let drop_phase = Rc::clone(&phase);
     let declaration_capture = Rc::new(());
     let declaration_alive = Rc::downgrade(&declaration_capture);
-    let (builder, foreign_site) = Store::feature_builder(
+    let (builder, foreign_site) = Store::builder(
         RootState {
             child: Some(Rc::new(Cell::new(11))),
             outcome: None,
@@ -2272,7 +2272,7 @@ fn local_output_skips_foreign_handler_while_its_feature_is_being_destroyed() {
     let foreign = builder.build().unwrap();
     foreign_driver.finish(foreign.ready()).unwrap();
 
-    let (builder, source) = Store::feature_builder(
+    let (builder, source) = Store::builder(
         RootState {
             child: Some(Rc::new(Cell::new(7))),
             outcome: None,

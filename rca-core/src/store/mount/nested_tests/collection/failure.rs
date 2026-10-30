@@ -97,7 +97,7 @@ struct FaultFeature {
 impl Feature for FaultFeature {
     type State = FaultRow;
     type Action = EntryAction;
-    fn reduce(
+    fn update(
         &mut self,
         _: &mut FaultRow,
         _: &EntryAction,
@@ -118,7 +118,7 @@ struct FaultChild {
 impl Feature for FaultChild {
     type State = usize;
     type Action = DetailAction;
-    fn reduce(
+    fn update(
         &mut self,
         _: &mut usize,
         _: &DetailAction,

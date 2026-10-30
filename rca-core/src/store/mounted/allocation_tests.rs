@@ -31,7 +31,7 @@ struct Child(Cell<usize>);
 impl Feature for Child {
     type State = usize;
     type Action = usize;
-    fn reduce(
+    fn update(
         &mut self,
         state: &mut usize,
         action: &usize,
@@ -51,7 +51,7 @@ struct LocalChild(std::rc::Rc<Cell<usize>>);
 impl local::Feature for LocalChild {
     type State = usize;
     type Action = usize;
-    fn reduce(
+    fn update(
         &mut self,
         state: &mut usize,
         action: &usize,
@@ -132,6 +132,13 @@ pub(crate) fn mounted_storage_and_work_costs() {
     if crate::allocation_test::run_in_child(NAME) {
         return;
     }
+
+    // The critical-section backend lazily allocates a process-global mutex.
+    // Initialise it separately so measured controls keep cold per-object storage.
+    let warm_control = ControlWake::new();
+    warm_control.notify();
+    drop(warm_control);
+
     let profiler = dhat::Profiler::builder().testing().build();
     let mut dependencies = DependencyValues::new();
     let (_scopes_lifecycle, mut scopes) = ScopeRegistry::for_test();
@@ -573,7 +580,7 @@ mod route_cost {
     impl Feature for RouteFeature {
         type State = usize;
         type Action = u8;
-        fn reduce(&mut self, _: &mut usize, _: &u8, _: &mut FeatureContext<'_, usize, u8>) {}
+        fn update(&mut self, _: &mut usize, _: &u8, _: &mut FeatureContext<'_, usize, u8>) {}
     }
 
     #[expect(

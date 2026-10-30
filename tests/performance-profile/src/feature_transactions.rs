@@ -141,7 +141,7 @@ struct RootFeature {
 impl Feature for RootFeature {
     type State = State;
     type Action = RootAction;
-    fn reduce(
+    fn update(
         &mut self,
         state: &mut State,
         _: &RootAction,
@@ -159,7 +159,7 @@ struct ChildFeature(Cache);
 impl Feature for ChildFeature {
     type State = ChildState;
     type Action = ChildAction;
-    fn reduce(
+    fn update(
         &mut self,
         state: &mut ChildState,
         _: &ChildAction,

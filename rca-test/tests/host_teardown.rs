@@ -172,7 +172,7 @@ mod test_store_abort {
         type State = CountedState;
         type Action = bool;
 
-        fn reduce(
+        fn update(
             &mut self,
             _: &mut CountedState,
             action: &bool,
@@ -204,7 +204,7 @@ mod test_store_abort {
     fn abort_wake_panic_still_discards_scheduler_owned_actor() {
         let drops = Arc::new(AtomicUsize::new(0));
         let exported = Arc::new(OnceLock::new());
-        let mut store = TestStore::projected_feature_builder(
+        let mut store = TestStore::projected_builder(
             CountedState(Arc::clone(&drops)),
             ExportContext(Arc::clone(&exported)),
             |_| 0_u8,

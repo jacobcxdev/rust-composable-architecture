@@ -96,6 +96,106 @@ impl Reducer for Feature {
     }
 }
 
+#[test]
+fn projected_accepts_a_feature_with_owner_local_task_captures() {
+    struct State {
+        value: usize,
+        owner: Rc<()>,
+    }
+
+    struct Work;
+
+    impl rca_core::local::Feature for Work {
+        type State = State;
+        type Action = ();
+
+        fn update(
+            &mut self,
+            state: &mut State,
+            (): &(),
+            context: &mut rca_core::local::FeatureContext<'_, State, ()>,
+        ) {
+            let owner = Rc::clone(&state.owner);
+            context.task(rca_core::local::Task::run(move |context| async move {
+                context
+                    .update(move |state: &mut State| {
+                        assert!(Rc::ptr_eq(&state.owner, &owner));
+                        state.value += 1;
+                    })
+                    .await
+                    .unwrap();
+            }));
+        }
+    }
+
+    futures_executor::block_on(async {
+        let mut store = TestStore::projected(
+            State {
+                value: 0,
+                owner: Rc::new(()),
+            },
+            Work,
+            |state| state.value,
+        );
+        let task = store.send(()).await.unwrap();
+
+        let _ = store
+            .receive_update(|expected| *expected = 1)
+            .await
+            .unwrap();
+
+        task.finish().await.unwrap();
+        store.finish().await.unwrap();
+    });
+}
+
+#[test]
+fn policy_constructors_accept_a_feature_with_owner_local_captures() {
+    /// Records each mutation without requiring a thread-safe capture.
+    struct Counter(Rc<Cell<usize>>);
+
+    impl rca_core::local::Feature for Counter {
+        type State = usize;
+        type Action = ();
+
+        fn update(
+            &mut self,
+            state: &mut usize,
+            (): &(),
+            _: &mut rca_core::local::FeatureContext<'_, usize, ()>,
+        ) {
+            self.0.set(self.0.get() + 1);
+            *state += 1;
+        }
+    }
+
+    futures_executor::block_on(async {
+        let calls = Rc::new(Cell::new(0));
+        let stores = [
+            TestStore::with_exhaustivity(
+                0,
+                Counter(Rc::clone(&calls)),
+                Exhaustivity::NonExhaustive,
+            ),
+            TestStore::with_step_budget(0, Counter(Rc::clone(&calls)), 64),
+            TestStore::with_exhaustivity_and_step_budget(
+                0,
+                Counter(Rc::clone(&calls)),
+                Exhaustivity::Exhaustive,
+                64,
+            ),
+        ];
+
+        for (index, mut store) in stores.into_iter().enumerate() {
+            let task = store.send_with((), |expected| *expected = 1).await.unwrap();
+            assert_eq!(calls.get(), index + 1);
+
+            task.finish().await.unwrap();
+            store.finish().await.unwrap();
+        }
+    });
+}
+
 /// Polls a finite fixture operation without advancing time.
 ///
 /// # Panics

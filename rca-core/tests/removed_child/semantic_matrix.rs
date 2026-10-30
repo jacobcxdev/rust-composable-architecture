@@ -132,17 +132,17 @@ struct Leaf(DropWatch);
 impl Feature for RootFeature {
     type State = Root;
     type Action = ();
-    fn reduce(&mut self, _: &mut Root, (): &(), _: &mut FeatureContext<'_, Root, ()>) {}
+    fn update(&mut self, _: &mut Root, (): &(), _: &mut FeatureContext<'_, Root, ()>) {}
 }
 impl Feature for ParentFeature {
     type State = Parent;
     type Action = ();
-    fn reduce(&mut self, _: &mut Parent, (): &(), _: &mut FeatureContext<'_, Parent, ()>) {}
+    fn update(&mut self, _: &mut Parent, (): &(), _: &mut FeatureContext<'_, Parent, ()>) {}
 }
 impl Feature for Leaf {
     type State = Value;
     type Action = ();
-    fn reduce(&mut self, _: &mut Value, (): &(), _: &mut FeatureContext<'_, Value, ()>) {
+    fn update(&mut self, _: &mut Value, (): &(), _: &mut FeatureContext<'_, Value, ()>) {
         let _ = &self.0;
     }
 }
@@ -242,7 +242,7 @@ fn fixture() -> Fixture {
     let owner_output = Arc::new(Mutex::new(None));
     let export_output = Arc::clone(&owner_output);
     let feature_drops = Arc::clone(&features);
-    let (builder, parent_site) = Store::feature_builder(
+    let (builder, parent_site) = Store::builder(
         Root {
             parent: Some(Parent {
                 rows,
@@ -541,7 +541,7 @@ mod endpoint_validation {
     impl Feature for RootFeature {
         type State = Root;
         type Action = ();
-        fn reduce(&mut self, state: &mut Root, (): &(), _: &mut FeatureContext<'_, Root, ()>) {
+        fn update(&mut self, state: &mut Root, (): &(), _: &mut FeatureContext<'_, Root, ()>) {
             state.fixed = None;
             state.keyed = KeyedState::new();
         }
@@ -549,7 +549,7 @@ mod endpoint_validation {
     impl Feature for ParentFeature {
         type State = Parent;
         type Action = ();
-        fn reduce(&mut self, _: &mut Parent, (): &(), _: &mut FeatureContext<'_, Parent, ()>) {}
+        fn update(&mut self, _: &mut Parent, (): &(), _: &mut FeatureContext<'_, Parent, ()>) {}
     }
     /// Associates each exported mount and removal site with its actual owner.
     struct Sites {
@@ -654,7 +654,7 @@ mod endpoint_validation {
                     },
                 );
             };
-        let (builder, _) = Store::feature_builder(
+        let (builder, _) = Store::builder(
             Root {
                 live: Some(parent(1)),
                 fixed: Some(parent(2)),
@@ -1151,7 +1151,7 @@ fn uninstalled_output_rejection(drop_declaration: bool) {
     let f = fixture();
     let handler_drops = Arc::new(AtomicUsize::new(0));
     let handler_capture = DropWatch(Arc::clone(&handler_drops));
-    let (builder, output) = Store::feature_builder(
+    let (builder, output) = Store::builder(
         Root {
             parent: None,
             select: Arc::new(AtomicUsize::new(0)),

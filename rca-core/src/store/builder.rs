@@ -15,7 +15,7 @@ use super::command::Command;
 use super::ingress::CommandIngress;
 use super::{Actor, Lifecycle, Store};
 use crate::effect::lineage::ControlWake;
-use crate::{DependencyKey, DependencyValues, Reducer, Runtime, StoreBuildError};
+use crate::{DependencyKey, DependencyValues, Feature, Runtime, StoreBuildError};
 
 /// Default number of waiting Store commands.
 pub const DEFAULT_MAILBOX_CAPACITY: usize = 256;
@@ -25,11 +25,11 @@ pub(super) const DEFAULT_NONZERO_MAILBOX_CAPACITY: NonZeroUsize =
     NonZeroUsize::new(DEFAULT_MAILBOX_CAPACITY).expect("default mailbox capacity must be non-zero");
 
 /// Configures actor-backed Store construction.
-pub struct StoreBuilder<State, Action, R> {
+pub struct StoreBuilder<State, Action, F> {
     /// Initial state, transferred to the actor only after validation.
     state: State,
-    /// Owned reducer or typed feature, wrapped after validation.
-    reducer: R,
+    /// Owned feature, boxed only after validation.
+    feature: F,
     /// Host that receives the actor future and supplies its runtime services.
     runtime: Runtime,
     /// Owned overrides and defaults shared by reducer and task dependency lookups.
@@ -54,18 +54,22 @@ pub struct StoreBuilder<State, Action, R> {
     /// Typed frontier controller, claimed only after mailbox validation succeeds.
     #[cfg(feature = "test-util")]
     transaction_gate: Option<crate::testing::TransactionGate<State, Action>>,
+    /// Root lifecycle declaration appended after explicit child and output declarations.
+    root_mount: Option<Box<dyn super::mount::MountDeclaration<State, Action> + Send>>,
+    /// Shared root registration created only for removal or root-sourced output.
+    removal_root: Option<Arc<super::removal::root::RootRegistration<State, Action>>>,
 }
 
-impl<State, Action, R> StoreBuilder<State, Action, R>
+impl<State, Action, F> StoreBuilder<State, Action, F>
 where
     State: Send + 'static,
     Action: Send + 'static,
 {
-    /// Retains construction inputs without wrapping behaviour or spawning an actor.
-    pub(crate) fn new(state: State, reducer: R, runtime: Runtime) -> Self {
+    /// Retains construction inputs without root metadata, boxing or actor creation.
+    pub(crate) fn new(state: State, feature: F, runtime: Runtime) -> Self {
         Self {
             state,
-            reducer,
+            feature,
             runtime,
             dependencies: DependencyValues::new(),
             issues: crate::IssueReporter::default(),
@@ -79,21 +83,22 @@ where
             assertion_gate: None,
             #[cfg(feature = "test-util")]
             transaction_gate: None,
+            root_mount: None,
+            removal_root: None,
         }
     }
 
     /// Uses the compile-time-checked capacity and no deterministic test gates.
-    pub(super) fn build_default(state: State, reducer: R, runtime: Runtime) -> Store<State, Action>
+    pub(super) fn build_default(state: State, feature: F, runtime: Runtime) -> Store<State, Action>
     where
-        R: Reducer<State = State, Action = Action> + Send + 'static,
+        F: Feature<State = State, Action = Action> + Send + 'static,
     {
-        Self::new(state, reducer, runtime).build_with_capacity(
+        Self::new(state, feature, runtime).build_with_capacity(
             DEFAULT_NONZERO_MAILBOX_CAPACITY,
             #[cfg(feature = "test-util")]
             None,
             #[cfg(feature = "test-util")]
             None,
-            |reducer| Box::new(crate::ReducerFeature::new(reducer)),
         )
     }
 
@@ -122,21 +127,6 @@ where
     ) -> Self {
         self.lifecycle_sink = Some(Box::new(sink));
         self
-    }
-
-    /// Attaches a typed declaration for the deterministic testing adapter.
-    #[cfg(feature = "test-util")]
-    #[doc(hidden)]
-    #[must_use]
-    pub fn mount<Child, K>(self, descriptor: super::mount::OptionalMount<State, Child, K>) -> Self
-    where
-        Child: crate::Feature + Send + 'static,
-        Child::State: Send + 'static,
-        Child::Action: Send + 'static,
-        K: Eq + std::hash::Hash + Clone + Send + Sync + 'static,
-    {
-        let (attach, _) = Self::defer_mount(descriptor);
-        attach(self)
     }
 
     /// Prepares one production declaration for deferred deterministic builder attachment.
@@ -360,7 +350,7 @@ where
 
     /// Validates configuration and spawns one Store actor.
     ///
-    /// Validation finishes before the reducer is wrapped or passed to the runtime.
+    /// Validation finishes before the feature is boxed or passed to the runtime.
     ///
     /// # Errors
     ///
@@ -370,27 +360,13 @@ where
     /// # Panics
     ///
     /// Propagates panics from the runtime driver or captures discarded during gate attachment.
-    pub fn build(self) -> Result<Store<State, Action>, StoreBuildError>
+    pub fn build(mut self) -> Result<Store<State, Action>, StoreBuildError>
     where
-        R: Reducer<State = State, Action = Action> + Send + 'static,
+        F: Feature<State = State, Action = Action> + Send + 'static,
     {
-        self.build_using(|reducer| Box::new(crate::ReducerFeature::new(reducer)))
-    }
-
-    /// Validates capacity and claims the selected gate before wrapping owned behaviour.
-    fn build_using(
-        self,
-        driver: impl FnOnce(
-            R,
-        ) -> Box<
-            dyn crate::feature::ReduceDriver<
-                    State,
-                    Action,
-                    Effect = crate::Effect<Action>,
-                    Task = crate::Task<State, Action>,
-                > + Send,
-        >,
-    ) -> Result<Store<State, Action>, StoreBuildError> {
+        if let Some(root) = self.root_mount.take() {
+            self.mounts.push(root);
+        }
         let Some(mailbox_capacity) = NonZeroUsize::new(self.mailbox_capacity) else {
             return Err(StoreBuildError::zero_capacity());
         };
@@ -412,35 +388,7 @@ where
             assertion_gate,
             #[cfg(feature = "test-util")]
             transaction_gate,
-            driver,
         ))
-    }
-
-    /// Constructs a typed feature builder for deterministic test integration.
-    #[doc(hidden)]
-    pub fn feature(state: State, feature: R, runtime: Runtime) -> Self
-    where
-        R: crate::Feature<State = State, Action = Action> + Send + 'static,
-    {
-        Self::new(state, feature, runtime)
-    }
-
-    /// Builds a typed feature through the same validated actor construction.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`StoreBuildError`] for zero capacity or a test gate that is
-    /// attached or reserved by unfinished work.
-    ///
-    /// # Panics
-    ///
-    /// Propagates panics from the runtime driver or captures discarded during gate attachment.
-    #[doc(hidden)]
-    pub fn build_feature(self) -> Result<Store<State, Action>, StoreBuildError>
-    where
-        R: crate::Feature<State = State, Action = Action> + Send + 'static,
-    {
-        self.build_using(|feature| Box::new(feature))
     }
 
     /// Transfers validated inputs and claimed gates into one spawned actor.
@@ -453,20 +401,13 @@ where
         #[cfg(feature = "test-util")] transaction_gate: Option<
             crate::testing::TransactionGateBinding<State, Action>,
         >,
-        driver: impl FnOnce(
-            R,
-        ) -> Box<
-            dyn crate::feature::ReduceDriver<
-                    State,
-                    Action,
-                    Effect = crate::Effect<Action>,
-                    Task = crate::Task<State, Action>,
-                > + Send,
-        >,
-    ) -> Store<State, Action> {
+    ) -> Store<State, Action>
+    where
+        F: Feature<State = State, Action = Action> + Send + 'static,
+    {
         let (actor, ingress, lifecycle) = prepare_actor::<State, Action, Shared>(
             self.state,
-            driver(self.reducer),
+            Box::new(self.feature),
             self.runtime.clone(),
             self.dependencies,
             self.issues,
@@ -553,7 +494,7 @@ pub(super) fn prepare_actor<S: 'static, A: 'static, C: Execution<S, A> + 'static
     (actor, ingress, lifecycle)
 }
 
-impl<State, Action, R> fmt::Debug for StoreBuilder<State, Action, R> {
+impl<State, Action, F> fmt::Debug for StoreBuilder<State, Action, F> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("StoreBuilder")
             .field("runtime", &self.runtime)
@@ -562,21 +503,11 @@ impl<State, Action, R> fmt::Debug for StoreBuilder<State, Action, R> {
     }
 }
 
-/// Configures a typed feature using the ordinary Store construction path.
-pub struct FeatureStoreBuilder<S, A, F> {
-    /// Common configuration and owned feature, using the reducer builder's validation path.
-    inner: StoreBuilder<S, A, F>,
-    /// Root lifecycle declaration appended after explicit child and output declarations.
-    root_mount: Option<Box<dyn super::mount::MountDeclaration<S, A> + Send>>,
-    /// Lazily shared root registration for removal and root-sourced output declarations.
-    removal_root: Option<Arc<super::removal::root::RootRegistration<S, A>>>,
-}
-
 impl<
     S: Send + 'static,
     A: Send + 'static,
     F: crate::Feature<State = S, Action = A> + Send + 'static,
-> FeatureStoreBuilder<S, A, F>
+> StoreBuilder<S, A, F>
 {
     /// Attaches an optional child without retaining an acquisition site.
     #[cfg(test)]
@@ -584,7 +515,7 @@ impl<
         mut self,
         owner: Box<dyn super::mount::MountDeclaration<S, A> + Send>,
     ) -> Self {
-        self.inner.mounts.push(owner);
+        self.mounts.push(owner);
         self
     }
 
@@ -603,7 +534,7 @@ impl<
         configure: impl FnOnce(&mut super::output::OutputHandlers<S, A, O>),
     ) -> (Self, super::output::Output<O>) {
         let (owner, output) = super::output::attach(source.output_registration(), configure);
-        self.inner.mounts.push(owner);
+        self.mounts.push(owner);
         (self, output)
     }
 
@@ -611,8 +542,7 @@ impl<
     fn removal_root(&mut self) -> Arc<super::removal::root::RootRegistration<S, A>> {
         Arc::clone(self.removal_root.get_or_insert_with(|| {
             let registration = super::removal::root::RootRegistration::new();
-            self.inner
-                .mounts
+            self.mounts
                 .push(Box::new(super::removal::root::RootOwner(Arc::clone(
                     &registration,
                 ))));
@@ -635,7 +565,7 @@ impl<
     ) -> (Self, super::output::Output<O>) {
         let source: Arc<dyn super::output::OutputRegistration> = self.removal_root();
         let (owner, output) = super::output::attach(Arc::downgrade(&source), configure);
-        self.inner.mounts.push(owner);
+        self.mounts.push(owner);
         (self, output)
     }
 
@@ -669,7 +599,7 @@ impl<
         let root = self.removal_root();
         let (owner, site) = super::mount::attach_owned_optional(read, write, identity, make);
         let removal = super::removal::root_optional(&root, site.output_registration(), write);
-        self.inner.mounts.push(owner);
+        self.mounts.push(owner);
         (self, site, removal)
     }
 
@@ -700,7 +630,7 @@ impl<
         K: Eq + std::hash::Hash + Clone + Send + Sync + 'static,
     {
         let (declaration, site) = super::mount::attach(descriptor);
-        self.inner.mounts.push(declaration);
+        self.mounts.push(declaration);
         (self, site)
     }
 
@@ -724,7 +654,7 @@ impl<
         K: Eq + std::hash::Hash + Clone + Send + Sync + 'static,
     {
         let (owner, site) = super::mount::children::attach(descriptor, recipe);
-        self.inner.mounts.push(owner);
+        self.mounts.push(owner);
         (self, site)
     }
 
@@ -769,7 +699,7 @@ impl<
                 )
             },
         );
-        self.inner.mounts.push(Box::new(owner));
+        self.mounts.push(Box::new(owner));
         self
     }
 
@@ -808,7 +738,7 @@ impl<
                 (entry, Some(recipe))
             },
         );
-        self.inner.mounts.push(Box::new(owner));
+        self.mounts.push(Box::new(owner));
         self
     }
 
@@ -841,7 +771,7 @@ impl<
             0,
             make,
         );
-        self.inner.mounts.push(Box::new(owner));
+        self.mounts.push(Box::new(owner));
         self
     }
 
@@ -875,7 +805,7 @@ impl<
             0,
             make,
         );
-        self.inner.mounts.push(Box::new(owner));
+        self.mounts.push(Box::new(owner));
         self
     }
 
@@ -905,7 +835,7 @@ impl<
     {
         let (declaration, site, command_site) =
             super::mount::attach_command(descriptor, mapper, super::mounted::InputClass::Ordinary);
-        self.inner.mounts.push(declaration);
+        self.mounts.push(declaration);
         (self, site, command_site)
     }
 
@@ -935,17 +865,8 @@ impl<
     {
         let (declaration, site, command_site) =
             super::mount::attach_command(descriptor, mapper, super::mounted::InputClass::Control);
-        self.inner.mounts.push(declaration);
+        self.mounts.push(declaration);
         (self, site, command_site)
-    }
-
-    /// Retains the feature and configuration without creating root metadata or an actor.
-    pub(crate) fn new(state: S, feature: F, runtime: Runtime) -> Self {
-        Self {
-            inner: StoreBuilder::new(state, feature, runtime),
-            root_mount: None,
-            removal_root: None,
-        }
     }
 
     /// Retains the root lifecycle declaration for attachment after explicit declarations.
@@ -955,102 +876,5 @@ impl<
     ) -> Self {
         self.root_mount = Some(mount);
         self
-    }
-
-    /// Installs the same typed deterministic frontier used by TestStore.
-    ///
-    /// Claims the gate only during construction. See [`StoreBuilder::transaction_gate`].
-    #[cfg(feature = "test-util")]
-    #[doc(hidden)]
-    #[must_use]
-    pub fn transaction_gate(mut self, gate: crate::testing::TransactionGate<S, A>) -> Self {
-        self.inner = self.inner.transaction_gate(gate);
-        self
-    }
-
-    /// Sets bounded command capacity.
-    ///
-    /// Uses [`StoreBuilder::mailbox_capacity`] defaults and validation timing.
-    #[must_use]
-    pub fn mailbox_capacity(mut self, capacity: usize) -> Self {
-        self.inner = self.inner.mailbox_capacity(capacity);
-        self
-    }
-
-    /// Overrides one Store-owned dependency.
-    #[must_use]
-    pub fn with_dependency<K: DependencyKey>(mut self, value: K::Value) -> Self {
-        self.inner = self.inner.with_dependency::<K>(value);
-        self
-    }
-
-    /// Observes lifecycle facts synchronously on this Feature's actor.
-    ///
-    /// Uses [`StoreBuilder::with_lifecycle_diagnostics`] semantics, without
-    /// requiring State, Action or Feature values to implement `Debug` or `Clone`.
-    #[cfg(feature = "diagnostics")]
-    #[must_use]
-    pub fn with_lifecycle_diagnostics(
-        mut self,
-        sink: impl FnMut(&crate::diagnostics::LifecycleEvent) + Send + 'static,
-    ) -> Self {
-        self.inner = self.inner.with_lifecycle_diagnostics(sink);
-        self
-    }
-
-    /// Replaces the owned dependency environment.
-    ///
-    /// Uses [`StoreBuilder::with_dependency_values`] replacement and ordering semantics.
-    #[must_use]
-    pub fn with_dependency_values(mut self, values: DependencyValues) -> Self {
-        self.inner = self.inner.with_dependency_values(values);
-        self
-    }
-
-    /// Enables Store-local reporting outside internal locks.
-    ///
-    /// Uses [`StoreBuilder::with_issue_handler`] replacement and recorder semantics.
-    #[must_use]
-    pub fn with_issue_handler(
-        mut self,
-        handler: impl Fn(&crate::Issue) + Send + Sync + 'static,
-    ) -> Self {
-        self.inner = self.inner.with_issue_handler(handler);
-        self
-    }
-
-    /// Validates configuration and starts the shared Store actor.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`StoreBuildError`] for zero capacity or a transaction gate that is
-    /// attached or reserved by unfinished work. A failed build drops its owned inputs.
-    ///
-    /// # Panics
-    ///
-    /// Propagates panics from the runtime driver or captures discarded during gate attachment.
-    pub fn build(mut self) -> Result<Store<S, A>, StoreBuildError> {
-        if let Some(root) = self.root_mount.take() {
-            self.inner.mounts.push(root);
-        }
-        self.inner.build_using(|feature| Box::new(feature))
-    }
-
-    /// Uses the compile-time-checked capacity without mount declarations or test gates.
-    pub(super) fn build_default(state: S, feature: F, runtime: Runtime) -> Store<S, A> {
-        StoreBuilder::new(state, feature, runtime).build_with_capacity(
-            DEFAULT_NONZERO_MAILBOX_CAPACITY,
-            #[cfg(feature = "test-util")]
-            None,
-            #[cfg(feature = "test-util")]
-            None,
-            |feature| Box::new(feature),
-        )
-    }
-}
-
-impl<S, A, F> fmt::Debug for FeatureStoreBuilder<S, A, F> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.inner.fmt(f)
     }
 }

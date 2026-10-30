@@ -60,7 +60,7 @@ struct Root;
 impl Feature for Root {
     type State = State;
     type Action = RootAction;
-    fn reduce(
+    fn update(
         &mut self,
         state: &mut State,
         action: &RootAction,
@@ -76,7 +76,7 @@ struct Branch(Cell<usize>);
 impl Feature for Branch {
     type State = BranchState;
     type Action = bool;
-    fn reduce(
+    fn update(
         &mut self,
         _: &mut BranchState,
         _: &bool,
@@ -106,7 +106,7 @@ struct Inner {
 impl Feature for Inner {
     type State = InnerState;
     type Action = u16;
-    fn reduce(&mut self, _: &mut InnerState, _: &u16, _: &mut FeatureContext<'_, InnerState, u16>) {
+    fn update(&mut self, _: &mut InnerState, _: &u16, _: &mut FeatureContext<'_, InnerState, u16>) {
         self.cache.set(self.cache.get() + 1);
     }
 }
@@ -123,7 +123,7 @@ struct Leaf {
 impl Feature for Leaf {
     type State = Cell<usize>;
     type Action = LeafAction;
-    fn reduce(
+    fn update(
         &mut self,
         state: &mut Cell<usize>,
         action: &LeafAction,
@@ -199,7 +199,7 @@ fn fixture(driver: &Driver, close_after_leaf_recipe: bool) -> Fixture {
     let saved_sites = std::sync::Arc::clone(&sites);
     let recipe_counts = std::sync::Arc::clone(&counts);
     let recipe_closing = std::sync::Arc::clone(&closing);
-    let (builder, _) = Store::feature_builder(
+    let (builder, _) = Store::builder(
         State {
             branch: Some(BranchState {
                 inner: Some(InnerState {
@@ -520,7 +520,7 @@ fn initial_order_finishes_each_sibling_subtree_before_the_next_and_root() {
     impl Feature for ForestRoot {
         type State = Forest;
         type Action = ();
-        fn reduce(&mut self, _: &mut Forest, (): &(), _: &mut FeatureContext<'_, Forest, ()>) {}
+        fn update(&mut self, _: &mut Forest, (): &(), _: &mut FeatureContext<'_, Forest, ()>) {}
     }
     type ReadyCheck =
         std::pin::Pin<Box<dyn Future<Output = Result<(), rca_core::TaskAccessError>> + Send>>;

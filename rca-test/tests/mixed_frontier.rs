@@ -21,7 +21,7 @@ macro_rules! mixed_frontier {
         impl Feature for Root {
             type State = State;
             type Action = ();
-            fn reduce(&mut self, _: &mut State, _: &(), _: &mut FeatureContext<'_, State, ()>) {}
+            fn update(&mut self, _: &mut State, _: &(), _: &mut FeatureContext<'_, State, ()>) {}
         }
 
         /// Adds the submitted child action to its own value.
@@ -29,7 +29,7 @@ macro_rules! mixed_frontier {
         impl Feature for Child {
             type State = usize;
             type Action = usize;
-            fn reduce(
+            fn update(
                 &mut self,
                 state: &mut usize,
                 action: &usize,
@@ -67,7 +67,7 @@ macro_rules! mixed_frontier {
             let changes = Arc::new(Mutex::new(Vec::new()));
             let external = Arc::new(AtomicUsize::new(0));
             let captured = Arc::clone(&external);
-            let mut builder = TestStore::feature_builder(
+            let mut builder = TestStore::builder(
                 State {
                     children: [Some(2), Some(2)],
                     output: 0,

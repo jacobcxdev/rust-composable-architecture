@@ -135,7 +135,7 @@ fn projected_feature_keeps_immutable_rc_history_and_borrowed_expectations() {
     impl Feature for Append {
         type State = State;
         type Action = Rc<str>;
-        fn reduce(
+        fn update(
             &mut self,
             state: &mut State,
             action: &Rc<str>,
@@ -150,7 +150,7 @@ fn projected_feature_keeps_immutable_rc_history_and_borrowed_expectations() {
     let history = Rc::new(Vec::new());
     let capture_calls = Rc::new(Cell::new(0));
     let captured = Rc::clone(&capture_calls);
-    let mut store = TestStore::projected_feature_builder(
+    let mut store = TestStore::projected_builder(
         State {
             history: Rc::clone(&history),
             private: Rc::new(Cell::new(0)),

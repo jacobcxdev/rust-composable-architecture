@@ -44,7 +44,7 @@ struct RootFeature;
 impl Feature for RootFeature {
     type State = Root;
     type Action = Action;
-    fn reduce(&mut self, state: &mut Root, _: &Action, _: &mut FeatureContext<'_, Root, Action>) {
+    fn update(&mut self, state: &mut Root, _: &Action, _: &mut FeatureContext<'_, Root, Action>) {
         let parent = state.parent.as_mut().unwrap();
         parent.leaf = Some(8);
         parent.replacement += 1;
@@ -55,14 +55,14 @@ struct ParentFeature;
 impl Feature for ParentFeature {
     type State = Parent;
     type Action = ();
-    fn reduce(&mut self, _: &mut Parent, (): &(), _: &mut FeatureContext<'_, Parent, ()>) {}
+    fn update(&mut self, _: &mut Parent, (): &(), _: &mut FeatureContext<'_, Parent, ()>) {}
 }
 /// Keeps the leaf mounted so its fold callback owns the observed capture.
 struct LeafFeature;
 impl Feature for LeafFeature {
     type State = usize;
     type Action = ();
-    fn reduce(&mut self, _: &mut usize, (): &(), _: &mut FeatureContext<'_, usize, ()>) {}
+    fn update(&mut self, _: &mut usize, (): &(), _: &mut FeatureContext<'_, usize, ()>) {}
 }
 
 #[test]
@@ -94,7 +94,7 @@ fn ordered_owned_fold_recreates_only_replaced_leaf_callbacks() {
     let declared_parents = std::sync::Arc::clone(&parent_recipes);
     let declared_leaves = std::sync::Arc::clone(&leaf_recipes);
     let declared_captures = std::sync::Arc::clone(&captures);
-    let (builder, parent_site) = Store::feature_builder(
+    let (builder, parent_site) = Store::builder(
         Root {
             parent: Some(Parent {
                 leaf: Some(2),
@@ -211,7 +211,7 @@ fn empty_fold_requires_readiness_and_does_not_retain_store() {
         },
         |_| ParentFeature,
     );
-    let (builder, _) = Store::feature_builder(
+    let (builder, _) = Store::builder(
         Root { parent: None },
         RootFeature,
         Runtime::new(driver.clone()),
@@ -267,7 +267,7 @@ fn transform_applies_only_to_its_subtree() {
         },
         |_| ParentFeature,
     );
-    let (builder, _) = Store::feature_builder(
+    let (builder, _) = Store::builder(
         Root {
             parent: Some(Parent {
                 leaf: Some(2),
@@ -338,7 +338,7 @@ fn transform_only_does_not_synthesise_a_breaking_identity_contribution() {
         },
         |_| ParentFeature,
     );
-    let (builder, _) = Store::feature_builder(
+    let (builder, _) = Store::builder(
         Root {
             parent: Some(Parent {
                 leaf: Some(2),

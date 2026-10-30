@@ -138,7 +138,7 @@ struct RootFeature;
 impl Feature for RootFeature {
     type State = Root;
     type Action = RootAction;
-    fn reduce(
+    fn update(
         &mut self,
         _: &mut Root,
         _: &RootAction,
@@ -153,7 +153,7 @@ struct ChildFeature(Cell<usize>);
 impl Feature for ChildFeature {
     type State = Cell<usize>;
     type Action = ChildAction;
-    fn reduce(
+    fn update(
         &mut self,
         state: &mut Cell<usize>,
         action: &ChildAction,
@@ -228,7 +228,7 @@ fn builder_site_acquires_independent_send_not_sync_child() {
         "EntryMount { .. }"
     );
     assert_eq!(selections.load(Ordering::SeqCst), 0);
-    let (builder, site) = Store::feature_builder(
+    let (builder, site) = Store::builder(
         Root {
             child: Some(Cell::new(1)),
         },
@@ -302,7 +302,7 @@ fn child_concatenation_commits_before_starting_next_routed_effect() {
     impl Feature for SequencedChild {
         type State = Cell<usize>;
         type Action = Action;
-        fn reduce(
+        fn update(
             &mut self,
             state: &mut Cell<usize>,
             action: &Action,
@@ -348,7 +348,7 @@ fn child_concatenation_commits_before_starting_next_routed_effect() {
         },
         move |_| SequencedChild(Arc::clone(&child_trace)),
     );
-    let (builder, site) = Store::feature_builder(
+    let (builder, site) = Store::builder(
         Root {
             child: Some(Cell::new(0)),
         },
@@ -407,9 +407,7 @@ fn child_concatenation_commits_before_starting_next_routed_effect() {
     reason = "the held first leaf exposes pruning before the routed sequence can advance"
 )]
 fn mounted_sequence_prunes_retired_inner_effect_before_running_live_tail() {
-    use rca_core::{
-        ActionPath, Effect, OptionalStatePath, Reduce, Reducer, ReducerExt, ReducerFeature,
-    };
+    use rca_core::{ActionPath, Effect, OptionalStatePath, Reduce, Reducer, ReducerExt};
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     struct State {
@@ -428,7 +426,7 @@ fn mounted_sequence_prunes_retired_inner_effect_before_running_live_tail() {
     impl Feature for Root {
         type State = State;
         type Action = ();
-        fn reduce(&mut self, _: &mut State, (): &(), _: &mut FeatureContext<'_, State, ()>) {}
+        fn update(&mut self, _: &mut State, (): &(), _: &mut FeatureContext<'_, State, ()>) {}
     }
     struct Capture(Arc<AtomicUsize>);
     impl Drop for Capture {
@@ -485,26 +483,24 @@ fn mounted_sequence_prunes_retired_inner_effect_before_running_live_tail() {
                 child,
             );
             let live_calls = Arc::clone(&live_calls);
-            ReducerFeature::new(Reduce::new(
-                move |state: &mut MountedState, action: &Action, context| {
-                    let scoped = optional.reduce(state, action, context);
-                    if !matches!(action, Action::Start) {
-                        return scoped;
-                    }
-                    let live_calls = Arc::clone(&live_calls);
-                    Effect::concatenate([
-                        Effect::send(Action::RemoveInner),
-                        scoped,
-                        Effect::run(move |sender| async move {
-                            live_calls.fetch_add(1, Ordering::SeqCst);
-                            sender.send(Action::Live).await.unwrap();
-                        }),
-                    ])
-                },
-            ))
+            Reduce::new(move |state: &mut MountedState, action: &Action, context| {
+                let scoped = optional.reduce(state, action, context);
+                if !matches!(action, Action::Start) {
+                    return scoped;
+                }
+                let live_calls = Arc::clone(&live_calls);
+                Effect::concatenate([
+                    Effect::send(Action::RemoveInner),
+                    scoped,
+                    Effect::run(move |sender| async move {
+                        live_calls.fetch_add(1, Ordering::SeqCst);
+                        sender.send(Action::Live).await.unwrap();
+                    }),
+                ])
+            })
         },
     );
-    let (builder, site) = Store::feature_builder(
+    let (builder, site) = Store::builder(
         State {
             child: Some(MountedState {
                 inner: Some(()),
@@ -617,7 +613,7 @@ fn mounted_future_and_fallible_effects_preserve_owned_payloads_and_sequence() {
     impl Feature for EffectsChild {
         type State = Cell<usize>;
         type Action = Action;
-        fn reduce(
+        fn update(
             &mut self,
             state: &mut Cell<usize>,
             action: &Action,
@@ -684,7 +680,7 @@ fn mounted_future_and_fallible_effects_preserve_owned_payloads_and_sequence() {
             identities: Arc::clone(&observed),
         },
     );
-    let (builder, site) = Store::feature_builder(
+    let (builder, site) = Store::builder(
         Root {
             child: Some(Cell::new(0)),
         },
@@ -775,7 +771,7 @@ fn initial_child_factory_captures_owned_value_before_ready_and_defers_task_body(
                 .unwrap();
         })
     });
-    let (builder, site) = Store::feature_builder(
+    let (builder, site) = Store::builder(
         Root {
             child: Some(Cell::new(1)),
         },
@@ -830,7 +826,7 @@ fn reducer_builder_mount_defers_installation_and_retires_child() {
     impl Feature for MountedChild {
         type State = Cell<usize>;
         type Action = ChildAction;
-        fn reduce(
+        fn update(
             &mut self,
             _: &mut Self::State,
             _: &Self::Action,

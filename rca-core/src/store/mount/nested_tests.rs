@@ -144,7 +144,7 @@ struct RootFeature;
 impl Feature for RootFeature {
     type State = State;
     type Action = RootAction;
-    fn reduce(
+    fn update(
         &mut self,
         state: &mut State,
         action: &RootAction,
@@ -174,7 +174,7 @@ impl Drop for RowFeature {
 impl Feature for RowFeature {
     type State = Row;
     type Action = RowAction;
-    fn reduce(
+    fn update(
         &mut self,
         _: &mut Row,
         action: &RowAction,
@@ -200,7 +200,7 @@ impl Drop for ChildFeature {
 impl Feature for ChildFeature {
     type State = Cell<usize>;
     type Action = ChildAction;
-    fn reduce(
+    fn update(
         &mut self,
         state: &mut Cell<usize>,
         action: &ChildAction,

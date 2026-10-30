@@ -1038,7 +1038,7 @@ where
                 self.authority.admission().map_err(|error| {
                     TaskAccessError::new(error.reason(), TaskProgress::MayHaveRun)
                 })?;
-                F::reduce(feature, state, &action, context);
+                F::update(feature, state, &action, context);
                 Ok(())
             },
         ) {
@@ -1829,7 +1829,7 @@ where
             |root, context| {
                 before.is_none_or(|capture| capture(root, context.reducer_context().scopes()))
             },
-            F::reduce,
+            F::update,
         ) {
             Ok(applied) => applied,
             Err(error) => return MountedApply::Rejected(error),
@@ -2387,7 +2387,7 @@ where
                 self.authority.admission().map_err(|error| {
                     TaskAccessError::new(error.reason(), TaskProgress::MayHaveRun)
                 })?;
-                F::reduce(feature, state, &action, context);
+                F::update(feature, state, &action, context);
                 Ok(())
             },
         ) {
@@ -2903,7 +2903,7 @@ where
             |root, context| {
                 before.is_none_or(|capture| capture(root, context.reducer_context().scopes()))
             },
-            F::reduce,
+            F::update,
         ) {
             Ok(applied) => applied,
             Err(error) => return MountedApply::Rejected(error),

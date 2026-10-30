@@ -34,14 +34,14 @@ struct Root;
 impl Feature for Root {
     type State = State;
     type Action = ();
-    fn reduce(&mut self, _: &mut State, (): &(), _: &mut FeatureContext<'_, State, ()>) {}
+    fn update(&mut self, _: &mut State, (): &(), _: &mut FeatureContext<'_, State, ()>) {}
 }
 /// Supplies a mounted child without unrelated reducer behaviour.
 struct Leaf;
 impl Feature for Leaf {
     type State = usize;
     type Action = ();
-    fn reduce(&mut self, _: &mut usize, (): &(), _: &mut FeatureContext<'_, usize, ()>) {}
+    fn update(&mut self, _: &mut usize, (): &(), _: &mut FeatureContext<'_, usize, ()>) {}
 }
 /// Gives the optional child one fixed identity throughout each schedule.
 fn mount() -> OptionalMount<State, Leaf, ()> {
@@ -71,7 +71,7 @@ fn callback_first_poll_queues_a_later_read_without_recursive_entry() {
     let callback_later = std::sync::Arc::clone(&later);
     let calls = Arc::new(AtomicUsize::new(0));
     let callback_calls = std::sync::Arc::clone(&calls);
-    let (builder, _) = Store::feature_builder(State(Some(3)), Root, Runtime::new(driver.clone()))
+    let (builder, _) = Store::builder(State(Some(3)), Root, Runtime::new(driver.clone()))
         .mount_with_children(mount(), move |_, children| {
             let owner = std::sync::Arc::clone(&callback_owner);
             let later = std::sync::Arc::clone(&callback_later);
@@ -141,7 +141,7 @@ fn panic_case<K: FoldKey<Value = Owned>>(kind: u8, expected_panic: &str) {
     let declared = fold.clone();
     let drops = Arc::new(AtomicUsize::new(0));
     let declared_drops = std::sync::Arc::clone(&drops);
-    let (builder, _) = Store::feature_builder(State(Some(3)), Root, Runtime::new(driver.clone()))
+    let (builder, _) = Store::builder(State(Some(3)), Root, Runtime::new(driver.clone()))
         .mount_with_children(mount(), move |_, children| {
             let capture = Dropped(std::sync::Arc::clone(&declared_drops));
             children.contribute_transformed(
@@ -202,7 +202,7 @@ fn closure_inside_contribution_returns_error_instead_of_a_partial_success() {
     let declared = fold.clone();
     let owner = Arc::new(Mutex::new(None::<Store<State, ()>>));
     let callback_owner = std::sync::Arc::clone(&owner);
-    let (builder, _) = Store::feature_builder(State(Some(3)), Root, Runtime::new(driver.clone()))
+    let (builder, _) = Store::builder(State(Some(3)), Root, Runtime::new(driver.clone()))
         .mount_with_children(mount(), move |_, children| {
             let owner = std::sync::Arc::clone(&callback_owner);
             children.contribute(&declared, move |value| {
@@ -230,7 +230,7 @@ fn closure_inside_transform_stops_the_next_root_sibling() {
     let callback_owner = Arc::clone(&owner);
     let transforms = Arc::new(AtomicUsize::new(0));
     let callback_transforms = Arc::clone(&transforms);
-    let (builder, _) = Store::feature_builder(State(Some(3)), Root, Runtime::new(driver.clone()))
+    let (builder, _) = Store::builder(State(Some(3)), Root, Runtime::new(driver.clone()))
         .mount_with_children(mount(), move |_, children| {
             let owner = Arc::clone(&callback_owner);
             let transforms = Arc::clone(&callback_transforms);
@@ -297,7 +297,7 @@ fn reduce_close(with_sibling: bool, transformed: bool) {
     let callback_reductions = Arc::clone(&reductions);
     let transforms = Arc::new(AtomicUsize::new(0));
     let callback_transforms = Arc::clone(&transforms);
-    let (builder, _) = Store::feature_builder(State(Some(3)), Root, Runtime::new(driver.clone()))
+    let (builder, _) = Store::builder(State(Some(3)), Root, Runtime::new(driver.clone()))
         .mount_with_children(mount(), move |_, children| {
             let owner = Arc::clone(&callback_owner);
             let reductions = Arc::clone(&callback_reductions);
@@ -409,31 +409,30 @@ fn value_destructor_closure_stops_later_callbacks_and_partial_success() {
         let callback_drops = Arc::clone(&drops);
         let transforms = Arc::new(AtomicUsize::new(0));
         let callback_transforms = Arc::clone(&transforms);
-        let (builder, _) =
-            Store::feature_builder(State(Some(3)), Root, Runtime::new(driver.clone()))
-                .mount_with_children(mount(), move |_, children| {
-                    let owner = Arc::clone(&callback_owner);
-                    let drops = Arc::clone(&callback_drops);
-                    let contribute = move |_: &usize| {
-                        Some(CloseOwnerOnDrop {
-                            _owner: owner
-                                .lock()
-                                .unwrap()
-                                .take()
-                                .expect("one owned contribution"),
-                            drops: Arc::clone(&drops),
-                        })
-                    };
-                    if transformed {
-                        let transforms = Arc::clone(&callback_transforms);
-                        children.contribute_transformed(&declared, contribute, move |value| {
-                            transforms.fetch_add(1, Ordering::SeqCst);
-                            value
-                        });
-                    } else {
-                        children.contribute(&declared, contribute);
-                    }
-                });
+        let (builder, _) = Store::builder(State(Some(3)), Root, Runtime::new(driver.clone()))
+            .mount_with_children(mount(), move |_, children| {
+                let owner = Arc::clone(&callback_owner);
+                let drops = Arc::clone(&callback_drops);
+                let contribute = move |_: &usize| {
+                    Some(CloseOwnerOnDrop {
+                        _owner: owner
+                            .lock()
+                            .unwrap()
+                            .take()
+                            .expect("one owned contribution"),
+                        drops: Arc::clone(&drops),
+                    })
+                };
+                if transformed {
+                    let transforms = Arc::clone(&callback_transforms);
+                    children.contribute_transformed(&declared, contribute, move |value| {
+                        transforms.fetch_add(1, Ordering::SeqCst);
+                        value
+                    });
+                } else {
+                    children.contribute(&declared, contribute);
+                }
+            });
 
         let sibling_calls = Arc::new(AtomicUsize::new(0));
         let builder = if with_sibling {
@@ -480,7 +479,7 @@ fn closure_inside_child_transform_stops_parent_reduce_and_transform() {
     let callback_parent_reductions = Arc::clone(&parent_reductions);
     let parent_transforms = Arc::new(AtomicUsize::new(0));
     let callback_parent_transforms = Arc::clone(&parent_transforms);
-    let (builder, _) = Store::feature_builder(State(Some(3)), Root, Runtime::new(driver.clone()))
+    let (builder, _) = Store::builder(State(Some(3)), Root, Runtime::new(driver.clone()))
         .mount_with_children(mount(), move |_, children| {
             let transforms = Arc::clone(&callback_parent_transforms);
             children.transform_fold(&declared, move |value| {
@@ -581,7 +580,7 @@ fn closure_inside_subtree_identity_stops_contribution_and_transform() {
     let callback_contributions = Arc::clone(&contributions);
     let transforms = Arc::new(AtomicUsize::new(0));
     let callback_transforms = Arc::clone(&transforms);
-    let (builder, _) = Store::feature_builder(State(Some(3)), Root, Runtime::new(driver.clone()))
+    let (builder, _) = Store::builder(State(Some(3)), Root, Runtime::new(driver.clone()))
         .mount_with_children(mount(), move |_, children| {
             let contributions = Arc::clone(&callback_contributions);
             let transforms = Arc::clone(&callback_transforms);
@@ -621,7 +620,7 @@ fn duplicate_channel_on_one_incarnation_fails_construction_and_drains_both_captu
     let fold = Fold::<State, Sum>::new();
     let drops = Arc::new(AtomicUsize::new(0));
     let captures = Arc::clone(&drops);
-    let (builder, _) = Store::feature_builder(State(Some(3)), Root, Runtime::new(driver.clone()))
+    let (builder, _) = Store::builder(State(Some(3)), Root, Runtime::new(driver.clone()))
         .mount_with_children(mount(), move |_, children| {
             for _ in 0..2 {
                 let capture = Dropped(Arc::clone(&captures));

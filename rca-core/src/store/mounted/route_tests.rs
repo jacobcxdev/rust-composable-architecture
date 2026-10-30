@@ -4,7 +4,7 @@ use super::path::{BorrowPath, ComposedPath, KeyedPath};
 use super::*;
 use crate::store::scope::{ScopeIdentity, ScopeRegistry, ScopeSlot};
 use crate::store::transaction::tests::Host;
-use crate::{KeyedState, Reduce, ReducerFeature};
+use crate::{KeyedState, Reduce};
 use std::cell::Cell;
 use std::pin::Pin;
 #[cfg(feature = "local")]
@@ -32,7 +32,7 @@ struct Child(Cell<usize>);
 impl Feature for Child {
     type State = Cell<usize>;
     type Action = ChildAction;
-    fn reduce(
+    fn update(
         &mut self,
         state: &mut Cell<usize>,
         action: &ChildAction,
@@ -52,7 +52,7 @@ struct LocalAction(Rc<usize>);
 impl local::Feature for LocalChild {
     type State = Rc<Cell<usize>>;
     type Action = LocalAction;
-    fn reduce(
+    fn update(
         &mut self,
         state: &mut Self::State,
         action: &LocalAction,
@@ -77,11 +77,11 @@ fn state<S>(child: S) -> Root<S> {
 
 #[test]
 fn shared_owned_key_optional_path_reads_updates_and_sends_without_sync_feature() {
-    let driver = ReducerFeature::new(Reduce::new(
+    let driver = Reduce::new(
         |_: &mut Root<Cell<usize>>, _: &RootAction, _: &mut ReduceContext<'_>| {
             crate::Effect::none()
         },
-    ));
+    );
     let mut host = Host::<_, _, Shared>::new(state(Cell::new(1)), Box::new(driver));
     let parent = host.scopes.mount(
         host.scopes.root(),
@@ -151,11 +151,11 @@ fn shared_owned_key_optional_path_reads_updates_and_sends_without_sync_feature()
 #[test]
 #[cfg(feature = "local")]
 fn local_owned_key_optional_path_retains_rc_on_the_local_carrier() {
-    let driver = local::ReducerFeature(local::Reduce::new(
+    let driver = local::Reduce::new(
         |_: &mut Root<Rc<Cell<usize>>>, _: &Rc<()>, _: &mut ReduceContext<'_>| {
             local::Effect::none()
         },
-    ));
+    );
     let mut host = Host::<_, _, local::Local>::new(
         state(Rc::new(Cell::new(2))),
         Box::new(local::Driver(driver)),

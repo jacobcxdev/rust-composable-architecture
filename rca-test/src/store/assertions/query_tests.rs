@@ -25,7 +25,7 @@ macro_rules! query_branches {
             impl core::Feature for Counter {
                 type State = $state;
                 type Action = ();
-                fn reduce(
+                fn update(
                     &mut self,
                     state: &mut Self::State,
                     _: &(),
@@ -36,11 +36,10 @@ macro_rules! query_branches {
             }
             let runtime = <$runtime>::new();
             let gate = <$gate>::new();
-            let store =
-                core::Store::feature_builder(Default::default(), Counter, runtime.runtime())
-                    .transaction_gate(gate.clone())
-                    .build()
-                    .unwrap();
+            let store = core::Store::builder(Default::default(), Counter, runtime.runtime())
+                .transaction_gate(gate.clone())
+                .build()
+                .unwrap();
             for gated in [false, true] {
                 if gated {
                     assert!(gate.reserve_root());
@@ -137,7 +136,7 @@ fn local_actor_query_and_read_preserve_capture_value_and_original_cause() {
     impl Feature for Counter {
         type State = Rc<usize>;
         type Action = ();
-        fn reduce(
+        fn update(
             &mut self,
             _: &mut Self::State,
             (): &(),
@@ -149,7 +148,7 @@ fn local_actor_query_and_read_preserve_capture_value_and_original_cause() {
     let gate = rca_core::testing::local::TransactionGate::new();
     let initial = Rc::new(7);
     let owner = std::thread::current().id();
-    let store = Store::feature_builder(Rc::clone(&initial), Counter, runtime.runtime())
+    let store = Store::builder(Rc::clone(&initial), Counter, runtime.runtime())
         .transaction_gate(gate.clone())
         .build()
         .unwrap();

@@ -22,7 +22,7 @@ struct Child(Rc<Cell<usize>>);
 impl local::Feature for Child {
     type State = Rc<Cell<usize>>;
     type Action = ChildAction;
-    fn reduce(
+    fn update(
         &mut self,
         state: &mut Self::State,
         action: &ChildAction,
@@ -39,12 +39,12 @@ fn poll<F: Future>(future: Pin<&mut F>) -> Poll<F::Output> {
 
 #[test]
 fn local_declaration_acquisition_and_dispatch_keep_rc_values_local() {
-    let root = local::ReducerFeature(local::Reduce::new(
+    let root = local::Reduce::new(
         |_: &mut Root, action: &RootAction, _: &mut crate::ReduceContext<'_>| {
             assert_eq!(Rc::strong_count(&action.0), 1);
             local::Effect::none()
         },
-    ));
+    );
     let mut host = Host::<_, _, local::Local>::new(
         Root {
             child: Some(Rc::new(Cell::new(3))),
@@ -96,9 +96,9 @@ fn local_declaration_acquisition_and_dispatch_keep_rc_values_local() {
 
 #[test]
 fn local_initial_factory_and_task_keep_owned_rc_capture_and_use_same_commit() {
-    let root = local::ReducerFeature(local::Reduce::new(
+    let root = local::Reduce::new(
         |_: &mut Root, _: &RootAction, _: &mut crate::ReduceContext<'_>| local::Effect::none(),
-    ));
+    );
     let mut host = Host::<_, _, local::Local>::new(
         Root {
             child: Some(Rc::new(Cell::new(3))),
@@ -210,9 +210,9 @@ fn local_child_hook_path_disappearance_after_constructor_skips_initial_callbacks
             descriptor.on_change(select, InitialPolicy::Run, factory)
         };
         let (owner, _) = attach_local(descriptor);
-        let root = local::ReducerFeature(local::Reduce::<SelectableState, (), _>::new(
+        let root = local::Reduce::<SelectableState, (), _>::new(
             |_: &mut SelectableState, (): &(), _: &mut ReduceContext<'_>| local::Effect::none(),
-        ));
+        );
         let mut host = Host::<SelectableState, (), local::Local>::new(
             (visible, Rc::new(Cell::new(7))),
             Box::new(local::Driver(root)),
@@ -265,12 +265,12 @@ fn local_child_hook_path_disappearance_after_capture_releases_previous_without_f
         |_, _| panic!("hidden child has no current value to compare"),
     );
     let (owner, _) = attach_local(descriptor);
-    let root = local::ReducerFeature(local::Reduce::<SelectableState, bool, _>::new(
+    let root = local::Reduce::<SelectableState, bool, _>::new(
         |state: &mut SelectableState, visible: &bool, _: &mut ReduceContext<'_>| {
             state.0.set(*visible);
             local::Effect::none()
         },
-    ));
+    );
     let mut host = Host::<SelectableState, bool, local::Local>::new(
         (Rc::new(Cell::new(true)), Rc::new(Cell::new(7))),
         Box::new(local::Driver(root)),
@@ -315,9 +315,9 @@ fn local_mount_selection_disappearance_before_construction_leaves_no_partial_ins
         },
     );
     let (owner, site) = attach_local(descriptor);
-    let root = local::ReducerFeature(local::Reduce::<SelectableState, (), _>::new(
+    let root = local::Reduce::<SelectableState, (), _>::new(
         |_: &mut SelectableState, (): &(), _: &mut ReduceContext<'_>| local::Effect::none(),
-    ));
+    );
     let mut host = Host::<SelectableState, (), local::Local>::new(
         (Rc::new(Cell::new(true)), Rc::new(Cell::new(7))),
         Box::new(local::Driver(root)),

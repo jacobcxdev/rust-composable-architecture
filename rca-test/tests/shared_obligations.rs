@@ -847,7 +847,7 @@ mod outer_api_cleanup {
         type State = ();
         type Action = ();
 
-        fn reduce(&mut self, (): &mut (), (): &(), context: &mut FeatureContext<'_, (), ()>) {
+        fn update(&mut self, (): &mut (), (): &(), context: &mut FeatureContext<'_, (), ()>) {
             let typed = self.typed;
             context.task(Task::<(), ()>::run(move |context| async move {
                 if typed {
@@ -1066,17 +1066,16 @@ mod outer_api_cleanup {
                 let observed = Arc::clone(&drops);
                 let armed = Arc::new(AtomicBool::new(false));
                 let capture_armed = Arc::clone(&armed);
-                let mut store =
-                    TestStore::feature_builder((), PendingMutation { typed: typed == 1 })
-                        .with_capture::<Captured>(move |()| {
-                            if capture_armed.load(Ordering::SeqCst) {
-                                Err(Cause(Arc::clone(&observed)))
-                            } else {
-                                Ok(0)
-                            }
-                        })
-                        .unwrap()
-                        .build();
+                let mut store = TestStore::builder((), PendingMutation { typed: typed == 1 })
+                    .with_capture::<Captured>(move |()| {
+                        if capture_armed.load(Ordering::SeqCst) {
+                            Err(Cause(Arc::clone(&observed)))
+                        } else {
+                            Ok(0)
+                        }
+                    })
+                    .unwrap()
+                    .build();
                 let task = finish_without_external_wake(store.send(())).unwrap();
                 armed.store(true, Ordering::SeqCst);
 

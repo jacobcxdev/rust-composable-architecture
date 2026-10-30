@@ -6,7 +6,7 @@ use super::*;
 use crate::diagnostics::{LifecycleEvent, LifecycleKind};
 use crate::store::scope::{ScopeIdentity, ScopeSlot};
 use crate::store::transaction::{Mutation, commit, tests::Host};
-use crate::{Reduce, ReducerFeature, TaskSendError};
+use crate::{Reduce, TaskSendError};
 #[cfg(feature = "local")]
 use std::rc::Rc;
 use std::task::{Context, Poll, Waker};
@@ -26,7 +26,7 @@ struct Child {
 impl Feature for Child {
     type State = ();
     type Action = ();
-    fn reduce(&mut self, (): &mut (), (): &(), context: &mut FeatureContext<'_, (), ()>) {
+    fn update(&mut self, (): &mut (), (): &(), context: &mut FeatureContext<'_, (), ()>) {
         let _ = context
             .reducer_context()
             .mount(ReduceContext::node(&mut self.slot), ScopeIdentity::new(()));
@@ -36,7 +36,7 @@ impl Feature for Child {
 impl local::Feature for Child {
     type State = ();
     type Action = ();
-    fn reduce(&mut self, (): &mut (), (): &(), context: &mut local::FeatureContext<'_, (), ()>) {
+    fn update(&mut self, (): &mut (), (): &(), context: &mut local::FeatureContext<'_, (), ()>) {
         let _ = context
             .reducer_context()
             .mount(ReduceContext::node(&mut self.slot), ScopeIdentity::new(()));
@@ -47,24 +47,24 @@ impl local::Feature for Child {
 fn shared_driver(
     mut reduce: impl FnMut(&mut State, &(), &mut ReduceContext<'_>) + Send + 'static,
 ) -> Box<<Shared as Carriers<State, ()>>::Driver> {
-    Box::new(ReducerFeature::new(Reduce::new(
+    Box::new(Reduce::new(
         move |state: &mut State, action: &(), context: &mut ReduceContext<'_>| {
             reduce(state, action, context);
             crate::Effect::none()
         },
-    )))
+    ))
 }
 #[cfg(feature = "local")]
 /// Adapts setup without adding Send requirements to Local.
 fn local_driver(
     mut reduce: impl FnMut(&mut State, &(), &mut ReduceContext<'_>) + 'static,
 ) -> Box<<local::Local as Carriers<State, ()>>::Driver> {
-    Box::new(local::Driver(local::ReducerFeature(local::Reduce::new(
+    Box::new(local::Driver(local::Reduce::new(
         move |state: &mut State, action: &(), context: &mut ReduceContext<'_>| {
             reduce(state, action, context);
             local::Effect::none()
         },
-    ))))
+    )))
 }
 
 /// Applies the same lifecycle and unwind assertions to both carrier families.

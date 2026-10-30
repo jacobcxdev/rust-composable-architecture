@@ -608,7 +608,7 @@ fn escaped_operation_rejects_completed_producer_and_blocked_requests_close_witho
         type State = ();
         type Action = u8;
 
-        fn reduce(&mut self, (): &mut (), action: &u8, context: &mut FeatureContext<'_, (), u8>) {
+        fn update(&mut self, (): &mut (), action: &u8, context: &mut FeatureContext<'_, (), u8>) {
             match action {
                 0 => {
                     let capture = CountDrop(Arc::clone(&self.drops));
@@ -638,7 +638,7 @@ fn escaped_operation_rejects_completed_producer_and_blocked_requests_close_witho
     let exported = Arc::new(Mutex::new(None));
     let drops = Arc::new(AtomicUsize::new(0));
     let reductions = Arc::new(AtomicUsize::new(0));
-    let store = Store::feature_builder(
+    let store = Store::builder(
         (),
         EndpointFeature {
             exported: Arc::clone(&exported),

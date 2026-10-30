@@ -16,7 +16,7 @@ impl Drop for ClosingChild {
 impl Feature for ClosingChild {
     type State = Cell<usize>;
     type Action = ChildAction;
-    fn reduce(
+    fn update(
         &mut self,
         _: &mut Self::State,
         _: &ChildAction,
@@ -66,7 +66,7 @@ fn retired_descendant_drop_closes_root_before_successor_constructor_or_recipe() 
                 ));
             },
         );
-    let store = Store::feature_builder(
+    let store = Store::builder(
         State {
             rows: [(
                 "one".to_owned(),
@@ -116,13 +116,13 @@ impl Drop for AcquiringParent {
 impl Feature for AcquiringParent {
     type State = Row;
     type Action = RowAction;
-    fn reduce(
+    fn update(
         &mut self,
         state: &mut Row,
         action: &RowAction,
         context: &mut FeatureContext<'_, Row, RowAction>,
     ) {
-        self.feature.reduce(state, action, context);
+        self.feature.update(state, action, context);
     }
 }
 
@@ -198,7 +198,7 @@ fn retired_child_site_rejects_in_parent_destructor_without_queuing_acquisition()
                 )));
             },
         );
-    let store = Store::feature_builder(
+    let store = Store::builder(
         State {
             rows: [(
                 "one".to_owned(),
@@ -268,7 +268,7 @@ fn mixed_retirement_precedes_changed_factory_and_tasks() {
         type State = MixedState;
         type Action = ();
 
-        fn reduce(
+        fn update(
             &mut self,
             state: &mut MixedState,
             (): &(),
@@ -289,7 +289,7 @@ fn mixed_retirement_precedes_changed_factory_and_tasks() {
         type State = usize;
         type Action = ();
 
-        fn reduce(&mut self, _: &mut usize, (): &(), _: &mut FeatureContext<'_, usize, ()>) {}
+        fn update(&mut self, _: &mut usize, (): &(), _: &mut FeatureContext<'_, usize, ()>) {}
     }
 
     impl Drop for RetiringFeature {
@@ -469,7 +469,7 @@ impl Drop for UnwindingChild {
 impl Feature for UnwindingChild {
     type State = Cell<usize>;
     type Action = ChildAction;
-    fn reduce(
+    fn update(
         &mut self,
         _: &mut Self::State,
         _: &ChildAction,
@@ -527,7 +527,7 @@ fn retired_descendant_panic_disposes_remaining_prefix_without_successors() {
                 }
             },
         );
-    let store = Store::feature_builder(
+    let store = Store::builder(
         State {
             rows: [(
                 "one".to_owned(),

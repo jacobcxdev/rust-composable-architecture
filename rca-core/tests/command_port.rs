@@ -204,7 +204,7 @@ impl Feature for Parent {
     type State = RootState;
     type Action = RootAction;
 
-    fn reduce(
+    fn update(
         &mut self,
         state: &mut RootState,
         action: &RootAction,
@@ -233,7 +233,7 @@ impl Feature for Child {
     type State = ChildState;
     type Action = ChildAction;
 
-    fn reduce(
+    fn update(
         &mut self,
         state: &mut ChildState,
         action: &ChildAction,
@@ -460,7 +460,7 @@ impl Feature for Probe {
     type State = usize;
     type Action = ProbeAction;
 
-    fn reduce(
+    fn update(
         &mut self,
         state: &mut usize,
         action: &ProbeAction,
@@ -517,7 +517,7 @@ struct ProbeParent;
 impl Feature for ProbeParent {
     type State = Option<usize>;
     type Action = (InputGate, bool);
-    fn reduce(
+    fn update(
         &mut self,
         _: &mut Self::State,
         action: &Self::Action,
@@ -1125,7 +1125,7 @@ fn mapper_closing_last_store_fails_without_reduction_or_returning_consumed_input
         type State = Option<usize>;
         type Action = ();
 
-        fn reduce(
+        fn update(
             &mut self,
             _: &mut Self::State,
             (): &(),
@@ -1141,7 +1141,7 @@ fn mapper_closing_last_store_fails_without_reduction_or_returning_consumed_input
         type State = usize;
         type Action = ChildAction;
 
-        fn reduce(
+        fn update(
             &mut self,
             state: &mut usize,
             action: &ChildAction,
@@ -1507,7 +1507,7 @@ mod finite_fanout {
         type State = usize;
         type Action = Work;
 
-        fn reduce(
+        fn update(
             &mut self,
             state: &mut usize,
             action: &Work,
@@ -1531,7 +1531,7 @@ mod finite_fanout {
         type State = (Option<usize>, u64);
         type Action = ();
 
-        fn reduce(
+        fn update(
             &mut self,
             state: &mut Self::State,
             (): &(),

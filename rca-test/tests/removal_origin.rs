@@ -23,14 +23,14 @@ struct Root;
 impl Feature for Root {
     type State = State;
     type Action = ();
-    fn reduce(&mut self, _: &mut State, (): &(), _: &mut FeatureContext<'_, State, ()>) {}
+    fn update(&mut self, _: &mut State, (): &(), _: &mut FeatureContext<'_, State, ()>) {}
 }
 
 struct Parent;
 impl Feature for Parent {
     type State = Option<Box<Cell<usize>>>;
     type Action = ();
-    fn reduce(
+    fn update(
         &mut self,
         _: &mut Self::State,
         (): &(),
@@ -43,7 +43,7 @@ struct Child;
 impl Feature for Child {
     type State = Box<Cell<usize>>;
     type Action = ();
-    fn reduce(
+    fn update(
         &mut self,
         _: &mut Self::State,
         (): &(),
@@ -64,7 +64,7 @@ fn output_origin_keeps_the_pending_owned_value_and_assertion_boundary() {
             let identity = std::ptr::from_ref(&*value) as usize;
             let sites = Arc::new(Mutex::new(None));
             let export = Arc::clone(&sites);
-            let (builder, parent_site) = TestStore::projected_feature_builder(
+            let (builder, parent_site) = TestStore::projected_builder(
                 State {
                     parent: Some(Some(value)),
                     outcome: None,

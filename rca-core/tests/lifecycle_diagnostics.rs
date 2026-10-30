@@ -87,13 +87,13 @@ struct Root;
 impl Feature for Root {
     type State = RootState;
     type Action = ();
-    fn reduce(&mut self, _: &mut RootState, (): &(), _: &mut FeatureContext<'_, RootState, ()>) {}
+    fn update(&mut self, _: &mut RootState, (): &(), _: &mut FeatureContext<'_, RootState, ()>) {}
 }
 struct Child;
 impl Feature for Child {
     type State = Cell<usize>;
     type Action = ();
-    fn reduce(
+    fn update(
         &mut self,
         _: &mut Cell<usize>,
         (): &(),
@@ -155,7 +155,7 @@ fn equal_valued_replacement_reports_real_retirement_without_completing_retained_
             std::future::pending::<()>().await;
         })
     });
-    let (builder, site) = Store::feature_builder(
+    let (builder, site) = Store::builder(
         RootState {
             child: Some(Cell::new(4)),
             selections: Arc::clone(&selections),

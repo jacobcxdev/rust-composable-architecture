@@ -42,7 +42,7 @@ impl DependencyKey for PipelineIncrement {
 impl Feature for FeatureUnderTest {
     type State = State;
     type Action = Action;
-    fn reduce(
+    fn update(
         &mut self,
         state: &mut State,
         action: &Action,
@@ -118,7 +118,7 @@ fn task_sends_reads_and_commits_non_clone_send_only_values() {
     let results = Arc::new(Mutex::new(Vec::new()));
     let issues = Arc::new(Mutex::new(Vec::new()));
     let reported = Arc::clone(&issues);
-    let builder = Store::feature_builder(
+    let builder = Store::builder(
         State(Cell::new(1)),
         FeatureUnderTest(Arc::clone(&results)),
         runtime.runtime(),
@@ -183,7 +183,7 @@ fn feature_builder_validates_before_claiming_gate_and_releases_failed_inputs() {
     let results = Arc::new(Mutex::new(Vec::new()));
     let gate = TransactionGate::new();
     let build = |capacity| {
-        Store::feature_builder(
+        Store::builder(
             State(Cell::new(1)),
             FeatureUnderTest(Arc::clone(&results)),
             runtime.runtime(),
@@ -231,7 +231,7 @@ fn pending_task_send_is_borrowed_without_committing_and_update_is_not_an_action(
     let runtime = ManualRuntime::new();
     let results = Arc::new(Mutex::new(Vec::new()));
     let gate = TransactionGate::new();
-    let store = Store::feature_builder(
+    let store = Store::builder(
         State(Cell::new(1)),
         FeatureUnderTest(Arc::clone(&results)),
         runtime.runtime(),

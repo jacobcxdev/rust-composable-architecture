@@ -121,7 +121,7 @@ impl Feature for Root {
     type State = State;
     type Action = Action;
 
-    fn reduce(
+    fn update(
         &mut self,
         state: &mut State,
         action: &Action,
@@ -159,7 +159,7 @@ impl Feature for Child {
     type State = ();
     type Action = ();
 
-    fn reduce(&mut self, (): &mut (), (): &(), _: &mut FeatureContext<'_, (), ()>) {}
+    fn update(&mut self, (): &mut (), (): &(), _: &mut FeatureContext<'_, (), ()>) {}
 }
 
 impl Drop for Child {
@@ -328,7 +328,7 @@ impl Fixture {
                 Child(Arc::clone(&factory))
             },
         );
-        let builder = Store::feature_builder(
+        let builder = Store::builder(
             State {
                 child: Some(()),
                 configuration: 41,

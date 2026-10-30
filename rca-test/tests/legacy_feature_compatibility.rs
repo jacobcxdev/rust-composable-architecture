@@ -1,8 +1,8 @@
 //! Observable compatibility, not equality of private revisions or task IDs.
 //!
-//! Legacy effects (including `ReducerFeature`) complete through an action;
-//! typed tasks complete through an update. Each needs its own `TestStore` receive.
-//! Legacy scoped actions and mounted updates also retain their distinct errors.
+//! Action effects complete through an action. Typed tasks complete through an update.
+//! Each needs its own `TestStore` receive.
+//! Scoped actions and mounted updates also retain their distinct errors.
 
 use std::future::poll_fn;
 use std::panic::{AssertUnwindSafe, catch_unwind};
@@ -16,17 +16,17 @@ use futures_executor::block_on;
 use futures_util::FutureExt;
 use rca_core::{
     ActionPath, Effect, Feature, FeatureContext, MountIdentity, OptionalMount, OptionalStatePath,
-    ReduceContext, Reducer, ReducerFeature, Store, Task, TaskAccessReason, TaskProgress,
+    ReduceContext, Reducer, Store, Task, TaskAccessReason, TaskProgress,
 };
 use rca_test::{Completion, ControlledFuture, DeterministicRuntime, TestStore, controlled_future};
 
 #[derive(Clone, Copy, Debug)]
 enum Profile {
     Legacy,
-    Adapted,
+    Builder,
     Typed,
 }
-const PROFILES: [Profile; 3] = [Profile::Legacy, Profile::Adapted, Profile::Typed];
+const PROFILES: [Profile; 3] = [Profile::Legacy, Profile::Builder, Profile::Typed];
 
 #[derive(Debug)]
 enum Action {
@@ -111,7 +111,7 @@ struct Typed(Option<Client>);
 impl Feature for Typed {
     type State = usize;
     type Action = Action;
-    fn reduce(
+    fn update(
         &mut self,
         state: &mut usize,
         action: &Action,
@@ -135,22 +135,18 @@ impl Profile {
     fn test_store(self, client: Option<Client>) -> TestStore<usize, Action> {
         match self {
             Self::Legacy => TestStore::new(0, Legacy(client)),
-            Self::Adapted => {
-                TestStore::feature_builder(0, ReducerFeature::new(Legacy(client))).build()
-            }
-            Self::Typed => TestStore::feature_builder(0, Typed(client)).build(),
+            Self::Builder => TestStore::builder(0, Legacy(client)).build(),
+            Self::Typed => TestStore::builder(0, Typed(client)).build(),
         }
     }
     /// Uses a plain deterministic host for post-cancellation ownership checks.
     fn store(self, client: Client, host: &DeterministicRuntime) -> Store<usize, Action> {
         match self {
             Self::Legacy => Store::new(0, Legacy(Some(client)), host.runtime()),
-            Self::Adapted => {
-                Store::feature_builder(0, ReducerFeature::new(Legacy(Some(client))), host.runtime())
-                    .build()
-                    .unwrap()
-            }
-            Self::Typed => Store::feature_builder(0, Typed(Some(client)), host.runtime())
+            Self::Builder => Store::builder(0, Legacy(Some(client)), host.runtime())
+                .build()
+                .unwrap(),
+            Self::Typed => Store::builder(0, Typed(Some(client)), host.runtime())
                 .build()
                 .unwrap(),
         }
@@ -164,7 +160,7 @@ impl Profile {
                     .await
                     .unwrap();
             }
-            Self::Legacy | Self::Adapted => {
+            Self::Legacy | Self::Builder => {
                 let _ = store
                     .receive_with(
                         |action| matches!(action, Action::Response(17)),
@@ -399,7 +395,7 @@ struct ChildFeature;
 impl Feature for ChildFeature {
     type State = Child;
     type Action = Box<usize>;
-    fn reduce(
+    fn update(
         &mut self,
         state: &mut Child,
         action: &Box<usize>,
@@ -446,9 +442,7 @@ fn removed_and_equal_id_reinserted_children_reject_the_old_client_result() {
         },
         |_| ChildFeature,
     );
-    let (builder, site) =
-        Store::feature_builder(initial(), ReducerFeature::new(Parent), host.runtime())
-            .mount_with_site(mount);
+    let (builder, site) = Store::builder(initial(), Parent, host.runtime()).mount_with_site(mount);
     let typed = builder.build().unwrap();
     block_on(host.run(typed.ready())).unwrap().unwrap();
     let context = block_on(host.run(typed.acquire(&site)))

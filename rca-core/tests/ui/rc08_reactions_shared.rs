@@ -10,7 +10,7 @@ struct FeatureValue(Cell<i32>);
 impl Feature for FeatureValue {
     type State = State;
     type Action = Action;
-    fn reduce(
+    fn update(
         &mut self,
         state: &mut State,
         action: &Action,

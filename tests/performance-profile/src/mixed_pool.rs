@@ -257,7 +257,7 @@ macro_rules! pool_fixture {
         impl Feature for Worker {
             type State = State;
             type Action = Work;
-            fn reduce(
+            fn update(
                 &mut self,
                 state: &mut State,
                 action: &Work,
@@ -323,7 +323,7 @@ macro_rules! pool_fixture {
         impl Feature for Pool {
             type State = Root;
             type Action = Action;
-            fn reduce(
+            fn update(
                 &mut self,
                 root: &mut Root,
                 action: &Action,
@@ -402,7 +402,7 @@ macro_rules! pool_fixture {
                 rows: (0..WIDTH).map(|id| (id, State::new(probes))).collect(),
                 outputs: 0
             };
-            Store::feature_builder(
+            Store::builder(
                 root,
                 Pool {
                     probes: Owner::clone(probes),

@@ -30,7 +30,7 @@ struct Root;
 impl Feature for Root {
     type State = State;
     type Action = ();
-    fn reduce(&mut self, _: &mut State, _: &(), _: &mut FeatureContext<'_, State, ()>) {}
+    fn update(&mut self, _: &mut State, _: &(), _: &mut FeatureContext<'_, State, ()>) {}
 }
 
 /// Supplies a child reducer without optional runtime dependencies.
@@ -38,7 +38,7 @@ struct Row;
 impl Feature for Row {
     type State = u64;
     type Action = ();
-    fn reduce(&mut self, state: &mut u64, _: &(), _: &mut FeatureContext<'_, u64, ()>) {
+    fn update(&mut self, state: &mut u64, _: &(), _: &mut FeatureContext<'_, u64, ()>) {
         *state += 1;
     }
 }

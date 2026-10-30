@@ -125,7 +125,7 @@ struct Parent;
 impl Feature for Parent {
     type State = State;
     type Action = Close;
-    fn reduce(
+    fn update(
         &mut self,
         _: &mut State,
         action: &Close,
@@ -140,7 +140,7 @@ struct Child(Rc<Cell<usize>>);
 impl Feature for Child {
     type State = Rc<Cell<usize>>;
     type Action = Rc<usize>;
-    fn reduce(
+    fn update(
         &mut self,
         state: &mut Self::State,
         action: &Self::Action,
@@ -213,7 +213,7 @@ fn local_same_child_ports_accept_live_inputs_and_return_closed_originals() {
             Child(std::rc::Rc::clone(&reduced))
         },
     );
-    let (builder, child_site) = Store::feature_builder(
+    let (builder, child_site) = Store::builder(
         State {
             child: Some(Rc::new(Cell::new(0))),
         },
@@ -242,7 +242,7 @@ fn local_same_child_ports_accept_live_inputs_and_return_closed_originals() {
     let (ordinary_site, control_site) = sites.borrow()[0].clone();
     let absent_reductions = Rc::clone(&reductions);
     let (other_builder, absent_site) =
-        Store::feature_builder(State { child: None }, Parent, Runtime::new(driver.clone()))
+        Store::builder(State { child: None }, Parent, Runtime::new(driver.clone()))
             .mount_with_site(OptionalMount::new(
                 |state: &State| state.child.as_ref(),
                 |state: &mut State| state.child.as_mut(),
@@ -483,7 +483,7 @@ fn local_same_child_ports_accept_live_inputs_and_return_closed_originals() {
     assert_eq!(Rc::strong_count(&reductions), 1);
     assert_eq!(Rc::strong_count(&sites), 1);
     let foreign_builder =
-        Store::feature_builder(State { child: None }, Parent, Runtime::new(driver.clone()));
+        Store::builder(State { child: None }, Parent, Runtime::new(driver.clone()));
     let foreign = foreign_builder.build().unwrap();
     driver.finish(foreign.ready()).unwrap();
     let Err(error) = driver.finish(foreign.command_port(&ordinary_site)) else {
@@ -531,7 +531,7 @@ fn recipe_port_try_send_during_real_host_abandonment_returns_original_rc() {
     impl Feature for ClosingChild {
         type State = Payload;
         type Action = Payload;
-        fn reduce(
+        fn update(
             &mut self,
             _: &mut Self::State,
             _: &Self::Action,
@@ -579,7 +579,7 @@ fn recipe_port_try_send_during_real_host_abandonment_returns_original_rc() {
     let declared = Rc::new(RefCell::new(None));
     let export = Rc::clone(&declared);
     let mapper_calls = Rc::clone(&maps);
-    let (builder, _) = Store::feature_builder(
+    let (builder, _) = Store::builder(
         State {
             child: Some(Rc::clone(&state)),
         },
@@ -641,7 +641,7 @@ fn local_command_completion_waits_for_owned_child_effect_delivery() {
         type State = Rc<Cell<usize>>;
         type Action = Action;
 
-        fn reduce(
+        fn update(
             &mut self,
             state: &mut Self::State,
             action: &Action,
@@ -701,7 +701,7 @@ fn local_command_completion_waits_for_owned_child_effect_delivery() {
     let declared = Rc::clone(&sites);
     let maps = Rc::new(Cell::new(0));
     let mapped = Rc::clone(&maps);
-    let (builder, _) = Store::feature_builder(
+    let (builder, _) = Store::builder(
         State {
             child: Some(Rc::clone(&state)),
         },
@@ -783,7 +783,7 @@ fn local_command_mapper_closing_store_fails_after_entry_without_reducing() {
         },
         move |_| Child(Rc::clone(&reduced)),
     );
-    let (builder, _) = Store::feature_builder(
+    let (builder, _) = Store::builder(
         State {
             child: Some(Rc::clone(&state)),
         },
@@ -905,7 +905,7 @@ fn local_selector_and_mapper_panics_drop_input_before_terminal_reply() {
                 Child(Rc::clone(&reduced))
             },
         );
-        let (builder, _) = Store::feature_builder(
+        let (builder, _) = Store::builder(
             State {
                 child: Some(Rc::clone(&state)),
             },
@@ -988,7 +988,7 @@ fn local_projection_closing_store_prevents_command_mapping() {
     impl Feature for ProjectedRoot {
         type State = ProjectedState;
         type Action = ();
-        fn reduce(
+        fn update(
             &mut self,
             _: &mut ProjectedState,
             (): &(),
@@ -1031,7 +1031,7 @@ fn local_projection_closing_store_prevents_command_mapping() {
         },
         move |_| Child(Rc::clone(&reduced)),
     );
-    let (builder, _) = Store::feature_builder(
+    let (builder, _) = Store::builder(
         ProjectedState {
             child: Some(Rc::clone(&state)),
             owner: Rc::clone(&owner),
@@ -1117,7 +1117,7 @@ fn ordinary_and_unheld_recipe_acquisitions_close_with_pending_original_input() {
         },
         move |_| Child(Rc::clone(&reduced)),
     );
-    let (builder, child_site) = Store::feature_builder(
+    let (builder, child_site) = Store::builder(
         State {
             child: Some(Rc::new(Cell::new(0))),
         },
@@ -1258,7 +1258,7 @@ fn local_gate_inspections_preserve_mounted_and_command_frontiers_through_unwind(
         type State = State;
         type Action = ();
 
-        fn reduce(&mut self, _: &mut State, (): &(), context: &mut FeatureContext<'_, State, ()>) {
+        fn update(&mut self, _: &mut State, (): &(), context: &mut FeatureContext<'_, State, ()>) {
             let captured = Rc::clone(&self.0);
             context.task(rca_core::local::Task::run(move |root| async move {
                 *captured.borrow_mut() = Some(root);
@@ -1546,13 +1546,13 @@ fn unpublished_recipe_call_preserves_held_input_during_actor_teardown() {
         type State = State;
         type Action = Close;
 
-        fn reduce(
+        fn update(
             &mut self,
             state: &mut State,
             action: &Close,
             context: &mut FeatureContext<'_, State, Close>,
         ) {
-            Parent.reduce(state, action, context);
+            Parent.update(state, action, context);
         }
     }
     impl Drop for InspectParent {
@@ -1587,7 +1587,7 @@ fn unpublished_recipe_call_preserves_held_input_during_actor_teardown() {
             },
             move |_| Child(Rc::clone(&reduced)),
         );
-        let (builder, _) = Store::feature_builder(
+        let (builder, _) = Store::builder(
             State {
                 child: Some(Rc::new(Cell::new(0))),
             },
@@ -1727,7 +1727,7 @@ fn local_mapper_destructor_cannot_inspect_its_retired_command_frontier() {
         },
         move |_| Child(Rc::clone(&reduced)),
     );
-    let (builder, _) = Store::feature_builder(
+    let (builder, _) = Store::builder(
         State {
             child: Some(Rc::clone(&state)),
         },
@@ -1845,7 +1845,7 @@ fn local_gate_callback_closure_rejects_already_queued_command_acquisition() {
             },
             move |_| Child(Rc::clone(&reduced)),
         );
-        let (builder, mount_site) = Store::feature_builder(
+        let (builder, mount_site) = Store::builder(
             State {
                 child: Some(Rc::clone(&state)),
             },
@@ -2001,7 +2001,7 @@ fn local_foreign_gate_rejects_live_recipe_acquisition_without_retargeting() {
             },
             move |_| Child(Rc::clone(&reduced)),
         );
-        let (builder, mount_site) = Store::feature_builder(
+        let (builder, mount_site) = Store::builder(
             State {
                 child: Some(Rc::clone(&state)),
             },
@@ -2036,7 +2036,7 @@ fn local_foreign_gate_rejects_live_recipe_acquisition_without_retargeting() {
             },
             move |_| Child(Rc::clone(&foreign_reduced)),
         );
-        let (foreign_builder, _) = Store::feature_builder(
+        let (foreign_builder, _) = Store::builder(
             State {
                 child: Some(Rc::clone(&foreign_state)),
             },

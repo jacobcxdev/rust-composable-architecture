@@ -9,8 +9,8 @@ mod support;
 use rca_core::testing::TransactionGate;
 use rca_core::{
     Effect, Feature, FeatureContext, MountIdentity, OptionalMount, OutputError, Reduce,
-    ReduceContext, ReducerFeature, RootMount, Runtime, RuntimeDriver, RuntimeFuture, Store, Task,
-    TaskAccessReason, TaskContext, TaskProgress, TaskSendError,
+    ReduceContext, RootMount, Runtime, RuntimeDriver, RuntimeFuture, Store, Task, TaskAccessReason,
+    TaskContext, TaskProgress, TaskSendError,
 };
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -30,7 +30,7 @@ impl Feature for Root {
     type State = usize;
     type Action = ();
 
-    fn reduce(&mut self, _: &mut usize, (): &(), context: &mut FeatureContext<'_, usize, ()>) {
+    fn update(&mut self, _: &mut usize, (): &(), context: &mut FeatureContext<'_, usize, ()>) {
         let captured = Arc::clone(&self.0);
         context.task(Task::run(move |context| async move {
             *captured.lock().unwrap() = Some(context);
@@ -55,7 +55,7 @@ fn typed_update_unwind(publication: bool, wake: bool) {
     let runtime = ManualRuntime::new();
     let captured = Arc::new(Mutex::new(None));
     let gate = TransactionGate::new();
-    let store = Store::feature_builder(0, Root(Arc::clone(&captured)), runtime.runtime())
+    let store = Store::builder(0, Root(Arc::clone(&captured)), runtime.runtime())
         .transaction_gate(gate.clone())
         .build()
         .unwrap();
@@ -441,7 +441,7 @@ impl Feature for SendRoot {
     type State = usize;
     type Action = SendAction;
 
-    fn reduce(
+    fn update(
         &mut self,
         state: &mut usize,
         action: &SendAction,
@@ -475,7 +475,7 @@ fn typed_send_unwind(preparation: bool) {
     let calls = Arc::new(AtomicUsize::new(0));
     #[cfg(feature = "test-util")]
     let gate = TransactionGate::new();
-    let builder = Store::feature_builder(
+    let builder = Store::builder(
         0,
         SendRoot {
             captured: Arc::clone(&captured),
@@ -595,9 +595,7 @@ fn owned_output_unwind(preparation: bool) {
     let calls = Arc::new(AtomicUsize::new(0));
     #[cfg(feature = "test-util")]
     let gate = TransactionGate::new();
-    let root = ReducerFeature::new(Reduce::new(
-        |_: &mut Option<()>, (): &(), _: &mut ReduceContext<'_>| Effect::none(),
-    ));
+    let root = Reduce::new(|_: &mut Option<()>, (): &(), _: &mut ReduceContext<'_>| Effect::none());
     let mount = OptionalMount::new(
         Option::as_ref,
         Option::as_mut,
@@ -608,11 +606,7 @@ fn owned_output_unwind(preparation: bool) {
                 configuration: 0,
             })
         },
-        |()| {
-            ReducerFeature::new(Reduce::new(
-                |(): &mut (), (): &(), _: &mut ReduceContext<'_>| Effect::none(),
-            ))
-        },
+        |()| Reduce::new(|(): &mut (), (): &(), _: &mut ReduceContext<'_>| Effect::none()),
     );
     let builder = RootMount::new(root).builder(Some(()), Runtime::new(driver.clone()));
     #[cfg(feature = "test-util")]

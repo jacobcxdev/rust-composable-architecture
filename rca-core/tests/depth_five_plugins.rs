@@ -159,7 +159,7 @@ struct LayerFeature<T>(PhantomData<fn() -> T>);
 impl<T: 'static> Feature for LayerFeature<T> {
     type State = Layer<T>;
     type Action = LayerAction;
-    fn reduce(
+    fn update(
         &mut self,
         state: &mut Layer<T>,
         _: &LayerAction,
@@ -205,7 +205,7 @@ struct Plugin {
 impl Feature for Plugin {
     type State = Leaf;
     type Action = LeafAction;
-    fn reduce(
+    fn update(
         &mut self,
         state: &mut Leaf,
         _: &LeafAction,
@@ -288,7 +288,7 @@ fn ten_thousand_depth_five_inputs_bypass_ancestors_and_keep_capture_and_lifetime
     let declared = Arc::clone(&sites);
     let mapped = Arc::clone(&maps);
     let task_started = Arc::clone(&started);
-    let (builder, level_one) = Store::feature_builder(
+    let (builder, level_one) = Store::builder(
         layer(layer(subtree())),
         LayerFeature::<Level1>(PhantomData),
         Runtime::new(driver.clone()),

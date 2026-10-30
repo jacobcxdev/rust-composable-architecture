@@ -122,7 +122,7 @@ struct Root;
 impl Feature for Root {
     type State = StackState<Box<usize>>;
     type Action = ();
-    fn reduce(
+    fn update(
         &mut self,
         _: &mut Self::State,
         (): &(),
@@ -134,7 +134,7 @@ struct Leaf;
 impl Feature for Leaf {
     type State = Box<usize>;
     type Action = ();
-    fn reduce(&mut self, _: &mut Box<usize>, (): &(), _: &mut FeatureContext<'_, Box<usize>, ()>) {}
+    fn update(&mut self, _: &mut Box<usize>, (): &(), _: &mut FeatureContext<'_, Box<usize>, ()>) {}
 }
 
 #[test]
@@ -154,7 +154,7 @@ fn nested_stack_recipe_removes_only_last_child_through_parent_context() {
     impl Feature for Outer {
         type State = Option<StackState<Box<usize>>>;
         type Action = ();
-        fn reduce(
+        fn update(
             &mut self,
             _: &mut Self::State,
             (): &(),
@@ -205,37 +205,36 @@ fn nested_stack_recipe_removes_only_last_child_through_parent_context() {
     );
     let entries = Arc::new(Mutex::new(Vec::new()));
     let export = Arc::clone(&entries);
-    let (builder, parent_site) =
-        Store::feature_builder(Some(stack), Outer, Runtime::new(driver.clone()))
-            .mount_with_children(descriptor, move |_, children| {
-                let export = Arc::clone(&export);
-                children.stack_removable(
-                    |state| state,
-                    |state| state,
-                    move |id, _| {
-                        let export = Arc::clone(&export);
-                        let id = id.clone();
-                        (
-                            EntryMount::new(Leaf),
-                            move |_: &Box<usize>,
-                                  children: &mut rca_core::MountChildren<
-                                '_,
-                                Option<StackState<Box<usize>>>,
-                                (),
-                                Box<usize>,
-                                (),
-                            >,
-                                  removal| {
-                                export.lock().unwrap().push((
-                                    id.clone(),
-                                    children.site().clone(),
-                                    removal,
-                                ));
-                            },
-                        )
-                    },
-                );
-            });
+    let (builder, parent_site) = Store::builder(Some(stack), Outer, Runtime::new(driver.clone()))
+        .mount_with_children(descriptor, move |_, children| {
+            let export = Arc::clone(&export);
+            children.stack_removable(
+                |state| state,
+                |state| state,
+                move |id, _| {
+                    let export = Arc::clone(&export);
+                    let id = id.clone();
+                    (
+                        EntryMount::new(Leaf),
+                        move |_: &Box<usize>,
+                              children: &mut rca_core::MountChildren<
+                            '_,
+                            Option<StackState<Box<usize>>>,
+                            (),
+                            Box<usize>,
+                            (),
+                        >,
+                              removal| {
+                            export.lock().unwrap().push((
+                                id.clone(),
+                                children.site().clone(),
+                                removal,
+                            ));
+                        },
+                    )
+                },
+            );
+        });
     let store = builder.build().unwrap();
     driver.finish(store.ready()).unwrap();
     driver.turn();
@@ -632,7 +631,7 @@ fn owning_stack_removal_rechecks_selector_mutation_and_callback_closure() {
     impl Feature for Parent {
         type State = State;
         type Action = ();
-        fn reduce(&mut self, _: &mut State, (): &(), _: &mut FeatureContext<'_, State, ()>) {
+        fn update(&mut self, _: &mut State, (): &(), _: &mut FeatureContext<'_, State, ()>) {
             self.0.fetch_add(1, Ordering::SeqCst);
         }
     }
@@ -640,7 +639,7 @@ fn owning_stack_removal_rechecks_selector_mutation_and_callback_closure() {
     impl Feature for Child {
         type State = Value;
         type Action = ();
-        fn reduce(&mut self, _: &mut Value, (): &(), _: &mut FeatureContext<'_, Value, ()>) {
+        fn update(&mut self, _: &mut Value, (): &(), _: &mut FeatureContext<'_, Value, ()>) {
             self.0.fetch_add(1, Ordering::SeqCst);
         }
     }

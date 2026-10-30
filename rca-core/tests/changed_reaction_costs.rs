@@ -117,7 +117,7 @@ impl Feature for Root {
     type State = Rows;
     type Action = ();
 
-    fn reduce(&mut self, _: &mut Rows, (): &(), _: &mut FeatureContext<'_, Rows, ()>) {
+    fn update(&mut self, _: &mut Rows, (): &(), _: &mut FeatureContext<'_, Rows, ()>) {
         self.0.root_reductions.fetch_add(1, Ordering::Relaxed);
     }
 }
@@ -129,7 +129,7 @@ impl Feature for Child {
     type State = usize;
     type Action = ();
 
-    fn reduce(&mut self, state: &mut usize, (): &(), _: &mut FeatureContext<'_, usize, ()>) {
+    fn update(&mut self, state: &mut usize, (): &(), _: &mut FeatureContext<'_, usize, ()>) {
         self.0.child_reductions.fetch_add(1, Ordering::Relaxed);
         *state += 1;
     }
@@ -190,7 +190,7 @@ fn fixture(hooks: Hooks, driver: &Driver, counts: &Arc<Counts>) -> (Store<Rows, 
     let site = Arc::new(Mutex::new(None));
     let saved = Arc::clone(&site);
     let made = Arc::clone(counts);
-    let store = Store::feature_builder(
+    let store = Store::builder(
         Rows {
             values: (0..WIDTH).map(|key| (key, 0)).collect(),
             counts: Arc::clone(counts),

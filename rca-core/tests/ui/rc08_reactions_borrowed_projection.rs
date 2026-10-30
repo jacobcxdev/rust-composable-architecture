@@ -3,7 +3,7 @@ struct Root;
 impl Feature for Root {
     type State = String;
     type Action = ();
-    fn reduce(&mut self, _: &mut String, _: &(), _: &mut FeatureContext<'_, String, ()>) {}
+    fn update(&mut self, _: &mut String, _: &(), _: &mut FeatureContext<'_, String, ()>) {}
 }
 fn main() {
     let _ = RootMount::new(Root).on_change(

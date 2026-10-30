@@ -72,7 +72,7 @@ impl Feature for ChildFeature {
     type State = Child;
     type Action = ();
 
-    fn reduce(&mut self, _: &mut Child, (): &(), _: &mut FeatureContext<'_, Child, ()>) {}
+    fn update(&mut self, _: &mut Child, (): &(), _: &mut FeatureContext<'_, Child, ()>) {}
 }
 
 /// Declares quota separately from the selected root history.

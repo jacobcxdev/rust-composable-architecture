@@ -157,7 +157,7 @@ struct OwnedFeature {
 impl Feature for OwnedFeature {
     type State = Rc<Interpreter>;
     type Action = Rc<usize>;
-    fn reduce(
+    fn update(
         &mut self,
         _: &mut Self::State,
         _: &Self::Action,
@@ -176,51 +176,39 @@ fn interpreter(drops: &Rc<Cell<usize>>) -> Rc<Interpreter> {
 }
 
 #[test]
-fn local_default_constructors_keep_capacity_and_owned_values_without_polling() {
-    use rca_core::local::{Reduce, ReducerFeature};
+fn local_default_constructor_keeps_capacity_and_owned_values_without_polling() {
+    use rca_core::local::Reduce;
 
-    for typed in [false, true] {
-        let host = Host::new();
-        let state = Rc::new(Cell::new(0));
-        let action = Rc::new(1);
-        let reducer = Reduce::new(
-            |state: &mut Rc<Cell<usize>>,
-             action: &Rc<usize>,
-             _: &mut rca_core::ReduceContext<'_>| {
-                state.set(state.get() + **action);
-                Effect::none()
-            },
+    let host = Host::new();
+    let state = Rc::new(Cell::new(0));
+    let action = Rc::new(1);
+    let reducer = Reduce::new(
+        |state: &mut Rc<Cell<usize>>, action: &Rc<usize>, _: &mut rca_core::ReduceContext<'_>| {
+            state.set(state.get() + **action);
+            Effect::none()
+        },
+    );
+    let store = Store::new(Rc::clone(&state), reducer, host.runtime());
+    assert_eq!(host.0.tasks.borrow().len(), 1);
+    for _ in 0..rca_core::DEFAULT_MAILBOX_CAPACITY {
+        drop(
+            store
+                .try_send(Rc::clone(&action))
+                .expect("default mailbox has room"),
         );
-        let store = if typed {
-            Store::feature(
-                Rc::clone(&state),
-                ReducerFeature::new(reducer),
-                host.runtime(),
-            )
-        } else {
-            Store::new(Rc::clone(&state), reducer, host.runtime())
-        };
-        assert_eq!(host.0.tasks.borrow().len(), 1);
-        for _ in 0..rca_core::DEFAULT_MAILBOX_CAPACITY {
-            drop(
-                store
-                    .try_send(Rc::clone(&action))
-                    .expect("default mailbox has room"),
-            );
-        }
-        let error = store
-            .try_send(Rc::clone(&action))
-            .expect_err("default mailbox is exactly full");
-        assert!(error.is_full());
-        drop(error);
-        assert_eq!(state.get(), 0);
-        assert_eq!(Rc::strong_count(&state), 2);
-        drop(store);
-        host.turn();
-        assert!(host.0.tasks.borrow().is_empty());
-        assert_eq!(Rc::strong_count(&state), 1);
-        assert_eq!(Rc::strong_count(&action), 1);
     }
+    let error = store
+        .try_send(Rc::clone(&action))
+        .expect_err("default mailbox is exactly full");
+    assert!(error.is_full());
+    drop(error);
+    assert_eq!(state.get(), 0);
+    assert_eq!(Rc::strong_count(&state), 2);
+    drop(store);
+    host.turn();
+    assert!(host.0.tasks.borrow().is_empty());
+    assert_eq!(Rc::strong_count(&state), 1);
+    assert_eq!(Rc::strong_count(&action), 1);
 }
 
 #[cfg(feature = "test-util")]
@@ -234,7 +222,7 @@ fn local_builder_rejections_preserve_gate_and_release_owned_inputs() {
     let feature = interpreter(&drops);
     let gate = TransactionGate::new();
     let build = |capacity| {
-        Store::feature_builder(
+        Store::builder(
             Rc::clone(&state),
             OwnedFeature {
                 interpreter: Rc::clone(&feature),
@@ -333,7 +321,7 @@ fn local_builder_debug_keeps_configuration_lazy_and_releases_unbuilt_captures() 
 
 #[test]
 fn local_feature_debug_preserves_owned_reduction_effect_and_store_lifecycle() {
-    use rca_core::local::{Reduce, ReducerFeature};
+    use rca_core::local::Reduce;
 
     let host = Host::new();
     let calls = Rc::new(Cell::new(0));
@@ -342,7 +330,7 @@ fn local_feature_debug_preserves_owned_reduction_effect_and_store_lifecycle() {
     let operations = Rc::clone(&starts);
     let private = Rc::new(String::from("private-local-reducer-capture"));
     let weak = Rc::downgrade(&private);
-    let feature = ReducerFeature::new(Reduce::new(
+    let feature = Reduce::new(
         move |state: &mut Vec<usize>, action: &Rc<usize>, _: &mut rca_core::ReduceContext<'_>| {
             reductions.set(reductions.get() + 1);
             state.push(**action);
@@ -368,15 +356,15 @@ fn local_feature_debug_preserves_owned_reduction_effect_and_store_lifecycle() {
             assert_eq!(operations.get(), 0);
             effect
         },
-    ));
+    );
     for debug in [format!("{feature:?}"), format!("{feature:#?}")] {
-        assert!(debug.starts_with("ReducerFeature(") && debug.contains("Reduce"));
+        assert!(debug.starts_with("Reduce"));
         assert!(!debug.contains("private-local-reducer-capture"));
     }
-    let builder = Store::feature_builder(Vec::new(), feature, host.runtime()).mailbox_capacity(1);
+    let builder = Store::builder(Vec::new(), feature, host.runtime()).mailbox_capacity(1);
     for debug in [format!("{builder:?}"), format!("{builder:#?}")] {
-        assert!(debug.starts_with("FeatureStoreBuilder"));
-        assert!(debug.contains("StoreBuilder") && debug.contains("LocalStoreDriver"));
+        assert!(debug.starts_with("StoreBuilder"));
+        assert!(debug.contains("LocalStoreDriver"));
         assert!(debug.contains("mailbox_capacity: 1"));
         assert!(!debug.contains("private-local-reducer-capture"));
     }
@@ -410,7 +398,7 @@ fn closed_local_predicate_waits_do_not_select_or_retain_rejected_actions() {
     let host = Host::new();
     let state_drops = Rc::new(Cell::new(0));
     let feature_drops = Rc::new(Cell::new(0));
-    let store = Store::feature(
+    let store = Store::new(
         interpreter(&state_drops),
         OwnedFeature {
             interpreter: interpreter(&feature_drops),
@@ -451,7 +439,7 @@ fn retained_runtime_rejects_a_new_actor_after_host_teardown_on_owner() {
     drop(host);
     let state_drops = Rc::new(Cell::new(0));
     let feature_drops = Rc::new(Cell::new(0));
-    let store = Store::feature(
+    let store = Store::new(
         interpreter(&state_drops),
         OwnedFeature {
             interpreter: interpreter(&feature_drops),
@@ -474,7 +462,7 @@ fn bounded_local_admission_preserves_rejected_rc_action_and_final_owner_cleanup(
     let host = Host::new();
     let state_drops = Rc::new(Cell::new(0));
     let feature_drops = Rc::new(Cell::new(0));
-    let store = Store::feature_builder(
+    let store = Store::builder(
         interpreter(&state_drops),
         OwnedFeature {
             interpreter: interpreter(&feature_drops),
@@ -610,7 +598,7 @@ fn local_runtime_snapshots_are_ordered_and_stop_after_graceful_or_host_closure()
         let host = Host::new();
         let state_drops = Rc::new(Cell::new(0));
         let feature_drops = Rc::new(Cell::new(0));
-        let store = Store::feature(
+        let store = Store::new(
             interpreter(&state_drops),
             OwnedFeature {
                 interpreter: interpreter(&feature_drops),
@@ -657,7 +645,7 @@ fn local_state_handoff_follows_feature_drop_and_panic_closes_without_handoff() {
     let host = Host::new();
     let state_drops = Rc::new(Cell::new(0));
     let feature_drops = Rc::new(Cell::new(0));
-    let store = Store::feature(
+    let store = Store::new(
         interpreter(&state_drops),
         OwnedFeature {
             interpreter: interpreter(&feature_drops),
@@ -670,7 +658,7 @@ fn local_state_handoff_follows_feature_drop_and_panic_closes_without_handoff() {
     drop(state);
     assert_eq!(state_drops.get(), 1);
 
-    let store = Store::feature(
+    let store = Store::new(
         interpreter(&state_drops),
         OwnedFeature {
             interpreter: interpreter(&feature_drops),
@@ -698,7 +686,7 @@ fn cancellation_drops_polled_and_unpolled_local_task_captures_on_owner() {
     impl Feature for PendingFeature {
         type State = ();
         type Action = ();
-        fn reduce(&mut self, (): &mut (), (): &(), context: &mut FeatureContext<'_, (), ()>) {
+        fn update(&mut self, (): &mut (), (): &(), context: &mut FeatureContext<'_, (), ()>) {
             let capture = self.capture.take().unwrap();
             let starts = Rc::clone(&self.starts);
             context.task(Task::run(move |_| async move {
@@ -712,7 +700,7 @@ fn cancellation_drops_polled_and_unpolled_local_task_captures_on_owner() {
         let host = Host::new();
         let drops = Rc::new(Cell::new(0));
         let starts = Rc::new(Cell::new(0));
-        let store = Store::feature(
+        let store = Store::new(
             (),
             PendingFeature {
                 capture: Some(interpreter(&drops)),
@@ -746,7 +734,7 @@ fn reentrant_feature_destructor_observes_closed_admission_and_panic_prevents_sta
     impl Feature for Reentrant {
         type State = Rc<Interpreter>;
         type Action = Rc<usize>;
-        fn reduce(
+        fn update(
             &mut self,
             _: &mut Self::State,
             _: &Self::Action,
@@ -775,7 +763,7 @@ fn reentrant_feature_destructor_observes_closed_admission_and_panic_prevents_sta
         let drops = Rc::new(Cell::new(0));
         let calls = Rc::new(Cell::new(0));
         let held = Rc::new(RefCell::new(None));
-        let store = Store::feature(
+        let store = Store::new(
             interpreter(&drops),
             Reentrant {
                 held: Rc::clone(&held),
@@ -814,7 +802,7 @@ fn remote_and_stale_actor_wakers_never_poll_or_drop_local_work_off_owner() {
     impl Feature for Suspended {
         type State = ();
         type Action = ();
-        fn reduce(&mut self, (): &mut (), (): &(), context: &mut FeatureContext<'_, (), ()>) {
+        fn update(&mut self, (): &mut (), (): &(), context: &mut FeatureContext<'_, (), ()>) {
             let capture = self.capture.take().unwrap();
             let polls = Rc::clone(&self.polls);
             let waker = Arc::clone(&self.waker);
@@ -832,7 +820,7 @@ fn remote_and_stale_actor_wakers_never_poll_or_drop_local_work_off_owner() {
     let drops = Rc::new(Cell::new(0));
     let polls = Rc::new(Cell::new(0));
     let saved = Arc::new(Mutex::new(None));
-    let store = Store::feature(
+    let store = Store::new(
         (),
         Suspended {
             capture: Some(interpreter(&drops)),
@@ -898,7 +886,7 @@ impl Feature for Counter {
     type State = State;
     type Action = Action;
 
-    fn reduce(
+    fn update(
         &mut self,
         state: &mut State,
         action: &Action,
@@ -945,7 +933,7 @@ fn real_local_actor_owns_rc_state_action_feature_task_and_query_results() {
         drops: Rc::clone(&drops),
     });
     let results = Rc::new(RefCell::new(Vec::new()));
-    let store = Store::feature_builder(
+    let store = Store::builder(
         State {
             interpreter: Rc::clone(&interpreter),
             value: 0,
@@ -1291,7 +1279,7 @@ impl Feature for CancellableFeature {
     type State = Vec<usize>;
     type Action = CancellationAction;
 
-    fn reduce(
+    fn update(
         &mut self,
         state: &mut Self::State,
         action: &Self::Action,
@@ -1327,7 +1315,7 @@ impl Feature for CancellableFeature {
 #[test]
 fn local_effect_cancellation_preserves_typed_generation_ownership() {
     let host = Host::new();
-    let store = Store::feature(Vec::new(), CancellableFeature, host.runtime());
+    let store = Store::new(Vec::new(), CancellableFeature, host.runtime());
     host.run(store.ready()).unwrap();
     let start = |value, kind| {
         let value = Rc::new(value);
@@ -1383,7 +1371,7 @@ impl Feature for TimerFeature {
     type State = Vec<usize>;
     type Action = Option<Rc<usize>>;
 
-    fn reduce(
+    fn update(
         &mut self,
         state: &mut Self::State,
         action: &Self::Action,
@@ -1406,7 +1394,7 @@ fn local_absolute_deadline_is_not_rebased_by_predecessor_or_delay() {
         Effect::send_after(Duration::from_secs(5), Some(Rc::new(1))),
         Effect::send_at(deadline, Some(Rc::new(2))).delay(Duration::from_secs(2)),
     ]);
-    let store = Store::feature(Vec::new(), TimerFeature(Some(effect)), runtime);
+    let store = Store::new(Vec::new(), TimerFeature(Some(effect)), runtime);
     let task = host.run(store.send(None)).unwrap();
 
     host.advance_to(Duration::from_secs(4));
@@ -1443,7 +1431,7 @@ fn local_run_defers_factory_and_releases_each_capture_on_owner() {
             (calls.get(), factory_drops.get(), future_drops.get()),
             (0, 0, 0)
         );
-        let store = Store::feature(Vec::new(), TimerFeature(Some(effect)), host.runtime());
+        let store = Store::new(Vec::new(), TimerFeature(Some(effect)), host.runtime());
         let task = host.run(store.send(None)).unwrap();
         assert_eq!(
             (calls.get(), factory_drops.get(), future_drops.get()),
@@ -1491,7 +1479,7 @@ fn local_run_factory_panic_is_deferred_and_releases_capture_on_owner() {
         } else {
             effect
         };
-        let store = Store::feature(Vec::new(), TimerFeature(Some(effect)), host.runtime());
+        let store = Store::new(Vec::new(), TimerFeature(Some(effect)), host.runtime());
         let task = host.run(store.send(None)).unwrap();
         assert_eq!((calls.get(), drops.get()), (0, 0));
         let mut body = host.0.tasks.borrow_mut().pop_front().unwrap();
@@ -1529,7 +1517,7 @@ fn local_positive_delay_defers_owned_operation_and_cancellation_releases_it() {
             }
         })
         .delay(Duration::from_secs(3));
-        let store = Store::feature(Vec::new(), TimerFeature(Some(effect)), host.runtime());
+        let store = Store::new(Vec::new(), TimerFeature(Some(effect)), host.runtime());
         let task = host.run(store.send(None)).unwrap();
 
         host.advance_to(Duration::from_secs(2));
@@ -1564,7 +1552,7 @@ fn local_zero_and_empty_delays_finish_in_order_without_clock_advance() {
         Effect::none().delay(Duration::from_secs(60)),
         Effect::send(Some(Rc::new(2))).delay(Duration::ZERO),
     ]);
-    let store = Store::feature(Vec::new(), TimerFeature(Some(effect)), host.runtime());
+    let store = Store::new(Vec::new(), TimerFeature(Some(effect)), host.runtime());
     let task = host.run(store.send(None)).unwrap();
     host.run(task.finish());
     assert!(!task.is_cancelled());
@@ -1627,7 +1615,7 @@ fn local_reported_failure_retains_rc_cause_and_caller_when_delivery_is_unavailab
             },
         );
         assert!(order.borrow().is_empty());
-        let store = Store::feature(Vec::new(), TimerFeature(Some(effect)), host.runtime());
+        let store = Store::new(Vec::new(), TimerFeature(Some(effect)), host.runtime());
         let task = host.run(store.send(None)).unwrap();
         host.run(task.finish());
         assert_eq!(*order.borrow(), ["operation", "issue", "outcome"]);
@@ -1677,7 +1665,7 @@ fn local_reported_success_and_explicit_cancellation_produce_no_issue_or_outcome(
             |_| panic!("no failure outcome may be delivered"),
         );
         assert_eq!((calls.get(), drops.get()), (0, 0));
-        let store = Store::feature(Vec::new(), TimerFeature(Some(effect)), host.runtime());
+        let store = Store::new(Vec::new(), TimerFeature(Some(effect)), host.runtime());
         let task = host.run(store.send(None)).unwrap();
         host.run(task.finish());
         assert_eq!((calls.get(), drops.get()), (1, 1));
@@ -1699,7 +1687,7 @@ fn local_optional_future_none_finishes_without_emission_and_releases_capture() {
         drop(capture);
         None
     });
-    let store = Store::feature(Vec::new(), TimerFeature(Some(effect)), host.runtime());
+    let store = Store::new(Vec::new(), TimerFeature(Some(effect)), host.runtime());
     let task = host.run(store.send(None)).unwrap();
     assert_eq!((polls.get(), drops.get()), (0, 0));
     assert!(!task.is_finished());
@@ -1838,7 +1826,7 @@ fn local_final_owner_close_survives_panicking_closed_waiter_with_retained_ingres
         std::future::pending::<()>().await;
         drop(capture);
     });
-    let store = Store::feature_builder(Vec::new(), TimerFeature(Some(effect)), host.runtime())
+    let store = Store::builder(Vec::new(), TimerFeature(Some(effect)), host.runtime())
         .mailbox_capacity(1)
         .build()
         .unwrap();
@@ -1938,7 +1926,7 @@ fn local_fallible_effect_handles_only_failure_with_original_non_send_cause() {
                 drop(cause);
             },
         );
-        let store = Store::feature(Vec::new(), TimerFeature(Some(effect)), host.runtime());
+        let store = Store::new(Vec::new(), TimerFeature(Some(effect)), host.runtime());
         let task = host.run(store.send(None)).unwrap();
         assert_eq!((operations.get(), handlers.get(), drops.get()), (0, 0, 0));
         host.run(task.finish());
@@ -1976,7 +1964,7 @@ fn local_reported_failure_after_causal_cancellation_suppresses_issue_and_outcome
         |_| panic!("cancelled failure cannot enter its issue factory"),
         |_| panic!("cancelled failure cannot enter its outcome callback"),
     );
-    let store = Store::feature(Vec::new(), TimerFeature(Some(effect)), host.runtime());
+    let store = Store::new(Vec::new(), TimerFeature(Some(effect)), host.runtime());
     let task = host.run(store.send(None)).unwrap();
     assert_eq!((calls.get(), drops.get()), (0, 0));
     *causal.borrow_mut() = Some(task);
@@ -2047,7 +2035,7 @@ fn local_feature_configuration_reaches_reducer_effect_and_owner_lifecycle() {
         type State = Vec<usize>;
         type Action = Option<Rc<usize>>;
 
-        fn reduce(
+        fn update(
             &mut self,
             state: &mut Self::State,
             action: &Self::Action,
@@ -2111,7 +2099,7 @@ fn local_feature_configuration_reaches_reducer_effect_and_owner_lifecycle() {
     let mut values = DependencyValues::new();
     values.set::<Amount>(2);
     values.set::<Bias>(5);
-    let store = Store::feature_builder(
+    let store = Store::builder(
         Vec::new(),
         ConfiguredFeature {
             cause: Some(cause),

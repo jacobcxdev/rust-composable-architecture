@@ -209,7 +209,7 @@ struct LocalFeature {
 impl local::Feature for LocalFeature {
     type State = LocalState;
     type Action = LocalAction;
-    fn reduce(
+    fn update(
         &mut self,
         state: &mut LocalState,
         action: &LocalAction,
@@ -298,7 +298,7 @@ struct ProjectionFeature;
 impl crate::Feature for ProjectionFeature {
     type State = usize;
     type Action = ();
-    fn reduce(&mut self, _: &mut usize, (): &(), _: &mut crate::FeatureContext<'_, usize, ()>) {
+    fn update(&mut self, _: &mut usize, (): &(), _: &mut crate::FeatureContext<'_, usize, ()>) {
         panic!("projection witnesses never send child actions");
     }
 }
@@ -342,7 +342,7 @@ fn scoped_access(
     reason = "keep stale incarnation, stale ancestor and fresh access checks in one mount lifetime"
 )]
 fn installed_incarnation_and_ancestor_reject_before_selection_then_fresh_access_succeeds() {
-    use crate::{ActionPath, IfSome, OptionalStatePath, Reduce, ReducerFeature};
+    use crate::{ActionPath, IfSome, OptionalStatePath, Reduce};
     let token = Arc::new(std::sync::Mutex::new(None));
     let captured = Arc::clone(&token);
     let grandchild = Reduce::new(
@@ -415,7 +415,7 @@ fn installed_incarnation_and_ancestor_reject_before_selection_then_fresh_access_
                 grandchild: Some(0),
             }),
         },
-        Box::new(ReducerFeature::new(reducer)),
+        Box::new(reducer),
     );
     drop(host.action(ParentAction::Child(ChildAction::Grandchild(()))));
     let initial = token.lock().unwrap().unwrap();
@@ -609,7 +609,7 @@ fn local_native_reducer_maps_future_fallible_and_interval_leaves_through_one_pro
     );
     let mut host = Host::<_, _, local::Local>::new(
         LocalState(Rc::new(Cell::new(0))),
-        Box::new(local::Driver(local::ReducerFeature(reducer))),
+        Box::new(local::Driver(reducer)),
     );
     let (turn, receipt) = host.action(LocalAction::Start);
     let task = futures_executor::block_on(receipt).unwrap().unwrap();
@@ -653,12 +653,12 @@ fn local_native_reducer_maps_future_fallible_and_interval_leaves_through_one_pro
 fn counter_host() -> Host<usize, usize, Shared> {
     Host::<usize, usize, Shared>::new(
         0,
-        Box::new(crate::ReducerFeature::new(crate::Reduce::new(
+        Box::new(crate::Reduce::new(
             |state: &mut usize, action: &usize, _: &mut ReduceContext<'_>| {
                 *state += action;
                 crate::Effect::none()
             },
-        ))),
+        )),
     )
 }
 
@@ -669,6 +669,12 @@ fn retiring_delayed_suffixes_prunes_waits_with_constant_allocation_budget() {
     if crate::allocation_test::run_in_child(NAME) {
         return;
     }
+
+    // The critical-section backend lazily allocates a process-global mutex.
+    // Initialise it separately so the control measures a cold event, not global setup.
+    let warm_control = ControlWake::new();
+    warm_control.notify();
+    drop(warm_control);
 
     // Cold event/Mutex storage differs across targets. Measure that same control
     // notification independently instead of pinning the macOS allocation count.
@@ -827,12 +833,12 @@ fn typed_admission_is_lazy_wake_driven_and_receiver_drop_does_not_cancel_update(
 fn full_close_returns_original_action_and_actor_discard_is_not_a_false_scope_rejection() {
     let host = Host::<usize, Box<usize>, Shared>::new(
         0,
-        Box::new(crate::ReducerFeature::new(crate::Reduce::new(
+        Box::new(crate::Reduce::new(
             |state: &mut usize, action: &Box<usize>, _: &mut ReduceContext<'_>| {
                 *state += **action;
                 crate::Effect::none()
             },
-        ))),
+        )),
     );
     let context = host.context();
     let (reply, _receive) = super::super::command::commit_channel();
@@ -935,14 +941,14 @@ struct OwnedAction {
 fn owned_action_host() -> Host<usize, OwnedAction, Shared> {
     Host::<usize, OwnedAction, Shared>::new(
         0,
-        Box::new(crate::ReducerFeature::new(crate::Reduce::new(
+        Box::new(crate::Reduce::new(
             |state: &mut usize, action: &OwnedAction, _: &mut ReduceContext<'_>| {
                 let _ = &action.drops;
                 *state += *action.identity;
                 assert!(!action.panic, "reducer entry panic");
                 crate::Effect::none()
             },
-        ))),
+        )),
     )
 }
 /// Creates a move-only payload with an independently retained destruction counter.
@@ -1162,7 +1168,7 @@ struct CancelLocal {
 impl local::Feature for CancelLocal {
     type State = Rc<Cell<usize>>;
     type Action = ();
-    fn reduce(
+    fn update(
         &mut self,
         _: &mut Self::State,
         (): &(),
@@ -1210,10 +1216,8 @@ fn local_metadata_commands_borrow_native_rc_ownership_without_a_frontend_adapter
     let reducer = local::Reduce::new(
         |_: &mut Rc<Cell<usize>>, _: &Rc<usize>, _: &mut ReduceContext<'_>| local::Effect::none(),
     );
-    let mut host = Host::<_, _, local::Local>::new(
-        Rc::new(Cell::new(0)),
-        Box::new(local::Driver(local::ReducerFeature(reducer))),
-    );
+    let mut host =
+        Host::<_, _, local::Local>::new(Rc::new(Cell::new(0)), Box::new(local::Driver(reducer)));
     let identity_reads = Rc::new(Cell::new(0));
     let metadata: Rc<dyn OperationMetadata> = Rc::new(Metadata {
         identity: OperationDeclaration::identity("native-metadata"),
@@ -1281,7 +1285,7 @@ fn local_named_task_keeps_rc_captures_and_checks_self_wait_during_actual_poll() 
         type State = Rc<Cell<usize>>;
         type Action = ();
 
-        fn reduce(
+        fn update(
             &mut self,
             _: &mut Self::State,
             (): &(),
@@ -1489,7 +1493,7 @@ struct TraceFeature(Trace);
 impl crate::Feature for TraceFeature {
     type State = usize;
     type Action = ();
-    fn reduce(
+    fn update(
         &mut self,
         state: &mut usize,
         (): &(),
@@ -1638,7 +1642,7 @@ struct TransactionChild;
 impl crate::Feature for TransactionChild {
     type State = usize;
     type Action = ();
-    fn reduce(&mut self, _: &mut usize, (): &(), _: &mut crate::FeatureContext<'_, usize, ()>) {}
+    fn update(&mut self, _: &mut usize, (): &(), _: &mut crate::FeatureContext<'_, usize, ()>) {}
 }
 
 /// Retains independent selection and factory counters around a real mounted reaction.
@@ -1652,12 +1656,12 @@ struct ReactionHost {
 fn reaction_host(close_during_capture: bool) -> ReactionHost {
     let mut host = Host::<Option<usize>, usize, Shared>::new(
         Some(0),
-        Box::new(crate::ReducerFeature::new(crate::Reduce::new(
+        Box::new(crate::Reduce::new(
             |state: &mut Option<usize>, action: &usize, _: &mut ReduceContext<'_>| {
                 *state.as_mut().unwrap() += action;
                 crate::Effect::none()
             },
-        ))),
+        )),
     );
     let selections = Arc::new(AtomicUsize::new(0));
     let factories = Arc::new(AtomicUsize::new(0));
@@ -2014,7 +2018,6 @@ fn handle_selector_rejection_preserves_entered_progress_without_reduction() {
 fn mounted_effect_with_retired_inner_scope_rejects_while_mount_authority_stays_live() {
     use crate::{
         ActionPath, Effect, IfSome, MountIdentity, OptionalMount, OptionalStatePath, Reduce,
-        ReducerFeature,
     };
 
     /// Retires an inner scope while keeping its containing mount alive.
@@ -2040,7 +2043,7 @@ fn mounted_effect_with_retired_inner_scope_rejects_while_mount_authority_stays_l
         move |_| {
             let parent_calls = Arc::clone(&parent_calls);
             let child_calls = Arc::clone(&child_calls);
-            ReducerFeature::new(IfSome::new(
+            IfSome::new(
                 Reduce::new(
                     move |state: &mut Option<usize>,
                           action: &InnerAction,
@@ -2071,15 +2074,15 @@ fn mounted_effect_with_retired_inner_scope_rejects_while_mount_authority_stays_l
                         }
                     },
                 ),
-            ))
+            )
         },
     );
     let (owner, site) = super::super::mount::attach(descriptor);
     let mut host = Host::<_, (), Shared>::new(
         Some(Some(0)),
-        Box::new(ReducerFeature::new(Reduce::new(
+        Box::new(Reduce::new(
             |_: &mut Option<Option<usize>>, (): &(), _: &mut ReduceContext<'_>| Effect::none(),
-        ))),
+        )),
     );
     owner.bind(&host.ingress, &host.lifecycle);
     host.mounts.push(owner);
@@ -2294,7 +2297,7 @@ fn retired_output_owner_returns_queued_value_from_live_sibling_source() {
     impl Feature for Root {
         type State = State;
         type Action = ();
-        fn reduce(&mut self, state: &mut State, (): &(), _: &mut FeatureContext<'_, State, ()>) {
+        fn update(&mut self, state: &mut State, (): &(), _: &mut FeatureContext<'_, State, ()>) {
             state.owner = None;
         }
     }

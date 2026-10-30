@@ -131,7 +131,7 @@ impl Feature for Root {
     type State = App;
     type Action = Action;
 
-    fn reduce(
+    fn update(
         &mut self,
         state: &mut App,
         action: &Action,
@@ -150,7 +150,7 @@ impl Feature for Import {
     type State = ImportSession;
     type Action = ();
 
-    fn reduce(
+    fn update(
         &mut self,
         _: &mut ImportSession,
         (): &(),
@@ -347,7 +347,7 @@ async fn main() {
     let (client, mut replies) = Client::new([0, 1]);
     let root = Root::new();
     let slots = Arc::clone(&root.slots);
-    let store = Store::feature_builder(
+    let store = Store::builder(
         App { session: None },
         root,
         TokioRuntime::current().unwrap(),
@@ -416,7 +416,7 @@ mod tests {
             session: Some(root.session(0)),
         };
         let first = state.snapshot();
-        let store = TestStore::projected_feature_builder(state, root, Snapshot::snapshot)
+        let store = TestStore::projected_builder(state, root, Snapshot::snapshot)
             .with_dependency::<ImportClient>(client)
             .mount(mount())
             .with_capture::<Quota>(move |_| captured_quota.read(Snapshot::snapshot))

@@ -43,7 +43,7 @@ struct Child(std::cell::Cell<usize>);
 impl Feature for Child {
     type State = usize;
     type Action = u8;
-    fn reduce(&mut self, _: &mut usize, _: &u8, _: &mut crate::FeatureContext<'_, usize, u8>) {
+    fn update(&mut self, _: &mut usize, _: &u8, _: &mut crate::FeatureContext<'_, usize, u8>) {
         self.0.set(self.0.get() + 1);
     }
 }
@@ -608,7 +608,7 @@ pub(crate) fn mount_declaration_and_acquisition_costs() {
     };
     readiness();
     eprintln!(
-        "current inline bytes: descriptor={}, declaration payload={}, declaration cell={}, thin owner={}, erased owner={}, site={}, ScopeRegistry={}, ScopeAuthority={}, Lifecycle={}, Store={}, StoreBuilder={}, FeatureStoreBuilder={}, Actor={}, Turn={}, root descriptor={}, root declaration={}",
+        "current inline bytes: descriptor={}, declaration payload={}, declaration cell={}, thin owner={}, erased owner={}, site={}, ScopeRegistry={}, ScopeAuthority={}, Lifecycle={}, Store={}, StoreBuilder={}, Actor={}, Turn={}, root descriptor={}, root declaration={}",
         size_of::<OptionalMount<Option<usize>, Child, u64>>(),
         size_of::<Declaration<Option<usize>, Child, u64>>(),
         size_of::<DeclarationCell<Option<usize>, (), Child, u64>>(),
@@ -620,7 +620,6 @@ pub(crate) fn mount_declaration_and_acquisition_costs() {
         size_of::<Lifecycle>(),
         size_of::<crate::Store<Option<usize>, ()>>(),
         size_of::<super::super::builder::StoreBuilder<Option<usize>, (), ()>>(),
-        size_of::<super::super::builder::FeatureStoreBuilder<Option<usize>, (), ()>>(),
         size_of::<super::super::actor::Actor<Option<usize>, ()>>(),
         size_of::<super::super::transaction::Turn>(),
         size_of::<RootMount<Child>>(),
@@ -728,7 +727,7 @@ mod nested_cost {
     impl Feature for Parent {
         type State = Row;
         type Action = ();
-        fn reduce(&mut self, _: &mut Row, (): &(), _: &mut crate::FeatureContext<'_, Row, ()>) {}
+        fn update(&mut self, _: &mut Row, (): &(), _: &mut crate::FeatureContext<'_, Row, ()>) {}
     }
     impl Drop for Parent {
         fn drop(&mut self) {
@@ -743,7 +742,7 @@ mod nested_cost {
     impl Feature for Leaf {
         type State = usize;
         type Action = ();
-        fn reduce(&mut self, _: &mut usize, (): &(), _: &mut crate::FeatureContext<'_, usize, ()>) {
+        fn update(&mut self, _: &mut usize, (): &(), _: &mut crate::FeatureContext<'_, usize, ()>) {
         }
     }
     impl Drop for Leaf {

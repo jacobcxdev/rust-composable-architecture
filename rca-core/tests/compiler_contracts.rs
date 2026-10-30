@@ -57,6 +57,9 @@ fn main() -> ui_test::color_eyre::Result<()> {
         dependencies.program.args.push("--features".into());
         dependencies.program.args.push(features.join(",").into());
     }
+    if !cfg!(feature = "local") {
+        config.skip_files.push("local_feature_".into());
+    }
     config
         .comment_defaults
         .base()

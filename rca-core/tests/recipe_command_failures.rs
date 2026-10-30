@@ -180,7 +180,7 @@ enum ParentAction {
 impl Feature for Parent {
     type State = State;
     type Action = ParentAction;
-    fn reduce(
+    fn update(
         &mut self,
         state: &mut State,
         action: &ParentAction,
@@ -204,7 +204,7 @@ impl Drop for Child {
 impl Feature for Child {
     type State = usize;
     type Action = Action;
-    fn reduce(
+    fn update(
         &mut self,
         state: &mut usize,
         action: &Action,
@@ -263,7 +263,7 @@ fn fixture(
         },
         move |_| Child(Arc::clone(&constructor_trace)),
     );
-    let (builder, _) = Store::feature_builder(
+    let (builder, _) = Store::builder(
         State {
             child: Some(0),
             configuration: 0,

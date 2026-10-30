@@ -1,8 +1,8 @@
-//! Checks ordinary and adapted stores with move-only, non-`Sync` state and actions.
+//! Checks store constructors with move-only, non-`Sync` state and actions.
 //!
 //! This compiler fixture deliberately omits extra traits that could hide stricter bounds.
 
-use rca::{Effect, ReduceContext, Reducer, ReducerFeature, Runtime, Store};
+use rca::{Effect, ReduceContext, Reducer, Runtime, Store};
 use std::cell::Cell;
 
 /// Mutable state that is `Send` but not `Sync`, with no `Clone` implementation.
@@ -32,9 +32,9 @@ pub fn ordinary(runtime: Runtime) -> Store<State, Action> {
     Store::new(State(Cell::new(0)), Counter, runtime)
 }
 
-/// Checks the feature adapter with the same types and a valid bounded mailbox.
-pub fn adapted(runtime: Runtime) -> Store<State, Action> {
-    Store::feature_builder(State(Cell::new(0)), ReducerFeature::new(Counter), runtime)
+/// Checks the builder with the same types and a valid bounded mailbox.
+pub fn configured(runtime: Runtime) -> Store<State, Action> {
+    Store::builder(State(Cell::new(0)), Counter, runtime)
         .mailbox_capacity(1)
         .build()
         .unwrap()

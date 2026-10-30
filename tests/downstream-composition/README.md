@@ -1,9 +1,9 @@
 # Packaged composition and compiler contracts
 
 This consumer imports the public facade under the name `architecture`. It does
-not use workspace paths or RCA internals. The existing packaged-downstream
-qualification stages the unpublished `0.1.0` packages in an isolated local
-registry, then checks, tests and runs this consumer:
+not use workspace paths or RCA internals. The packaged-downstream check builds
+the RCA package archives and stages them in an isolated local registry.
+It then checks, tests and runs this consumer:
 
 ```sh
 scripts/verify-packaged-downstream.sh

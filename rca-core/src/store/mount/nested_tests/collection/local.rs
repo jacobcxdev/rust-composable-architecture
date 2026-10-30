@@ -132,7 +132,7 @@ struct Root;
 impl profile::Feature for Root {
     type State = State;
     type Action = RootAction;
-    fn reduce(
+    fn update(
         &mut self,
         state: &mut State,
         action: &RootAction,
@@ -161,7 +161,7 @@ struct Parent(Rc<Cell<usize>>);
 impl profile::Feature for Parent {
     type State = Row;
     type Action = RowAction;
-    fn reduce(
+    fn update(
         &mut self,
         state: &mut Row,
         action: &RowAction,
@@ -177,7 +177,7 @@ struct Leaf(Rc<Cell<usize>>);
 impl profile::Feature for Leaf {
     type State = Rc<Cell<usize>>;
     type Action = LeafAction;
-    fn reduce(
+    fn update(
         &mut self,
         state: &mut Self::State,
         action: &LeafAction,
@@ -205,7 +205,7 @@ fn local_rc_tuple_recipes_and_nested_changed_collections() {
     let drops = Rc::new(Cell::new(0));
     let factory_capture = LocalCapture(std::rc::Rc::clone(&drops));
     let make_drops = std::rc::Rc::clone(&drops);
-    let store = profile::Store::feature_builder(
+    let store = profile::Store::builder(
         State {
             rows: (1..=2)
                 .map(|id| {
@@ -413,7 +413,7 @@ fn local_keyed_make_and_configuration_shutdown_dispose_uninstalled_entries() {
         let make_owner = Rc::clone(&owner);
         let make_trace = Rc::clone(&trace);
         let make_drops = Rc::clone(&drops);
-        let store = profile::Store::feature_builder(
+        let store = profile::Store::builder(
             State {
                 rows: (1..=2)
                     .map(|id| {
@@ -535,7 +535,7 @@ struct LookupFeature(LocalCapture);
 impl profile::Feature for LookupFeature {
     type State = usize;
     type Action = ();
-    fn reduce(&mut self, _: &mut usize, (): &(), _: &mut profile::FeatureContext<'_, usize, ()>) {
+    fn update(&mut self, _: &mut usize, (): &(), _: &mut profile::FeatureContext<'_, usize, ()>) {
         let _ = &self.0;
     }
 }
@@ -693,7 +693,7 @@ struct NestedLookupFeature(LocalCapture);
 impl profile::Feature for NestedLookupFeature {
     type State = NestedLookupRow;
     type Action = ();
-    fn reduce(
+    fn update(
         &mut self,
         _: &mut NestedLookupRow,
         (): &(),

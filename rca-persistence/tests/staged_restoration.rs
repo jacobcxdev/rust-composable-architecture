@@ -673,7 +673,7 @@ struct Restoration {
 impl Feature for Restoration {
     type State = State;
     type Action = Action;
-    fn reduce(
+    fn update(
         &mut self,
         state: &mut State,
         action: &Action,
@@ -931,7 +931,7 @@ fn fixture(
         busy: 0,
     };
     (
-        TestStore::projected_feature_builder(state, feature, snapshot).build(),
+        TestStore::projected_builder(state, feature, snapshot).build(),
         Controls {
             loads: load_controls,
             hydration: hydration_controls,

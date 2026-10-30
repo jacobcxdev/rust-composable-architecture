@@ -7,7 +7,9 @@ use std::sync::Mutex;
 use std::time::Duration;
 
 use rca_core::local as core_api;
-use rca_core::local::{Clock, Reducer, Store, StoreBuilder};
+#[cfg(test)]
+use rca_core::local::Reducer;
+use rca_core::local::{Clock, Store, StoreBuilder};
 use rca_core::testing::IssueRecorder;
 use rca_core::testing::local::TransactionGate;
 // Dependency keys and issue services deliberately retain portable semantics.

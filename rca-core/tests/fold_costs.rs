@@ -66,7 +66,7 @@ macro_rules! public_case {
             type State = Rows;
             type Action = Action;
 
-            fn reduce(
+            fn update(
                 &mut self,
                 rows: &mut Rows,
                 action: &Action,
@@ -87,7 +87,7 @@ macro_rules! public_case {
             type State = usize;
             type Action = ();
 
-            fn reduce(&mut self, _: &mut usize, _: &(), _: &mut FeatureContext<'_, usize, ()>) {}
+            fn update(&mut self, _: &mut usize, _: &(), _: &mut FeatureContext<'_, usize, ()>) {}
         }
 
         /// Measures a real keyed fold before and after roster changes.
@@ -100,7 +100,7 @@ macro_rules! public_case {
             let declared = fold.clone();
             let (store, construction) = measure(|| {
                 let rows: Rows = (0..width).map(|id| (id, 1)).collect();
-                let store = Store::feature_builder(rows, Root, Runtime::new(driver.clone()))
+                let store = Store::builder(rows, Root, Runtime::new(driver.clone()))
                     .keyed_with_children(
                         |rows| rows,
                         |rows| rows,

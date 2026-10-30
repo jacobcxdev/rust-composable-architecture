@@ -252,7 +252,7 @@ impl Feature for Root {
     type State = RootState;
     type Action = RootAction;
 
-    fn reduce(
+    fn update(
         &mut self,
         state: &mut RootState,
         action: &RootAction,
@@ -274,7 +274,7 @@ impl Feature for Worker {
     type State = WorkerState;
     type Action = Start;
 
-    fn reduce(
+    fn update(
         &mut self,
         state: &mut WorkerState,
         action: &Start,
@@ -324,7 +324,7 @@ fn mounted(driver: &Driver, interpreter: Rc<Interpreter>) -> (Store<RootState, R
         },
         |_| Worker,
     );
-    let (builder, site) = Store::feature_builder(
+    let (builder, site) = Store::builder(
         RootState {
             replacements: 0,
             worker: Some(WorkerState {

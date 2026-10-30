@@ -24,7 +24,7 @@ struct Leaf;
 impl Feature for Root {
     type State = State;
     type Action = Action;
-    fn reduce(
+    fn update(
         &mut self,
         state: &mut State,
         action: &Action,
@@ -58,12 +58,12 @@ impl Feature for Root {
 impl Feature for Parent {
     type State = Row;
     type Action = ();
-    fn reduce(&mut self, _: &mut Row, (): &(), _: &mut FeatureContext<'_, Row, ()>) {}
+    fn update(&mut self, _: &mut Row, (): &(), _: &mut FeatureContext<'_, Row, ()>) {}
 }
 impl Feature for Leaf {
     type State = i32;
     type Action = ();
-    fn reduce(&mut self, state: &mut i32, (): &(), _: &mut FeatureContext<'_, i32, ()>) {
+    fn update(&mut self, state: &mut i32, (): &(), _: &mut FeatureContext<'_, i32, ()>) {
         *state += 1;
     }
 }

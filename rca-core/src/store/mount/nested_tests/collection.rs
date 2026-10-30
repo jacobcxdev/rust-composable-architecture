@@ -42,7 +42,7 @@ struct CollectionRoot;
 impl Feature for CollectionRoot {
     type State = CollectionState;
     type Action = CollectionAction;
-    fn reduce(
+    fn update(
         &mut self,
         state: &mut CollectionState,
         action: &CollectionAction,
@@ -86,7 +86,7 @@ struct EntryFeature {
 impl Feature for EntryFeature {
     type State = EntryState;
     type Action = EntryAction;
-    fn reduce(
+    fn update(
         &mut self,
         state: &mut EntryState,
         action: &EntryAction,
@@ -112,7 +112,7 @@ struct DetailFeature {
 impl Feature for DetailFeature {
     type State = Cell<usize>;
     type Action = DetailAction;
-    fn reduce(
+    fn update(
         &mut self,
         state: &mut Self::State,
         action: &DetailAction,
@@ -444,7 +444,7 @@ fn collection_without_children_accepts_move_only_cell_factory() {
     let trace = Trace::default();
     let capture = Capture("make drop", 0, std::sync::Arc::clone(&trace));
     let count = Cell::new(0);
-    let store = Store::feature_builder(
+    let store = Store::builder(
         CollectionState {
             rows: [(1, row(1)), (2, row(2))].into_iter().collect(),
         },

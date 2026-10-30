@@ -19,7 +19,7 @@ struct ClosingRoot;
 impl Feature for ClosingRoot {
     type State = ClosingState;
     type Action = ();
-    fn reduce(
+    fn update(
         &mut self,
         _: &mut ClosingState,
         (): &(),
@@ -77,7 +77,7 @@ fn last_owner_dropped_by_parent_projection_prevents_child_projection_and_factory
         reactions: Vec::new(),
     };
     let (declaration, _) = attach_descriptor::<ClosingState, (), ChildFeature, _, _>(descriptor);
-    let store = Store::feature_builder(
+    let store = Store::builder(
         ClosingState {
             row: RowState {
                 child: Cell::new(1),
@@ -126,7 +126,7 @@ struct KeyedClosingRoot;
 impl Feature for KeyedClosingRoot {
     type State = KeyedClosingState;
     type Action = ();
-    fn reduce(
+    fn update(
         &mut self,
         _: &mut Self::State,
         (): &(),
@@ -182,7 +182,7 @@ fn keyed_selector_closure(identity: bool) {
         };
         Box::new(attach_descriptor::<KeyedClosingState, (), ChildFeature, _, _>(descriptor).0)
     };
-    let store = Store::feature_builder(
+    let store = Store::builder(
         KeyedClosingState {
             rows: [(CountedKey(std::sync::Arc::clone(&lookups)), Cell::new(1))]
                 .into_iter()

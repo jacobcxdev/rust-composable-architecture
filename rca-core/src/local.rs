@@ -41,8 +41,7 @@ pub use crate::runtime::local::{
 #[doc(inline)]
 pub use crate::store::local::{
     CommandPort, CommandReceipt, CommandSite, Effect, EffectSender, EntryMount, Feature,
-    FeatureContext, FeatureStoreBuilder, Fold, FoldView, MountChildren, MountSite, Operation,
-    OptionalMount, Output, OutputHandlers, Reduce, Reducer, ReducerFeature, RemovalSite,
-    RemovedChild, RemovedOutputError, RootMount, Store, StoreBuilder, Task, TaskContext,
-    TryCommandError,
+    FeatureContext, Fold, FoldView, MountChildren, MountSite, Operation, OptionalMount, Output,
+    OutputHandlers, Reduce, Reducer, RemovalSite, RemovedChild, RemovedOutputError, RootMount,
+    Store, StoreBuilder, Task, TaskContext, TryCommandError,
 };

@@ -232,7 +232,7 @@ macro_rules! service_fixture {
         impl Feature for Worker {
             type State = Node;
             type Action = Action;
-            fn reduce(
+            fn update(
                 &mut self,
                 state: &mut Node,
                 action: &Action,

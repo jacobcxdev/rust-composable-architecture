@@ -9,9 +9,11 @@ use std::sync::Arc as CaptureOwner;
 use std::sync::Mutex;
 use std::time::Duration;
 
+#[cfg(test)]
+use rca_core::Reducer;
 use rca_core::testing::{IssueRecorder, RuntimeSnapshot, TransactionGate};
 use rca_core::{
-    Clock, DependencyKey, DependencyValues, Issue, MonotonicInstant, Reducer, Store, StoreBuilder,
+    Clock, DependencyKey, DependencyValues, Issue, MonotonicInstant, Store, StoreBuilder,
 };
 
 use crate::{
@@ -153,6 +155,40 @@ mod completion_tests {
         fn reduce(&mut self, (): &mut (), (): &(), _: &mut ReduceContext<'_>) -> Effect<()> {
             Effect::none()
         }
+    }
+
+    #[test]
+    fn new_accepts_a_feature_with_transaction_gated_task_updates() {
+        struct Work;
+
+        impl rca_core::Feature for Work {
+            type State = usize;
+            type Action = ();
+
+            fn update(
+                &mut self,
+                _: &mut usize,
+                (): &(),
+                context: &mut rca_core::FeatureContext<'_, usize, ()>,
+            ) {
+                context.task(rca_core::Task::run(|context| async move {
+                    context.update(|state| *state += 1).await.unwrap();
+                }));
+            }
+        }
+
+        block_on(async {
+            let mut store = TestStore::new(0, Work);
+            let task = store.send(()).await.unwrap();
+
+            let _ = store
+                .receive_update(|expected| *expected = 1)
+                .await
+                .unwrap();
+
+            task.finish().await.unwrap();
+            store.finish().await.unwrap();
+        });
     }
 
     #[test]
@@ -299,7 +335,7 @@ mod completion_tests {
             type State = usize;
             type Action = Action;
 
-            fn reduce(
+            fn update(
                 &mut self,
                 _: &mut usize,
                 action: &Action,
@@ -337,7 +373,7 @@ mod completion_tests {
             let (background_control, background_gate) = crate::controlled_gate();
             let (update_control, update_gate) = crate::controlled_gate();
             let polls = Arc::new(AtomicUsize::new(0));
-            let mut store = TestStore::feature_builder(
+            let mut store = TestStore::builder(
                 0,
                 Work {
                     background: Some(background_gate),

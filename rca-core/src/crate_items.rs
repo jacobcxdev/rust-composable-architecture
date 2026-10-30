@@ -57,9 +57,7 @@ pub use error::{
     TryScopedSendError, TrySendError,
 };
 #[doc(inline)]
-pub use feature::{
-    Feature, FeatureContext, InitialPolicy, ReactionChange, ReactionContext, ReducerFeature,
-};
+pub use feature::{Feature, FeatureContext, InitialPolicy, ReactionChange, ReactionContext};
 #[cfg(feature = "test-util")]
 #[doc(inline)]
 pub use issue::{EndpointStub, IssueCollector};
@@ -103,9 +101,8 @@ pub use store::task_context::{
 #[doc(inline)]
 pub use store::{
     ActionReceipt, ActionReceiptFuture, ActionTask, CommandPort, CommandReceipt, CommandSite,
-    DEFAULT_MAILBOX_CAPACITY, EntryMount, FeatureStoreBuilder, Fold, FoldKey, FoldView, InputGate,
-    MountChildren, MountIdentity, MountSite, Operation, OptionalMount, Output, OutputDelivery,
-    OutputError, OutputFlow, OutputHandlers, RemovalOrigin, RemovalSite, RemovedChild,
-    RemovedOutputError, RootMount, ScopedStore, Store, StoreBuilder, TryCommandError,
-    WeakScopedStore,
+    DEFAULT_MAILBOX_CAPACITY, EntryMount, Fold, FoldKey, FoldView, InputGate, MountChildren,
+    MountIdentity, MountSite, Operation, OptionalMount, Output, OutputDelivery, OutputError,
+    OutputFlow, OutputHandlers, RemovalOrigin, RemovalSite, RemovedChild, RemovedOutputError,
+    RootMount, ScopedStore, Store, StoreBuilder, TryCommandError, WeakScopedStore,
 };

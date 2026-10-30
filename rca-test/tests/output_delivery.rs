@@ -37,7 +37,7 @@ struct Root;
 impl Feature for Root {
     type State = State;
     type Action = ();
-    fn reduce(&mut self, _: &mut State, (): &(), _: &mut FeatureContext<'_, State, ()>) {}
+    fn update(&mut self, _: &mut State, (): &(), _: &mut FeatureContext<'_, State, ()>) {}
 }
 
 /// Supplies an output source without action-driven state changes.
@@ -46,7 +46,7 @@ struct Child;
 impl Feature for Child {
     type State = ();
     type Action = u8;
-    fn reduce(&mut self, (): &mut (), _: &u8, _: &mut FeatureContext<'_, (), u8>) {}
+    fn update(&mut self, (): &mut (), _: &u8, _: &mut FeatureContext<'_, (), u8>) {}
 }
 
 /// Mounts the optional child with a fixed identity for this store lifetime.
@@ -102,7 +102,7 @@ fn typed_output_uses_the_same_pending_frontier_and_snapshot_assertion() {
                 })
             },
         );
-        let (builder, site) = TestStore::projected_feature_builder(
+        let (builder, site) = TestStore::projected_builder(
             State {
                 child: Some(()),
                 value: None,
@@ -188,7 +188,7 @@ async fn pending_output_fixture(
             })
         },
     );
-    let (builder, site) = TestStore::projected_feature_builder(
+    let (builder, site) = TestStore::projected_builder(
         State {
             child: Some(()),
             value: None,
@@ -509,7 +509,7 @@ fn deferred_output_builder_owns_captures_not_retained_weak_handle() {
     let resource = Arc::new(());
     let weak = Arc::downgrade(&resource);
     let capture = Capture(resource);
-    let (builder, site) = TestStore::projected_feature_builder(
+    let (builder, site) = TestStore::projected_builder(
         State {
             child: Some(()),
             value: None,
@@ -535,7 +535,7 @@ fn deferred_output_builder_owns_captures_not_retained_weak_handle() {
 fn unbound_and_absent_handlers_cannot_intercept_live_owned_output() {
     block_on(async {
         let host = rca_test::DeterministicRuntime::new();
-        let (unbuilt, unbound) = rca_core::Store::feature_builder(
+        let (unbuilt, unbound) = rca_core::Store::builder(
             State {
                 child: Some(()),
                 value: None,
@@ -544,7 +544,7 @@ fn unbound_and_absent_handlers_cannot_intercept_live_owned_output() {
             host.runtime(),
         )
         .mount_with_site(descriptor());
-        let (builder, source) = rca_core::Store::feature_builder(
+        let (builder, source) = rca_core::Store::builder(
             State {
                 child: Some(()),
                 value: None,
@@ -660,7 +660,7 @@ mod local_handler_registration {
     impl Feature for Root {
         type State = State;
         type Action = ();
-        fn reduce(&mut self, _: &mut State, (): &(), _: &mut FeatureContext<'_, State, ()>) {}
+        fn update(&mut self, _: &mut State, (): &(), _: &mut FeatureContext<'_, State, ()>) {}
     }
 
     /// Supplies the local output source without action-driven state changes.
@@ -669,7 +669,7 @@ mod local_handler_registration {
     impl Feature for Child {
         type State = ();
         type Action = u8;
-        fn reduce(&mut self, (): &mut (), _: &u8, _: &mut FeatureContext<'_, (), u8>) {}
+        fn update(&mut self, (): &mut (), _: &u8, _: &mut FeatureContext<'_, (), u8>) {}
     }
 
     /// Mounts the local child with a fixed identity for this store lifetime.
@@ -692,7 +692,7 @@ mod local_handler_registration {
     fn unbound_and_absent_handlers_cannot_intercept_live_rc_output() {
         block_on(async {
             let host = rca_test::local::DeterministicRuntime::new();
-            let (unbuilt, unbound) = Store::feature_builder(
+            let (unbuilt, unbound) = Store::builder(
                 State {
                     child: Some(()),
                     value: None,
@@ -701,7 +701,7 @@ mod local_handler_registration {
                 host.runtime(),
             )
             .mount_with_site(descriptor());
-            let (builder, source) = Store::feature_builder(
+            let (builder, source) = Store::builder(
                 State {
                     child: Some(()),
                     value: None,
@@ -799,7 +799,7 @@ mod local_handler_registration {
         impl Feature for DropChild {
             type State = ();
             type Action = u8;
-            fn reduce(&mut self, (): &mut (), _: &u8, _: &mut FeatureContext<'_, (), u8>) {}
+            fn update(&mut self, (): &mut (), _: &u8, _: &mut FeatureContext<'_, (), u8>) {}
         }
         impl Drop for DropChild {
             fn drop(&mut self) {
@@ -824,7 +824,7 @@ mod local_handler_registration {
                 },
                 move |()| DropChild(constructor.borrow_mut().take()),
             );
-            let (foreign_builder, foreign_site) = Store::feature_builder(
+            let (foreign_builder, foreign_site) = Store::builder(
                 State {
                     child: Some(()),
                     value: None,
@@ -833,7 +833,7 @@ mod local_handler_registration {
                 foreign_host.runtime(),
             )
             .mount_with_site(foreign_mount);
-            let (builder, source) = Store::feature_builder(
+            let (builder, source) = Store::builder(
                 State {
                     child: Some(()),
                     value: None,
@@ -933,7 +933,7 @@ fn draining_foreign_handler_cannot_intercept_live_owned_output() {
     impl Feature for DropChild {
         type State = ();
         type Action = u8;
-        fn reduce(&mut self, (): &mut (), _: &u8, _: &mut FeatureContext<'_, (), u8>) {}
+        fn update(&mut self, (): &mut (), _: &u8, _: &mut FeatureContext<'_, (), u8>) {}
     }
     impl Drop for DropChild {
         fn drop(&mut self) {
@@ -958,7 +958,7 @@ fn draining_foreign_handler_cannot_intercept_live_owned_output() {
             },
             move |()| DropChild(constructor.lock().unwrap().take()),
         );
-        let (foreign_builder, foreign_site) = rca_core::Store::feature_builder(
+        let (foreign_builder, foreign_site) = rca_core::Store::builder(
             State {
                 child: Some(()),
                 value: None,
@@ -967,7 +967,7 @@ fn draining_foreign_handler_cannot_intercept_live_owned_output() {
             foreign_host.runtime(),
         )
         .mount_with_site(foreign_mount);
-        let (builder, source) = rca_core::Store::feature_builder(
+        let (builder, source) = rca_core::Store::builder(
             State {
                 child: Some(()),
                 value: None,

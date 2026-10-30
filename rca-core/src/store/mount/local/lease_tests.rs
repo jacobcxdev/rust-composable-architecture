@@ -11,7 +11,7 @@ struct Root(Rc<()>);
 impl local::Feature for Root {
     type State = Option<Rc<Counter<usize>>>;
     type Action = Rc<()>;
-    fn reduce(
+    fn update(
         &mut self,
         _: &mut Self::State,
         _: &Self::Action,
@@ -25,7 +25,7 @@ struct Child;
 impl local::Feature for Child {
     type State = Rc<Counter<usize>>;
     type Action = Rc<u8>;
-    fn reduce(
+    fn update(
         &mut self,
         _: &mut Self::State,
         _: &Self::Action,
@@ -396,7 +396,7 @@ fn local_closed_path_selection_leaves_no_committed_handler_node() {
     impl local::Feature for ClosingRoot {
         type State = State;
         type Action = Rc<()>;
-        fn reduce(
+        fn update(
             &mut self,
             _: &mut State,
             _: &Rc<()>,

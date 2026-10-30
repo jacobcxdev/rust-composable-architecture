@@ -20,7 +20,7 @@ fn parent_reconfiguration_returns_waiting_owned_transfer() {
     impl Feature for ConfiguredRootFeature {
         type State = Option<ConfiguredParent>;
         type Action = ();
-        fn reduce(
+        fn update(
             &mut self,
             _: &mut Self::State,
             (): &(),
@@ -33,7 +33,7 @@ fn parent_reconfiguration_returns_waiting_owned_transfer() {
     impl Feature for ConfiguredParentFeature {
         type State = ConfiguredParent;
         type Action = ();
-        fn reduce(
+        fn update(
             &mut self,
             _: &mut Self::State,
             (): &(),
@@ -206,7 +206,7 @@ fn cancelled_child_producer_does_not_cancel_live_parent_removal_output() {
     impl Feature for Parent {
         type State = Option<Child>;
         type Action = ();
-        fn reduce(
+        fn update(
             &mut self,
             _: &mut Self::State,
             (): &(),
@@ -222,7 +222,7 @@ fn cancelled_child_producer_does_not_cancel_live_parent_removal_output() {
     impl Feature for Worker {
         type State = Child;
         type Action = ();
-        fn reduce(&mut self, _: &mut Child, (): &(), context: &mut FeatureContext<'_, Child, ()>) {
+        fn update(&mut self, _: &mut Child, (): &(), context: &mut FeatureContext<'_, Child, ()>) {
             let export = Arc::clone(&self.export);
             let capture = DropWatch(Arc::clone(&self.drops));
             context.task(rca_core::Task::run(move |task| async move {
@@ -370,7 +370,7 @@ fn named_parent_removal_rejects_terminal_ownership_and_closed_full_mailbox() {
         type State = Parent;
         type Action = u8;
 
-        fn reduce(
+        fn update(
             &mut self,
             _: &mut Parent,
             action: &u8,
@@ -649,7 +649,7 @@ fn shared_removal_entry_rechecks_capture_and_mutable_parent_projection() {
         type State = SelectingRoot;
         type Action = ();
 
-        fn reduce(
+        fn update(
             &mut self,
             _: &mut SelectingRoot,
             (): &(),
@@ -666,7 +666,7 @@ fn shared_removal_entry_rechecks_capture_and_mutable_parent_projection() {
         type State = Child;
         type Action = ();
 
-        fn reduce(&mut self, _: &mut Child, (): &(), _: &mut FeatureContext<'_, Child, ()>) {
+        fn update(&mut self, _: &mut Child, (): &(), _: &mut FeatureContext<'_, Child, ()>) {
             panic!("rejected removal must not enter the child reducer");
         }
     }

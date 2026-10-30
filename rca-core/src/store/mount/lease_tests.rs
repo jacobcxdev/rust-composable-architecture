@@ -11,7 +11,7 @@ struct Root;
 impl Feature for Root {
     type State = Option<usize>;
     type Action = ();
-    fn reduce(
+    fn update(
         &mut self,
         _: &mut Self::State,
         (): &(),
@@ -24,7 +24,7 @@ struct Child;
 impl Feature for Child {
     type State = usize;
     type Action = u8;
-    fn reduce(&mut self, _: &mut usize, _: &u8, _: &mut crate::FeatureContext<'_, usize, u8>) {}
+    fn update(&mut self, _: &mut usize, _: &u8, _: &mut crate::FeatureContext<'_, usize, u8>) {}
 }
 /// Names the actual declaration cell inspected by the guard probe.
 type Cell = DeclarationCell<Option<usize>, (), Child, ()>;
@@ -238,7 +238,7 @@ fn queued_acquisition_rejects_retired_nested_payload_with_a_retained_header() {
     impl Feature for ReplaceRoot {
         type State = Option<usize>;
         type Action = Option<usize>;
-        fn reduce(
+        fn update(
             &mut self,
             state: &mut Self::State,
             action: &Self::Action,
@@ -457,7 +457,7 @@ fn committed_read_after_concurrent_close_suppresses_first_selector() {
     impl Feature for Parent {
         type State = State;
         type Action = ();
-        fn reduce(&mut self, _: &mut State, (): &(), _: &mut crate::FeatureContext<'_, State, ()>) {
+        fn update(&mut self, _: &mut State, (): &(), _: &mut crate::FeatureContext<'_, State, ()>) {
         }
     }
     let descriptor = OptionalMount::new(
@@ -518,7 +518,7 @@ fn closed_path_selection_leaves_no_committed_handler_node() {
     impl Feature for ClosingRoot {
         type State = State;
         type Action = ();
-        fn reduce(&mut self, _: &mut State, (): &(), _: &mut crate::FeatureContext<'_, State, ()>) {
+        fn update(&mut self, _: &mut State, (): &(), _: &mut crate::FeatureContext<'_, State, ()>) {
         }
     }
     fn read(state: &State) -> Option<&usize> {
@@ -585,7 +585,7 @@ impl Feature for SelectableRoot {
     type State = SelectableState;
     type Action = bool;
 
-    fn reduce(
+    fn update(
         &mut self,
         state: &mut SelectableState,
         action: &bool,

@@ -22,7 +22,7 @@ struct Child;
 impl Feature for Root {
     type State = State;
     type Action = Action;
-    fn reduce(
+    fn update(
         &mut self,
         state: &mut State,
         action: &Action,
@@ -50,7 +50,7 @@ impl Feature for Root {
 impl Feature for Child {
     type State = i32;
     type Action = i32;
-    fn reduce(&mut self, state: &mut i32, action: &i32, _: &mut FeatureContext<'_, i32, i32>) {
+    fn update(&mut self, state: &mut i32, action: &i32, _: &mut FeatureContext<'_, i32, i32>) {
         *state += action;
     }
 }

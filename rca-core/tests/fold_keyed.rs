@@ -61,7 +61,7 @@ struct RootFeature;
 impl Feature for RootFeature {
     type State = Root;
     type Action = Action;
-    fn reduce(
+    fn update(
         &mut self,
         state: &mut Root,
         action: &Action,
@@ -88,21 +88,21 @@ struct PanelFeature;
 impl Feature for PanelFeature {
     type State = Panel;
     type Action = ();
-    fn reduce(&mut self, _: &mut Panel, (): &(), _: &mut FeatureContext<'_, Panel, ()>) {}
+    fn update(&mut self, _: &mut Panel, (): &(), _: &mut FeatureContext<'_, Panel, ()>) {}
 }
 /// Makes row replacement observable without adding reducer effects.
 struct RowFeature;
 impl Feature for RowFeature {
     type State = Row;
     type Action = ();
-    fn reduce(&mut self, _: &mut Row, (): &(), _: &mut FeatureContext<'_, Row, ()>) {}
+    fn update(&mut self, _: &mut Row, (): &(), _: &mut FeatureContext<'_, Row, ()>) {}
 }
 /// Keeps each optional leaf independently mounted beneath its row.
 struct LeafFeature;
 impl Feature for LeafFeature {
     type State = usize;
     type Action = ();
-    fn reduce(&mut self, _: &mut usize, (): &(), _: &mut FeatureContext<'_, usize, ()>) {}
+    fn update(&mut self, _: &mut usize, (): &(), _: &mut FeatureContext<'_, usize, ()>) {}
 }
 /// Exposes the latest row declarations without retaining their Store or callbacks.
 type RowSites = Arc<Mutex<BTreeMap<u8, MountSite<Root, Row, (), Action>>>>;
@@ -138,7 +138,7 @@ fn mixed_optional_keyed_roster_reorders_retains_and_replaces_independent_contrib
         },
         |_| PanelFeature,
     );
-    let (builder, _) = Store::feature_builder(
+    let (builder, _) = Store::builder(
         Root(Some(Panel {
             before: Some(2),
             rows: [(1, row(3, 4)), (2, row(5, 6))].into_iter().collect(),

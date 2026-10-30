@@ -17,7 +17,7 @@ struct Child(Rc<Counter<usize>>);
 impl local::Feature for Child {
     type State = Rc<Counter<usize>>;
     type Action = Rc<u8>;
-    fn reduce(
+    fn update(
         &mut self,
         _: &mut Self::State,
         _: &Self::Action,

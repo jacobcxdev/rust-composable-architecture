@@ -58,7 +58,7 @@ fn mounted(
             body.lock().unwrap().push("body");
         })
     });
-    let (builder, site) = Store::feature_builder(
+    let (builder, site) = Store::builder(
         Root {
             child: Some(Cell::new(1)),
         },
@@ -350,7 +350,7 @@ fn last_owner_dropped_by_mount_callback_stops_later_user_entries() {
                 },
             )
         };
-        let store = Store::feature_builder(
+        let store = Store::builder(
             Root {
                 child: Some(Cell::new(1)),
             },
@@ -402,13 +402,13 @@ fn identity_clone_closure_is_rechecked_before_child_path() {
     impl Feature for Root {
         type State = State;
         type Action = ();
-        fn reduce(&mut self, _: &mut State, (): &(), _: &mut FeatureContext<'_, State, ()>) {}
+        fn update(&mut self, _: &mut State, (): &(), _: &mut FeatureContext<'_, State, ()>) {}
     }
     struct Child;
     impl Feature for Child {
         type State = Arc<AtomicUsize>;
         type Action = u8;
-        fn reduce(
+        fn update(
             &mut self,
             _: &mut Self::State,
             _: &u8,
@@ -453,7 +453,7 @@ fn identity_clone_closure_is_rechecked_before_child_path() {
         },
         |_| -> Child { panic!("closed identity clone cannot enter constructor") },
     );
-    let store = Store::feature_builder(
+    let store = Store::builder(
         State(Some(std::sync::Arc::clone(&selected))),
         Root,
         Runtime::new(driver.clone()),

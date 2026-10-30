@@ -75,6 +75,9 @@ fn measure_file_backend_allocations() {
         host.handle().clone(),
     )
     .unwrap();
+    // Channel closure can initialise a process-global critical-section mutex.
+    // A separate channel leaves the measured session's per-object storage cold.
+    drop(async_channel::bounded::<()>(1));
     let _profiler = dhat::Profiler::builder().testing().build();
     let initial = dhat::HeapStats::get();
     let clone = footprint(|| client.clone());
