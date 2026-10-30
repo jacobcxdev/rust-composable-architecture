@@ -462,9 +462,9 @@ mod runner_tests {
 
     #[test]
     fn actor_markers_reject_conflicting_markers() {
-        assert!(actor_child_marker(None, true, true).is_err());
+        actor_child_marker(None, true, true).unwrap_err();
         for (timer, direct_future) in [(true, false), (false, true), (true, true)] {
-            assert!(actor_child_marker(Some(std::ffi::OsStr::new("")), timer, direct_future).is_err());
+            actor_child_marker(Some(std::ffi::OsStr::new("")), timer, direct_future).unwrap_err();
         }
         for (timer, direct_future, name) in [
             (
@@ -480,7 +480,7 @@ mod runner_tests {
         ] {
             let marker = actor_child_marker(None, timer, direct_future).unwrap();
             for (keyed, scope) in [(true, false), (false, true), (true, true)] {
-                assert!(run(&args(&[name, "--exact"]), keyed, marker, scope).is_err());
+                run(&args(&[name, "--exact"]), keyed, marker, scope).unwrap_err();
             }
         }
     }
@@ -510,7 +510,7 @@ mod runner_tests {
                 vec![name, "--exact", "--skip", name],
                 vec![name, "--exact", "--ignored"],
             ] {
-                assert!(run(&args(&arguments), false, marker, false).is_err());
+                run(&args(&arguments), false, marker, false).unwrap_err();
             }
         }
     }
