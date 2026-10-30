@@ -3,14 +3,15 @@
 RCA provides composable, exhaustively testable application logic in Rust.
 It is headless-first. Applications own their runtime and any UI integration.
 
-This branch establishes the repository metadata.
-The initial RCA 0.1.0 implementation belongs in a separate pull request for review.
-No RCA 0.1.0 package or release is published.
+This branch contains the repository metadata.
+[Pull request #1](https://github.com/jacobcxdev/rust-composable-architecture/pull/1)
+contains the RCA implementation, documentation, examples and tests for review.
 
-The earlier Composable history remains available under the
-[`v0.7.0` tag](https://github.com/jacobcxdev/rust-composable-architecture/tree/v0.7.0)
-and the `jacobcxdev/legacy-composable` branch.
-That history is not an RCA 0.1.0 release.
+## Acknowledgements
 
-RCA takes architectural inspiration from Point-Free's Composable Architecture.
-The repository preserves the applicable MIT and Apache 2.0 licence notices.
+RCA takes architectural inspiration from Point-Free's
+[Composable Architecture](https://github.com/pointfreeco/swift-composable-architecture).
+RCA adapts these ideas to Rust ownership, traits and explicit runtimes.
+
+The repository preserves the applicable [MIT](LICENSE-MIT.md) and
+[Apache 2.0](LICENSE-APACHE.md) licence notices.
