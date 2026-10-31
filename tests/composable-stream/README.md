@@ -210,7 +210,7 @@ This instrumentation alone does not qualify provenance, comparative cohorts or
 performance. Counter protocols and their previous captures remain unchanged.
 
 The separately frozen
-`docs/performance/composable-ready-future-allocation-protocol-v1.json` schedules
+`docs/performance/composable-ready-future-allocation-protocol-v2.json` schedules
 three forward/reverse cycles, six samples per engine from two fresh release
 builds per engine. Run `scripts/composition_runner.py` with
 `--mode ready-future-allocation-cohorts` and a new output directory. The existing
@@ -270,7 +270,7 @@ The existing frozen v1 workload, protocol and captures remain unchanged.
 
 ## Common-outcome allocation capture
 
-The [separate protocol](../../docs/performance/composable-common-outcome-allocation-protocol-v1.json)
+The [separate protocol](../../docs/performance/composable-common-outcome-allocation-protocol-v2.json)
 defines the build sequence and sample requirements.
 It was frozen after exploratory debug instrumentation checks, before the first
 qualified capture. Every initial A counter must be zero. The report retains all

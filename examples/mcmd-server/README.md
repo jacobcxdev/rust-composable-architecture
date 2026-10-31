@@ -27,7 +27,7 @@ This is application policy, not an automatic guarantee supplied by RCA.
 The tests assert complete backend state after each action, exact client calls,
 delayed responses, both reversal directions, errors and isolated dependencies.
 
-Run from the RCA workspace with its pinned Rust 1.98.0 toolchain:
+Run from the RCA workspace with its pinned Rust 1.99.0 toolchain:
 
 ```sh
 cargo test --locked -p rca-example-mcmd-server

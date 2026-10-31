@@ -9,7 +9,7 @@ MODULE = pathlib.Path(__file__).resolve().parents[1] / "common_outcome_allocatio
 SPEC = importlib.util.spec_from_file_location("common_outcome_allocations", MODULE)
 allocations = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(allocations)
-PROTOCOL = MODULE.parents[1] / "docs/performance/composable-common-outcome-allocation-protocol-v1.json"
+PROTOCOL = MODULE.parents[1] / "docs/performance/composable-common-outcome-allocation-protocol-v2.json"
 
 
 def ledger(engine="rca"):
@@ -148,6 +148,18 @@ def observations():
 
 
 class CommonOutcomeProtocolTests(unittest.TestCase):
+    def test_historical_and_current_protocols_keep_distinct_identities(self):
+        historical = allocations.load_protocol(PROTOCOL.with_name(
+            "composable-common-outcome-allocation-protocol-v1.json"))
+        current = allocations.load_protocol(PROTOCOL)
+        self.assertEqual(allocations.measurement_plan(historical), allocations.measurement_plan(current))
+        for protocol, expected in ((historical, allocations.PROTOCOL_SHA256),
+                                   (current, allocations.CURRENT_PROTOCOL_SHA256)):
+            self.assertEqual(allocations.evaluate(observations(), protocol)["protocol_sha256"], expected)
+            altered = dict(protocol, rust_toolchain="1.99.0" if protocol is historical else "1.98.0")
+            with self.assertRaises(ValueError):
+                allocations.measurement_plan(altered)
+
     def test_fixed_plan_keeps_both_build_roles_and_all_cycles(self):
         protocol = allocations.load_protocol(PROTOCOL)
         plan = allocations.measurement_plan(protocol)

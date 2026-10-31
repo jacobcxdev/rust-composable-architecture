@@ -10,10 +10,10 @@ import unittest
 from unittest.mock import patch
 from contextlib import ExitStack
 
-from test_composition_runner import runner
+from test_composition_runner import runner, setup_guard_fixture
 from test_composition_performance import composition_performance as evidence
 
-PROTOCOL = pathlib.Path(__file__).resolve().parents[2] / 'docs/performance/composable-minimal-compile-protocol-v1.json'
+PROTOCOL = pathlib.Path(__file__).resolve().parents[2] / 'docs/performance/composable-minimal-compile-protocol-v2.json'
 
 
 class MinimalCompileTests(unittest.TestCase):
@@ -91,6 +91,9 @@ class MinimalCompileTests(unittest.TestCase):
 
 
 class CompileCommandTests(unittest.TestCase):
+    def setUp(self):
+        setup_guard_fixture(self)
+
     def test_qualification_rejects_rewritten_inputs_and_preparation(self):
         protocol = evidence.load_minimal_compile_protocol(PROTOCOL)
         for mutation in ('inputs.json', 'protocol.json', 'plan.json', 'preparation', 'dependency-hashes.json'):

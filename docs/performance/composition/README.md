@@ -1,6 +1,6 @@
 # Composition performance qualification
 
-The [v7 protocol](composition-protocol-v7.json) and
+The [v8 macOS protocol](composition-protocol-v8.json) and
 [absolute budgets](composition-budgets.json) define the composition performance
 gate. Their contents, hashes and thresholds are frozen before capture. This directory holds
 the maintained method and the three receipts needed to validate those budgets,
@@ -33,7 +33,17 @@ identify the recorded evidence.
 
 ## Run the gate
 
-The v7 protocol requires macOS 27 or later, the named hardware and toolchain,
+Mac captures require [compiler memory protection](../../../CONTRIBUTING.md#build-memory-safety).
+The Mac controller applies the memory watchdog to each owned command group.
+Memory checks run separately from host telemetry. The measured command keeps its original timing boundary.
+Each command records the watchdog version, memory peak, exit status and cleanup result.
+Forced cleanup cannot count as successful natural completion.
+
+This watchdog is not a kernel-enforced memory cap. Use an OS-limited remote job for large or unfamiliar builds.
+Do not run `capture-composition-performance.sh` directly on the Mac. Use the guarded controller below.
+The Windows paired route below applies an OS memory limit.
+
+The v8 protocol requires macOS 27 or later, the named hardware and Rust 1.99.0,
 twenty paired blocks per mode, the fixed ordering seed and confidence rule,
 and the 1.10 relative limit. These host requirements do not set RCA's deployment support.
 The runner records background CPU load and compiler processes without waiting for an idle host.
@@ -52,7 +62,7 @@ Both modes use the same controller revision, scripts, protocol and exact host OS
 All relative gates and all 33 absolute gates remain required for each mode.
 
 The top-level `complete.json` reports the combined result.
-The single-mode evaluator remains available for historical v6 evidence, not v7 acceptance.
+The single-mode evaluator remains available for historical v6 evidence, not current acceptance.
 Binary-only measurements do not replace the paired timing run.
 
 Each mode retains twenty blocks. The complete capture uses four independent benchmark builds.
@@ -99,7 +109,7 @@ libtest receiver thread. None-effect checks use public Debug output after the
 allocation snapshot, rather than private implementation fields.
 
 All 33 numerical ceilings retain their historical values and source hashes.
-V7 applies those unchanged ceilings to the common workloads. It does not claim
+V8 applies those unchanged ceilings to the common workloads. It does not claim
 that the historical measurements used this later harness. Each result separates
 historical budget provenance from the effective measured workload.
 
@@ -114,6 +124,47 @@ Failed transcripts remain available. Runtime binaries remain available until
 their final hash check completes. After each mode completes all source and binary checks,
 the runner deletes its temporary source and build trees. Receipts and measurements remain.
 These deletions occur outside measured intervals.
+
+## Windows paired measurements
+
+The [Windows protocol](composition-windows-paired-v1.json) runs the same 14
+relative gates on H1 with Rust 1.99.0. It uses the same 20 paired blocks, fixed
+orders, confidence rule and 1.10 limit. Every block contains both comparison
+modes; their first mode alternates. All measurements and their hashes remain in the
+capture, including failures. Windows results do not qualify any of the 33 macOS
+absolute gates.
+
+From a clean Windows checkout with the exact reference available, run:
+
+```powershell
+python scripts/composition_runner.py --platform windows <capture-output> <pinned-reference-worktree>
+```
+
+Keep Git line endings unchanged in both checkouts (`core.autocrlf=false`). The
+runner checks the exact source bytes before and after capture. Use an unused
+output path below `target/qualification-evidence/0.1.0/composition`.
+
+Each command starts suspended, joins an owned Windows Job Object, then runs.
+The job limits total committed memory across its process tree to 2 GiB.
+Windows denies allocations above that limit. A nonzero exit or the fixed
+30-minute timeout fails the capture. Failure cleanup terminates only that owned job.
+The runner waits for the job to empty before deleting build output.
+It does not wait for background load to fall.
+The runner never increases the memory limit or retries a failed measurement.
+
+Compile time ends when the pinned Cargo process exits successfully.
+Only compiler calls can terminate a surviving `VCTIP.EXE` telemetry process.
+The runner checks its exact image path, file hash and owned-job membership.
+Unknown surviving children fail the capture. Receipts retain each requested
+termination and the full elapsed time through cleanup, including on failure.
+Runtime calls require natural descendant exit and include that wait in elapsed time.
+
+CPU cycles, CPU time and memory counters cover only the direct process. They are kept as raw
+diagnostics, not treated as compiler-child totals or instruction counts.
+
+The retained [v7 protocol](composition-protocol-v7.json) describes historical
+Rust 1.98 measurements. Current commands use Rust 1.99. The old protocol and its
+evidence remain unchanged; they do not qualify the new toolchain.
 
 ## Test inputs are not release evidence
 

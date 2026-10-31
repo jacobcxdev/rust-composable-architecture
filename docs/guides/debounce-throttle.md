@@ -143,7 +143,7 @@ composition reducer.
 Run the focused executable qualification with:
 
 ```sh
-rustup run 1.98.0 cargo test --locked -p rca-core --test debounce_throttle
+rustup run 1.99.0 cargo test --locked -p rca-core --test debounce_throttle
 ```
 
 The fixture supplies a deterministic runtime and clock, no wall-clock sleeps or

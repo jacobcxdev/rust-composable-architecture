@@ -1,6 +1,6 @@
 # RCA support policy
 
-RCA 0.1.0 uses Rust 1.98.0, Cargo 1.98.0, and Rust Edition 2024. RCA
+RCA 0.1.0 uses Rust 1.99.0, Cargo 1.99.0, and Rust Edition 2024. RCA
 does not require nightly Rust. Nightly 2026-08-23 is pinned for Miri,
 unused-dependency analysis, fuzzing, and proc-macro API qualification only.
 
@@ -156,7 +156,7 @@ Earlier results do not qualify changed code without an applicability check.
 
 The first stable release records its minimum supported Rust version (MSRV).
 After 1.0, increasing that requirement needs a minor release and a migration
-note, not a patch release. RCA 0.1.0 requires Rust 1.98.0.
+note, not a patch release. RCA 0.1.0 requires Rust 1.99.0.
 Nightly-only test tools do not become requirements for library consumers.
 
 ## Deprecation and migration

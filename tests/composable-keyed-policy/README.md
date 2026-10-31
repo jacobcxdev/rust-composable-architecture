@@ -4,7 +4,7 @@ The candidate workspace exercises current RCA's keyed routing and child state.
 Upstream Composable `0b5baa80246a625c1bb886e6df20dae27fc97c97` has no native keyed
 collection API. It has no adapter in this fixture.
 
-Run `rustup run 1.98.0 cargo test --locked --manifest-path tests/composable-keyed-policy/candidate/Cargo.toml`.
+Run `rustup run 1.99.0 cargo test --locked --manifest-path tests/composable-keyed-policy/candidate/Cargo.toml`.
 CI also runs formatting and strict Clippy checks. Its two-minute deadline bounds
 the complete process. Individual policy tests bound the operation loop and state
 extraction separately to three seconds.
@@ -62,7 +62,7 @@ Replacement follows completed work. The caller constructs the new policy.
 
 The workspace also provides `mounted-allocations`.
 Run
-`rustup run 1.98.0 cargo run --locked --release --manifest-path tests/composable-keyed-policy/candidate/Cargo.toml --bin mounted-allocations -- 1000`
+`rustup run 1.99.0 cargo run --locked --release --manifest-path tests/composable-keyed-policy/candidate/Cargo.toml --bin mounted-allocations -- 1000`
 under an external process deadline.
 Supported cardinalities are 0, 2, 10 and 1000. Each run needs a fresh process.
 

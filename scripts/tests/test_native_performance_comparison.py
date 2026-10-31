@@ -33,6 +33,7 @@ class NativePerformanceComparisonTests(unittest.TestCase):
             "docs/performance/scenarios.txt": (ROOT / "docs/performance/scenarios.txt").read_bytes(),
             "rca-tokio/benches/qualification.rs": b"harness\n",
             "scripts/qualify-performance.sh": b"Mac capture\n",
+            "scripts/guard_cargo_memory.py": b"Mac memory watchdog\n",
             "scripts/capture-windows-performance.py": b"Windows capture\n",
         }
         for relative, contents in inputs.items():
@@ -78,6 +79,11 @@ esac
             "candidate_lock_sha256": digest(b"candidate lock\n"),
             "reference_lock_sha256": digest(b"reference lock\n"),
         }
+        if not windows:
+            cohort["memory_watchdog_sha256"] = digest((self.root / "scripts/guard_cargo_memory.py").read_bytes())
+            cohort["memory_watchdog_receipt"] = str((self.root / "memory.json").resolve())
+            cohort["protocol_sha256"] = digest(
+                f"{harness_hash}\n{scenario_hash}\n{capture_hash}\n{cohort['memory_watchdog_sha256']}\n".encode())
         for role in ("candidate", "reference"):
             cohort[f"{role}_source_tree"] = "d" * 40
             cohort[f"{role}_manifest_sha256"] = digest(b"manifest\n")
@@ -93,9 +99,9 @@ esac
         }
         if windows:
             metadata["resource_provider"] = "win32-process-v1"
-            tools = {"rustc": "rustc 1.98.0 (88d9e12ae 2026-08-18)",
-                     "cargo": "cargo 1.98.0 (797e8a9bc 2026-08-05)",
-                     "rustc_commit": "88d9e12ae178fab0fb5cc050a94da85685d449ea",
+            tools = {"rustc": "rustc 1.99.0 (pinned)",
+                     "cargo": "cargo 1.99.0 (pinned)",
+                     "rustc_commit": "6" * 40,
                      "target": "x86_64-pc-windows-msvc"}
             for target in (metadata, cohort):
                 target.update(compiler=tools["rustc"], cargo=tools["cargo"], rustc_commit=tools["rustc_commit"])
@@ -157,11 +163,33 @@ esac
             row["revision"] = REFERENCE
         return reference, candidate
 
-    def compare(self, reference, candidate):
+    def compare(self, reference, candidate, *, guard_change=None, no_guard=False, alter_output=False):
         reference_path = self.root / "reference.json"
         candidate_path = self.root / "candidate.json"
         reference_path.write_text(json.dumps(reference))
         candidate_path.write_text(json.dumps(candidate))
+        if candidate["schema_version"] == 4:
+            receipt = dict(
+                entrypoint="qualify-performance", toolchain="1.99.0", started=True,
+                protection="polling-watchdog-not-kernel-memory-cap", reason="command-exited",
+                returncode=0, command_returncode=0, cleanup_complete=True, descendants_complete=True,
+                forced_cleanup=False, memory_limit_bytes=8 * 1024**3,
+                host_reserve_bytes=4 * 1024**3, sample_interval_seconds=0.25,
+                peak_footprint_bytes=100, peak_process_count=1, elapsed_seconds=1,
+                memory_watchdog_sha256=digest((self.root / "scripts/guard_cargo_memory.py").read_bytes()),
+                qualification_script_sha256=digest((self.root / "scripts/qualify-performance.sh").read_bytes()),
+                qualification_outputs={role: dict(path=str(path.resolve()), sha256=digest(path.read_bytes()))
+                                       for role, path in (("candidate", candidate_path), ("reference", reference_path))},
+            )
+            if guard_change is not None:
+                guard_change(receipt)
+            receipt_path = self.root / "memory.json"
+            if no_guard:
+                receipt_path.unlink(missing_ok=True)
+            else:
+                receipt_path.write_text(json.dumps(receipt))
+            if alter_output:
+                candidate_path.write_text(candidate_path.read_text() + "\n")
         if "source_build" in reference["metadata"]:
             (self.root / "source-build.json").write_text(
                 json.dumps(reference["metadata"]["source_build"], sort_keys=True, indent=2))
@@ -178,6 +206,64 @@ esac
     def test_windows_uses_explicit_memory_counters_without_fake_instructions(self):
         result = self.compare(*self.evidence(True))
         self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_mac_rejects_missing_changed_or_historical_watchdog_provenance(self):
+        for mutation in ("missing-candidate", "missing-reference", "changed-hash", "historical-tuple"):
+            with self.subTest(mutation=mutation):
+                reference, candidate = self.evidence(False)
+                if mutation.startswith("missing"):
+                    target = candidate if mutation == "missing-candidate" else reference
+                    del target["metadata"]["cohort"]["memory_watchdog_sha256"]
+                elif mutation == "changed-hash":
+                    candidate["metadata"]["cohort"]["memory_watchdog_sha256"] = "0" * 64
+                else:
+                    for document in (reference, candidate):
+                        cohort = document["metadata"]["cohort"]
+                        del cohort["memory_watchdog_sha256"]
+                        cohort["protocol_sha256"] = digest((
+                            cohort["qualification_source_sha256"] + "\n" +
+                            cohort["scenario_manifest_sha256"] + "\n" +
+                            cohort["qualification_script_sha256"] + "\n").encode())
+                result = self.compare(reference, candidate)
+                self.assertNotEqual(result.returncode, 0, result.stdout)
+
+    def test_mac_rejects_watchdog_source_changed_after_capture(self):
+        reference, candidate = self.evidence(False)
+        (self.root / "scripts/guard_cargo_memory.py").write_text("changed watchdog\n")
+        result = self.compare(reference, candidate)
+        self.assertNotEqual(result.returncode, 0, result.stdout)
+
+    def test_mac_rejects_missing_outer_guard_completion(self):
+        result = self.compare(*self.evidence(False), no_guard=True)
+        self.assertNotEqual(result.returncode, 0, result.stdout)
+
+    def test_mac_rejects_failed_or_forged_outer_guard_completion(self):
+        changes = (
+            lambda receipt: receipt.update(returncode=125, reason="descendants-still-running",
+                                           descendants_complete=False, forced_cleanup=True),
+            lambda receipt: receipt.update(cleanup_complete=False),
+            lambda receipt: receipt.update(returncode=False),
+            lambda receipt: receipt.update(command_returncode=1),
+            lambda receipt: receipt.update(forced_cleanup=True),
+            lambda receipt: receipt.update(memory_limit_bytes=16 * 1024**3),
+            lambda receipt: receipt.update(memory_watchdog_sha256="0" * 64),
+            lambda receipt: receipt["qualification_outputs"]["reference"].update(sha256="0" * 64),
+            lambda receipt: receipt["qualification_outputs"]["candidate"].update(path="/unrelated.json"),
+        )
+        for change in changes:
+            with self.subTest(change=change):
+                result = self.compare(*self.evidence(False), guard_change=change)
+                self.assertNotEqual(result.returncode, 0, result.stdout)
+
+    def test_mac_rejects_output_changed_after_final_guard_binding(self):
+        result = self.compare(*self.evidence(False), alter_output=True)
+        self.assertNotEqual(result.returncode, 0, result.stdout)
+
+    def test_mac_rejects_mismatched_receipt_paths_between_outputs(self):
+        reference, candidate = self.evidence(False)
+        reference["metadata"]["cohort"]["memory_watchdog_receipt"] = str(self.root / "another.json")
+        result = self.compare(reference, candidate)
+        self.assertNotEqual(result.returncode, 0, result.stdout)
 
     def test_each_windows_resource_and_latency_gate_rejects_an_eleven_percent_regression(self):
         cases = (("normal", "cpu_cycles"), ("normal", "task_wakes"),
@@ -224,6 +310,7 @@ esac
                 del candidate["metadata"][field]
                 result = self.compare(reference, candidate)
                 self.assertNotEqual(result.returncode, 0, result.stdout)
+
         for mismatch in ("receipt", "binary", "compiler", "receipt_hash"):
             with self.subTest(mismatch=mismatch):
                 reference, candidate = self.evidence(True)
@@ -237,6 +324,20 @@ esac
                     candidate["metadata"]["source_build_sha256"] = "e" * 64
                 result = self.compare(reference, candidate)
                 self.assertNotEqual(result.returncode, 0, result.stdout)
+
+    def test_consistent_old_toolchain_receipt_does_not_qualify_current_capture(self):
+        reference, candidate = self.evidence(True)
+        for result in (reference, candidate):
+            metadata = result["metadata"]
+            tools = metadata["source_build"]["toolchain"]
+            tools.update(rustc="rustc 1.98.0 (pinned)", cargo="cargo 1.98.0 (pinned)")
+            for target in (metadata, metadata["cohort"]):
+                target.update(compiler=tools["rustc"], cargo=tools["cargo"])
+            receipt = json.dumps(metadata["source_build"], sort_keys=True, indent=2).encode()
+            metadata["source_build_sha256"] = digest(receipt)
+        result = self.compare(reference, candidate)
+        self.assertNotEqual(result.returncode, 0, result.stdout)
+        self.assertIn("Windows source/build receipt does not match measured identities", result.stderr)
 
 
 if __name__ == "__main__":

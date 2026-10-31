@@ -27,10 +27,10 @@ jobs:
             - name: Checkout
               uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-            - name: Install Rust 1.98.0
+            - name: Install Rust 1.99.0
               uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772
               with:
-                  toolchain: 1.98.0
+                  toolchain: 1.99.0
                   components: clippy, rustfmt, rust-src
 
             - name: Restore Cargo cache
@@ -56,6 +56,8 @@ jobs:
                   python3 -m unittest scripts.tests.test_performance_cohort scripts.tests.test_performance_sources
                   python3 -m unittest scripts.tests.test_windows_performance scripts.tests.test_native_performance_comparison
                   python3 -m unittest scripts.tests.test_composition_performance.ProtocolEvidenceTests scripts.tests.test_composition_performance.AbsoluteBudgetTests scripts.tests.test_composition_performance.InterleavedProtocolTests
+                  python3 -m unittest scripts.tests.test_composition_performance.CurrentMacProtocolTests scripts.tests.test_composition_performance.MacWatchdogEvidenceTests scripts.tests.test_composition_performance.WindowsPairedProtocolTests scripts.tests.test_composition_windows_runner
+                  PYTHONPATH=scripts/tests python3 -m unittest test_counter_cohorts test_minimal_size test_minimal_compile
                   python3 -m unittest scripts.tests.test_composition_runner.RunnerTests -k interleaved -k recorded_load -k busy_monitor -k prepared_modes -k candidate_cli -k absolute_capture
 
             - name: Lint all targets and features
@@ -109,10 +111,10 @@ jobs:
             - name: Checkout
               uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-            - name: Install Rust 1.98.0
+            - name: Install Rust 1.99.0
               uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772
               with:
-                  toolchain: 1.98.0
+                  toolchain: 1.99.0
                   components: clippy, rustfmt
 
             - name: Restore Cargo cache
@@ -246,10 +248,10 @@ jobs:
             - name: Checkout
               uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-            - name: Install Rust 1.98.0
+            - name: Install Rust 1.99.0
               uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772
               with:
-                  toolchain: 1.98.0
+                  toolchain: 1.99.0
                   components: clippy, rustfmt
 
             - name: Restore Cargo cache
@@ -275,10 +277,10 @@ jobs:
             - name: Checkout
               uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-            - name: Install Rust 1.98.0
+            - name: Install Rust 1.99.0
               uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772
               with:
-                  toolchain: 1.98.0
+                  toolchain: 1.99.0
                   components: clippy
 
             - name: Install cargo-hack
@@ -353,10 +355,22 @@ jobs:
             - name: Checkout
               uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-            - name: Install Rust 1.98.0
+            - name: Test macOS build memory protection
+              if: matrix.native && runner.os == 'macOS'
+              env:
+                  PYTHONDONTWRITEBYTECODE: 1
+              run: python3 -m unittest scripts.tests.test_guard_cargo_memory scripts.tests.test_composition_runner.RunnerTests -k guard -k telemetry -k monitored_process -k deadline
+
+            - name: Test Windows build memory protection
+              if: matrix.native && runner.os == 'Windows'
+              env:
+                  PYTHONDONTWRITEBYTECODE: 1
+              run: python -m unittest scripts.tests.test_windows_process
+
+            - name: Install Rust 1.99.0
               uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772
               with:
-                  toolchain: 1.98.0
+                  toolchain: 1.99.0
                   targets: ${{ matrix.target }}
                   components: clippy
 
@@ -435,10 +449,10 @@ jobs:
             - name: Checkout
               uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-            - name: Install Rust 1.98.0
+            - name: Install Rust 1.99.0
               uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772
               with:
-                  toolchain: 1.98.0
+                  toolchain: 1.99.0
                   components: clippy
 
             - name: Restore Cargo cache
@@ -530,10 +544,10 @@ jobs:
             - name: Checkout
               uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-            - name: Install Rust 1.98.0
+            - name: Install Rust 1.99.0
               uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772
               with:
-                  toolchain: 1.98.0
+                  toolchain: 1.99.0
 
             - name: Install supply-chain tools
               uses: taiki-e/install-action@6cd13508893c0e7eab5f273c2575d3859bd7229a # v2.86.6
@@ -578,10 +592,10 @@ jobs:
             - name: Checkout
               uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-            - name: Install Rust 1.98.0
+            - name: Install Rust 1.99.0
               uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772
               with:
-                  toolchain: 1.98.0
+                  toolchain: 1.99.0
 
             - name: Restore Cargo cache
               # Qualification creates isolated consumer targets. This cache covers

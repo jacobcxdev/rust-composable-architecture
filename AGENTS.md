@@ -15,7 +15,9 @@ Use the [support policy](docs/support.md) for feature and platform boundaries.
 
 ## Evidence and review
 
-- Select the pinned Rust tools explicitly with `rustup run 1.98.0`.
+- Select the pinned Rust tools explicitly with `rustup run 1.99.0`.
+- For local macOS builds, run repository compilation through `scripts/guard_cargo_memory.py`. Follow the memory-safety rules in CONTRIBUTING.
+- Do not bypass a memory abort or run controllers with unguarded compiler process groups. Use OS-limited remote jobs while resolving the cause.
 - Start with focused tests. Then check affected integration boundaries.
 - Use the recursive review questions in CONTRIBUTING for each affected source unit.
 - Keep executable production coverage separate from test-only source review.

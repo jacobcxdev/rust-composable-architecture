@@ -11,7 +11,7 @@ the second is the committed seed corpus and remains unchanged.
 
 ```sh
 repo_root=$(git rev-parse --show-toplevel)
-stable_bin=$(dirname "$(rustup which --toolchain 1.98.0 cargo)")
+stable_bin=$(dirname "$(rustup which --toolchain 1.99.0 cargo)")
 nightly_bin=$(dirname "$(rustup which --toolchain nightly-2026-08-23 cargo)")
 tool_root=$(mktemp -d /tmp/rca-cargo-fuzz-0.13.2.XXXXXX)
 corpus_dir=$(mktemp -d /tmp/rca-keyed-corpus.XXXXXX)

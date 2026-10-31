@@ -267,7 +267,7 @@ class ArchiveStagingTests(unittest.TestCase):
         name: str,
         *,
         version: str = "0.1.0",
-        rust_version: str = "1.98.0",
+        rust_version: str = "1.99.0",
         dependencies: str = "",
         include_readme: bool = True,
         include_apache_license: bool = True,
@@ -340,7 +340,7 @@ readme = "README.md"
             self.downloads,
             archives,
             "0.1.0",
-            "1.98.0",
+            "1.99.0",
         )
 
         self.assertEqual(
@@ -353,7 +353,7 @@ readme = "README.md"
             )
             self.assertEqual(entry["name"], name)
             self.assertEqual(entry["vers"], "0.1.0")
-            self.assertEqual(entry["rust_version"], "1.98.0")
+            self.assertEqual(entry["rust_version"], "1.99.0")
             archive = self.downloads / f"{name}-0.1.0.crate"
             self.assertEqual(entry["cksum"], hashlib.sha256(archive.read_bytes()).hexdigest())
 
@@ -363,7 +363,7 @@ readme = "README.md"
 
         with self.assertRaisesRegex(ValueError, "allocator output.*dhat-heap.json"):
             package_registry.stage_archives(
-                self.index, self.downloads, archives, "0.1.0", "1.98.0"
+                self.index, self.downloads, archives, "0.1.0", "1.99.0"
             )
 
         self.assertEqual(list(self.downloads.iterdir()), [])
@@ -371,7 +371,7 @@ readme = "README.md"
 
     def test_persistence_dependencies_stay_in_local_registry(self) -> None:
         archive = self.make_archive("rca-persistence", dependencies='rca-core = { version = "=0.1.0" }')
-        name, entry = package_registry.archive_index_entry(archive, "0.1.0", "1.98.0")
+        name, entry = package_registry.archive_index_entry(archive, "0.1.0", "1.99.0")
         self.assertEqual(name, "rca-persistence")
         self.assertEqual(entry["deps"][0]["req"], "=0.1.0")
         self.assertIsNone(entry["deps"][0]["registry"])
@@ -379,12 +379,12 @@ readme = "README.md"
     def test_rejects_inexact_persistence_core_requirement(self) -> None:
         archive = self.make_archive("rca-persistence", dependencies='rca-core = { version = "0.1" }')
         with self.assertRaisesRegex(ValueError, "exact RCA dependency"):
-            package_registry.archive_index_entry(archive, "0.1.0", "1.98.0")
+            package_registry.archive_index_entry(archive, "0.1.0", "1.99.0")
 
     def test_rejects_persistence_with_default_file_feature(self) -> None:
         archive = self.make_archive("rca-persistence", features={"default": ["file"], "file": ["dep:tokio", "dep:tempfile"]})
         with self.assertRaisesRegex(ValueError, "feature contract"):
-            package_registry.archive_index_entry(archive, "0.1.0", "1.98.0")
+            package_registry.archive_index_entry(archive, "0.1.0", "1.99.0")
 
     def test_rejects_incomplete_archive_set_without_staging(self) -> None:
         archives = self.all_archives()[:-1]
@@ -395,7 +395,7 @@ readme = "README.md"
                 self.downloads,
                 archives,
                 "0.1.0",
-                "1.98.0",
+                "1.99.0",
             )
 
         self.assertEqual(list(self.downloads.iterdir()), [])
@@ -405,7 +405,7 @@ readme = "README.md"
         archives = [archive for archive in self.all_archives()
                     if archive.name != "rca-event-listener-strategy-0.1.0.crate"]
         with self.assertRaisesRegex(ValueError, "archive set mismatch.*rca-event-listener-strategy"):
-            package_registry.stage_archives(self.index, self.downloads, archives, "0.1.0", "1.98.0")
+            package_registry.stage_archives(self.index, self.downloads, archives, "0.1.0", "1.99.0")
         self.assertEqual(list(self.downloads.iterdir()), [])
         self.assertEqual(list(self.index.iterdir()), [])
 
@@ -417,7 +417,7 @@ readme = "README.md"
         ):
             with self.subTest(owner=owner):
                 archive = self.make_archive(owner, dependencies=f'{alias} = {{ package = "{dependency}", version = "=0.1.0", default-features = false }}')
-                _, entry = package_registry.archive_index_entry(archive, "0.1.0", "1.98.0")
+                _, entry = package_registry.archive_index_entry(archive, "0.1.0", "1.99.0")
                 self.assertEqual(entry["deps"], [{
                     "name": alias, "package": dependency, "req": "=0.1.0",
                     "registry": None, "features": [], "optional": False,
@@ -433,27 +433,27 @@ readme = "README.md"
             with self.subTest(dependency=dependency):
                 archive = self.make_archive("rca-core", dependencies=f'async-channel = {{ {dependency} }}')
                 with self.assertRaisesRegex(ValueError, error):
-                    package_registry.archive_index_entry(archive, "0.1.0", "1.98.0")
+                    package_registry.archive_index_entry(archive, "0.1.0", "1.99.0")
 
     def test_rejects_transport_without_upstream_provenance(self) -> None:
         archive = self.make_archive("rca-event-listener", include_provenance=False)
         with self.assertRaisesRegex(ValueError, "missing required package files.*Cargo.toml.upstream.*UPSTREAM.md"):
-            package_registry.archive_index_entry(archive, "0.1.0", "1.98.0")
+            package_registry.archive_index_entry(archive, "0.1.0", "1.99.0")
 
     def test_rejects_transport_archive_wrong_version_or_filename(self) -> None:
         archive = self.make_archive("rca-async-channel", version="0.2.0")
         with self.assertRaisesRegex(ValueError, "version 0.2.0, expected 0.1.0"):
-            package_registry.archive_index_entry(archive, "0.1.0", "1.98.0")
+            package_registry.archive_index_entry(archive, "0.1.0", "1.99.0")
         archive = self.make_archive("rca-async-channel")
         renamed = archive.rename(self.root / "rca-event-listener-0.1.0.crate")
         with self.assertRaisesRegex(ValueError, "filename does not match manifest"):
-            package_registry.archive_index_entry(renamed, "0.1.0", "1.98.0")
+            package_registry.archive_index_entry(renamed, "0.1.0", "1.99.0")
 
     def test_rejects_wrong_rust_version(self) -> None:
         archives = self.all_archives()
         archives[0] = self.make_archive(
             archives[0].name.removesuffix("-0.1.0.crate"),
-            rust_version="1.99.0",
+            rust_version="1.98.0",
         )
 
         with self.assertRaisesRegex(ValueError, "rust-version"):
@@ -462,7 +462,7 @@ readme = "README.md"
                 self.downloads,
                 archives,
                 "0.1.0",
-                "1.98.0",
+                "1.99.0",
             )
 
     def test_rejects_inexact_internal_requirement(self) -> None:
@@ -482,7 +482,7 @@ readme = "README.md"
                 self.downloads,
                 archives,
                 "0.1.0",
-                "1.98.0",
+                "1.99.0",
             )
 
     def test_rejects_missing_packaged_readme(self) -> None:
@@ -496,7 +496,7 @@ readme = "README.md"
                 self.downloads,
                 archives,
                 "0.1.0",
-                "1.98.0",
+                "1.99.0",
             )
 
     def test_rejects_featureless_tokio_archive(self) -> None:
@@ -510,7 +510,7 @@ readme = "README.md"
                 self.downloads,
                 archives,
                 "0.1.0",
-                "1.98.0",
+                "1.99.0",
             )
 
     def test_rejects_wrong_umbrella_feature_wiring(self) -> None:
@@ -531,7 +531,7 @@ readme = "README.md"
                 self.downloads,
                 archives,
                 "0.1.0",
-                "1.98.0",
+                "1.99.0",
             )
 
     def test_rejects_missing_packaged_license(self) -> None:
@@ -545,7 +545,7 @@ readme = "README.md"
                 self.downloads,
                 archives,
                 "0.1.0",
-                "1.98.0",
+                "1.99.0",
             )
 
 
@@ -670,10 +670,10 @@ class ReleaseBoundarySourceTests(unittest.TestCase):
         # actual Git commit, signer provisioning and verification remain real.
         tools = root / "tools"
         tools.mkdir()
-        (tools / "rustc").write_text("#!/bin/sh\necho 'rustc 1.98.0'\n")
+        (tools / "rustc").write_text("#!/bin/sh\necho 'rustc 1.99.0'\n")
         (tools / "cargo").write_text(f"#!{sys.executable}\n" + '''import json, os, pathlib, sys
 if sys.argv[1] == "--version":
-    print("cargo 1.98.0")
+    print("cargo 1.99.0")
 else:
     root = pathlib.Path(os.environ["REGISTRY_CAPTURE"])
     (root / "packaging-started").touch()
@@ -822,7 +822,7 @@ exit 53
             root = pathlib.Path(directory)
             cargo = root / "cargo"
             cargo.write_text('''#!/usr/bin/env bash
-if [[ $1 == --version ]]; then echo 'cargo 1.98.0'; exit 0; fi
+if [[ $1 == --version ]]; then echo 'cargo 1.99.0'; exit 0; fi
 if [[ "$*" == *"--package rca-test"* ]]; then
     if [[ "$*" == *'patch.crates-io.rca-macros.path="rca-macros"'* ]]; then
         exit 73
@@ -833,7 +833,7 @@ fi
 exit 0
 ''')
             rustc = root / "rustc"
-            rustc.write_text("#!/bin/sh\necho 'rustc 1.98.0'\n")
+            rustc.write_text("#!/bin/sh\necho 'rustc 1.99.0'\n")
             cargo.chmod(0o755)
             rustc.chmod(0o755)
             result = subprocess.run(["bash", str(self.repo_root / "scripts/verify-packaged-downstream.sh")],

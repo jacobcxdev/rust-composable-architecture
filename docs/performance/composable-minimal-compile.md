@@ -6,11 +6,16 @@ for release gates and available evidence.
 
 This opt-in diagnostic compares the current RCA and upstream `minimal-counter` applications,
 not the workspace test suites. It adds no Rust workload and changes no existing
-size, allocation or timing protocol. The v1 JSON protocol is frozen before capture.
+size, allocation or timing protocol. The v2 JSON protocol is frozen before capture.
+
+Local captures require [compiler memory protection](../../CONTRIBUTING.md#build-memory-safety).
+The current controller creates separate process groups and does not protect
+their memory use. Do not run this command locally until each compiler process
+has equivalent protection.
 
 ```sh
 python3 scripts/composition_runner.py --mode minimal-application-compile \
-  target/qualification-evidence/0.1.0/composition/minimal-compile-v1-<revision>
+  target/qualification-evidence/0.1.0/composition/minimal-compile-v2-<revision>
 ```
 
 Run only from the committed, clean source on the pinned Darwin host, with no
@@ -22,7 +27,7 @@ Six blocks each run both workloads against both engines: 24 measured commands,
 six observations per engine and workload. Forward and reverse engine orders each
 appear three times. Odd blocks run check before release. Even blocks reverse that
 workload order. Both workloads use the same engine order within a block. The
-[protocol](composable-minimal-compile-protocol-v1.json) and its exact hashes fix
+[protocol](composable-minimal-compile-protocol-v2.json) and its exact hashes fix
 this schedule; archived three-engine captures cannot satisfy it.
 
 - Check: `cargo check --locked --offline --bin minimal-counter --target aarch64-apple-darwin -j 1`.

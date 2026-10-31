@@ -1,4 +1,5 @@
 import math
+import hashlib
 import copy
 import pathlib
 import tempfile
@@ -8,7 +9,7 @@ from test_composition_performance import composition_performance as evidence
 import test_composition_performance as fixtures
 
 
-PROTOCOL = pathlib.Path(__file__).resolve().parents[2] / "docs/performance/composable-counter-protocol-v1.json"
+PROTOCOL = pathlib.Path(__file__).resolve().parents[2] / "docs/performance/composable-counter-protocol-v2.json"
 
 
 def timing(engine, sample=100):
@@ -24,6 +25,46 @@ def timing(engine, sample=100):
             "errors": 0, "state_extracted": True, "host_stopped": True,
         },
     }
+
+
+class FrozenProtocolVersionTests(unittest.TestCase):
+    def test_versions_keep_workloads_and_reject_partial_toolchain_relabelling(self):
+        protocols = (
+            ("counter", evidence.load_counter_protocol, evidence.counter_measurement_plan,
+             evidence.COUNTER_PROTOCOL_SHA256),
+            ("counter-lifecycle", evidence.load_counter_lifecycle_protocol,
+             evidence.counter_lifecycle_measurement_plan, evidence.COUNTER_LIFECYCLE_PROTOCOL_SHA256),
+            ("counter-allocation", evidence.load_counter_allocation_protocol,
+             evidence.counter_allocation_measurement_plan, evidence.COUNTER_ALLOCATION_PROTOCOL_SHA256),
+            ("ready-future-allocation", evidence.load_ready_future_allocation_protocol,
+             evidence.ready_future_allocation_measurement_plan, evidence.READY_FUTURE_ALLOCATION_PROTOCOL_SHA256),
+            ("minimal-compile", evidence.load_minimal_compile_protocol,
+             evidence.minimal_compile_plan, evidence.MINIMAL_COMPILE_PROTOCOL_SHA256),
+            ("minimal-size", evidence.load_minimal_size_protocol,
+             lambda value: evidence._validate_counter_document(value, evidence._MINIMAL_SIZE_DOCUMENT_SHA256),
+             evidence.MINIMAL_SIZE_PROTOCOL_SHA256),
+        )
+        for name, load, validate, historical_hash in protocols:
+            versions = []
+            for version, toolchain in ((1, "1.98.0"), (2, "1.99.0")):
+                with self.subTest(name=name, version=version):
+                    path = PROTOCOL.with_name(f"composable-{name}-protocol-v{version}.json")
+                    protocol = load(path)
+                    self.assertEqual(protocol["rust_toolchain"], toolchain)
+                    self.assertEqual(evidence._counter_protocol_sha256(protocol, historical_hash),
+                                     hashlib.sha256(path.read_bytes()).hexdigest())
+                    versions.append(protocol)
+                    validate(protocol)
+                    altered = dict(protocol, rust_toolchain="1.99.0" if version == 1 else "1.98.0")
+                    with self.assertRaises(ValueError):
+                        validate(altered)
+            self.assertEqual(validate(versions[0]), validate(versions[1]))
+            self.assertEqual(
+                {key: value for key, value in versions[0].items()
+                 if key not in ("schema", "rust_toolchain", "strip_version")},
+                {key: value for key, value in versions[1].items()
+                 if key not in ("schema", "rust_toolchain", "strip_version")},
+            )
 
 
 class CounterCohortsTests(unittest.TestCase):
@@ -184,7 +225,7 @@ class CounterCohortsTests(unittest.TestCase):
         self.assertFalse(result["suitable_for_direction"])
 
 
-LIFECYCLE_PROTOCOL = PROTOCOL.with_name("composable-counter-lifecycle-protocol-v1.json")
+LIFECYCLE_PROTOCOL = PROTOCOL.with_name("composable-counter-lifecycle-protocol-v2.json")
 
 
 def lifecycle(engine, elapsed=100):
@@ -219,7 +260,7 @@ class CounterLifecycleCohortsTests(unittest.TestCase):
             self.assertEqual(sum(b["order"] == "control-subject" for b in cohort["blocks"]), 12)
         equal = self.evaluate()
         self.assertEqual(equal["schema"], "composable-counter-lifecycle-analysis-v1")
-        self.assertEqual(equal["protocol_sha256"], evidence.COUNTER_LIFECYCLE_PROTOCOL_SHA256)
+        self.assertEqual(equal["protocol_sha256"], hashlib.sha256(LIFECYCLE_PROTOCOL.read_bytes()).hexdigest())
         self.assertEqual(equal["family_nominal_coverage_lower_bound"], 0.9951171875)
         self.assertFalse(equal["provenance_qualified"])
         self.assertTrue(equal["suitable_for_direction"])
@@ -307,7 +348,7 @@ class CounterLifecycleCohortsTests(unittest.TestCase):
         self.assertFalse(result["suitable_for_direction"])
 
 
-ALLOCATION_PROTOCOL = PROTOCOL.with_name("composable-counter-allocation-protocol-v1.json")
+ALLOCATION_PROTOCOL = PROTOCOL.with_name("composable-counter-allocation-protocol-v2.json")
 
 
 def allocation(engine="rca", scale=1):
@@ -480,7 +521,7 @@ class CounterAllocationTests(unittest.TestCase):
 
 class ReadyFutureAllocationCohortTests(unittest.TestCase):
     def setUp(self):
-        self.path = PROTOCOL.with_name("composable-ready-future-allocation-protocol-v1.json")
+        self.path = PROTOCOL.with_name("composable-ready-future-allocation-protocol-v2.json")
 
     def test_exact_frozen_order_and_cross_workload_rejection(self):
         self.assertTrue(callable(getattr(evidence, "load_ready_future_allocation_protocol", None)),

@@ -13,7 +13,7 @@ from test_composition_runner import runner
 
 from test_composition_performance import composition_performance as evidence
 
-PROTOCOL = pathlib.Path(__file__).resolve().parents[2] / "docs/performance/composable-minimal-size-protocol-v1.json"
+PROTOCOL = pathlib.Path(__file__).resolve().parents[2] / "docs/performance/composable-minimal-size-protocol-v2.json"
 
 
 class MinimalSizeTests(unittest.TestCase):
@@ -140,9 +140,9 @@ class MinimalSizeRunnerTests(unittest.TestCase):
                          for fixture in runner.COUNTER_FIXTURES.values() for name in ("Cargo.toml", "Cargo.lock")}
         tools = {name: {"path": "/cargo" if name == "cargo" else "/strip" if name == "strip" else f"/tools/{name}",
                         "sha256": "b" * 64, "version": version}
-                 for name, version in {"cargo": "cargo 1.98.0 (797e8a9bc 2026-08-05)",
-                    "rustc": "rustc 1.98.0 (88d9e12ae 2026-08-18)",
-                    "rustdoc": "rustdoc 1.98.0 (88d9e12ae 2026-08-18)",
+                 for name, version in {"cargo": "cargo 1.99.0 (5f94df478 2026-08-27)",
+                    "rustc": "rustc 1.99.0 (b940084d7 2026-09-28)",
+                    "rustdoc": "rustdoc 1.99.0 (b940084d7 2026-09-28)",
                     "strip": self.protocol["strip_version"]}.items()}
         runner.write_json(stage / "inputs.json", {"capture_directory": str(stage),
             "build_cwd": str(stage), "source_root": str(runner.ROOT), "target": self.protocol["target"],

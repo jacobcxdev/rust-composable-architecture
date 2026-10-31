@@ -12,13 +12,13 @@ Both CI workflows use this build order:
 
 ```sh
 export RUSTDOCFLAGS='-D warnings'
-rustup run 1.98.0 cargo doc --locked -p futures-core --no-deps
-rustup run 1.98.0 cargo doc --locked -p rca-event-listener --all-features --no-deps
-rustup run 1.98.0 cargo doc --locked --workspace --all-features --no-deps
+rustup run 1.99.0 cargo doc --locked -p futures-core --no-deps
+rustup run 1.99.0 cargo doc --locked -p rca-event-listener --all-features --no-deps
+rustup run 1.99.0 cargo doc --locked --workspace --all-features --no-deps
 ```
 
-The two prerequisite commands stay separate because Cargo 1.98 cannot resolve
-the combined package selection in this workspace.
+The two prerequisite commands stay separate. Each supplies dependency metadata
+before the workspace documentation build.
 
 ## Signing identity
 

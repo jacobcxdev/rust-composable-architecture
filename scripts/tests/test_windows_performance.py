@@ -32,7 +32,7 @@ class WindowsPerformanceTests(unittest.TestCase):
                           "manifest_sha256": "4" * 64, "original_harness_sha256": "5" * 64},
             "harness_sha256": hashlib.sha256((SCRIPT.parents[1] / "rca-tokio/benches/qualification.rs").read_bytes()).hexdigest(),
             "scenario_manifest_sha256": hashlib.sha256((SCRIPT.parents[1] / "docs/performance/scenarios.txt").read_bytes()).hexdigest(),
-            "toolchain": {"rustc": "rustc 1.98.0 (pinned)", "cargo": "cargo 1.98.0 (pinned)",
+            "toolchain": {"rustc": "rustc 1.99.0 (pinned)", "cargo": "cargo 1.99.0 (pinned)",
                           "target": "x86_64-pc-windows-msvc", "rustc_commit": "6" * 40},
             "binaries": {f"{role}_{mode}": {"sha256": "7" * 64}
                          for role in ("candidate", "reference") for mode in ("normal", "allocation")},
@@ -315,7 +315,8 @@ class WindowsPerformanceTests(unittest.TestCase):
     def test_metadata_rejects_missing_identity_and_wrong_toolchain(self):
         for mutate in (lambda value: value.pop("harness_sha256"),
                        lambda value: value["candidate"].update(revision="short"),
-                       lambda value: value["toolchain"].update(rustc="rustc 1.99.0")):
+                       lambda value: value["toolchain"].update(rustc="rustc 1.98.0 (pinned)"),
+                       lambda value: value["toolchain"].update(cargo="cargo 1.98.0 (pinned)")):
             value = self.metadata()
             mutate(value)
             with self.assertRaises(ValueError):

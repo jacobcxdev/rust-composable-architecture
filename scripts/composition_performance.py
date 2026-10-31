@@ -7,6 +7,7 @@ import argparse
 import hashlib
 import json
 import math
+import ntpath
 import pathlib
 import re
 import statistics
@@ -27,6 +28,19 @@ TOOLCHAIN = (
     "rustc 1.98.0 (88d9e12ae 2026-08-18); "
     "cargo 1.98.0 (797e8a9bc 2026-08-05)"
 )
+LEGACY_TOOL_VERSIONS = {
+    "rustc": "rustc 1.98.0 (88d9e12ae 2026-08-18)",
+    "cargo": "cargo 1.98.0 (797e8a9bc 2026-08-05)",
+    "rustdoc": "rustdoc 1.98.0 (88d9e12ae 2026-08-18)",
+}
+CURRENT_TOOL_VERSIONS = {
+    "rustc": "rustc 1.99.0 (b940084d7 2026-09-28)",
+    "cargo": "cargo 1.99.0 (5f94df478 2026-08-27)",
+    "rustdoc": "rustdoc 1.99.0 (b940084d7 2026-09-28)",
+}
+WINDOWS_TOOL_VERSIONS = CURRENT_TOOL_VERSIONS
+CURRENT_TOOLCHAIN = CURRENT_TOOL_VERSIONS["rustc"] + "; " + CURRENT_TOOL_VERSIONS["cargo"]
+WINDOWS_TOOLCHAIN = CURRENT_TOOLCHAIN
 REGRESSION_LIMIT = 1.10
 EXPECTED_DIVAN_ROWS = 153
 EXPECTED_ALLOCATIONS = 47
@@ -39,6 +53,15 @@ LEGACY_PROTOCOL_SHA256 = (
 PROTOCOL_SHA256 = (
     "0fa1f4127bb429b6ec2dd2f85b1e460c1821c472812782dbe2fa35d06b8ad777"
 )
+WINDOWS_METHOD = "composition-windows-paired-v1"
+CURRENT_METHOD = "composition-paired-v8"
+CURRENT_PROTOCOL_SHA256 = "987c6d92a308b49bf1c27028eac9f1c42bceef245602d005088d94a3edd05940"
+WINDOWS_RUNNER = "h1-ryzen9-3900x-windows-x86_64-msvc"
+WINDOWS_COMPILER_TELEMETRY = {
+    "path": r"C:\RCA-Tools\MSVC-20261014-a098b7b1\VC\Tools\MSVC\14.51.36231\bin\Hostx64\x64\VCTIP.EXE",
+    "sha256": "41fe46f8a0b41f6dd94c68c85fba20a10aacb662a9ef04784a632e37f3692371",
+}
+WINDOWS_PROTOCOL_SHA256 = "22f653db1cd62c7a6057fe64489c40b621b58014fd0f90556949e0746ebd5eaf"
 _INTERLEAVING = {
     "policy": "alternating-mode-first-within-block",
     "blocks": 20,
@@ -387,7 +410,7 @@ def evaluate_counter_allocations(rows: list[dict], protocol: dict) -> dict:
     plan = counter_allocation_measurement_plan(protocol)
     return _evaluate_allocations(rows, protocol, plan, validate_composable_counter_allocations,
                                  "composable-counter-allocation-analysis-v1",
-                                 COUNTER_ALLOCATION_PROTOCOL_SHA256)
+                                 _counter_protocol_sha256(protocol, COUNTER_ALLOCATION_PROTOCOL_SHA256))
 
 
 def evaluate_ready_future_allocations(rows: list[dict], protocol: dict) -> dict:
@@ -395,7 +418,7 @@ def evaluate_ready_future_allocations(rows: list[dict], protocol: dict) -> dict:
     plan = ready_future_allocation_measurement_plan(protocol)
     result = _evaluate_allocations(rows, protocol, plan, validate_composable_ready_future_allocations,
                                    "composable-ready-future-allocation-analysis-v1",
-                                   READY_FUTURE_ALLOCATION_PROTOCOL_SHA256)
+                                   _counter_protocol_sha256(protocol, READY_FUTURE_ALLOCATION_PROTOCOL_SHA256))
     result["completion"] = dict(protocol["completion"])
     result["qualified_comparison"] = False
     result["interpretation"] = (
@@ -473,7 +496,8 @@ def _validate_counter_document(protocol: dict, document_sha256: str) -> None:
                              allow_nan=False).encode()
     except (TypeError, ValueError) as error:
         raise ValueError("counter protocol document is invalid") from error
-    if hashlib.sha256(encoded).hexdigest() != document_sha256:
+    expected = (document_sha256, _CURRENT_COUNTER_DOCUMENTS[document_sha256])
+    if hashlib.sha256(encoded).hexdigest() not in expected:
         raise ValueError("counter protocol document is not the frozen protocol")
 
 
@@ -483,6 +507,31 @@ _MINIMAL_SIZE_DOCUMENT_SHA256 = "c13e4367f846da8b29198e336293b30f9e890ffac1bd434
 
 MINIMAL_COMPILE_PROTOCOL_SHA256 = "a07d4a2c9402617d79faa585b6700eae9949706ffd578025d654266c0ab4dfa4"
 _MINIMAL_COMPILE_DOCUMENT_SHA256 = "9d9fe942d23d2cc8cab0d9b787c727ed40d17c58587f95644197ca7e3a510c46"
+
+# Keep historical bytes and documents fixed while admitting the Rust 1.99 cohorts.
+_CURRENT_COUNTER_FILES = {
+    COUNTER_PROTOCOL_SHA256: "587cc332401c2cf36b187ec9c149083038371c8f0de8c4586bafa8873743c5eb",
+    COUNTER_LIFECYCLE_PROTOCOL_SHA256: "b0e456b1a6affa751180d2a8d19e605f53703a1a70091f33939c3068f87f6180",
+    COUNTER_ALLOCATION_PROTOCOL_SHA256: "bb15b2c6669cf101ae4dae90892639dafe180705f6e06c03edc76de448b746db",
+    READY_FUTURE_ALLOCATION_PROTOCOL_SHA256: "e51bba92c11b849d88a4d0bae5ddfdbc51211c397f3b2861dc13d827ce1de5be",
+    MINIMAL_COMPILE_PROTOCOL_SHA256: "76fd844ee11e5af71b5196d4f449d3dbc983db2ab8e9e3e61a96be858e936fe9",
+    MINIMAL_SIZE_PROTOCOL_SHA256: "c1b9266c0f0622668b79c16cf9a0580d9ccd0402e7be673a8cad383d3870040d",
+}
+_CURRENT_COUNTER_DOCUMENTS = {
+    _COUNTER_DOCUMENT_SHA256: "7295c5e0a98e26aa95edaf0415a68a68f21ae9aee920bcf871c606a4452a85d4",
+    _COUNTER_LIFECYCLE_DOCUMENT_SHA256: "69e5ca0fe83a5850afff2ea258e8f52d672ef6594b911e8a89a0ff0aba628199",
+    _COUNTER_ALLOCATION_DOCUMENT_SHA256: "41a97570d03036001769475e3bbb9c86adb81219ff1b0cb7b06c0c1dac028c4e",
+    _READY_FUTURE_ALLOCATION_DOCUMENT_SHA256: "6b5c4d6c100292a85ffea79cf78f3ba5d4f299660b04cc19400f14501e11b5e2",
+    _MINIMAL_COMPILE_DOCUMENT_SHA256: "2b60c96acfbff6c58b4c45cbe80928410353e615f315421da979ffc21e37024e",
+    _MINIMAL_SIZE_DOCUMENT_SHA256: "29ac076ec50f0d22573cc31f8d3da7c6b65469a1315641b011119ced339eb715",
+}
+
+
+def _counter_protocol_sha256(protocol: dict, historical_sha256: str) -> str:
+    """Select the file identity after validating the complete frozen document."""
+    if protocol["rust_toolchain"] == "1.99.0":
+        return _CURRENT_COUNTER_FILES[historical_sha256]
+    return historical_sha256
 
 
 def load_minimal_compile_protocol(path: pathlib.Path) -> dict:
@@ -570,7 +619,7 @@ def evaluate_minimal_size(rows: list[dict], protocol: dict) -> dict:
                for key in ("original_exit", "stripped_exit", "strip_exit")):
             raise ValueError("minimal size process failed")
     return {"schema": "composable-minimal-size-analysis-v1",
-            "protocol_sha256": MINIMAL_SIZE_PROTOCOL_SHA256,
+            "protocol_sha256": _counter_protocol_sha256(protocol, MINIMAL_SIZE_PROTOCOL_SHA256),
             "observations": rows, "timing_qualified": False, "qualified_comparison": False}
 
 
@@ -588,7 +637,7 @@ def load_counter_lifecycle_protocol(path: pathlib.Path) -> dict:
 def _load_counter_protocol(path: pathlib.Path, file_sha256: str, document_sha256: str) -> dict:
     try:
         raw = path.read_bytes()
-        if hashlib.sha256(raw).hexdigest() != file_sha256:
+        if hashlib.sha256(raw).hexdigest() not in (file_sha256, _CURRENT_COUNTER_FILES[file_sha256]):
             raise ValueError("counter protocol file hash is invalid")
         protocol = json.loads(raw)
     except (OSError, json.JSONDecodeError) as error:
@@ -724,8 +773,8 @@ def _evaluate_counter_cohorts(cohorts: dict, protocol: dict, plan: list[dict],
     return {
         "schema": ("composable-counter-lifecycle-analysis-v1" if lifecycle
                    else "composable-counter-analysis-v1"),
-        "protocol_sha256": (COUNTER_LIFECYCLE_PROTOCOL_SHA256 if lifecycle
-                            else COUNTER_PROTOCOL_SHA256),
+        "protocol_sha256": _counter_protocol_sha256(
+            protocol, COUNTER_LIFECYCLE_PROTOCOL_SHA256 if lifecycle else COUNTER_PROTOCOL_SHA256),
         "provenance_qualified": False,
         "family_nominal_coverage_lower_bound": protocol["family_nominal_coverage_lower_bound"],
         "coverage_assumptions": protocol["coverage_assumptions"],
@@ -735,11 +784,38 @@ def _evaluate_counter_cohorts(cohorts: dict, protocol: dict, plan: list[dict],
     }
 
 
+def is_windows_protocol(protocol: dict[str, Any]) -> bool:
+    """Identify the Windows method without treating it as macOS absolute evidence."""
+    return protocol.get("method_version") == WINDOWS_METHOD
+
+
+def is_current_protocol(protocol: dict[str, Any]) -> bool:
+    """Select the current compiler without changing historical capture identities."""
+    return protocol.get("method_version") in (CURRENT_METHOD, WINDOWS_METHOD)
+
+
+def expected_tool_versions(protocol: dict[str, Any]) -> dict[str, str]:
+    """Return the exact native tool versions required by this frozen method."""
+    return dict(CURRENT_TOOL_VERSIONS if is_current_protocol(protocol) else LEGACY_TOOL_VERSIONS)
+
+
+def expected_toolchain(protocol: dict[str, Any]) -> str:
+    """Keep the measured compiler separate from the historical budget compiler."""
+    return CURRENT_TOOLCHAIN if is_current_protocol(protocol) else TOOLCHAIN
+
+
+def is_interleaved_protocol(protocol: dict[str, Any]) -> bool:
+    """Identify methods that require both comparison modes in one capture."""
+    return protocol.get("method_version") == "composition-paired-v7" or is_current_protocol(protocol)
+
+
 def _protocol_sha256(protocol: dict[str, Any]) -> str:
     """Return the frozen digest for a supported historical or current method."""
     versions = {
         "composition-paired-v6": LEGACY_PROTOCOL_SHA256,
         "composition-paired-v7": PROTOCOL_SHA256,
+        CURRENT_METHOD: CURRENT_PROTOCOL_SHA256,
+        WINDOWS_METHOD: WINDOWS_PROTOCOL_SHA256,
     }
     version = protocol.get("method_version")
     if not isinstance(version, str) or version not in versions:
@@ -760,15 +836,28 @@ def load_protocol(path: pathlib.Path) -> dict[str, Any]:
     required = {
         "schema_version": 1,
         "status": "frozen-before-measurement",
-        "runner": RUNNER,
-        "minimum_macos_major": MINIMUM_MACOS_MAJOR,
-        "baseline_runner": BASELINE_RUNNER,
-        "binary_baseline_runner": BINARY_BASELINE_RUNNER,
+        "runner": WINDOWS_RUNNER if is_windows_protocol(document) else RUNNER,
         "reference_revision": REFERENCE_REVISION,
         "budget_sha256": BUDGET_SHA256,
         "allocation_manifest_sha256": ALLOCATION_MANIFEST_SHA256,
         "regression_limit": REGRESSION_LIMIT,
     }
+    if is_windows_protocol(document):
+        required.update(platform="windows", target="x86_64-pc-windows-msvc", scope="paired-only")
+        if (document.get("absolute_compatibility", {}).get("qualified") is not False
+                or document.get("absolute_compatibility", {}).get("budget_changes_permitted") is not False
+                or "minimum_macos_major" in document):
+            raise ValueError("Windows protocol cannot qualify macOS absolute budgets")
+    else:
+        required.update(minimum_macos_major=MINIMUM_MACOS_MAJOR,
+                        baseline_runner=BASELINE_RUNNER, binary_baseline_runner=BINARY_BASELINE_RUNNER)
+    if is_current_protocol(document):
+        required["toolchain"] = expected_toolchain(document)
+    if document["method_version"] == CURRENT_METHOD:
+        required["scope"] = "paired-and-macos-absolute"
+    if is_windows_protocol(document):
+        required["process_memory_limit_bytes"] = 2 * 1024**3
+        required["compiler_telemetry"] = WINDOWS_COMPILER_TELEMETRY
     for key, expected in required.items():
         if document.get(key) != expected:
             raise ValueError(f"composition protocol mismatch: {key}")
@@ -811,11 +900,12 @@ def load_protocol(path: pathlib.Path) -> dict[str, Any]:
         raise ValueError("composition protocol compile fixtures are invalid")
 
     quiescence = document.get("quiescence", {})
-    expected_quiescence = {
-        "thermal_policy": "nsprocessinfo-nominal-and-pmset-no-recorded-warning",
-        "process_monitor_interval_seconds": 1,
-    }
-    if document["method_version"] == "composition-paired-v7":
+    expected_quiescence = {}
+    if not is_windows_protocol(document):
+        expected_quiescence.update(
+            process_monitor_interval_seconds=1,
+            thermal_policy="nsprocessinfo-nominal-and-pmset-no-recorded-warning")
+    if is_interleaved_protocol(document):
         expected_quiescence.update(admission="recorded-background-load", consecutive_samples=1)
         interleaved_mode_order(document, 1)
     else:
@@ -830,7 +920,7 @@ def load_protocol(path: pathlib.Path) -> dict[str, Any]:
 
 def interleaved_mode_order(protocol: dict[str, Any], block: int) -> tuple[str, str]:
     """Return the frozen mode order for one of the twenty shared capture blocks."""
-    if (protocol.get("method_version") != "composition-paired-v7"
+    if (not is_interleaved_protocol(protocol)
             or protocol.get("interleaving") != _INTERLEAVING):
         raise ValueError("composition interleaving policy is invalid")
     if type(block) is not int or not 1 <= block <= 20:
@@ -916,9 +1006,13 @@ def measurement_plan(protocol: dict[str, Any], mode: str) -> dict[str, Any]:
         "runtime": runtime,
         "compile": compile_rows,
     }
-    if protocol["method_version"] == "composition-paired-v7":
+    if is_interleaved_protocol(protocol):
         interleaved_mode_order(protocol, 1)
         plan["interleaving"] = protocol["interleaving"]
+    if is_current_protocol(protocol):
+        plan["toolchain"] = expected_toolchain(protocol)
+    if is_windows_protocol(protocol):
+        plan["process_memory_limit_bytes"] = protocol["process_memory_limit_bytes"]
     return plan
 
 
@@ -1019,7 +1113,7 @@ def validate_quiescence_sample(
     if any(type(value) not in (int, float) or not math.isfinite(value) or value < 0
            for value in (cpu_used_percent, load_average_1m)) or cpu_used_percent > 100:
         raise ValueError("invalid CPU or load telemetry")
-    telemetry_only = protocol.get("method_version") == "composition-paired-v7"
+    telemetry_only = protocol.get("method_version") in ("composition-paired-v7", CURRENT_METHOD)
     if telemetry_only:
         if policy.get("admission") != "recorded-background-load":
             raise ValueError("composition telemetry admission policy is invalid")
@@ -1167,8 +1261,8 @@ def validate_isolated_transcript(
 
 
 def _load_resource_counters(
-    path: pathlib.Path, protocol: dict[str, Any]
-) -> dict[str, float | int]:
+    path: pathlib.Path, protocol: dict[str, Any], *, command_kind: str = "runtime"
+) -> dict[str, Any]:
     try:
         document = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as error:
@@ -1176,6 +1270,9 @@ def _load_resource_counters(
     required = protocol["resource_counters"]["required"]
     if not isinstance(document, dict) or set(document) != set(required):
         raise ValueError(f"per-process resource counter set is invalid: {path}")
+    if is_windows_protocol(protocol):
+        validate_windows_resource_counters(document, expected_kind=command_kind)
+        return document
     for field, value in document.items():
         if (type(value) not in (int, float) or not math.isfinite(value) or value < 0
                 or (not field.endswith("_seconds") and type(value) is not int)):
@@ -1191,11 +1288,134 @@ def _load_resource_counters(
     return document
 
 
+def validate_windows_resource_counters(
+    document: dict[str, Any], *, expected_kind: str | None = None
+) -> None:
+    """Keep command timing, owned cleanup and direct-process counters separate."""
+    if not isinstance(document, dict) or set(document) != {"real_seconds", "direct_process", "process_receipt"}:
+        raise ValueError("Windows resource counter set is invalid")
+    elapsed = document["real_seconds"]
+    if type(elapsed) not in (float, int) or not math.isfinite(elapsed) or elapsed <= 0:
+        raise ValueError("Windows elapsed time must be positive and finite")
+    counters = document["direct_process"]
+    positive = {"QueryProcessCycleTime", "CreationTime100ns", "ExitTime100ns",
+                "PeakWorkingSetSize", "PeakPagefileUsage"}
+    nonnegative = {"KernelTime100ns", "UserTime100ns", "PageFaultCount"}
+    if (not isinstance(counters, dict)
+            or set(counters) != positive | nonnegative | {"instructions_retired"}):
+        raise ValueError("Windows direct-process counter set is invalid")
+    for field in positive | nonnegative:
+        value = counters[field]
+        if type(value) is not int or value < (1 if field in positive else 0):
+            raise ValueError(f"Windows direct-process counter is invalid: {field}")
+    if (counters["ExitTime100ns"] < counters["CreationTime100ns"]
+            or counters["instructions_retired"] is not None):
+        raise ValueError("Windows process lifetime or unsupported instruction counter is invalid")
+
+    receipt = document["process_receipt"]
+    fields = {"command_kind", "returncode", "elapsed_seconds", "leader_elapsed_seconds",
+              "descendants_exited", "descendants_exited_naturally", "compiler_telemetry_path",
+              "compiler_telemetry_sha256", "terminated_telemetry", "job_memory_limit_bytes"}
+    if not isinstance(receipt, dict) or set(receipt) != fields:
+        raise ValueError("Windows process receipt fields are invalid")
+    kind = receipt["command_kind"]
+    if kind not in ("compile", "runtime") or (expected_kind is not None and kind != expected_kind):
+        raise ValueError("Windows process receipt command kind differs")
+    if (type(receipt["returncode"]) is not int or receipt["returncode"] != 0
+            or receipt["descendants_exited"] is not True
+            or type(receipt["descendants_exited_naturally"]) is not bool
+            or type(receipt["job_memory_limit_bytes"]) is not int
+            or receipt["job_memory_limit_bytes"] != 2 * 1024**3):
+        raise ValueError("Windows process receipt does not prove successful owned cleanup")
+    for field in ("elapsed_seconds", "leader_elapsed_seconds"):
+        value = receipt[field]
+        if type(value) not in (float, int) or not math.isfinite(value) or value <= 0:
+            raise ValueError("Windows process receipt elapsed time is invalid")
+    if receipt["leader_elapsed_seconds"] > receipt["elapsed_seconds"]:
+        raise ValueError("Windows process receipt cleanup precedes the leader exit")
+    elapsed_field = "leader_elapsed_seconds" if kind == "compile" else "elapsed_seconds"
+    if elapsed != receipt[elapsed_field]:
+        raise ValueError("Windows measurement uses the wrong elapsed-time boundary")
+
+    terminated = receipt["terminated_telemetry"]
+    if not isinstance(terminated, list) or receipt["descendants_exited_naturally"] != (not terminated):
+        raise ValueError("Windows process receipt natural-exit claim differs")
+    if kind == "runtime":
+        if (terminated or receipt["compiler_telemetry_path"] is not None
+                or receipt["compiler_telemetry_sha256"] is not None):
+            raise ValueError("Windows runtime measurement cannot terminate compiler telemetry")
+        return
+    if (receipt["compiler_telemetry_path"] != WINDOWS_COMPILER_TELEMETRY["path"]
+            or receipt["compiler_telemetry_sha256"] != WINDOWS_COMPILER_TELEMETRY["sha256"]):
+        raise ValueError("Windows compiler telemetry identity differs from the frozen protocol")
+    seen = set()
+    for process in terminated:
+        if (not isinstance(process, dict) or set(process) != {"pid", "image_path"}
+                or type(process["pid"]) is not int or process["pid"] <= 0
+                or process["pid"] in seen or not isinstance(process["image_path"], str)
+                or ntpath.normcase(ntpath.normpath(process["image_path"]))
+                != ntpath.normcase(ntpath.normpath(WINDOWS_COMPILER_TELEMETRY["path"]))):
+            raise ValueError("Windows terminated telemetry process is not the pinned compiler descendant")
+        seen.add(process["pid"])
+
+
+def validate_memory_watchdog_receipt(
+    transcript: pathlib.Path, expected_sha256: str | None
+) -> None:
+    """Reject measurements without successful, matching memory protection records."""
+    if not isinstance(expected_sha256, str) or not _HASH.fullmatch(expected_sha256):
+        raise ValueError("memory watchdog source hash is invalid")
+    if not transcript.is_file():
+        raise ValueError(f"memory watchdog command transcript is missing: {transcript}")
+    try:
+        receipt = json.loads(transcript.with_suffix(".memory.json").read_text(encoding="utf-8"))
+        exit_record = json.loads(transcript.with_suffix(".exit.json").read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        raise ValueError(f"cannot read memory watchdog receipts: {transcript}") from error
+    required = {
+        "protection": "polling-watchdog-not-kernel-memory-cap",
+        "started": True,
+        "reason": "command-exited",
+        "returncode": 0,
+        "command_returncode": 0,
+        "cleanup_complete": True,
+        "observer_complete": True,
+        "descendants_complete": True,
+        "forced_cleanup": False,
+        "memory_limit_bytes": 8589934592,
+        "host_reserve_bytes": 4294967296,
+        "sample_interval_seconds": 0.25,
+        "memory_watchdog_sha256": expected_sha256,
+    }
+    if not isinstance(receipt, dict) or any(
+        type(receipt.get(field)) is not type(value) or receipt[field] != value
+        for field, value in required.items()
+    ):
+        raise ValueError(f"memory watchdog did not prove successful protection: {transcript}")
+    if any(type(receipt.get(field)) is not int or receipt[field] < 0
+           for field in ("peak_footprint_bytes", "peak_process_count")):
+        raise ValueError(f"memory watchdog peak measurement is invalid: {transcript}")
+    if receipt["peak_footprint_bytes"] >= receipt["memory_limit_bytes"]:
+        raise ValueError(f"memory watchdog peak reached its stop threshold: {transcript}")
+    if (not isinstance(exit_record, dict) or type(exit_record.get("returncode")) is not int
+            or exit_record["returncode"] != 0):
+        raise ValueError(f"memory watchdog command exit is not successful: {transcript}")
+
+
+def _measurement_suffixes(protocol: dict[str, Any]) -> tuple[str, ...]:
+    """Keep historical records unchanged while requiring current Mac protection."""
+    suffixes = (".txt", ".resources.json")
+    if protocol["method_version"] == CURRENT_METHOD:
+        return (*suffixes, ".memory.json", ".exit.json")
+    return suffixes
+
+
 def load_isolated_runtime_pairs(
     subject_directory: pathlib.Path,
     control_directory: pathlib.Path,
     scenario: str,
     protocol: dict[str, Any],
+    memory_watchdog_sha256: str | None = None,
 ) -> list[dict[str, Any]]:
     """Load one isolated observation per role for every seeded block."""
     if scenario not in protocol["runtime"]["gated_scenarios"]:
@@ -1205,7 +1425,7 @@ def load_isolated_runtime_pairs(
     expected_names = {
         f"block-{block:02d}{suffix}"
         for block in range(1, len(schedule) + 1)
-        for suffix in (".txt", ".resources.json")
+        for suffix in _measurement_suffixes(protocol)
     }
     for directory in (subject_directory, control_directory):
         scenario_directory = directory / "runtime" / slug
@@ -1223,6 +1443,9 @@ def load_isolated_runtime_pairs(
     for block, order in enumerate(schedule, start=1):
         subject_path = subject_directory / "runtime" / slug / f"block-{block:02d}.txt"
         control_path = control_directory / "runtime" / slug / f"block-{block:02d}.txt"
+        if protocol["method_version"] == CURRENT_METHOD:
+            for transcript in (subject_path, control_path):
+                validate_memory_watchdog_receipt(transcript, memory_watchdog_sha256)
         subject = validate_isolated_transcript(subject_path, scenario)[scenario]
         control = validate_isolated_transcript(control_path, scenario)[scenario]
         subject_resources = _load_resource_counters(
@@ -1251,6 +1474,7 @@ def load_compile_pairs(
     control_directory: pathlib.Path,
     fixture: str,
     protocol: dict[str, Any],
+    memory_watchdog_sha256: str | None = None,
 ) -> list[dict[str, Any]]:
     """Load balanced, clean compile observations from isolated targets."""
     if fixture not in protocol["compile"]["fixtures"]:
@@ -1259,7 +1483,7 @@ def load_compile_pairs(
     expected_names = {
         f"block-{block:02d}{suffix}"
         for block in range(1, len(schedule) + 1)
-        for suffix in (".txt", ".resources.json")
+        for suffix in _measurement_suffixes(protocol)
     }
     for directory in (subject_directory, control_directory):
         fixture_directory = directory / "compile" / fixture
@@ -1277,15 +1501,18 @@ def load_compile_pairs(
     for block, order in enumerate(schedule, start=1):
         subject_path = subject_directory / "compile" / fixture / f"block-{block:02d}.txt"
         control_path = control_directory / "compile" / fixture / f"block-{block:02d}.txt"
+        if protocol["method_version"] == CURRENT_METHOD:
+            for transcript in (subject_path, control_path):
+                validate_memory_watchdog_receipt(transcript, memory_watchdog_sha256)
         if not subject_path.read_text(encoding="utf-8").strip() or not control_path.read_text(
             encoding="utf-8"
         ).strip():
             raise ValueError(f"paired compile transcript is empty: {fixture} block {block}")
         subject_resources = _load_resource_counters(
-            subject_path.with_suffix(".resources.json"), protocol
+            subject_path.with_suffix(".resources.json"), protocol, command_kind="compile"
         )
         control_resources = _load_resource_counters(
-            control_path.with_suffix(".resources.json"), protocol
+            control_path.with_suffix(".resources.json"), protocol, command_kind="compile"
         )
         pairs.append(
             {
@@ -1327,7 +1554,16 @@ def validate_measurement_os(version: str) -> None:
 def _validate_protocol_pair_metadata(
     metadata: dict[str, Any], method_version: str | None = None
 ) -> None:
-    validate_measurement_os(str(metadata.get("os_version", "")))
+    version = method_version or metadata.get("method_version")
+    if version == WINDOWS_METHOD:
+        if (metadata.get("platform") != "windows"
+                or metadata.get("target") != "x86_64-pc-windows-msvc"
+                or not re.fullmatch(r"10\.[0-9]+(?:\.[0-9]+){1,2}", str(metadata.get("os_version", "")))):
+            raise ValueError("paired evidence requires its Windows platform and target")
+    else:
+        if metadata.get("platform") not in (None, "macos"):
+            raise ValueError("macOS paired evidence cannot use another platform")
+        validate_measurement_os(str(metadata.get("os_version", "")))
     if not isinstance(metadata.get("os_build"), str) or not metadata["os_build"].strip():
         raise ValueError("paired evidence OS build is missing")
     mode = metadata.get("mode")
@@ -1349,10 +1585,14 @@ def _validate_protocol_pair_metadata(
             raise ValueError("candidate and reference revisions must differ")
     elif metadata["subject_revision"] != REFERENCE_REVISION:
         raise ValueError("A/A evidence must use the frozen reference twice")
-    if (method_version or metadata.get("method_version")) == "composition-paired-v7":
+    if version in ("composition-paired-v7", CURRENT_METHOD, WINDOWS_METHOD):
         capture_hash = metadata.get("capture_sha256")
         if not isinstance(capture_hash, str) or not _HASH.fullmatch(capture_hash):
             raise ValueError("paired evidence capture hash is invalid")
+    if version == CURRENT_METHOD:
+        watchdog_hash = metadata.get("memory_watchdog_sha256")
+        if not isinstance(watchdog_hash, str) or not _HASH.fullmatch(watchdog_hash):
+            raise ValueError("paired evidence memory watchdog hash is invalid")
 
 
 def evaluate_protocol_paired(
@@ -1366,6 +1606,13 @@ def evaluate_protocol_paired(
     """Evaluate isolated runtime and contemporaneous clean-compile pairs."""
     _validate_protocol_pair_metadata(metadata, protocol["method_version"])
     _validate_measurement_plan(plan_path, protocol, metadata["mode"])
+    if protocol["method_version"] == CURRENT_METHOD:
+        for role in ("subject", "control"):
+            for suffix in ("", "-list"):
+                validate_memory_watchdog_receipt(
+                    plan_path.parent / "builds" / f"{role}{suffix}.txt",
+                    metadata["memory_watchdog_sha256"],
+                )
     document = validate_budget_document(budget_path)
 
     subject_rows = []
@@ -1376,7 +1623,8 @@ def evaluate_protocol_paired(
         scenario = budget_row["scenario"].removeprefix("runtime/")
         if scenario not in loaded_runtime:
             loaded_runtime[scenario] = load_isolated_runtime_pairs(
-                subject_directory, control_directory, scenario, protocol
+                subject_directory, control_directory, scenario, protocol,
+                metadata.get("memory_watchdog_sha256"),
             )
         pairs = loaded_runtime[scenario]
         direction = _direction(budget_row)
@@ -1450,7 +1698,8 @@ def evaluate_protocol_paired(
     for fixture in protocol["compile"]["fixtures"]:
         budget_row = compile_budgets[fixture]
         pairs = load_compile_pairs(
-            subject_directory, control_directory, fixture, protocol
+            subject_directory, control_directory, fixture, protocol,
+            metadata.get("memory_watchdog_sha256"),
         )
         statistics_result = paired_ratio_statistics(pairs, "maximum", protocol)
         identity = {
@@ -1495,12 +1744,14 @@ def evaluate_protocol_paired(
         "schema_version": 2,
         "suite": "rca-composition-protocol-paired",
         "mode": metadata["mode"],
-        "runner": RUNNER,
-        "toolchain": TOOLCHAIN,
+        "runner": protocol["runner"],
+        "toolchain": expected_toolchain(protocol),
         "method_version": protocol["method_version"],
         "protocol_sha256": _protocol_sha256(protocol),
         "metadata": metadata,
     }
+    if is_windows_protocol(protocol):
+        common["qualification_scope"] = "paired-only"
     subject_report = {
         **common,
         "role": metadata["subject_role"],
@@ -1542,17 +1793,20 @@ def validate_protocol_diagnostics(
     directory: pathlib.Path,
     roles: tuple[str, str],
     protocol: dict[str, Any],
+    memory_watchdog_sha256: str | None = None,
 ) -> None:
     expected = {
         f"{role}{suffix}"
         for role in roles
-        for suffix in (".txt", ".resources.json")
+        for suffix in _measurement_suffixes(protocol)
     }
     actual = {path.name for path in directory.iterdir()} if directory.is_dir() else set()
     if actual != expected:
         raise ValueError("full Divan diagnostic evidence set is incomplete")
     for role in roles:
         transcript = directory / f"{role}.txt"
+        if protocol["method_version"] == CURRENT_METHOD:
+            validate_memory_watchdog_receipt(transcript, memory_watchdog_sha256)
         validate_divan_transcript(
             transcript, protocol["runtime"]["diagnostic_timing_rows"]
         )
@@ -1576,8 +1830,8 @@ def _load_protocol_metadata(
         "budget_sha256": BUDGET_SHA256,
         "allocation_manifest_sha256": ALLOCATION_MANIFEST_SHA256,
         "seed": protocol["randomisation"]["seed"],
-        "runner": RUNNER,
-        "toolchain": TOOLCHAIN,
+        "runner": protocol["runner"],
+        "toolchain": expected_toolchain(protocol),
         "plan_sha256": _sha256(plan_path),
     }
     for field, value in expected.items():
@@ -1825,6 +2079,7 @@ def _validate_environment(
     capture_script_sha256: str | None,
     root_lock_sha256: str | None,
     paired_host: dict[str, Any] | None = None,
+    timing_report: dict[str, Any] | None = None,
 ) -> dict[str, str]:
     environment = _parse_key_values(raw_directory / "environment.txt")
     required = {
@@ -1835,7 +2090,7 @@ def _validate_environment(
         "cpu_model": "Apple M3 Max",
         "logical_cpus": "16",
         "memory_bytes": "51539607552",
-        "cargo_version": "cargo 1.98.0 (797e8a9bc 2026-08-05)",
+        "cargo_version": expected_tool_versions(timing_report or {})["cargo"],
         "cargo_path": "<toolchain>/cargo",
         "rustc_path": "<toolchain>/rustc",
         "rustdoc_path": "<toolchain>/rustdoc",
@@ -1845,6 +2100,9 @@ def _validate_environment(
         "runtime_process_repetitions": "10",
         "runtime_expected_timing_rows": "153",
     }
+    if timing_report is not None and is_current_protocol(timing_report):
+        required.update(rustc_version=CURRENT_TOOL_VERSIONS["rustc"],
+                        rustdoc_version=CURRENT_TOOL_VERSIONS["rustdoc"])
     for key, expected in required.items():
         if environment.get(key) != expected:
             raise ValueError(f"absolute capture environment mismatch: {key}")
@@ -2012,6 +2270,8 @@ def evaluate_absolute(
     allocation_manifest: pathlib.Path = DEFAULT_ALLOCATION_MANIFEST,
     timing_report: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    if timing_report is not None and is_windows_protocol(timing_report):
+        raise ValueError("Windows paired evidence cannot qualify macOS absolute budgets")
     document = validate_budget_document(budget_path)
     revision = expected_revision or document["measured_revision"]
     paired_host = None
@@ -2029,8 +2289,12 @@ def evaluate_absolute(
             raise ValueError("absolute timing report revision mismatch")
         if timing_report.get("role") != paired_host["subject_role"]:
             raise ValueError("absolute timing report must use the subject arm")
+        if timing_report["method_version"] == CURRENT_METHOD:
+            validate_memory_watchdog_receipt(
+                raw_directory.parent / "absolute-capture.txt", paired_host["memory_watchdog_sha256"]
+            )
     environment = _validate_environment(
-        raw_directory, revision, capture_script_sha256, root_lock_sha256, paired_host
+        raw_directory, revision, capture_script_sha256, root_lock_sha256, paired_host, timing_report
     )
     validate_allocation_manifest(allocation_manifest)
     captured_manifest_hash = environment.get("allocation_manifest_sha256")
@@ -2190,7 +2454,9 @@ def evaluate_absolute(
         "runner": RUNNER if timing_report is not None else document["runner_cohort"],
         "baseline_runner": document["runner_cohort"],
         "binary_baseline_runner": document["binary_baseline"]["runner_cohort"],
-        "toolchain": document["toolchain"],
+        "toolchain": expected_toolchain(timing_report) if timing_report is not None else document["toolchain"],
+        **({"baseline_toolchain": document["toolchain"]}
+           if timing_report is not None and is_current_protocol(timing_report) else {}),
         "capture": {
             "os_version": environment["os_version"],
             "os_build": environment["os_build"],
@@ -2373,8 +2639,8 @@ def _command_parse_time(arguments: argparse.Namespace) -> int:
 
 def _command_evaluate_protocol(arguments: argparse.Namespace) -> int:
     protocol = load_protocol(arguments.protocol)
-    if protocol["method_version"] == "composition-paired-v7":
-        raise ValueError("v7 acceptance requires the combined capture runner, not single-mode evaluation")
+    if is_interleaved_protocol(protocol):
+        raise ValueError("acceptance requires the combined capture runner, not single-mode evaluation")
     metadata = _load_protocol_metadata(arguments.metadata, protocol, arguments.plan)
     validate_protocol_sources(arguments.metadata.parent, metadata, protocol)
     subject, control, comparison = evaluate_protocol_paired(
@@ -2389,6 +2655,7 @@ def _command_evaluate_protocol(arguments: argparse.Namespace) -> int:
         arguments.diagnostics,
         (metadata["subject_role"], metadata["control_role"]),
         protocol,
+        metadata.get("memory_watchdog_sha256"),
     )
     outputs = {
         f"{metadata['subject_role']}.json": subject,

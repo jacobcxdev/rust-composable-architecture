@@ -17,12 +17,12 @@ if [[ ! ${git_version} =~ ^git\ version\ ([0-9]+)\.([0-9]+) ]] ||
     exit 1
 fi
 
-toolchain_bin=$(dirname "${RUSTC:-$(rustup which --toolchain 1.98.0 cargo)}")
+toolchain_bin=$(dirname "${RUSTC:-$(rustup which --toolchain 1.99.0 cargo)}")
 export PATH="${toolchain_bin}:${PATH}"
 registry_ssh_keygen=$(command -v ssh-keygen)
 
 package_version='0.1.0'
-package_rust_version='1.98.0'
+package_rust_version='1.99.0'
 expected_rustc="rustc ${package_rust_version}"
 expected_cargo="cargo ${package_rust_version}"
 if [[ $(rustc --version) != "${expected_rustc}"* ]]; then

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run the frozen composition protocol on its one authorised Darwin host."""
+"""Run the frozen composition protocols on their separate native hosts."""
 
 from __future__ import annotations
 
@@ -9,8 +9,11 @@ import ctypes
 from datetime import datetime, timezone
 import json
 import io
+import importlib.util
 import math
+import ntpath
 import os
+import platform
 from pathlib import Path
 import signal
 import shutil
@@ -29,6 +32,8 @@ import common_outcome_allocations as common_outcome_evidence  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 PROTOCOL = ROOT / "docs/performance/composition/composition-protocol-v7.json"
+CURRENT_PROTOCOL = ROOT / "docs/performance/composition/composition-protocol-v8.json"
+WINDOWS_PROTOCOL = ROOT / "docs/performance/composition/composition-windows-paired-v1.json"
 BUDGET = ROOT / "docs/performance/composition/composition-budgets.json"
 EVIDENCE_ROOT = ROOT / "target/qualification-evidence/0.1.0/composition"
 LOCK = Path("/tmp/rca-composition-performance.machine.lock")
@@ -42,10 +47,33 @@ AA_RECEIPT_FILES = (
     "complete.json",
 )
 
+
+def protocol_path(protocol):
+    """Select a frozen protocol without changing historical evidence."""
+    if evidence.is_windows_protocol(protocol):
+        return WINDOWS_PROTOCOL
+    return CURRENT_PROTOCOL if protocol["method_version"] == "composition-paired-v8" else PROTOCOL
+
+
+def receipt_files(protocol):
+    """Windows paired evidence cannot include a Darwin absolute-gate result."""
+    return tuple(name for name in AA_RECEIPT_FILES
+                 if name != "absolute.json" or not evidence.is_windows_protocol(protocol))
+
+
+def windows_provider():
+    """Load the existing Windows counter definitions without running its CLI."""
+    path = ROOT / "scripts/capture-windows-performance.py"
+    spec = importlib.util.spec_from_file_location("rca_windows_counters", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
 # Only consumer workloads and their test-only support can replace archived inputs.
 COMMON_HARNESS_FILES = {
     path: path for path in (
         "rca-core/benches/composition.rs",
+        "rca-core/benches/composition/fixtures.rs",
         "benches/compile/direct/src/main.rs",
         "benches/compile/composed-manual/src/main.rs",
         "benches/compile/composed-macro/src/main.rs",
@@ -63,7 +91,7 @@ COMMON_HARNESS_FILES = {
 
 def source_hashes(root):
     """Identify every staged input; Cargo outputs live outside this source directory."""
-    return {str(path.relative_to(root)): evidence._sha256(path)
+    return {path.relative_to(root).as_posix(): evidence._sha256(path)
             for path in sorted(root.rglob("*"))
             if path.is_file()}
 
@@ -96,13 +124,13 @@ def stage_source(source, identity, destination, protocol):
         stream.extractall(destination, filter="data")
     receipt = apply_common_harness(ROOT, destination, protocol["common_workloads"]["files"])
     manifest = destination / "rca-core/Cargo.toml"
-    with manifest.open("a", encoding="utf-8") as stream:
+    with manifest.open("a", encoding="utf-8", newline="\n") as stream:
         stream.write('\n[[test]]\nname = "composition_zero"\npath = "tests/composition_qualification/main.rs"\n'
                      'harness = false\nrequired-features = ["allocation-measurement"]\n')
     adapters = ["external-zero-host-v1"]
     if identity["revision"] != evidence.REFERENCE_REVISION:
         fixture = destination / "examples/composition-search/tests/app.rs"
-        text = fixture.read_text()
+        text = fixture.read_text(encoding="utf-8")
         old = "TestStore::builder(initial_state(), reducer)"
         if text.count(old) != 1:
             raise ValueError("common example constructor adapter input differs")
@@ -110,7 +138,8 @@ def stage_source(source, identity, destination, protocol):
         old_bound = "R: rca::Reducer<State = rca_example_composition_search::AppState, Action = AppAction>,"
         if text.count(old_bound) != 1:
             raise ValueError("common example reducer adapter input differs")
-        fixture.write_text(text.replace(old_bound, old_bound[:-1] + " + Send + 'static,"))
+        fixture.write_text(text.replace(old_bound, old_bound[:-1] + " + Send + 'static,"),
+                           encoding="utf-8", newline="\n")
         adapters.append("unit-projection-constructor-v1")
     receipt.update(root=str(destination), revision=identity["revision"],
                    tree=identity["tree"], adapters=adapters,
@@ -121,7 +150,7 @@ def stage_source(source, identity, destination, protocol):
 
 def validate_staged_source(receipt_path):
     """Reject changed staged inputs before capture and before accepting its evidence."""
-    receipt = json.loads(Path(receipt_path).read_text())
+    receipt = json.loads(Path(receipt_path).read_text(encoding="utf-8"))
     root = Path(receipt["root"])
     changed = {name for name in receipt["original"].keys() | receipt["effective"].keys()
                if receipt["original"].get(name) != receipt["effective"].get(name)}
@@ -133,7 +162,8 @@ def validate_staged_source(receipt_path):
 
 
 def read(command, cwd=None, env=None, timeout=30):
-    return subprocess.check_output(command, cwd=cwd, env=env, text=True, timeout=timeout).strip()
+    return subprocess.check_output(command, cwd=cwd, env=env, text=True,
+                                   encoding="utf-8", timeout=timeout).strip()
 
 
 def write_json(path, value):
@@ -153,8 +183,8 @@ def report_paths(value, staging):
     if isinstance(value, list):
         return [report_paths(item, staging) for item in value]
     if isinstance(value, str):
-        if value.startswith(str(staging) + "/"):
-            return str(Path(value).relative_to(staging))
+        if value.startswith(str(staging) + os.sep):
+            return Path(value).relative_to(staging).as_posix()
         if value.startswith("raw/candidate-absolute/"):
             return value.replace("raw/candidate-absolute/", "absolute-raw/", 1)
     return value
@@ -177,9 +207,13 @@ def machine_lock(path):
 
 
 def publish(staged, target):
-    """Darwin's atomic no-replace rename, including empty-directory collisions."""
+    """Publish on the same filesystem without replacing existing evidence."""
+    if sys.platform == "win32":
+        # Windows rename fails when the target already exists.
+        os.rename(staged, target)
+        return
     if sys.platform != "darwin":
-        raise OSError("atomic publication requires Darwin renamex_np")
+        raise OSError("atomic publication requires Darwin or Windows")
     libc = ctypes.CDLL(None, use_errno=True)
     rename = libc.renamex_np
     rename.argtypes = [ctypes.c_char_p, ctypes.c_char_p, ctypes.c_uint]
@@ -207,7 +241,8 @@ def output_paths(value):
 
 def validate_aa_evidence(value, protocol, controller, host, *, capture=None):
     path = Path(value).absolute().resolve()
-    if protocol["method_version"] == "composition-paired-v7" and capture is None:
+    windows = evidence.is_windows_protocol(protocol)
+    if (protocol["method_version"] in ("composition-paired-v7", "composition-paired-v8") or windows) and capture is None:
         raise ValueError("A/A evidence needs its contemporaneous capture")
     if capture is not None:
         if path != (capture / "reference-reference-aa").resolve():
@@ -222,7 +257,7 @@ def validate_aa_evidence(value, protocol, controller, host, *, capture=None):
     try:
         receipts = {
             name: json.loads((path / name).read_text(encoding="utf-8"))
-            for name in AA_RECEIPT_FILES
+            for name in receipt_files(protocol)
             if name != "protocol.json"
         }
     except (OSError, json.JSONDecodeError) as error:
@@ -239,10 +274,10 @@ def validate_aa_evidence(value, protocol, controller, host, *, capture=None):
     evidence.validate_protocol_sources(path, metadata, protocol)
     inputs = receipts["inputs.json"]
     comparison = receipts["comparison.json"]
-    absolute = receipts["absolute.json"]
+    absolute = receipts.get("absolute.json")
     complete = receipts["complete.json"]
     if not all(
-        isinstance(item, dict) for item in (inputs, comparison, absolute, complete)
+        isinstance(item, dict) for item in (inputs, comparison, complete)
     ):
         raise ValueError("A/A evidence receipt is malformed")
     if not all(
@@ -251,10 +286,10 @@ def validate_aa_evidence(value, protocol, controller, host, *, capture=None):
     ):
         raise ValueError("A/A evidence input identity is malformed")
     comparison_rows = comparison.get("rows")
-    absolute_rows = absolute.get("rows")
+    absolute_rows = None if windows else absolute.get("rows") if isinstance(absolute, dict) else None
     if not all(
         isinstance(rows, list) and all(isinstance(row, dict) for row in rows)
-        for rows in (comparison_rows, absolute_rows)
+        for rows in ((comparison_rows,) if windows else (comparison_rows, absolute_rows))
     ):
         raise ValueError("A/A evidence gate rows are malformed")
     expected_relative = sum(
@@ -264,6 +299,9 @@ def validate_aa_evidence(value, protocol, controller, host, *, capture=None):
     if (
         metadata["mode"] != "reference-reference-aa"
         or metadata["qualification_script_sha256"] != evidence._sha256(Path(__file__))
+        or (protocol["method_version"] == "composition-paired-v8"
+            and metadata.get("memory_watchdog_sha256")
+            != evidence._sha256(ROOT / "scripts/guard_cargo_memory.py"))
         or metadata["evaluator_script_sha256"]
         != evidence._sha256(ROOT / "scripts/composition_performance.py")
         or inputs.get("mode") != "reference-reference-aa"
@@ -279,14 +317,18 @@ def validate_aa_evidence(value, protocol, controller, host, *, capture=None):
         or comparison.get("metadata") != metadata
         or len(comparison_rows) != expected_relative
         or not all(row.get("passed") is True for row in comparison_rows)
-        or absolute.get("mode") != "reference-reference-aa"
-        or absolute.get("subject_revision") != evidence.REFERENCE_REVISION
-        or absolute.get("reference_only") is not True
-        or absolute.get("passed") is not True
-        or absolute.get("failed_budgets") != []
-        or len(absolute_rows) != 33
-        or not all(row.get("passed") is True for row in absolute_rows)
     ):
+        raise ValueError("A/A evidence does not prove passing same-host reference gates")
+    if windows:
+        if (complete.get("qualification_scope") != "windows-paired-only"
+                or complete.get("mac_absolute_qualified") is not False
+                or (path / "absolute.json").exists() or (path / "absolute-raw").exists()):
+            raise ValueError("Windows A/A evidence cannot certify Darwin absolute gates")
+    elif (absolute.get("mode") != "reference-reference-aa"
+            or absolute.get("subject_revision") != evidence.REFERENCE_REVISION
+            or absolute.get("reference_only") is not True or absolute.get("passed") is not True
+            or absolute.get("failed_budgets") != [] or len(absolute_rows) != 33
+            or not all(row.get("passed") is True for row in absolute_rows)):
         raise ValueError("A/A evidence does not prove passing same-host reference gates")
     subject_report, _, checked_comparison = evidence.evaluate_protocol_paired(
         BUDGET,
@@ -302,8 +344,12 @@ def validate_aa_evidence(value, protocol, controller, host, *, capture=None):
     ):
         raise ValueError("A/A evidence relative gates disagree with raw measurements")
     evidence.validate_protocol_diagnostics(
-        path / "diagnostics", ("reference-b", "reference-a"), protocol
+        path / "diagnostics", ("reference-b", "reference-a"), protocol,
+        metadata.get("memory_watchdog_sha256"),
     )
+    if windows:
+        return {"path": str(path),
+                "sha256": {name: evidence._sha256(path / name) for name in receipt_files(protocol)}}
     checked_absolute = evidence.evaluate_absolute(
         BUDGET,
         path / "absolute-raw",
@@ -364,29 +410,29 @@ def tool_environment(include_capture_tool=True):
             "composition qualification rejects ambient Rust compiler or build overrides"
         )
     tools = {
-        name: read(["rustup", "which", "--toolchain", "1.98.0", name])
+        name: read(["rustup", "which", "--toolchain", "1.99.0", name])
         for name in ("cargo", "rustc", "rustdoc")
     }
     versions = {name: read([path, "--version"]) for name, path in tools.items()}
     if (
         versions
-        != {
-            "cargo": "cargo 1.98.0 (797e8a9bc 2026-08-05)",
-            "rustc": "rustc 1.98.0 (88d9e12ae 2026-08-18)",
-            "rustdoc": "rustdoc 1.98.0 (88d9e12ae 2026-08-18)",
-        }
+        != evidence.CURRENT_TOOL_VERSIONS
         or len({str(Path(path).parent) for path in tools.values()}) != 1
     ):
-        raise ValueError("exact Cargo, rustc, and rustdoc 1.98.0 required")
+        raise ValueError("exact Cargo, rustc, and rustdoc 1.99.0 required")
     env = dict(os.environ)
     env.update({name.upper(): path for name, path in tools.items()})
     env.update(
-        PATH=f"{ROOT}/target/task4-tools/bin:{Path(tools['cargo']).parent}:/usr/bin:/bin:/usr/sbin:/sbin:{os.environ.get('PATH', '')}",
+        PATH=(f"{Path(tools['cargo']).parent};{os.environ.get('PATH', '')}"
+              if sys.platform == "win32" else
+              f"{ROOT}/target/task4-tools/bin:{Path(tools['cargo']).parent}:/usr/bin:/bin:/usr/sbin:/sbin:{os.environ.get('PATH', '')}"),
         RUSTC_WRAPPER="",
         RUSTC_WORKSPACE_WRAPPER="",
         CARGO_BUILD_JOBS="1",
     )
     if include_capture_tool:
+        tools["python"] = str(Path(sys.executable).resolve(strict=True))
+        env["RCA_COMPOSITION_PYTHON"] = tools["python"]
         check_capture_tool(ROOT, tools["cargo"], env)
     return env, tools
 
@@ -451,8 +497,22 @@ def canonical_host():
     }
 
 
+def windows_host():
+    """Pin H1 identity without requiring an idle desktop or changing scheduling."""
+    values = windows_provider().host_metadata()
+    version = platform.version()
+    if (values.get("hostname", "").casefold() != "h1"
+            or values.get("logical_cpus") != 24
+            or values.get("machine_model", "").casefold() != "amd64"
+            or "AMD Ryzen 9 3900X" not in values.get("cpu", "")
+            or not version or len(version.split(".")) != 3):
+        raise ValueError("host does not match the Windows composition runner")
+    return {"identity": {**values, "platform": "windows", "target": "x86_64-pc-windows-msvc",
+                         "os_version": version, "os_build": version.rsplit(".", 1)[-1]}}
+
+
 def check_host_unchanged(before, monitor):
-    after = canonical_host()
+    after = windows_host() if before["identity"].get("platform") == "windows" else canonical_host()
     monitor.event("telemetry.jsonl", {"phase": "final-host", "host": after})
     if after["identity"] != before["identity"]:
         raise ValueError("host identity changed during qualification")
@@ -506,6 +566,44 @@ def stop_owned_process(process):
         process.wait(timeout=5)
 
 
+def guarded_mac_command(command, destination, *, cwd, env, timeout, stdout, stderr,
+                        observe=None, observe_interval=1):
+    """Keep one owner for the measured group and retain its memory-safety receipt."""
+    # Keep POSIX-only imports out of the Windows controller.
+    import guard_cargo_memory as guard
+
+    if evidence._sha256(Path(guard.__file__)) != guard.SOURCE_SHA256:
+        raise ValueError("the loaded memory watchdog source changed")
+    try:
+        probe = guard.MacProbe()
+    except Exception as error:
+        receipt = dict(started=False, reason="setup-error", returncode=125, cleanup_complete=True,
+                       error=str(error), memory_watchdog_sha256=guard.SOURCE_SHA256)
+    else:
+        receipt = guard.run_guarded(
+            command, cwd=cwd, env=env, probe=probe, timeout=timeout,
+            stdout=stdout, stderr=stderr, observe=observe, observe_interval=observe_interval,
+        )
+    if evidence._sha256(Path(guard.__file__)) != guard.SOURCE_SHA256:
+        receipt.update(reason="watchdog-source-changed", returncode=125)
+    write_json(destination.with_suffix(".memory.json"), receipt)
+    write_json(destination.with_suffix(".exit.json"),
+               {"returncode": receipt.get("command_returncode")})
+    return receipt
+
+
+def require_guarded_success(receipt, command, timeout):
+    """Do not turn a watchdog stop or a failed telemetry sample into a measurement."""
+    if receipt["reason"] == "timeout":
+        raise subprocess.TimeoutExpired(command, timeout)
+    if (receipt["reason"] != "command-exited" or not receipt["cleanup_complete"]
+            or not receipt["descendants_complete"]):
+        raise ValueError(f"memory watchdog stopped qualification: {receipt['reason']}: "
+                         f"{receipt.get('error', '')}")
+    if receipt["returncode"]:
+        raise subprocess.CalledProcessError(receipt["returncode"], command)
+
+
 class HostMonitor:
     def __init__(self, directory, protocol):
         self.directory = directory
@@ -524,11 +622,15 @@ class HostMonitor:
             )
 
     def sample(self, phase, active=False):
+        deadline = time.monotonic() + 30
+        if self.process_deadline is not None:
+            deadline = min(deadline, self.process_deadline)
+
         def probe(command):
-            remaining = 30 if self.process_deadline is None else self.process_deadline - time.monotonic()
+            remaining = deadline - time.monotonic()
             if remaining <= 0:
                 raise subprocess.TimeoutExpired(command, 0)
-            return read(command, timeout=min(30, remaining))
+            return read(command, timeout=remaining)
 
         data = {"phase": phase, "active": active}
         try:
@@ -624,52 +726,113 @@ class HostMonitor:
             },
         )
         with destination.open("x") as transcript:
-            process = subprocess.Popen(
-                executed,
-                cwd=cwd,
-                env=env,
-                stdout=transcript,
-                stderr=subprocess.STDOUT,
-                start_new_session=True,
-            )
-            deadline = None if timeout is None else time.monotonic() + timeout
-            self.process_deadline = deadline
+            self.process_deadline = None if timeout is None else time.monotonic() + timeout
             try:
-                while True:
-                    self.sample(f"during:{destination.name}", active=True)
-                    remaining = None if deadline is None else deadline - time.monotonic()
-                    if remaining is not None and remaining <= 0:
-                        raise subprocess.TimeoutExpired(command, timeout)
-                    try:
-                        interval = self.protocol["quiescence"]["process_monitor_interval_seconds"]
-                        process.wait(timeout=interval if remaining is None else min(remaining, interval))
-                        break
-                    except subprocess.TimeoutExpired:
-                        pass
-            except BaseException:
-                # Terminate the owned process group, including compiler grandchildren.
-                stop_owned_process(process)
-                raise
+                receipt = guarded_mac_command(
+                    executed, destination, cwd=cwd, env=env, timeout=timeout,
+                    stdout=transcript, stderr=subprocess.STDOUT,
+                    observe=lambda: self.sample(f"during:{destination.name}", active=True),
+                    observe_interval=self.protocol["quiescence"]["process_monitor_interval_seconds"],
+                )
             finally:
                 self.process_deadline = None
-                if counter_receipt:
-                    write_json(destination.with_suffix('.exit.json'), {'returncode': process.returncode})
-                self.event(
-                    "processes.jsonl",
-                    {
-                        "phase": "finish",
-                        "destination": str(destination),
-                        "returncode": process.returncode,
-                    },
-                )
-        self.sample(f"after:{destination.name}")
-        if process.returncode:
-            raise subprocess.CalledProcessError(process.returncode, command)
+        self.event("processes.jsonl", {
+            "phase": "finish", "destination": str(destination),
+            "returncode": receipt.get("command_returncode"), "watchdog_reason": receipt["reason"],
+        })
+        if receipt["reason"] == "command-exited":
+            self.sample(f"after:{destination.name}")
+        require_guarded_success(receipt, command, timeout)
         if timed:
             write_json(
                 destination.with_suffix(".resources.json"),
                 evidence.parse_darwin_time(counter_path.read_text()),
             )
+
+
+def check_windows_compiler_telemetry(protocol):
+    """Reject a missing or changed compiler telemetry image before cleanup."""
+    identity = protocol["compiler_telemetry"]
+    image = Path(identity["path"])
+    if image.is_symlink() or not image.is_file() or evidence._sha256(image) != identity["sha256"]:
+        raise ValueError("the pinned compiler telemetry image is missing or changed")
+    return identity
+
+
+class WindowsMonitor(HostMonitor):
+    """Record owned process trees without rejecting background desktop load."""
+
+    def __init__(self, directory, protocol, *, cargo=None, provider=None, run_process=None):
+        super().__init__(directory, protocol)
+        if run_process is None:
+            from windows_process import run_process
+        self.run_process = run_process
+        self.provider = windows_provider().WindowsCounters() if provider is None else provider
+        self.cargo = cargo
+
+    def idle(self, phase, sustained=False):
+        self.event("telemetry.jsonl", {"phase": phase, "admission": "recorded-background-load"})
+
+    def run(self, command, destination, cwd, env, timed=True, timeout=None, counter_receipt=False):
+        if counter_receipt:
+            raise ValueError("Darwin counter receipts are not supported by the Windows paired runner")
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        executed = list(map(str, command))
+        pinned_cargo = (self.cargo is not None and len(executed) > 1
+                        and ntpath.normcase(ntpath.normpath(executed[0]))
+                        == ntpath.normcase(ntpath.normpath(self.cargo)))
+        cargo_arguments = executed[2:]
+        if "--" in cargo_arguments:
+            cargo_arguments = cargo_arguments[:cargo_arguments.index("--")]
+        compiler = pinned_cargo and (executed[1] == "check"
+                                    or (executed[1] == "bench" and "--no-run" in cargo_arguments))
+
+        timeout = self.protocol["process_timeout_seconds"] if timeout is None else timeout
+        memory_limit = self.protocol["process_memory_limit_bytes"]
+        self.event("processes.jsonl", {
+            "phase": "start", "command": executed, "cwd": str(cwd),
+            "destination": str(destination), "target": env.get("CARGO_TARGET_DIR"),
+            "incremental": env.get("CARGO_INCREMENTAL"), "timeout_seconds": timeout,
+            "job_memory_limit_bytes": memory_limit,
+            "command_kind": "compile" if compiler else "runtime",
+            "compiler_telemetry": self.protocol.get("compiler_telemetry") if compiler else None,
+        })
+        result = None
+        receipt = None
+        failure = {}
+        try:
+            telemetry = check_windows_compiler_telemetry(self.protocol) if compiler else None
+            with destination.open("xb") as transcript:
+                result = self.run_process(executed, transcript, str(cwd), env, timeout, self.provider,
+                                          memory_limit_bytes=memory_limit,
+                                          **({"compiler_telemetry_path": telemetry["path"]} if compiler else {}))
+            receipt = {key: value for key, value in result.items() if key != "counters"}
+            receipt.update(command_kind="compile" if compiler else "runtime",
+                           compiler_telemetry_sha256=None if telemetry is None else telemetry["sha256"])
+            if result["returncode"]:
+                raise subprocess.CalledProcessError(result["returncode"], executed)
+            if (result.get("descendants_exited") is not True
+                    or result.get("job_memory_limit_bytes") != memory_limit):
+                raise ValueError("owned process tree or aggregate memory limit was not verified")
+            if compiler:
+                check_windows_compiler_telemetry(self.protocol)
+            resources = {"real_seconds": result["leader_elapsed_seconds"] if compiler else result["elapsed_seconds"],
+                         "direct_process": result["counters"], "process_receipt": receipt}
+            evidence.validate_windows_resource_counters(resources, expected_kind="compile" if compiler else "runtime")
+            if timed:
+                write_json(destination.with_suffix(".resources.json"), resources)
+        except BaseException as error:
+            failure = {"error": str(error)}
+            if hasattr(error, "windows_process_receipt"):
+                failure["windows_process_receipt"] = error.windows_process_receipt
+            raise
+        finally:
+            self.event("processes.jsonl", {
+                "phase": "finish", "destination": str(destination),
+                "returncode": None if result is None else result["returncode"], **failure,
+                "job_memory_limit_bytes": None if result is None else result.get("job_memory_limit_bytes"),
+                "process_receipt": receipt,
+            })
 
 
 def execute_pairs(protocol, roots, executables, targets, paired, cargo, env, monitor, *, blocks=None):
@@ -755,10 +918,12 @@ def paired_block_hashes(directory, protocol, block, mode):
             for name in names:
                 transcript = paired / family / name.replace("/", "__") / f"block-{block:02d}.txt"
                 paths.extend((transcript, transcript.with_suffix(".resources.json")))
+                if protocol["method_version"] == "composition-paired-v8":
+                    paths.extend((transcript.with_suffix(".memory.json"), transcript.with_suffix(".exit.json")))
     for path in paths:
         if (directory / path).is_symlink():
             raise ValueError("interleaved measurement became a symlink")
-    return {str(path): evidence._sha256(directory / path) for path in paths}
+    return {path.as_posix(): evidence._sha256(directory / path) for path in paths}
 
 
 def benchmark(root, target, role, staging, tools, env, monitor):
@@ -782,7 +947,7 @@ def benchmark(root, target, role, staging, tools, env, monitor):
         {**env, "CARGO_TARGET_DIR": str(target)},
     )
     executables = []
-    for line in log.read_text().splitlines():
+    for line in log.read_text(encoding="utf-8").splitlines():
         if line.startswith("{"):
             item = json.loads(line)
             if (
@@ -816,7 +981,7 @@ def prepare_pair_capture(protocol, budget, mode, staging, targets, reference, co
                   for name, path in tools.items()},
     })
     with (staging / "protocol.json").open("xb") as copied_protocol:
-        copied_protocol.write(PROTOCOL.read_bytes())
+        copied_protocol.write(protocol_path(protocol).read_bytes())
     write_json(staging / "plan.json", evidence.measurement_plan(protocol, mode))
     identities = {"subject": subject, "control": control}
     original_roots = {"subject": subject_root, "control": reference}
@@ -850,12 +1015,12 @@ def prepare_pair_capture(protocol, budget, mode, staging, targets, reference, co
         "schema_version": 1,
         "mode": mode,
         "method_version": protocol["method_version"],
-        "protocol_sha256": evidence.PROTOCOL_SHA256,
+        "protocol_sha256": evidence._protocol_sha256(protocol),
         "budget_sha256": evidence.BUDGET_SHA256,
         "allocation_manifest_sha256": evidence.ALLOCATION_MANIFEST_SHA256,
         "seed": protocol["randomisation"]["seed"],
-        "runner": evidence.RUNNER,
-        "toolchain": evidence.TOOLCHAIN,
+        "runner": protocol["runner"],
+        "toolchain": evidence.expected_toolchain(protocol),
         "os_version": host["identity"]["os_version"],
         "os_build": host["identity"]["os_build"],
         "plan_sha256": evidence._sha256(staging / "plan.json"),
@@ -867,6 +1032,8 @@ def prepare_pair_capture(protocol, budget, mode, staging, targets, reference, co
         "subject_lock_sha256": subject["hashes"]["Cargo.lock"],
         "control_lock_sha256": control["hashes"]["Cargo.lock"],
         "qualification_script_sha256": evidence._sha256(Path(__file__)),
+        **({"memory_watchdog_sha256": evidence._sha256(ROOT / "scripts/guard_cargo_memory.py")}
+           if protocol["method_version"] == "composition-paired-v8" else {}),
         "evaluator_script_sha256": evidence._sha256(
             ROOT / "scripts/composition_performance.py"
         ),
@@ -892,6 +1059,8 @@ def prepare_pair_capture(protocol, budget, mode, staging, targets, reference, co
             for role, executable in executables.items()
         },
     }
+    if evidence.is_windows_protocol(protocol):
+        metadata.update(platform="windows", target="x86_64-pc-windows-msvc")
     return {"mode": mode, "staging": staging, "targets": targets, "subject": subject,
             "roots": roots, "sources": sources, "executables": executables,
             "roles": roles, "metadata": metadata, "paired": staging / "paired"}
@@ -910,7 +1079,8 @@ def finish_pair_capture(capture, protocol, controller, env, monitor):
             env,
         )
     evidence.validate_protocol_diagnostics(
-        staging / "diagnostics", tuple(roles.values()), protocol
+        staging / "diagnostics", tuple(roles.values()), protocol,
+        metadata.get("memory_watchdog_sha256"),
     )
     subject_report, control_report, comparison = evidence.evaluate_protocol_paired(
         BUDGET,
@@ -927,6 +1097,8 @@ def finish_pair_capture(capture, protocol, controller, env, monitor):
         f"{roles['control']}.json": control_report,
         "comparison.json": comparison,
     }
+    if evidence.is_windows_protocol(protocol):
+        return complete_pair_capture(capture, reports, windows=True)
     capture_env = {
         key: value
         for key, value in env.items()
@@ -961,11 +1133,17 @@ def finish_pair_capture(capture, protocol, controller, env, monitor):
     absolute["subject_revision"] = absolute.pop("candidate_revision")
     absolute["mode"] = mode
     absolute["reference_only"] = mode == "reference-reference-aa"
-    for role, executable in executables.items():
+    reports["absolute.json"] = absolute
+    return complete_pair_capture(capture, reports)
+
+
+def complete_pair_capture(capture, reports, *, windows=False):
+    """Seal reports only after the measured source and binaries remain unchanged."""
+    staging, metadata = capture["staging"], capture["metadata"]
+    for role, executable in capture["executables"].items():
         if evidence._sha256(executable) != metadata[f"{role}_executable_sha256"]:
             raise ValueError("benchmark executable changed during capture")
-    reports["absolute.json"] = absolute
-    for role in roots:
+    for role in capture["roots"]:
         if evidence._sha256(staging / "sources" / f"{role}.json") != metadata[
             "workload_provenance"][role]["receipt_sha256"]:
             raise ValueError("staged composition source receipt changed")
@@ -973,19 +1151,20 @@ def finish_pair_capture(capture, protocol, controller, env, monitor):
     for name, report in reports.items():
         write_json(staging / name, report_paths(report, staging))
     passed = all(report.get("passed", True) for report in reports.values())
-    write_json(staging / "complete.json", {"completed_at": now(), "passed": passed})
+    scope = {"qualification_scope": "windows-paired-only", "mac_absolute_qualified": False} if windows else {}
+    write_json(staging / "complete.json", {"completed_at": now(), "passed": passed, **scope})
     return passed
 
 
 def validate_interleaved_capture(directory, protocol):
     """Reject detached controls, changed plans, missing blocks and reordered evidence."""
-    manifest = json.loads((directory / "capture.json").read_text())
+    manifest = json.loads((directory / "capture.json").read_text(encoding="utf-8"))
     digest = evidence._sha256(directory / "capture.json")
     modes = ("candidate-reference", "reference-reference-aa")
     schedule = [{"block": block, "mode": mode}
                 for block in range(1, len(evidence.seeded_order_schedule(protocol)) + 1)
                 for mode in evidence.interleaved_mode_order(protocol, block)]
-    if (not isinstance(manifest, dict) or manifest.get("protocol_sha256") != evidence.PROTOCOL_SHA256
+    if (not isinstance(manifest, dict) or manifest.get("protocol_sha256") != evidence._protocol_sha256(protocol)
             or manifest.get("schedule") != schedule or not isinstance(manifest.get("modes"), dict)
             or set(manifest["modes"]) != set(modes)):
         raise ValueError("interleaved capture plan differs")
@@ -994,16 +1173,16 @@ def validate_interleaved_capture(directory, protocol):
         if manifest["modes"][mode] != {name: evidence._sha256(arm / name)
                                      for name in ("inputs.json", "plan.json")}:
             raise ValueError("interleaved capture inputs changed")
-        inputs = json.loads((arm / "inputs.json").read_text())
+        inputs = json.loads((arm / "inputs.json").read_text(encoding="utf-8"))
         if (not isinstance(inputs, dict) or inputs.get("mode") != mode
                 or inputs.get("controller") != manifest.get("controller")
                 or inputs.get("host") != manifest.get("host")
-                or json.loads((arm / "plan.json").read_text()) != evidence.measurement_plan(protocol, mode)):
+                or json.loads((arm / "plan.json").read_text(encoding="utf-8")) != evidence.measurement_plan(protocol, mode)):
             raise ValueError("interleaved capture identity differs")
-        metadata = json.loads((arm / "metadata.json").read_text())
+        metadata = json.loads((arm / "metadata.json").read_text(encoding="utf-8"))
         if not isinstance(metadata, dict) or metadata.get("capture_sha256") != digest:
             raise ValueError("interleaved capture binding differs")
-    rows = [json.loads(line) for line in (directory / "blocks.jsonl").read_text().splitlines()]
+    rows = [json.loads(line) for line in (directory / "blocks.jsonl").read_text(encoding="utf-8").splitlines()]
     expected = [{**item, "phase": phase, "capture_sha256": digest}
                 for item in schedule for phase in ("start", "finish")]
     if len(rows) != len(expected):
@@ -1027,47 +1206,62 @@ def validate_interleaved_capture(directory, protocol):
     return digest
 
 
-def qualify(output, staging, reference, mode, aa_evidence=None):
+def qualify(output, staging, reference, mode, aa_evidence=None, *, platform_name="macos"):
     if mode != "candidate-reference" or aa_evidence is not None:
         raise ValueError("composition qualification needs one contemporaneous two-mode capture")
-    if sys.platform != "darwin":
+    windows = platform_name == "windows"
+    if windows and sys.platform != "win32":
+        raise ValueError("Windows paired qualification requires Windows")
+    if not windows and (platform_name != "macos" or sys.platform != "darwin"):
         raise ValueError("canonical qualification requires arm64 macOS")
-    protocol = evidence.load_protocol(PROTOCOL)
-    env, tools = tool_environment()
-    host = canonical_host()
+    selected_protocol = WINDOWS_PROTOCOL if windows else CURRENT_PROTOCOL
+    protocol = evidence.load_protocol(selected_protocol)
+    env, tools = tool_environment(include_capture_tool=False) if windows else tool_environment()
+    if windows:
+        tools["python"] = str(Path(sys.executable).resolve(strict=True))
+        if "host: x86_64-pc-windows-msvc" not in read([tools["rustc"], "-vV"]).splitlines():
+            raise ValueError("Windows composition requires the pinned MSVC host toolchain")
+        tools["compiler_telemetry"] = check_windows_compiler_telemetry(protocol)["path"]
+    host = windows_host() if windows else canonical_host()
     reference = Path(read(["git", "rev-parse", "--show-toplevel"], cwd=reference)).resolve()
     controller = source_identity(ROOT)
     control = source_identity(reference, reference=True)
     if controller["revision"] == control["revision"]:
         raise ValueError("candidate and reference revisions must differ")
-    capture_tool = check_capture_tool(ROOT, tools["cargo"], env)
+    capture_tool = None if windows else check_capture_tool(ROOT, tools["cargo"], env)
     budget = evidence.validate_budget_document(
         BUDGET, expected_reference=evidence.REFERENCE_REVISION, reference_root=reference)
     if control["hashes"]["scripts/capture-composition-performance.sh"] != budget["runner_source_hash"]:
         raise ValueError("reference capture script provenance mismatch")
     evidence.validate_allocation_manifest(evidence.DEFAULT_ALLOCATION_MANIFEST)
     pinned_files = [
-        PROTOCOL, BUDGET, evidence.DEFAULT_ALLOCATION_MANIFEST, Path(__file__),
+        selected_protocol, BUDGET, evidence.DEFAULT_ALLOCATION_MANIFEST, Path(__file__),
         ROOT / "scripts/composition_performance.py", ROOT / "scripts/qualify-composition-performance.sh",
         *(ROOT / item["source"] for item in protocol["common_workloads"]["files"].values()),
-        capture_tool, *(Path(path) for path in tools.values()),
+        *(Path(path) for path in tools.values()),
     ]
+    if windows:
+        pinned_files.extend(ROOT / "scripts" / name for name in
+                            ("capture-windows-performance.py", "windows_process.py"))
+    else:
+        pinned_files.extend((capture_tool, ROOT / "scripts/guard_cargo_memory.py"))
     hashes = {str(path): evidence._sha256(path) for path in pinned_files}
     staging.parent.mkdir(parents=True, exist_ok=True)
     staging.mkdir()
-    monitor = HostMonitor(staging / "telemetry", protocol)
+    monitor = (WindowsMonitor(staging / "telemetry", protocol, cargo=tools["cargo"]) if windows
+               else HostMonitor(staging / "telemetry", protocol))
     monitor.idle("initial", sustained=True)
     env.update(CARGO_PROFILE_BENCH_DEBUG="false", CARGO_PROFILE_BENCH_LTO="false",
                CARGO_PROFILE_BENCH_STRIP="true")
     modes = ("candidate-reference", "reference-reference-aa")
     # Build trees are disposable. Transcripts and failed evidence remain in staging.
-    with tempfile.TemporaryDirectory(prefix="rca-composition-v7.") as temporary:
+    with tempfile.TemporaryDirectory(prefix="rca-composition-paired.") as temporary:
         targets = Path(temporary)
         captures = {item: prepare_pair_capture(
             protocol, budget, item, staging / item, targets / item, reference,
             controller, control, host, tools, env, monitor, hashes) for item in modes}
         write_json(staging / "capture.json", {
-            "protocol_sha256": evidence.PROTOCOL_SHA256, "controller": controller, "host": host,
+            "protocol_sha256": evidence._protocol_sha256(protocol), "controller": controller, "host": host,
             "modes": {item: {name: evidence._sha256(staging / item / name)
                              for name in ("inputs.json", "plan.json")} for item in modes},
             "schedule": [{"block": block, "mode": item}
@@ -1099,17 +1293,18 @@ def qualify(output, staging, reference, mode, aa_evidence=None):
         "completed_at": now(), "passed": all(passed.values()),
         "capture_sha256": capture_hash, "blocks_sha256": evidence._sha256(staging / "blocks.jsonl"),
         "modes": {item: {name: evidence._sha256(staging / item / name)
-                         for name in AA_RECEIPT_FILES} for item in modes},
+                         for name in receipt_files(protocol)} for item in modes},
+        **({"qualification_scope": "windows-paired-only", "mac_absolute_qualified": False} if windows else {}),
     })
     publish(staging, output)
     return 0 if all(passed.values()) else 1
 
 
-COUNTER_PROTOCOL = ROOT / "docs/performance/composable-counter-protocol-v1.json"
-COUNTER_LIFECYCLE_PROTOCOL = ROOT / "docs/performance/composable-counter-lifecycle-protocol-v1.json"
-COUNTER_ALLOCATION_PROTOCOL = ROOT / "docs/performance/composable-counter-allocation-protocol-v1.json"
-READY_FUTURE_ALLOCATION_PROTOCOL = ROOT / "docs/performance/composable-ready-future-allocation-protocol-v1.json"
-COMMON_OUTCOME_ALLOCATION_PROTOCOL = ROOT / "docs/performance/composable-common-outcome-allocation-protocol-v1.json"
+COUNTER_PROTOCOL = ROOT / "docs/performance/composable-counter-protocol-v2.json"
+COUNTER_LIFECYCLE_PROTOCOL = ROOT / "docs/performance/composable-counter-lifecycle-protocol-v2.json"
+COUNTER_ALLOCATION_PROTOCOL = ROOT / "docs/performance/composable-counter-allocation-protocol-v2.json"
+READY_FUTURE_ALLOCATION_PROTOCOL = ROOT / "docs/performance/composable-ready-future-allocation-protocol-v2.json"
+COMMON_OUTCOME_ALLOCATION_PROTOCOL = ROOT / "docs/performance/composable-common-outcome-allocation-protocol-v2.json"
 COUNTER_FIXTURES = {"composable": "upstream", "rca": "candidate"}
 COUNTER_RELEASE_ENV = {
     "CARGO_INCREMENTAL": "0", "CARGO_BUILD_JOBS": "1",
@@ -1172,17 +1367,9 @@ def _counter_command(command, destination, env, timeout=600, cwd=ROOT):
     destination.parent.mkdir(parents=True, exist_ok=True)
     write_json(destination.with_suffix(".command.json"), {"command": command, "cwd": str(cwd)})
     with destination.open("x") as stdout, destination.with_suffix(".stderr.txt").open("x") as stderr:
-        process = subprocess.Popen(command, cwd=cwd, env=env, stdout=stdout,
-                                   stderr=stderr, start_new_session=True)
-        try:
-            process.wait(timeout=timeout)
-            if process.returncode:
-                raise subprocess.CalledProcessError(process.returncode, command)
-        except BaseException:
-            stop_owned_process(process)
-            raise
-        finally:
-            write_json(destination.with_suffix(".exit.json"), {"returncode": process.returncode})
+        receipt = guarded_mac_command(command, destination, cwd=cwd, env=env, timeout=timeout,
+                                      stdout=stdout, stderr=stderr)
+    require_guarded_success(receipt, command, timeout)
 
 
 def counter_dependency_identity(metadata, lock_path, cargo_home):
@@ -1570,8 +1757,8 @@ def qualify_counter(output, staging, *, lifecycle=False, allocations=False, read
         raise
 
 
-MINIMAL_SIZE_PROTOCOL = ROOT / "docs/performance/composable-minimal-size-protocol-v1.json"
-MINIMAL_COMPILE_PROTOCOL = ROOT / "docs/performance/composable-minimal-compile-protocol-v1.json"
+MINIMAL_SIZE_PROTOCOL = ROOT / "docs/performance/composable-minimal-size-protocol-v2.json"
+MINIMAL_COMPILE_PROTOCOL = ROOT / "docs/performance/composable-minimal-compile-protocol-v2.json"
 
 
 def minimal_compile_command(cargo, manifest, workload, target, architecture):
@@ -1894,9 +2081,8 @@ def validate_minimal_provenance(directory, captured, cwd, inputs, rows, protocol
         if frozen["source"] != source_hashes or frozen["dependencies"] != dependencies or frozen["build_receipts"] != build_receipts:
             raise ValueError("minimal size recorded identities disagree")
         tool_hashes = hashes(frozen["tools"])
-        versions = {"cargo": "cargo 1.98.0 (797e8a9bc 2026-08-05)",
-                    "rustc": "rustc 1.98.0 (88d9e12ae 2026-08-18)",
-                    "rustdoc": "rustdoc 1.98.0 (88d9e12ae 2026-08-18)"}
+        versions = (evidence.CURRENT_TOOL_VERSIONS if protocol["rust_toolchain"] == "1.99.0" else
+                    evidence.LEGACY_TOOL_VERSIONS)
         if set(inputs["tools"]) != {*versions, "strip"}:
             raise ValueError("minimal size tool inventory differs")
         for name, tool in inputs["tools"].items():
@@ -2065,6 +2251,8 @@ def qualify_minimal_size(output, staging):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--platform", choices=("macos", "windows"), default="macos",
+                        help="Windows captures paired gates only; Darwin absolute gates remain separate")
     parser.add_argument(
         "--mode",
         choices=(
@@ -2089,12 +2277,22 @@ def main():
     parser.add_argument("reference", nargs="?")
     args = parser.parse_args()
     try:
+        if args.platform == "windows" and args.mode != "candidate-reference":
+            raise ValueError("Windows qualification supports only paired candidate/reference captures")
         if args.check_staged_source:
             print(json.dumps(validate_staged_source(args.check_staged_source)))
             return 0
         if args.check_prerequisites:
-            tool_environment()
-            print("cargo-bloat 0.12.1 is available through pinned Cargo")
+            if args.platform == "windows":
+                if sys.platform != "win32":
+                    raise ValueError("Windows paired qualification requires Windows")
+                _env, tools = tool_environment(include_capture_tool=False)
+                if "host: x86_64-pc-windows-msvc" not in read([tools["rustc"], "-vV"]).splitlines():
+                    raise ValueError("Windows composition requires the pinned MSVC host toolchain")
+                print("the pinned Windows Cargo, rustc and rustdoc are available")
+            else:
+                tool_environment()
+                print("cargo-bloat 0.12.1 is available through pinned Cargo")
             return 0
         if args.check_lock:
             seconds = float(args.check_lock[1])
@@ -2138,9 +2336,11 @@ def main():
         if args.mode != "candidate-reference" or args.aa_evidence:
             raise ValueError("composition qualification captures both modes together; external A/A evidence is not accepted")
         output, staging = output_paths(args.output)
-        with machine_lock(LOCK):
+        selected_lock = Path(tempfile.gettempdir()) / LOCK.name if args.platform == "windows" else LOCK
+        with machine_lock(selected_lock):
             return qualify(
-                output, staging, Path(args.reference), args.mode, args.aa_evidence
+                output, staging, Path(args.reference), args.mode, args.aa_evidence,
+                **({"platform_name": "windows"} if args.platform == "windows" else {}),
             )
     except (ValueError, OSError, subprocess.SubprocessError) as error:
         print(

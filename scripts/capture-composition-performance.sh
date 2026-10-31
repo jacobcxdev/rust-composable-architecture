@@ -6,7 +6,20 @@ if [[ $# -lt 1 || $# -gt 2 ]]; then
   exit 2
 fi
 
-for command in awk cargo cat date dirname env file git grep jq mktemp python3 rm rustup sed shasum stat sw_vers sysctl tail touch tr uname; do
+if ! python_bin=$(command -v "${RCA_COMPOSITION_PYTHON:-python3}") \
+  || ! python_bin=$("${python_bin}" -c 'import os, sys
+if sys.version_info < (3, 11):
+    raise SystemExit(1)
+import tomllib
+print(os.path.realpath(sys.executable))'); then
+  echo "composition qualification requires Python 3.11 or later" >&2
+  exit 1
+fi
+
+# Require the controller's live memory watchdog before any tool can compile.
+"${python_bin}" "$(dirname -- "${BASH_SOURCE[0]}")/guard_cargo_memory.py" --check-owned-group
+
+for command in awk cargo cat date dirname env file git grep jq mktemp rm rustup sed shasum stat sw_vers sysctl tail touch tr uname; do
   if ! command -v "${command}" >/dev/null 2>&1; then
     echo "required command not found: ${command}" >&2
     exit 1
@@ -18,9 +31,9 @@ script_dir=$(cd "$(dirname "$0")" && pwd)
 source_receipt=${2:-}
 zero_test_target=core_allocations
 if [[ -n "${source_receipt}" ]]; then
-  python3 "${script_dir}/composition_runner.py" --check-staged-source "${source_receipt}" >/dev/null
-  repo_root=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["root"])' "${source_receipt}")
-  revision=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["revision"])' "${source_receipt}")
+  "${python_bin}" "${script_dir}/composition_runner.py" --check-staged-source "${source_receipt}" >/dev/null
+  repo_root=$("${python_bin}" -c 'import json,sys; print(json.load(open(sys.argv[1]))["root"])' "${source_receipt}")
+  revision=$("${python_bin}" -c 'import json,sys; print(json.load(open(sys.argv[1]))["revision"])' "${source_receipt}")
   zero_test_target=composition_zero
 else
   repo_root=$(git rev-parse --show-toplevel)
@@ -42,16 +55,16 @@ if grep -Eq '^(DIVAN_|CARGO_PROFILE_|RCA_COMPOSITION_ALLOCATION_)' < <(env); the
   echo "composition qualification rejects ambient benchmark overrides" >&2
   exit 1
 fi
-cargo_bin=$(rustup which --toolchain 1.98.0 cargo)
-rustc_bin=$(rustup which --toolchain 1.98.0 rustc)
-rustdoc_bin=$(rustup which --toolchain 1.98.0 rustdoc)
+cargo_bin=$(rustup which --toolchain 1.99.0 cargo)
+rustc_bin=$(rustup which --toolchain 1.99.0 rustc)
+rustdoc_bin=$(rustup which --toolchain 1.99.0 rustdoc)
 toolchain_dir=${cargo_bin%/*}
-if [[ "$(${rustc_bin} --version)" != rustc\ 1.98.0* \
-  || "$(${cargo_bin} --version)" != cargo\ 1.98.0* \
-  || "$(${rustdoc_bin} --version)" != rustdoc\ 1.98.0* \
+if [[ "$(${rustc_bin} --version)" != "rustc 1.99.0 (b940084d7 2026-09-28)" \
+  || "$(${cargo_bin} --version)" != "cargo 1.99.0 (5f94df478 2026-08-27)" \
+  || "$(${rustdoc_bin} --version)" != "rustdoc 1.99.0 (b940084d7 2026-09-28)" \
   || "${rustc_bin}" != "${toolchain_dir}/rustc" \
   || "${rustdoc_bin}" != "${toolchain_dir}/rustdoc" ]]; then
-  echo "composition qualification requires Cargo, rustc, and rustdoc 1.98.0 from one toolchain" >&2
+  echo "composition qualification requires exact Cargo, rustc, and rustdoc 1.99.0 from one toolchain" >&2
   exit 1
 fi
 
@@ -72,7 +85,7 @@ if [[ ! -x "${script_dir}/../target/task4-tools/bin/cargo-bloat" \
   echo "pinned cargo-bloat 0.12.1 is required under target/task4-tools" >&2
   exit 1
 fi
-python3 "${evaluator}" validate-allocation-manifest \
+"${python_bin}" "${evaluator}" validate-allocation-manifest \
   --manifest "${allocation_manifest}" >/dev/null
 
 output_dir=$1
@@ -161,6 +174,8 @@ recorded_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
     echo "power_mode=unavailable"
   fi
   echo "cargo_version=$(${cargo_bin} --version)"
+  echo "rustc_version=$(${rustc_bin} --version)"
+  echo "rustdoc_version=$(${rustdoc_bin} --version)"
   echo "cargo_path=${cargo_bin}"
   echo "rustc_path=${rustc_bin}"
   echo "rustdoc_path=${rustdoc_bin}"
@@ -370,5 +385,5 @@ capture "${output_dir}/symbols-tokio-application.txt" env \
 
 echo "completed_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >>"${output_dir}/environment.txt"
 if [[ -n "${source_receipt}" ]]; then
-  python3 "${script_dir}/composition_runner.py" --check-staged-source "${source_receipt}" >/dev/null
+  "${python_bin}" "${script_dir}/composition_runner.py" --check-staged-source "${source_receipt}" >/dev/null
 fi

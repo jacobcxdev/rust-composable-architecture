@@ -6,12 +6,14 @@ import json
 
 PROTOCOL_SHA256 = "e4774ca3088bf3167f62e3c9cf3e5a1cc6e4f44abc4924ba6342b1038b3472a8"
 _DOCUMENT_SHA256 = "576c7aa0e3824081312bc57504ca2254c0b758fc1b24568d5c28b20bbb05d6d3"
+CURRENT_PROTOCOL_SHA256 = "fe49217e3b9f9aa020a1214df0e072af64eb1423f4d9854b7364e328a765e065"
+_CURRENT_DOCUMENT_SHA256 = "298f085c2c465cd90d5e09c50bc9b871b535bf211f8ecf8b95b367f119e2bd91"
 
 
 def load_protocol(path):
     """Require the frozen bytes before interpreting the measurement contract."""
     content = path.read_bytes()
-    if hashlib.sha256(content).hexdigest() != PROTOCOL_SHA256:
+    if hashlib.sha256(content).hexdigest() not in (PROTOCOL_SHA256, CURRENT_PROTOCOL_SHA256):
         raise ValueError("common-outcome protocol bytes differ")
     return json.loads(content)
 
@@ -19,7 +21,7 @@ def load_protocol(path):
 def measurement_plan(protocol):
     """Expand the frozen order without selecting or retrying measurements."""
     document = json.dumps(protocol, sort_keys=True, separators=(",", ":")).encode()
-    if hashlib.sha256(document).hexdigest() != _DOCUMENT_SHA256:
+    if hashlib.sha256(document).hexdigest() not in (_DOCUMENT_SHA256, _CURRENT_DOCUMENT_SHA256):
         raise ValueError("common-outcome protocol differs")
     plan = []
     for cycle in range(1, protocol["cycles"] + 1):
@@ -66,7 +68,8 @@ def evaluate(rows, protocol):
                                           for metric in protocol["metrics"]}))
         comparisons[name] = pairs
     return dict(schema="composable-common-outcome-allocation-analysis-v1",
-                protocol_sha256=PROTOCOL_SHA256, observations=len(rows),
+                protocol_sha256=(CURRENT_PROTOCOL_SHA256 if protocol["rust_toolchain"] == "1.99.0"
+                                 else PROTOCOL_SHA256), observations=len(rows),
                 operations_per_process=protocol["operations"], completion=protocol["completion"],
                 engines=engines, comparisons=comparisons,
                 provenance_qualified=False, qualified_comparison=False,

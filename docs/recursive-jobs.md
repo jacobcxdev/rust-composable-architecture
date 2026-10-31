@@ -68,7 +68,7 @@ pagination, native frontend, distributed replication or performance claim.
 From the repository root, run the executable tests:
 
 ```sh
-rustup run 1.98.0 cargo test --locked -p rca-test --test stack_scopes
+rustup run 1.99.0 cargo test --locked -p rca-test --test stack_scopes
 ```
 
 The bounds belong to this recipe, not a global maximum for RCA applications.

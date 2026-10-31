@@ -25,7 +25,7 @@ impl KeyHooks {
         if self.armed.load(Ordering::SeqCst) == boundary
             && self
                 .skip
-                .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |remaining| {
+                .try_update(Ordering::SeqCst, Ordering::SeqCst, |remaining| {
                     remaining.checked_sub(1)
                 })
                 .is_ok()

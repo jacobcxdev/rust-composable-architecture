@@ -4,5 +4,5 @@ error: lifetime may not live long enough
 12 |         |scope| async move { *scope.get_or_insert::<Number>() },
    |          ------ ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ returning this value requires that `'1` must outlive `'2`
    |          |    |
-   |          |    return type of closure `{async block@$DIR/tests/ui/dependency_fixture_borrow_escape.rs:12:17: 12:27}` contains a lifetime `'2`
+   |          |    return type of closure `usize` contains a lifetime `'2`
    |          has type `&'1 mut DependencyValues`
