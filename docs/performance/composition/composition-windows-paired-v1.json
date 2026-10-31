@@ -150,7 +150,7 @@
       },
       "rca-core/benches/composition/fixtures.rs": {
         "source": "rca-core/benches/composition/fixtures.rs",
-        "sha256": "7845dfd6699c3ea9bd9125e3793a263bedcbe308a6e3a4586490ef85b992919f"
+        "sha256": "2cf1e8603f6bdcaff132b352330270f7244ddfc7fca1b3ba7bba68b41ebf2785"
       }
     },
     "adapters": [
