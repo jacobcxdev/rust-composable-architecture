@@ -52,6 +52,11 @@ pub(crate) fn actor_child_marker(
 
 /// Maps stable harness names to measured cases, including their feature boundaries.
 const CASES: &[(&str, fn())] = &[
+    #[cfg(not(loom))]
+    (
+        "store::mailbox::tests::unsaturated_round_trips_do_not_allocate",
+        crate::store::unsaturated_round_trips_do_not_allocate,
+    ),
     (
         "effect::timer::tests::timer_index_storage_costs",
         crate::effect::timer::allocation_tests::timer_index_storage_costs,
@@ -262,6 +267,8 @@ mod runner_tests {
     #[test]
     fn roster_preserves_exact_names_and_has_no_duplicates() {
         let expected = [
+            #[cfg(not(loom))]
+            "store::mailbox::tests::unsaturated_round_trips_do_not_allocate",
             "effect::timer::tests::timer_index_storage_costs",
             #[cfg(feature = "local")]
             "observation::wait::tests::wait_storage_allocates_one_box_and_poll_cancel_allocate_nothing",

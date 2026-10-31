@@ -30,6 +30,8 @@ struct Channel<T> {
     capacity: usize,
     /// Monotonic admission state, written under the queue lock and observable without it.
     closed: AtomicBool,
+    /// Remains true after the first capacity waiter, including after cancellation.
+    capacity_interest: AtomicBool,
     /// Wakes blocked producers after capacity is released or admission closes.
     send_ops: Event,
 }
@@ -57,6 +59,7 @@ pub(super) fn bounded<T>(capacity: NonZeroUsize) -> (Sender<T>, Receiver<T>) {
         queue: Mutex::new(VecDeque::with_capacity(capacity.get())),
         capacity: capacity.get(),
         closed: AtomicBool::new(false),
+        capacity_interest: AtomicBool::new(false),
         send_ops: Event::new(),
     });
     (Sender(Arc::clone(&channel)), Receiver(channel))
@@ -145,6 +148,9 @@ impl<T> Sender<T> {
                     listener = None;
                 } else {
                     // Register then retry, including a concurrent close.
+                    // A dequeue before the retry is visible to that retry.
+                    // Otherwise its queue lock observes this interest publication.
+                    self.0.capacity_interest.store(true, Ordering::Release);
                     listener = Some(self.0.send_ops.listen());
                 }
             }
@@ -161,7 +167,7 @@ impl<T> Sender<T> {
 }
 
 impl<T> Receiver<T> {
-    /// Removes the oldest payload and then wakes one capacity waiter outside the lock.
+    /// Removes the oldest payload and notifies capacity interest outside the lock.
     ///
     /// Queued values remain readable after closure. A panicking producer waker
     /// unwinds after removal; the removed payload is dropped, not put back.
@@ -174,7 +180,7 @@ impl<T> Receiver<T> {
                 None => Err(TryRecvError::Empty),
             }
         };
-        if result.is_ok() {
+        if result.is_ok() && self.0.capacity_interest.load(Ordering::Acquire) {
             // No queue guard is held across waker notification.
             self.0.send_ops.notify_additional(1);
         }
@@ -244,6 +250,34 @@ impl<T> Drop for Receiver<T> {
     fn drop(&mut self) {
         self.close();
     }
+}
+
+/// Checks that unsaturated round trips need no capacity-notification allocation.
+#[cfg(all(test, not(loom), feature = "allocation-measurement"))]
+pub(crate) fn unsaturated_round_trips_do_not_allocate() {
+    const NAME: &str = "store::mailbox::tests::unsaturated_round_trips_do_not_allocate";
+    if crate::allocation_test::run_in_child(NAME) {
+        return;
+    }
+
+    let (sender, receiver) = bounded(NonZeroUsize::new(1).unwrap());
+    let profiler = dhat::Profiler::builder().testing().build();
+    let before = dhat::HeapStats::get();
+    for value in 0..16 {
+        sender.try_send(value).unwrap();
+        assert_eq!(receiver.try_recv(), Ok(value));
+    }
+    let after = dhat::HeapStats::get();
+    drop(profiler);
+
+    assert_eq!(
+        (
+            after.total_blocks - before.total_blocks,
+            after.total_bytes - before.total_bytes
+        ),
+        (0, 0),
+        "an unsaturated mailbox must not allocate capacity-notification storage"
+    );
 }
 
 #[cfg(test)]

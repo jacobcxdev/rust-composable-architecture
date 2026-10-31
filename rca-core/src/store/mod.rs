@@ -42,6 +42,8 @@ pub(crate) use actor::allocation_tests::{
     timer_command_avoids_discarded_reply_allocation,
 };
 #[cfg(all(test, not(loom), feature = "allocation-measurement"))]
+pub(crate) use mailbox::unsaturated_round_trips_do_not_allocate;
+#[cfg(all(test, not(loom), feature = "allocation-measurement"))]
 pub(crate) use scoped::allocation_tests::{
     distinct_projection_publication_costs, scoped_observation_adapter_storage_costs,
 };
