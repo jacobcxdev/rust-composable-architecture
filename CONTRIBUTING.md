@@ -278,8 +278,8 @@ change implementation.
 | `core-reactions` | Shared and Local changed-reaction tests with the rich Core features |
 | `core-fold-commands` | Shared and Local fold and recipe-command integration tests with the rich Core features |
 | `core-observation-operations` | Observation lifecycle, adapters and named-operation integration tests with the rich Core features |
-| `core-terminal` | Clock fixtures, actor lifecycle and terminal-unwind integration tests with the rich Core features |
-| `core-services` | Dependency defaults and preparation, issue reporting, diagnostics, presentation and fallible-effect integration tests with the rich Core features |
+| `core-terminal` | Clock fixtures, Shared and Local Stores, effects and terminal-unwind integration tests with the rich Core features |
+| `core-services` | Dependency defaults and preparation, issue reporting, diagnostics, presentation and fallible-effect lifecycle tests with the rich Core features |
 | `macros` | Macro unit and integration tests, plus compiler-stage profiles from the proc-macro library |
 | `test-store` | TestStore controls, errors, snapshots, output and runtime-conformance integration tests with `local` |
 | `persistence-file` | Document, file backend and shared-session replacement integration tests with `file` |
@@ -340,6 +340,10 @@ processes for isolation. Capture retains their summaries and checks them separat
 from the full parent run. Listener integration parents run one test at a time so
 child output does not overlap. Each test keeps its own concurrency checks.
 Existing ignored tests remain visible in the retained summary.
+
+The `core-terminal` effects host also runs one parent test at a time, with captured output visible.
+Capture requires all eighteen successful exact-filtered child tests and nineteen process profiles, including the parent.
+The parent still runs its full test list. Each child runs the same instrumented executable and retains its own profile.
 
 A successful capture is not a 100% production-coverage result. Its raw data includes
 test code and dependencies, and the selected groups do not cover every RCA package
