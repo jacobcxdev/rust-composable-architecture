@@ -185,7 +185,6 @@ impl DeterministicRuntime {
 
     /// Creates one virtual sleep for deterministic conformance and performance testing.
     #[doc(hidden)]
-    #[must_use]
     pub fn sleep_until(&self, deadline: MonotonicInstant) -> RuntimeFuture {
         self.driver.sleep_until(deadline)
     }

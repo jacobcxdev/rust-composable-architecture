@@ -1510,7 +1510,10 @@ fn latest_snapshot_reads_do_not_drive_assertions_or_release_effect_actions() {
     assert_eq!(pending.commit_version, 2);
     assert_eq!(pending.live_task_ids.len(), 1);
     assert_eq!(pending.cancellation_count, 0);
-    assert!(pending.timer_deadlines.is_empty());
+    assert_eq!(
+        pending.timer_deadlines,
+        [] as [rca_core::MonotonicInstant; 0]
+    );
     assert_eq!(pending.observation_count, 0);
 
     let calls = Arc::new(AtomicUsize::new(0));

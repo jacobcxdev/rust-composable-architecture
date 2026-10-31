@@ -617,7 +617,7 @@ fn debounce_starts_only_the_latest_client_after_its_quiet_window() {
     send(&host, &store, Action::Input(3));
     host.advance(17);
     assert!(starts.lock().unwrap().is_empty());
-    assert!(outputs(&host, &store).is_empty());
+    assert_eq!(outputs(&host, &store), [] as [(u8, u64); 0]);
     host.advance(18);
     assert_eq!(*starts.lock().unwrap(), [(3, 18)]);
     assert_eq!(outputs(&host, &store), [(3, 18)]);
@@ -634,7 +634,7 @@ fn debounce_cancel_retires_wait_before_any_client_starts() {
     send(&host, &store, Action::Cancel);
     host.advance(20);
     assert!(starts.lock().unwrap().is_empty());
-    assert!(outputs(&host, &store).is_empty());
+    assert_eq!(outputs(&host, &store), [] as [(u8, u64); 0]);
     send(&host, &store, Action::Input(8));
     host.advance(30);
     assert_eq!(*starts.lock().unwrap(), [(8, 30)]);
@@ -1009,7 +1009,7 @@ fn debounce_child_removal_prevents_client_start_and_keeps_equal_id_siblings() {
         send(&host, &store, ParentAction::Insert(target));
         host.advance(10);
         assert_eq!(starts.lock().unwrap().len(), 2);
-        assert!(child_output(&host, &store, target).is_empty());
+        assert_eq!(child_output(&host, &store, target), [] as [(u8, u64); 0]);
         send(&host, &store, parent_action(target, Action::Input(8)));
         host.advance(20);
         assert_eq!(child_output(&host, &store, target), [(8, 20)]);
@@ -1196,8 +1196,8 @@ fn queued_interval_output_is_rejected_after_child_reinsertion() {
     host.complete(sibling.finish());
     assert!(sibling.is_finished());
     let snapshot = host.complete(store.runtime_snapshot()).unwrap();
-    assert!(snapshot.live_task_ids.is_empty());
-    assert!(snapshot.timer_deadlines.is_empty());
+    assert_eq!(snapshot.live_task_ids, [] as [u64; 0]);
+    assert_eq!(snapshot.timer_deadlines, [] as [MonotonicInstant; 0]);
     assert_eq!(snapshot.cancellation_count, 0);
     assert_eq!(snapshot.observation_count, 0);
     senders.lock().unwrap().clear();

@@ -221,7 +221,7 @@ fn separate_commits_react_twice_but_transient_reversal_commits_without_factory()
             state.child = Some(4);
         }))
         .unwrap();
-    assert!(h.events().is_empty());
+    assert_eq!(h.events(), [] as [(&str, Option<i32>, i32); 0]);
     assert_eq!(
         end.revision(),
         baseline + 4,

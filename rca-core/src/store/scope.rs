@@ -2350,7 +2350,7 @@ mod tests {
         let first = registry.mount(root, node.clone(), ScopeIdentity::unit());
 
         assert_eq!(registry.leave(first), [first]);
-        assert!(registry.leave(first).is_empty());
+        assert_eq!(registry.leave(first), [] as [ScopeToken; 0]);
         let second = registry.mount(root, node.clone(), ScopeIdentity::unit());
 
         assert_ne!(first, second);

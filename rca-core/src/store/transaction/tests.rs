@@ -1890,7 +1890,7 @@ fn mounted_effect_with_retired_inner_scope_rejects_while_mount_authority_stays_l
     assert!(host.sequence_waits.is_empty());
     assert!(host.sequences.is_empty());
     #[cfg(feature = "test-util")]
-    assert!(host.registry.live_task_ids().is_empty());
+    assert_eq!(host.registry.live_task_ids(), [] as [u64; 0]);
 }
 
 #[test]

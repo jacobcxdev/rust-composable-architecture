@@ -1086,7 +1086,7 @@ ordinary_test_items! {
                 if !expected.is_empty() {
                     assert_eq!(compact.as_ptr(), pointer);
                 }
-                assert!(text.is_empty());
+                assert_eq!(text, "");
                 assert_eq!(text.capacity(), 0);
             }
         }

@@ -259,5 +259,5 @@ fn two_collections_optional_and_legacy_slots_follow_one_actual_parent_projection
             .chain(legacy_descendants.iter())
             .all(|token| !scopes.is_current(*token))
     );
-    assert!(ring(&scopes, scopes.root()).is_empty());
+    assert_eq!(ring(&scopes, scopes.root()), [] as [ScopeToken; 0]);
 }

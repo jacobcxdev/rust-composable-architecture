@@ -1151,7 +1151,7 @@ fn genuine_conflict_retains_local_value_and_exact_external_evidence() {
                 panic!("the real comparison failure retains its persistence cause");
             };
             let cause = failure.error().downcast_ref::<ConflictDetected>().unwrap();
-            assert!(!cause.to_string().is_empty());
+            assert_ne!(cause.to_string(), "");
             assert!(cause.source().is_none());
             let external = *writes.last().unwrap();
             assert_eq!(
@@ -1481,7 +1481,7 @@ fn close_retains_all_failed_joins_until_every_debt_finishes() {
 
     for outcome in &outcomes {
         let display = outcome.to_string();
-        assert!(!display.is_empty());
+        assert_ne!(display, "");
         assert!(!display.contains("storage failure 81"));
         assert!(!display.contains("storage failure 82"));
         assert_eq!(outcome.failures().len(), 2);
@@ -1492,7 +1492,7 @@ fn close_retains_all_failed_joins_until_every_debt_finishes() {
                 let error = failure.error().downcast_ref::<StorageError>().unwrap();
                 assert_eq!(format!("{failure:?}"), "SessionFailure { .. }");
                 let display = failure.to_string();
-                assert!(!display.is_empty());
+                assert_ne!(display, "");
                 assert!(!display.contains(&error.to_string()));
                 assert_ne!(display, error.to_string());
                 assert!(std::ptr::eq(

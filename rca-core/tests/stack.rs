@@ -180,7 +180,7 @@ fn equal_route_values_have_distinct_ids_and_checked_suffix_operations() {
     assert_eq!(path.values().copied().collect::<Vec<_>>(), [7, 7, 9]);
     assert!(path.try_pop_count(4).unwrap_err().is_over_pop());
     assert_eq!(path.values().copied().collect::<Vec<_>>(), [7, 7, 9]);
-    assert!(path.try_pop_count(0).unwrap().is_empty());
+    assert_eq!(path.try_pop_count(0).unwrap(), [] as [(StackId, i32); 0]);
     assert_eq!(path.try_pop_to(&second).unwrap(), [(third, 9)]);
     assert_eq!(path.try_pop_from(&second).unwrap(), [(second.clone(), 7)]);
     assert_eq!(path.pop(), Some((first, 7)));
@@ -277,7 +277,7 @@ fn stack_diagnostics_preserve_private_move_only_routes() {
     );
     for error in [over_pop, unknown] {
         assert!(error.source().is_none());
-        assert!(!error.backtrace().to_string().is_empty());
+        assert_ne!(error.backtrace().to_string(), "");
         assert!(!error.to_string().contains("private-stack-route"));
     }
     assert_eq!(path.ids().collect::<Vec<_>>(), [&id]);

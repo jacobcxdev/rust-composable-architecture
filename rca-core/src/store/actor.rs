@@ -2964,7 +2964,7 @@ ordinary_test_items! {
             let mut transitions = ScopeTransitionBatch::default();
             transitions.extend(actor.scopes.leave(scope));
             actor.scopes.invalidate_outputs(&transitions);
-            assert!(actor.registry.cancel_scopes(&transitions).is_empty());
+            assert_eq!(actor.registry.cancel_scopes(&transitions), [] as [u64; 0]);
             assert!(actor.registry.task_is_running(task_id));
 
             let (reply, mut receive) = crate::store::command::commit_channel();
@@ -2986,7 +2986,7 @@ ordinary_test_items! {
                 Ok(Some(Err(CommitError::Cancelled)))
             ));
             assert_eq!(actor.state.as_ref().unwrap().reducer_calls, 0);
-            assert!(actor.state.as_ref().unwrap().trace.is_empty());
+            assert_eq!(actor.state.as_ref().unwrap().trace, [] as [&str; 0]);
             assert_eq!(actor.commit_version, 0);
             assert_eq!(selections.load(Ordering::Acquire), 1);
             assert!(actor.timers.is_empty());

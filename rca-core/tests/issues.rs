@@ -579,5 +579,5 @@ fn runtime_owned_effect_destructor_after_abort_receives_closed_with_its_payload(
     let error = rejected.lock().unwrap().take().unwrap();
     assert!(error.is_closed());
     assert_eq!(error.into_issue().message, "late payload");
-    assert!(recorder.snapshot().is_empty());
+    assert_eq!(recorder.snapshot(), [] as [Issue; 0]);
 }

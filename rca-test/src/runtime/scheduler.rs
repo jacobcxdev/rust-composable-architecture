@@ -1098,7 +1098,7 @@ mod tests {
                 let tasks = lock(&scheduler.tasks);
                 assert_eq!(tasks.len(), count);
                 assert!(tasks.values().all(Option::is_none));
-            }
+            };
 
             let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| drop(batch)));
             if panic_id.is_some() {

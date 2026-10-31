@@ -1065,7 +1065,7 @@ mod tests {
                 let id = state.push(Rc::new(Cell::new(4)));
                 let collector = IssueCollector::new();
                 let closed = collector.reporter();
-                assert!(collector.finish().is_empty());
+                assert_eq!(collector.finish(), [] as [Issue; 0]);
                 let reporter = if disabled {
                     IssueReporter::default()
                 } else {

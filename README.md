@@ -40,7 +40,10 @@ contain unsafe implementations with separate ownership and concurrency contracts
 
 ## Quick start
 
-From the repository root, run the counter example:
+For local macOS repository builds, follow the
+[build memory-safety instructions](CONTRIBUTING.md#build-memory-safety).
+Run the Cargo command below through that watchdog, not directly.
+Other hosts can use the direct command from the repository root:
 
 ```sh
 rustup run 1.99.0 cargo run --manifest-path examples/counter/Cargo.toml

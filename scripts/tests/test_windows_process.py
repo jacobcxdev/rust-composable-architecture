@@ -7,11 +7,26 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from unittest.mock import Mock, patch
 
 
 SCRIPT = Path(__file__).resolve().parents[1] / "windows_process.py"
+
+
+def release_fixture_image(image, *, clock=time.monotonic, sleep=time.sleep):
+    """Require the copied image to become deletable after its owned job drains."""
+    deadline = clock() + 2
+    while True:
+        try:
+            image.unlink()
+            return
+        except PermissionError as error:
+            remaining = deadline - clock()
+            if getattr(error, "winerror", None) not in (5, 32) or remaining <= 0:
+                raise
+            sleep(min(0.05, remaining))
 
 
 class Clock:
@@ -51,6 +66,32 @@ class WindowsProcessTests(unittest.TestCase):
                          clock=self.clock, sleep=self.clock.sleep)
         arguments.update(changes)
         return self.module.run_process(**arguments)
+
+    def test_fixture_image_release_waits_only_for_bounded_windows_lock(self):
+        image = Mock()
+        lock = PermissionError(5, "image still held")
+        lock.winerror = 5
+        image.unlink.side_effect = [lock, None]
+        release_fixture_image(image, clock=self.clock, sleep=self.clock.sleep)
+        self.assertEqual(image.unlink.call_count, 2)
+        self.assertLess(self.clock.value, 102)
+
+    def test_fixture_image_release_deadline_and_unrelated_errors_remain_failures(self):
+        image = Mock()
+        lock = PermissionError(32, "sharing violation")
+        lock.winerror = 32
+        image.unlink.side_effect = lock
+        with self.assertRaises(PermissionError):
+            release_fixture_image(image, clock=self.clock, sleep=self.clock.sleep)
+        self.assertEqual(self.clock.value, 102)
+
+        image.unlink.reset_mock()
+        unrelated = PermissionError(13, "unrelated failure")
+        unrelated.winerror = 13
+        image.unlink.side_effect = unrelated
+        with self.assertRaises(PermissionError):
+            release_fixture_image(image, clock=self.clock, sleep=self.clock.sleep)
+        image.unlink.assert_called_once_with()
 
     def test_assigns_before_resume_and_reads_before_handle_close(self):
         events = []
@@ -610,6 +651,7 @@ class NativeWindowsProcessTests(unittest.TestCase):
         """Use a copied Windows utility, never the installed telemetry executable."""
         image = self.root / "VCTIP.EXE"
         shutil.copy2(Path(self.environment["SYSTEMROOT"]) / "System32" / "ping.exe", image)
+        self.addCleanup(release_fixture_image, image)
         script = ("import subprocess; "
                   f"subprocess.Popen([{str(image)!r}, '-t', '127.0.0.1'], "
                   "stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)")
@@ -631,8 +673,21 @@ class NativeWindowsProcessTests(unittest.TestCase):
 
     def test_native_runtime_does_not_accept_a_lingering_telemetry_named_fixture(self):
         _, script = self.telemetry_fixture()
-        with self.assertRaises(subprocess.TimeoutExpired):
-            self.run_child(script, timeout=0.5)
+        api = self.runner.WindowsProcessApi()
+        active = []
+        native_active = api.active_processes
+
+        def record_active(job):
+            count = native_active(job)
+            active.append(count)
+            return count
+
+        api.active_processes = record_active
+        with self.assertRaises(subprocess.TimeoutExpired) as caught:
+            self.run_child(script, timeout=0.5, api=api)
+        self.assertTrue(caught.exception.windows_process_receipt["error_cleanup_completed"])
+        self.assertTrue(active)
+        self.assertEqual(active[-1], 0)
 
     def test_native_compiler_failure_stays_nonzero_with_lingering_telemetry(self):
         image, script = self.telemetry_fixture()

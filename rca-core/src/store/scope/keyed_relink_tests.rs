@@ -84,7 +84,7 @@ fn native_subset_preserves_legacy_slots_and_stable_retirement_postorder() {
             .chain(descendants)
             .all(|token| !scopes.is_current(token))
     );
-    assert!(ring(&scopes, root).is_empty());
+    assert_eq!(ring(&scopes, root), [] as [ScopeToken; 0]);
 }
 
 #[test]

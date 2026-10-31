@@ -563,10 +563,7 @@ async fn output_before_removal(factory: impl RuntimeFactory) {
     assert_eq!(snapshot.commit_version, 3);
     assert_eq!(snapshot.live_task_ids, [] as [u64; 0]);
     assert_eq!(snapshot.cancellation_count, 0);
-    assert_eq!(
-        snapshot.timer_deadlines,
-        [] as [rca_core::MonotonicInstant; 0]
-    );
+    assert_eq!(snapshot.timer_deadlines, [] as [MonotonicInstant; 0]);
     assert_eq!(snapshot.observation_count, 1);
     store.shutdown().await.expect("output-first shutdown");
 }
@@ -646,10 +643,7 @@ async fn removal_before_output_release(factory: impl RuntimeFactory) {
     assert_eq!(snapshot.commit_version, removed_version);
     assert_eq!(snapshot.live_task_ids, [] as [u64; 0]);
     assert_eq!(snapshot.cancellation_count, 0);
-    assert_eq!(
-        snapshot.timer_deadlines,
-        [] as [rca_core::MonotonicInstant; 0]
-    );
+    assert_eq!(snapshot.timer_deadlines, [] as [MonotonicInstant; 0]);
     assert_eq!(snapshot.observation_count, 1);
     let mut next = Box::pin(observation.next());
     assert!(poll_once(next.as_mut()).is_pending());
@@ -673,10 +667,7 @@ async fn removal_before_output_release(factory: impl RuntimeFactory) {
     assert_eq!(snapshot.commit_version, 3);
     assert_eq!(snapshot.live_task_ids, [] as [u64; 0]);
     assert_eq!(snapshot.cancellation_count, 0);
-    assert_eq!(
-        snapshot.timer_deadlines,
-        [] as [rca_core::MonotonicInstant; 0]
-    );
+    assert_eq!(snapshot.timer_deadlines, [] as [MonotonicInstant; 0]);
     assert_eq!(snapshot.observation_count, 1);
     store.shutdown().await.expect("removal-first shutdown");
 }

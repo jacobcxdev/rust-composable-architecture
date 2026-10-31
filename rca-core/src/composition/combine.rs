@@ -334,9 +334,9 @@ mod tests {
         let effect = reducer.reduce(&mut state, &action, &mut context);
 
         assert_eq!(state.value, 42);
-        assert!(state.calls.is_empty());
-        assert!(state.action_addresses.is_empty());
-        assert!(state.context_addresses.is_empty());
+        assert_eq!(state.calls, [] as [(u8, usize); 0]);
+        assert_eq!(state.action_addresses, [] as [usize; 0]);
+        assert_eq!(state.context_addresses, [] as [usize; 0]);
         assert!(matches!(effect.program, Program::None));
     }
 

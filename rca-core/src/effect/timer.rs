@@ -199,7 +199,9 @@ mod tests {
 
     use super::TimerQueue;
     use crate::MonotonicInstant;
-    use crate::store::scope::{ScopeIdentity, ScopeRegistry, ScopeSlot, ScopeTransitionBatch};
+    use crate::store::scope::{
+        ScopeIdentity, ScopeRegistry, ScopeSlot, ScopeToken, ScopeTransitionBatch,
+    };
 
     #[test]
     fn equal_deadlines_pop_in_insertion_order() {
@@ -327,7 +329,7 @@ mod tests {
             });
 
             visits.push(inspected);
-            assert!(cancelled.is_empty());
+            assert_eq!(cancelled, [] as [(ScopeToken, usize); 0]);
             assert_eq!(queue.next_wake(), wake);
             let due = queue.pop_due(deadline, count);
             assert_eq!(due.len(), count);

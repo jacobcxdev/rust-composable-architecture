@@ -295,7 +295,7 @@ fn keyed_pruning_reports_the_departing_subtree_before_constructing_its_successor
     let prior = ordered(&mut actor, sibling.update(|state| state.get()))
         .unwrap()
         .revision();
-    assert!(take(&events).is_empty());
+    assert_eq!(take(&events), [] as [LifecycleEvent; 0]);
     drop(ordered(&mut actor, store.send(())).unwrap());
     let changed = take(&events);
     let retired: Vec<_> = changed
@@ -349,7 +349,7 @@ fn keyed_pruning_reports_the_departing_subtree_before_constructing_its_successor
         (error.reason(), error.progress()),
         (TaskAccessReason::ScopeEnded, TaskProgress::NotStarted)
     );
-    assert!(take(&events).is_empty());
+    assert_eq!(take(&events), [] as [LifecycleEvent; 0]);
     drop(store);
     assert!(poll(actor.as_mut()).is_ready());
     assert_eq!(drops.load(Ordering::SeqCst), 6);
@@ -534,7 +534,7 @@ fn keyed_entry_hidden_before_installation_is_disposed_before_reconstruction() {
         ordered(&mut actor, parent.read(|rows| rows.get(&1).unwrap().get())).unwrap(),
         7
     );
-    assert!(take(&events).is_empty());
+    assert_eq!(take(&events), [] as [LifecycleEvent; 0]);
     drop(store);
     assert!(poll(actor.as_mut()).is_ready());
     assert_eq!(drops.load(Ordering::SeqCst), 2);
@@ -625,7 +625,7 @@ fn leaf_and_root_refresh_report_actual_configuration_revisions_without_replacing
     let prior = ordered(&mut fixture.actor, original.update(|state| state.get()))
         .unwrap()
         .revision();
-    assert!(take(&fixture.events).is_empty());
+    assert_eq!(take(&fixture.events), [] as [LifecycleEvent; 0]);
 
     drop(
         ordered(
@@ -748,7 +748,7 @@ fn equal_key_sibling_retirement_preserves_declaration_order_and_precommit_stamp(
     let prior = ordered(&mut fixture.actor, left_context.update(|state| state.get()))
         .unwrap()
         .revision();
-    assert!(take(&fixture.events).is_empty());
+    assert_eq!(take(&fixture.events), [] as [LifecycleEvent; 0]);
     drop(ordered(&mut fixture.actor, fixture.store.send(Action::RemoveBoth)).unwrap());
     let retired = take(&fixture.events);
     assert_eq!(

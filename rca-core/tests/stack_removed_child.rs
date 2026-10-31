@@ -841,7 +841,9 @@ fn owning_stack_removal_rechecks_selector_mutation_and_callback_closure() {
             });
             let current = driver.finish(read).unwrap();
             match interruption {
-                Interruption::SelectorRemove => assert!(current.is_empty()),
+                Interruption::SelectorRemove => {
+                    assert_eq!(current, [] as [(rca_core::StackId, usize); 0]);
+                }
                 Interruption::SelectorReplace => {
                     assert_eq!(current, vec![(entries[0].0.clone(), 90)]);
                 }

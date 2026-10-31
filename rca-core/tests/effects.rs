@@ -136,7 +136,7 @@ fn effect_construction_keeps_borrowed_actions_local() {
     assert_eq!(format!("{effect:?}"), "Effect::Named");
     drop(effect);
     value.clear();
-    assert!(value.is_empty());
+    assert_eq!(value, "");
 }
 
 #[test]
@@ -658,13 +658,9 @@ fn cancellable_keeps_multiple_generations_live_until_cancelled() {
         first.finish().await;
         second.finish().await;
 
-        assert!(
-            fixture
-                .store
-                .read(Clone::clone)
-                .await
-                .expect("state")
-                .is_empty()
+        assert_eq!(
+            fixture.store.read(Clone::clone).await.expect("state"),
+            [] as [u8; 0]
         );
         fixture.store.shutdown().await.expect("clean shutdown");
     });
@@ -722,13 +718,9 @@ fn cancellation_rejects_output_registered_before_launch() {
             .finish()
             .await;
 
-        assert!(
-            fixture
-                .store
-                .read(Clone::clone)
-                .await
-                .expect("state")
-                .is_empty()
+        assert_eq!(
+            fixture.store.read(Clone::clone).await.expect("state"),
+            [] as [u8; 0]
         );
         fixture.store.shutdown().await.expect("clean shutdown");
     });

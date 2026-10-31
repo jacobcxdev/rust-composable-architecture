@@ -260,12 +260,12 @@ mod tests {
         let sibling_generation = registry.register_generation(sibling.clone());
         let equal_selected = CancellationIdentity::local(Collision(1)).in_scope(scope);
 
-        assert!(registry.cancel_identity(&equal_selected).is_empty());
+        assert_eq!(registry.cancel_identity(&equal_selected), [] as [u64; 0]);
         assert!(!selected_generation.is_live());
         assert!(sibling_generation.is_live());
-        assert!(registry.cancel_identity(&equal_selected).is_empty());
+        assert_eq!(registry.cancel_identity(&equal_selected), [] as [u64; 0]);
         assert!(sibling_generation.is_live());
-        assert!(registry.cancel_identity(&sibling).is_empty());
+        assert_eq!(registry.cancel_identity(&sibling), [] as [u64; 0]);
         assert!(!sibling_generation.is_live());
     }
 

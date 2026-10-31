@@ -1289,7 +1289,7 @@ mod tests {
         let first = LineageState::new(Arc::downgrade(&control));
         let second = LineageState::new(Arc::downgrade(&control));
         let one = registry.register_named_generation(identity.clone(), Arc::clone(&first));
-        assert!(registry.cancel_identity(&identity).is_empty());
+        assert_eq!(registry.cancel_identity(&identity), [] as [u64; 0]);
         let two = registry.register_named_generation(identity.clone(), Arc::clone(&second));
         assert!(first.is_cancelled());
         assert!(!first.is_finished(), "replacement keeps actual registration ownership");
@@ -1512,7 +1512,7 @@ mod tests {
             } else {
                 registry.cancel_identity(&identity)
             };
-            assert!(repeated.is_empty());
+            assert_eq!(repeated, [] as [u64; 0]);
             assert_eq!(control.epoch(), epoch);
             assert!(registry.task_is_running(sibling));
             assert!(!lineage.is_finished());
@@ -1820,7 +1820,7 @@ mod tests {
         let mut context = Context::from_waker(Waker::noop());
         assert!(finish.as_mut().poll(&mut context).is_pending());
 
-        assert!(registry.cancel_identity(&identity).is_empty());
+        assert_eq!(registry.cancel_identity(&identity), [] as [u64; 0]);
         assert!(!generation.is_live());
         assert!(registry.cancellations.is_empty());
         assert!(registry.process_control().terminal.is_empty());
