@@ -33,9 +33,19 @@ EXPECTED_ALLOCATIONS = 47
 ALLOCATION_MANIFEST_SHA256 = (
     "95a9e2ee87deaa3046d4a51893efe164282d51aef6a3b3eec61e9f1ca0b3bf32"
 )
-PROTOCOL_SHA256 = (
+LEGACY_PROTOCOL_SHA256 = (
     "956d2264039c6f71412309dfd7c6765cb667cc0bb965ebdee41b807741d92332"
 )
+PROTOCOL_SHA256 = (
+    "0fa1f4127bb429b6ec2dd2f85b1e460c1821c472812782dbe2fa35d06b8ad777"
+)
+_INTERLEAVING = {
+    "policy": "alternating-mode-first-within-block",
+    "blocks": 20,
+    "odd_block_modes": ["reference-reference-aa", "candidate-reference"],
+    "even_block_modes": ["candidate-reference", "reference-reference-aa"],
+    "acceptance": "both modes must pass in the same authenticated capture",
+}
 DEFAULT_ALLOCATION_MANIFEST = pathlib.Path(__file__).with_name(
     "composition-allocation-workloads.tsv"
 )
@@ -725,17 +735,30 @@ def _evaluate_counter_cohorts(cohorts: dict, protocol: dict, plan: list[dict],
     }
 
 
+def _protocol_sha256(protocol: dict[str, Any]) -> str:
+    """Return the frozen digest for a supported historical or current method."""
+    versions = {
+        "composition-paired-v6": LEGACY_PROTOCOL_SHA256,
+        "composition-paired-v7": PROTOCOL_SHA256,
+    }
+    version = protocol.get("method_version")
+    if not isinstance(version, str) or version not in versions:
+        raise ValueError("unsupported composition protocol method")
+    return versions[version]
+
+
 def load_protocol(path: pathlib.Path) -> dict[str, Any]:
     """Load and validate the frozen composition qualification protocol."""
     try:
         document = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as error:
         raise ValueError(f"cannot read composition protocol: {error}") from error
-    if _sha256(path) != PROTOCOL_SHA256:
+    if not isinstance(document, dict):
+        raise ValueError("composition protocol must be an object")
+    if _sha256(path) != _protocol_sha256(document):
         raise ValueError("composition protocol file hash is invalid")
     required = {
         "schema_version": 1,
-        "method_version": "composition-paired-v6",
         "status": "frozen-before-measurement",
         "runner": RUNNER,
         "minimum_macos_major": MINIMUM_MACOS_MAJOR,
@@ -789,18 +812,31 @@ def load_protocol(path: pathlib.Path) -> dict[str, Any]:
 
     quiescence = document.get("quiescence", {})
     expected_quiescence = {
-        "sample_interval_seconds": 5,
-        "consecutive_samples": 7,
-        "timeout_seconds": 300,
-        "maximum_cpu_used_percent": 20.0,
-        "maximum_load_average_1m": 6.0,
         "thermal_policy": "nsprocessinfo-nominal-and-pmset-no-recorded-warning",
         "process_monitor_interval_seconds": 1,
     }
+    if document["method_version"] == "composition-paired-v7":
+        expected_quiescence.update(admission="recorded-background-load", consecutive_samples=1)
+        interleaved_mode_order(document, 1)
+    else:
+        expected_quiescence.update(sample_interval_seconds=5, consecutive_samples=7,
+                                   timeout_seconds=300, maximum_cpu_used_percent=20.0,
+                                   maximum_load_average_1m=6.0)
     for key, expected in expected_quiescence.items():
         if quiescence.get(key) != expected:
             raise ValueError(f"composition protocol quiescence mismatch: {key}")
     return document
+
+
+def interleaved_mode_order(protocol: dict[str, Any], block: int) -> tuple[str, str]:
+    """Return the frozen mode order for one of the twenty shared capture blocks."""
+    if (protocol.get("method_version") != "composition-paired-v7"
+            or protocol.get("interleaving") != _INTERLEAVING):
+        raise ValueError("composition interleaving policy is invalid")
+    if type(block) is not int or not 1 <= block <= 20:
+        raise ValueError("composition interleaving block must be between 1 and 20")
+    modes = _INTERLEAVING["odd_block_modes" if block % 2 else "even_block_modes"]
+    return tuple(modes)
 
 
 def seeded_order_schedule(protocol: dict[str, Any]) -> list[str]:
@@ -867,10 +903,10 @@ def measurement_plan(protocol: dict[str, Any], mode: str) -> dict[str, Any]:
                     "roles": roles,
                 }
             )
-    return {
+    plan = {
         "schema_version": 1,
         "method_version": protocol["method_version"],
-        "protocol_sha256": PROTOCOL_SHA256,
+        "protocol_sha256": _protocol_sha256(protocol),
         "mode": mode,
         "seed": protocol["randomisation"]["seed"],
         "regression_limit": protocol["regression_limit"],
@@ -880,6 +916,10 @@ def measurement_plan(protocol: dict[str, Any], mode: str) -> dict[str, Any]:
         "runtime": runtime,
         "compile": compile_rows,
     }
+    if protocol["method_version"] == "composition-paired-v7":
+        interleaved_mode_order(protocol, 1)
+        plan["interleaving"] = protocol["interleaving"]
+    return plan
 
 
 def parse_darwin_time(text: str) -> dict[str, float | int]:
@@ -919,8 +959,10 @@ def parse_darwin_time(text: str) -> dict[str, float | int]:
     return parsed
 
 
-def find_competing_processes(snapshot: str, own_pid: int) -> list[dict[str, Any]]:
-    """Find Cargo, compiler, or composition-benchmark processes outside our tree."""
+def find_competing_processes(
+    snapshot: str, own_pid: int, *, process_prefixes: tuple[str, ...] = ("composition-",)
+) -> list[dict[str, Any]]:
+    """Report compilers and selected benchmark processes outside our process tree."""
     processes: dict[int, tuple[int, str]] = {}
     for line in snapshot.splitlines():
         fields = line.strip().split(maxsplit=2)
@@ -955,7 +997,7 @@ def find_competing_processes(snapshot: str, own_pid: int) -> list[dict[str, Any]
     for pid, (parent, command) in processes.items():
         basename = pathlib.PurePath(command).name
         if pid not in own_tree and (
-            basename in blocked_names or basename.startswith("composition-")
+            basename in blocked_names or basename.startswith(process_prefixes)
         ):
             competitors.append(
                 {"pid": pid, "parent_pid": parent, "command": command}
@@ -972,15 +1014,20 @@ def validate_quiescence_sample(
     process_snapshot: str,
     own_pid: int,
 ) -> dict[str, Any]:
-    """Validate one host-quiescence observation against the frozen protocol."""
+    """Validate host telemetry, retaining v6 admission only for historical evidence."""
     policy = protocol["quiescence"]
     if any(type(value) not in (int, float) or not math.isfinite(value) or value < 0
            for value in (cpu_used_percent, load_average_1m)) or cpu_used_percent > 100:
         raise ValueError("invalid CPU or load telemetry")
-    if cpu_used_percent > policy["maximum_cpu_used_percent"]:
-        raise ValueError("host exceeded the frozen CPU threshold")
-    if load_average_1m > policy["maximum_load_average_1m"]:
-        raise ValueError("host exceeded the frozen load threshold")
+    telemetry_only = protocol.get("method_version") == "composition-paired-v7"
+    if telemetry_only:
+        if policy.get("admission") != "recorded-background-load":
+            raise ValueError("composition telemetry admission policy is invalid")
+    else:
+        if cpu_used_percent > policy["maximum_cpu_used_percent"]:
+            raise ValueError("host exceeded the frozen CPU threshold")
+        if load_average_1m > policy["maximum_load_average_1m"]:
+            raise ValueError("host exceeded the frozen load threshold")
     required_thermal = {
         "Note: No thermal warning level has been recorded",
         "Note: No performance warning level has been recorded",
@@ -988,8 +1035,15 @@ def validate_quiescence_sample(
     }
     if not required_thermal.issubset(set(thermal_text.splitlines())):
         raise ValueError("host thermal warning-history proxy is not canonical")
-    competitors = find_competing_processes(process_snapshot, own_pid)
-    if competitors:
+    process_prefixes = ("composition-", "qualification-") if telemetry_only else ("composition-",)
+    competitors = find_competing_processes(
+        process_snapshot, own_pid, process_prefixes=process_prefixes)
+    if telemetry_only and any(
+        pathlib.PurePath(row["command"]).name.startswith(process_prefixes)
+        for row in competitors
+    ):
+        raise ValueError("another composition or qualification measurement is running")
+    if competitors and not telemetry_only:
         raise ValueError("competing Cargo, compiler, or benchmark process is running")
     return {
         "passed": True,
@@ -1270,7 +1324,9 @@ def validate_measurement_os(version: str) -> None:
         raise ValueError(f"composition measurement requires macOS {MINIMUM_MACOS_MAJOR} or later")
 
 
-def _validate_protocol_pair_metadata(metadata: dict[str, Any]) -> None:
+def _validate_protocol_pair_metadata(
+    metadata: dict[str, Any], method_version: str | None = None
+) -> None:
     validate_measurement_os(str(metadata.get("os_version", "")))
     if not isinstance(metadata.get("os_build"), str) or not metadata["os_build"].strip():
         raise ValueError("paired evidence OS build is missing")
@@ -1293,6 +1349,10 @@ def _validate_protocol_pair_metadata(metadata: dict[str, Any]) -> None:
             raise ValueError("candidate and reference revisions must differ")
     elif metadata["subject_revision"] != REFERENCE_REVISION:
         raise ValueError("A/A evidence must use the frozen reference twice")
+    if (method_version or metadata.get("method_version")) == "composition-paired-v7":
+        capture_hash = metadata.get("capture_sha256")
+        if not isinstance(capture_hash, str) or not _HASH.fullmatch(capture_hash):
+            raise ValueError("paired evidence capture hash is invalid")
 
 
 def evaluate_protocol_paired(
@@ -1304,7 +1364,7 @@ def evaluate_protocol_paired(
     metadata: dict[str, Any],
 ) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
     """Evaluate isolated runtime and contemporaneous clean-compile pairs."""
-    _validate_protocol_pair_metadata(metadata)
+    _validate_protocol_pair_metadata(metadata, protocol["method_version"])
     _validate_measurement_plan(plan_path, protocol, metadata["mode"])
     document = validate_budget_document(budget_path)
 
@@ -1438,7 +1498,7 @@ def evaluate_protocol_paired(
         "runner": RUNNER,
         "toolchain": TOOLCHAIN,
         "method_version": protocol["method_version"],
-        "protocol_sha256": PROTOCOL_SHA256,
+        "protocol_sha256": _protocol_sha256(protocol),
         "metadata": metadata,
     }
     subject_report = {
@@ -1508,11 +1568,11 @@ def _load_protocol_metadata(
         raise ValueError(f"cannot read paired protocol metadata: {path}") from error
     if not isinstance(metadata, dict):
         raise ValueError("paired protocol metadata must be an object")
-    _validate_protocol_pair_metadata(metadata)
+    _validate_protocol_pair_metadata(metadata, protocol["method_version"])
     expected = {
         "schema_version": 1,
         "method_version": protocol["method_version"],
-        "protocol_sha256": PROTOCOL_SHA256,
+        "protocol_sha256": _protocol_sha256(protocol),
         "budget_sha256": BUDGET_SHA256,
         "allocation_manifest_sha256": ALLOCATION_MANIFEST_SHA256,
         "seed": protocol["randomisation"]["seed"],
@@ -1959,13 +2019,12 @@ def evaluate_absolute(
         if timing_report.get("revision") != revision:
             raise ValueError("absolute timing report revision mismatch")
         if (
-            timing_report.get("protocol_sha256") != PROTOCOL_SHA256
-            or timing_report.get("method_version") != "composition-paired-v6"
+            timing_report.get("protocol_sha256") != _protocol_sha256(timing_report)
             or timing_report.get("runner") != RUNNER
         ):
             raise ValueError("absolute timing report protocol mismatch")
         paired_host = timing_report["metadata"]
-        _validate_protocol_pair_metadata(paired_host)
+        _validate_protocol_pair_metadata(paired_host, timing_report["method_version"])
         if paired_host["subject_revision"] != revision:
             raise ValueError("absolute timing report revision mismatch")
         if timing_report.get("role") != paired_host["subject_role"]:
@@ -2124,7 +2183,8 @@ def evaluate_absolute(
     return {
         "schema_version": 1,
         "suite": "rca-composition-absolute-budgets",
-        "timing_method": "composition-paired-v6-subject-arm" if timing_report is not None else "historical-task4",
+        "timing_method": (timing_report["method_version"] + "-subject-arm"
+                          if timing_report is not None else "historical-task4"),
         "candidate_revision": revision,
         "reference_revision": document["measured_revision"],
         "runner": RUNNER if timing_report is not None else document["runner_cohort"],
@@ -2313,6 +2373,8 @@ def _command_parse_time(arguments: argparse.Namespace) -> int:
 
 def _command_evaluate_protocol(arguments: argparse.Namespace) -> int:
     protocol = load_protocol(arguments.protocol)
+    if protocol["method_version"] == "composition-paired-v7":
+        raise ValueError("v7 acceptance requires the combined capture runner, not single-mode evaluation")
     metadata = _load_protocol_metadata(arguments.metadata, protocol, arguments.plan)
     validate_protocol_sources(arguments.metadata.parent, metadata, protocol)
     subject, control, comparison = evaluate_protocol_paired(

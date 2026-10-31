@@ -50,6 +50,47 @@ check_measured_inputs() {
   fi
 }
 
+# Preserve the independent build receipt, including each executable role.
+check_windows_build_receipt() {
+  local result=$1 receipt
+  receipt=$(dirname "${result}")/source-build.json
+  if [[ ! -f "${receipt}" ]] \
+    || [[ "$(shasum -a 256 "${receipt}" | awk '{print $1}')" != "$(jq -r '.metadata.source_build_sha256' "${result}")" ]]; then
+    echo "Windows source/build receipt is missing or changed" >&2
+    return 1
+  fi
+  if ! jq -e --slurpfile receipt "${receipt}" '
+    .metadata as $m | $m.source_build as $s | $m.cohort as $c
+    | $s == $receipt[0]
+    and ($m.compiler | type == "string" and test("^rustc 1\\.98\\.0 "))
+    and ($m.cargo | type == "string" and test("^cargo 1\\.98\\.0 "))
+    and ($m.rustc_commit | type == "string" and test("^[0-9a-f]{40}$"))
+    and $m.compiler == $c.compiler and $m.compiler == $s.toolchain.rustc
+    and $m.cargo == $c.cargo and $m.cargo == $s.toolchain.cargo
+    and $m.rustc_commit == $c.rustc_commit and $m.rustc_commit == $s.toolchain.rustc_commit
+    and $s.toolchain.target == "x86_64-pc-windows-msvc"
+    and $s.harness_sha256 == $c.qualification_source_sha256
+    and $s.scenario_manifest_sha256 == $c.scenario_manifest_sha256
+    and all(["candidate", "reference"][];
+      . as $role
+      | $s[$role].revision == $m.method.pair[$role + "_revision"]
+      and $s[$role].tree == $c[$role + "_source_tree"]
+      and $s[$role].lock_sha256 == $c[$role + "_lock_sha256"]
+      and $s[$role].manifest_sha256 == $c[$role + "_manifest_sha256"]
+      and $s[$role].original_harness_sha256 == $c[$role + "_original_harness_sha256"])
+    and ($m.binaries | keys) == ["candidate_allocation", "candidate_normal", "reference_allocation", "reference_normal"]
+    and ($s.binaries | keys) == ($m.binaries | keys)
+    and all($m.binaries | keys[];
+      . as $role
+      | ($m.binaries[$role].sha256 | type == "string" and test("^[0-9a-f]{64}$"))
+      and $m.binaries[$role].sha256 == $s.binaries[$role].sha256
+      and ($m.binaries[$role].path | type == "string" and length > 0))
+  ' "${result}" >/dev/null; then
+    echo "Windows source/build receipt does not match measured identities" >&2
+    return 1
+  fi
+}
+
 if [[ $# -ne 2 ]]; then
   echo "usage: $0 <baseline.json> <candidate.json>" >&2
   exit 2
@@ -84,6 +125,11 @@ baseline_lock=${repo_root}/docs/performance/baseline-Cargo.lock
 candidate_lock=${repo_root}/Cargo.lock
 protocol=${repo_root}/rca-tokio/benches/qualification.rs
 qualification_script=${repo_root}/scripts/qualify-performance.sh
+windows=false
+if [[ -f "${candidate}" ]] && [[ "$(jq -r '.schema_version' "${candidate}")" == "5" ]]; then
+  windows=true
+  qualification_script=${repo_root}/scripts/capture-windows-performance.py
+fi
 scenario_manifest=${repo_root}/docs/performance/scenarios.txt
 if [[ ! -f "${revision_pin}" || ! -f "${baseline_lock}" \
   || ! -f "${candidate_lock}" || ! -f "${protocol}" \
@@ -109,6 +155,14 @@ for result in "${baseline}" "${candidate}"; do
     exit 1
   fi
   jq -e '
+    def valid_memory:
+      if $windows then
+        (.peak_working_set_bytes | type == "number" and . > 0)
+        and (.peak_commit_bytes | type == "number" and . > 0)
+        and has("instructions_retired") and .instructions_retired == null
+      else
+        .peak_resident_bytes > 0 and .peak_memory_footprint_bytes > 0
+      end;
     def expected_samples:
       .samples == 10000;
     def expected_allocation_samples:
@@ -140,10 +194,8 @@ for result in "${baseline}" "${candidate}"; do
       and .reference.cpu_cycles > 0
       and .candidate.task_wakes > 0
       and .reference.task_wakes > 0
-      and .candidate.peak_resident_bytes > 0
-      and .reference.peak_resident_bytes > 0
-      and .candidate.peak_memory_footprint_bytes > 0
-      and .reference.peak_memory_footprint_bytes > 0;
+      and (.candidate | valid_memory)
+      and (.reference | valid_memory);
     def valid_allocation:
       same_workload
       and .candidate.allocations > 0
@@ -152,7 +204,11 @@ for result in "${baseline}" "${candidate}"; do
       and .reference.allocated_bytes > 0
       and .candidate.peak_bytes > 0
       and .reference.peak_bytes > 0;
-    .schema_version == 4
+    (if $windows then
+      .schema_version == 5 and .metadata.resource_provider == "win32-process-v1"
+    else
+      .schema_version == 4 and .metadata.resource_provider == null
+    end)
     and .suite == "rca-performance-qualification"
     and (.reference_kind == "paired-reference" or .reference_kind == "qualification")
     and (.revision | type == "string" and length == 40)
@@ -196,9 +252,8 @@ for result in "${baseline}" "${candidate}"; do
       and (.allocated_bytes > 0)
       and (.task_wakes > 0)
       and (.peak_bytes > 0)
-      and (.instructions_retired > 0)
-      and (.peak_resident_bytes > 0)
-      and (.peak_memory_footprint_bytes > 0)
+      and (if $windows then .instructions_retired == null else .instructions_retired > 0 end)
+      and valid_memory
       and (.pairs.normal | length) == 10
       and (.pairs.allocation | length) == 6
       and ([.pairs.normal[].repetition] == [1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
@@ -231,11 +286,15 @@ for result in "${baseline}" "${candidate}"; do
   ' \
     --arg revision "$(jq -r '.revision' "${result}")" \
     --arg runner "$(jq -r '.runner' "${result}")" \
+    --argjson windows "${windows}" \
     --argjson expected_scenarios "${expected_scenarios}" \
     "${result}" >/dev/null || {
     echo "invalid performance result schema: ${result}" >&2
     exit 1
   }
+  if [[ "${windows}" == true ]]; then
+    check_windows_build_receipt "${result}"
+  fi
 done
 
 candidate_revision=$(jq -r '.revision' "${candidate}")
@@ -301,6 +360,7 @@ trap 'rm -f -- "${temporary}"' EXIT
 jq -n \
   --slurpfile baseline "${baseline}" \
   --slurpfile candidate "${candidate}" \
+  --argjson windows "${windows}" \
   --argjson limit "${regression_limit}" '
   def median:
     sort as $values
@@ -325,6 +385,9 @@ jq -n \
   | if $base.metadata.cohort != $next.metadata.cohort
       or $base.metadata.method.pair != $next.metadata.method.pair
       or $base.recorded_at != $next.recorded_at
+      or ($windows and ($base.metadata.binaries != $next.metadata.binaries
+        or $base.metadata.source_build != $next.metadata.source_build
+        or $base.metadata.source_build_sha256 != $next.metadata.source_build_sha256))
     then error("results are not one qualification cohort")
     else .
     end
@@ -358,10 +421,11 @@ jq -n \
               allocated_bytes_ratio: stratified_ratio($after.pairs.allocation;
                 .candidate.allocated_bytes / .reference.allocated_bytes),
               peak_memory_ratio: stratified_ratio($after.pairs.normal;
-                .candidate.peak_memory_footprint_bytes
-                  / .reference.peak_memory_footprint_bytes),
+                if $windows then .candidate.peak_commit_bytes / .reference.peak_commit_bytes
+                else .candidate.peak_memory_footprint_bytes / .reference.peak_memory_footprint_bytes end),
               resident_memory_ratio: stratified_ratio($after.pairs.normal;
-                .candidate.peak_resident_bytes / .reference.peak_resident_bytes),
+                if $windows then .candidate.peak_working_set_bytes / .reference.peak_working_set_bytes
+                else .candidate.peak_resident_bytes / .reference.peak_resident_bytes end),
               peak_live_heap_ratio: stratified_ratio($after.pairs.allocation;
                 .candidate.peak_bytes / .reference.peak_bytes),
               cpu_cycles_ratio: stratified_ratio($after.pairs.normal;
@@ -386,7 +450,10 @@ jq -n \
         end
     ] as $comparisons
   | {
-      schema_version: 4,
+      schema_version: $next.schema_version,
+      resource_provider: (if $windows then "win32-process-v1" else "darwin-time-lp" end),
+      memory_metric: (if $windows then "peak_commit_bytes" else "peak_memory_footprint_bytes" end),
+      resident_memory_metric: (if $windows then "peak_working_set_bytes" else "peak_resident_bytes" end),
       regression_limit: $limit,
       cohort_id: $next.metadata.cohort.id,
       aggregation: "geometric mean of order-stratified paired medians",

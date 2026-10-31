@@ -1,8 +1,12 @@
 # Performance qualification
 
-RCA performance evidence is a release gate, not an informal benchmark snapshot. The canonical suite records latency, throughput, allocation, scheduler work, CPU, memory, compile time, and binary size from one pinned runner. Semantic and concurrency conformance must already pass before performance results are accepted.
+RCA performance evidence is a release gate, not an informal benchmark snapshot.
+Each paired capture uses one identified host, toolchain and workload.
+The suite records latency, throughput, allocation, scheduler work, CPU and memory.
+Platform-specific evidence also records compile time, binary size and profiles.
+Semantic and concurrency conformance must pass before performance acceptance.
 
-## Canonical runner
+## Canonical Mac runner
 
 The `mac15-9-m3-max-16c-48gb-macos27-ac-high` runner is:
 
@@ -109,14 +113,77 @@ All values shown as `1` are placeholders; captured values must be non-zero. Pair
 
 Top-level metadata records cohort ID, compiler and Cargo versions, compiler commit, OS, non-sensitive runner hardware, power mode, protocol, qualification-source, qualification-script, scenario-manifest and lockfile hashes, commands, compile evidence, binary sizes, idle Store RSS, Divan log hash, canonical supporting-artefact paths, and local raw-profile paths. Raw Instruments traces stay under ignored `target/qualification-profiles`: trace packages contain host identifiers and must be redacted before publication.
 
+## Windows-native capture
+
+Windows provides a separate native measurement route when the Mac is busy.
+It does not require an idle host or a Linux virtual machine.
+Its results never share a cohort with Mac results.
+It uses the same reference revision, common workload, dependency locks, fifty scenarios, samples, balanced pairs and `1.10` regression limit.
+
+`scripts/capture-windows-performance.py` consumes four prebuilt executables and their source/build receipt.
+The receipt binds each executable to its product source, dependency lock, common harness and exact Rust 1.98.0 toolchain.
+The capture checks binary hashes before and after measurement.
+Both result files retain the exact `source-build.json` receipt beside them.
+The comparator checks its hash, embedded copy, executable roles and source/toolchain identities.
+It retains process output, raw counters, pairs and incomplete evidence after failure.
+It does not retry processes, remove outliers or choose successful subsets.
+
+After the four builds pass their source checks, run the capture on Windows:
+
+```bash
+python scripts/capture-windows-performance.py \
+  --candidate-normal C:/rca/candidate-normal.exe \
+  --candidate-allocation C:/rca/candidate-allocation.exe \
+  --reference-normal C:/rca/reference-normal.exe \
+  --reference-allocation C:/rca/reference-allocation.exe \
+  --metadata C:/rca/source-build.json \
+  --output C:/rca/new-capture
+```
+
+Use the actual executable paths from the build receipt.
+The output directory must not exist.
+Keep the complete output directory together when transferring it to the review checkout.
+Then run `scripts/compare-performance.sh <capture>/reference.json <capture>/candidate.json`.
+
+Schema version 5 identifies the `win32-process-v1` provider.
+The existing comparator checks its source identities, protocol hash, sample counts, paired observations and numerical limits.
+The memory fields have explicit Windows definitions:
+
+| Field | Windows measurement | Acceptance |
+| --- | --- | --- |
+| `cpu_cycles` | `QueryProcessCycleTime`, summed across process threads | Paired ratio at most `1.10` |
+| `peak_working_set_bytes` | `PeakWorkingSetSize`, peak resident working set | Paired ratio at most `1.10` |
+| `peak_commit_bytes` | `PeakPagefileUsage`, peak process commit charge | Paired ratio at most `1.10` |
+| `KernelTime100ns`, `UserTime100ns` | `GetProcessTimes`, process CPU time | Supporting evidence |
+| `instructions_retired` | Unavailable from this provider | Explicit `null`, never an invented count |
+
+The capture reads lifetime counters from the retained process handle after exit.
+Current private commit is not a peak and is not an acceptable substitute.
+Peak commit charge is not macOS physical footprint.
+Both hosts retain separate memory measurements and definitions.
+The API definitions come from [Microsoft process counters](https://learn.microsoft.com/windows/win32/api/psapi/ns-psapi-process_memory_counters), [process cycles](https://learn.microsoft.com/windows/win32/api/realtimeapiset/nf-realtimeapiset-queryprocesscycletime) and [process times](https://learn.microsoft.com/windows/win32/api/processthreadsapi/nf-processthreadsapi-getprocesstimes).
+
+Mac instruction counts, profiles, Mach-O sizes and compile evidence remain separate supporting records when their measured inputs remain unchanged.
+A Windows pass does not relabel a failed Mac observation or establish identical behaviour on every host.
+Instruction counts from Callgrind can supplement this evidence, but they are not native hardware timings.
+No Windows value is compared with a Mac value.
+
+Release review names the native host selected for the relative gates.
+When Windows is selected, its complete pair supplies latency, throughput, CPU cycles, polls, allocation and Windows memory acceptance.
+The supporting Mac record must include retired instructions for all fifty scenarios, both contention profiles and the asynchronous-effect DHAT profile.
+It also retains the clean-target compile, stripped sizes, idle Store RSS and Divan results.
+Each reused record needs an applicable source, dependency, configuration and toolchain identity.
+Any failed Mac timing observation remains explicit, with its review disposition and limits.
+Composition retains its separate platform-specific absolute and relative gates.
+
 ## Measurements
 
 - Latency uses `Instant` around each completed operation after up to 20 warm-up operations. For `n` sorted samples and percentile `p`, the runner selects zero-based index `ceil((n - 1) * p / 100)`. This upper indexed percentile is not the nearest-rank method. p50, p95, and p99 describe whole-operation latency. Every normal scenario uses 10,000 outer samples so each process has 100 observations at or beyond p99. Aggregate fields use medians of ten process-level results; acceptance uses geometric mean of two order-stratified medians from ten paired candidate/reference ratios.
 - Throughput divides completed logical operations by measured sample-loop time. Producer and fan-out scenarios report all inner operations, not only outer iterations.
-- CPU cycles and retired instructions come from macOS `/usr/bin/time -lp` for the complete scenario process. These counters aggregate runtime threads.
+- On Mac, CPU cycles and retired instructions come from `/usr/bin/time -lp` for the complete scenario process. These counters aggregate runtime threads. Windows uses the separate definitions above.
 - Allocations and allocated bytes come from six separate DHAT processes. Aggregate allocation counts, allocated bytes, and peak live heap are their medians; allocation acceptance uses geometric mean of two three-pair order-stratified medians. Odd stratum sizes preserve reciprocal symmetry. DHAT uses a separate bounded sample policy recorded by `allocation_samples`; deterministic budget exhaustion uses five samples per repetition because each one already performs 100,000 non-allocating self-wake polls.
 - `task_wakes` is the historical schema name for measured future poll activations. Tokio scenarios include the top-level workload future and RCA runtime futures instrumented by `tokio-metrics`; deterministic scenarios report driver poll work. Counting the workload future preserves real zero-work cancellation cases without inventing a non-zero floor.
-- Maximum resident set and peak memory footprint come from normal processes and are strict paired gates. Idle RSS is sampled after a Store reaches its ready state. DHAT peak live heap remains diagnostic: concurrent scheduling changes allocation lifetimes enough to make it unsuitable as a cross-process 10% release gate, while total allocation count/bytes and process memory retain strict coverage.
+- On Mac, maximum resident set and peak memory footprint come from normal processes and are strict paired gates. Windows instead gates peak working set and peak commit charge. Idle RSS is sampled after a Store reaches its ready state. DHAT peak live heap remains diagnostic: concurrent scheduling changes allocation lifetimes enough to make it unsuitable as a cross-process 10% release gate, while total allocation count/bytes and process memory retain strict coverage.
 - Clean compile time uses a fresh target directory and locked workspace `--all-features --features critical-section/std --release` build. The explicit `std` provider supports the critical-section backend enabled by the all-features build. Portable libraries do not select this host implementation. Compile cycles and peak RSS are retained beside elapsed time.
 - Binary size is a stripped, fat-LTO, locked workspace probe that constructs an RCA `Effect`. Qualification-binary size is retained separately for diagnostics. The runner supplies pinned toolchain library directory to `rust-objcopy` and fails if Cargo reports unsuccessful stripping, preventing an unstripped binary from being labelled as release-size evidence.
 - Divan evidence covers every phase benchmark except the custom qualification harness. Each Divan benchmark uses 50 samples and a 0.5-second maximum measurement time.
@@ -142,11 +209,16 @@ The 50 stable scenarios cover:
 
 ## Profiling rule
 
-Every qualification records:
+Every Mac qualification records:
 
 - Time Profiler trace for saturated four-producer commit;
 - Time Profiler trace for saturated eight-producer contention; and
 - DHAT heap profile for asynchronous effect completion.
+
+Windows qualification retains the applicable Mac profiles listed above.
+Its normal latency measurements do not run under Instruments or DHAT.
+Fresh CPU Profiler captures can supplement the retained Time Profiler traces.
+They do not replace uninstrumented latency evidence.
 
 Profile before changing a hot path. If safe implementation remains within budget, make no optimisation-only code change. If a budget fails, compare safe alternatives first and rerun relevant runtime conformance, race, lifecycle, and benchmark checks. Unsafe is not an optimisation option for this gate.
 
@@ -158,7 +230,7 @@ It also rejects new untracked files within those input paths. Unrelated root doc
 Both evidence files must match the original product identities, current common harness, protocol, lockfiles and exact scenario manifest.
 The comparator rejects changed samples, operations, allocation samples and operations, raw pairs, alternating order or repetition counts.
 
-Comparator joins rows by scenario and rejects order-stratified paired ratios above `1.10` for median latency, p99 latency, inverted throughput, allocations, allocated bytes, peak memory footprint, maximum resident memory, CPU cycles, or task wakes. Throughput is inverted so every ratio uses same direction: greater than one is worse. Comparison also reports DHAT peak-live-heap ratio without using it for release acceptance.
+Comparator joins rows by scenario and rejects order-stratified paired ratios above `1.10` for median latency, p99 latency, inverted throughput, allocations, allocated bytes, both process-memory metrics, CPU cycles, or task wakes. Mac uses peak memory footprint and maximum resident memory. Windows uses peak commit charge and peak working set. Throughput is inverted so every ratio uses same direction: greater than one is worse. Comparison also reports DHAT peak-live-heap ratio without using it for release acceptance.
 
 A deliberate regression is accepted only when both conditions hold:
 
@@ -183,3 +255,16 @@ prior reference. Retain both paired result files together.
 ## Variance and interpretation
 
 One process can expose large regression but cannot prove tiny improvement. Qualification publishes aggregate medians from ten normal and six DHAT processes per revision, while release decisions use order-stratified paired ratios. Keep runner, power, OS major, compiler, dependency locks, workload, pairing policy, repetition policy, and sample policy fixed. Treat changes near 10% as prompts for another full paired cohort and profile inspection, not universal hardware claims. Compile and process counters include toolchain and OS effects; row metrics describe this qualification pair only.
+
+Background load is telemetry, not a reason to stop all qualification work.
+CPU time excludes time when a process waits for CPU scheduling.
+Other work still affects shared caches, memory bandwidth and CPU frequency.
+CPU cycles and instruction counts explain execution cost, but cannot replace latency or throughput checks.
+Shared interference can also compress candidate/reference ratios towards one.
+Balanced order and reference/reference controls reduce some bias but do not prove immunity to interference.
+
+For CPU optimisation on supported Apple hardware, prefer CPU Profiler with deferred recording.
+Its cycle-based samples account for different core frequencies.
+Time Profiler remains useful, but its periodic samples do not measure each function call.
+See [Apple's CPU profiling guidance](https://developer.apple.com/videos/play/wwdc2025/308/).
+Profile instrumentation stays outside the uninstrumented latency capture.

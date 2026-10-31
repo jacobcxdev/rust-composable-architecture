@@ -9,6 +9,7 @@ import ctypes
 from datetime import datetime, timezone
 import json
 import io
+import math
 import os
 from pathlib import Path
 import signal
@@ -27,7 +28,7 @@ import common_outcome_allocations as common_outcome_evidence  # noqa: E402
 
 
 ROOT = Path(__file__).resolve().parents[1]
-PROTOCOL = ROOT / "docs/performance/composition/composition-protocol-v6.json"
+PROTOCOL = ROOT / "docs/performance/composition/composition-protocol-v7.json"
 BUDGET = ROOT / "docs/performance/composition/composition-budgets.json"
 EVIDENCE_ROOT = ROOT / "target/qualification-evidence/0.1.0/composition"
 LOCK = Path("/tmp/rca-composition-performance.machine.lock")
@@ -204,12 +205,18 @@ def output_paths(value):
     return output, staging
 
 
-def validate_aa_evidence(value, protocol, controller, host):
+def validate_aa_evidence(value, protocol, controller, host, *, capture=None):
     path = Path(value).absolute().resolve()
+    if protocol["method_version"] == "composition-paired-v7" and capture is None:
+        raise ValueError("A/A evidence needs its contemporaneous capture")
+    if capture is not None:
+        if path != (capture / "reference-reference-aa").resolve():
+            raise ValueError("A/A evidence is outside its contemporaneous capture")
+        validate_interleaved_capture(capture, protocol)
     if (
-        not path.is_relative_to(EVIDENCE_ROOT.resolve())
+        capture is None and (not path.is_relative_to(EVIDENCE_ROOT.resolve())
         or path == EVIDENCE_ROOT.resolve()
-        or path.name.endswith(".incomplete")
+        or path.name.endswith(".incomplete"))
     ):
         raise ValueError("A/A evidence must be a published qualification directory")
     try:
@@ -220,7 +227,7 @@ def validate_aa_evidence(value, protocol, controller, host):
         }
     except (OSError, json.JSONDecodeError) as error:
         raise ValueError(f"cannot read A/A evidence: {path}") from error
-    if evidence._sha256(path / "protocol.json") != evidence.PROTOCOL_SHA256:
+    if evidence._sha256(path / "protocol.json") != evidence._protocol_sha256(protocol):
         raise ValueError("A/A evidence protocol hash differs from current protocol")
     if receipts["plan.json"] != evidence.measurement_plan(
         protocol, "reference-reference-aa"
@@ -538,23 +545,24 @@ class HostMonitor:
             )
             if data["thermal_state"] != "0":
                 raise ValueError("current thermal state is not nominal")
-            # Own work contributes to CPU/load; do not compare active samples to idle limits.
+            # Active samples retain load and processes. CPU samples surround each command.
             data["load"] = probe(["sysctl", "-n", "vm.loadavg"])
             data["top"] = (
                 "" if active else probe(["top", "-l", "2", "-s", "1", "-n", "0"])
             )
-            evidence.validate_quiescence_sample(
+            data["cpu_used_percent"] = None if active else evidence.parse_cpu_used_percent(data["top"])
+            data["load_average_1m"] = evidence.parse_load_average_1m(data["load"])
+            admitted = evidence.validate_quiescence_sample(
                 self.protocol,
-                cpu_used_percent=0
-                if active
-                else evidence.parse_cpu_used_percent(data["top"]),
+                cpu_used_percent=0 if active else data["cpu_used_percent"],
                 load_average_1m=0
-                if active
-                else evidence.parse_load_average_1m(data["load"]),
+                if active and self.protocol["quiescence"].get("admission") != "recorded-background-load"
+                else data["load_average_1m"],
                 thermal_text=data["thermal_history"],
                 process_snapshot=data["process_snapshot"],
                 own_pid=os.getpid(),
             )
+            data["competing_processes"] = admitted["competing_processes"]
             if "AC Power" not in probe(["pmset", "-g", "batt"]):
                 raise ValueError("AC power lost during qualification")
             data["passed"] = True
@@ -567,6 +575,9 @@ class HostMonitor:
 
     def idle(self, phase, sustained=False):
         policy = self.protocol["quiescence"]
+        if policy.get("admission") == "recorded-background-load":
+            self.sample(phase)
+            return
         required = policy["consecutive_samples"] if sustained else 1
         count = 0
         deadline = time.monotonic() + policy["timeout_seconds"]
@@ -661,8 +672,9 @@ class HostMonitor:
             )
 
 
-def execute_pairs(protocol, roots, executables, targets, paired, cargo, env, monitor):
-    for block, order in enumerate(evidence.seeded_order_schedule(protocol), 1):
+def execute_pairs(protocol, roots, executables, targets, paired, cargo, env, monitor, *, blocks=None):
+    schedule = enumerate(evidence.seeded_order_schedule(protocol), 1) if blocks is None else blocks
+    for block, order in schedule:
         monitor.idle(f"block-{block:02d}", sustained=True)
         for scenario in protocol["runtime"]["gated_scenarios"]:
             for role in order.split("-"):
@@ -714,6 +726,41 @@ def execute_pairs(protocol, roots, executables, targets, paired, cargo, env, mon
                     shutil.rmtree(target)
 
 
+def execute_interleaved_pairs(protocol, captures, cargo, env, monitor, directory):
+    """Run each frozen block once, with a control block in the same capture."""
+    capture_hash = evidence._sha256(directory / "capture.json")
+    with (directory / "blocks.jsonl").open("x", encoding="utf-8") as transcript:
+        for block, order in enumerate(evidence.seeded_order_schedule(protocol), 1):
+            for mode in evidence.interleaved_mode_order(protocol, block):
+                row = {"block": block, "mode": mode, "capture_sha256": capture_hash}
+                for phase in ("start", "finish"):
+                    measured = {"sha256": paired_block_hashes(directory, protocol, block, mode)} if phase == "finish" else {}
+                    transcript.write(json.dumps({**row, **measured, "phase": phase, "recorded_at": now(),
+                                                 "monotonic": time.monotonic()}, allow_nan=False) + "\n")
+                    transcript.flush()
+                    if phase == "start":
+                        capture = captures[mode]
+                        execute_pairs(protocol, capture["roots"], capture["executables"],
+                                      capture["targets"], capture["paired"], cargo, env, monitor,
+                                      blocks=[(block, order)])
+
+
+def paired_block_hashes(directory, protocol, block, mode):
+    """Seal each completed transcript and its counters before the next block starts."""
+    paths = []
+    for role in ("subject", "control"):
+        paired = Path(mode) / "paired" / role
+        for family, names in (("runtime", protocol["runtime"]["gated_scenarios"]),
+                              ("compile", protocol["compile"]["fixtures"])):
+            for name in names:
+                transcript = paired / family / name.replace("/", "__") / f"block-{block:02d}.txt"
+                paths.extend((transcript, transcript.with_suffix(".resources.json")))
+    for path in paths:
+        if (directory / path).is_symlink():
+            raise ValueError("interleaved measurement became a symlink")
+    return {str(path): evidence._sha256(directory / path) for path in paths}
+
+
 def benchmark(root, target, role, staging, tools, env, monitor):
     log = staging / "builds" / f"{role}.txt"
     monitor.run(
@@ -755,259 +802,307 @@ def benchmark(root, target, role, staging, tools, env, monitor):
     return executables[0]
 
 
+def prepare_pair_capture(protocol, budget, mode, staging, targets, reference, controller, control,
+                         host, tools, env, monitor, hashes):
+    """Prepare independently built arms without starting the measured blocks."""
+    subject_root = ROOT if mode == "candidate-reference" else reference
+    subject = controller if mode == "candidate-reference" else control
+    staging.mkdir()
+    targets.mkdir()
+    write_json(staging / "inputs.json", {
+        "mode": mode, "recorded_at": now(), "controller": controller,
+        "subject": subject, "control": control, "host": host, "input_hashes": hashes,
+        "tools": {name: {"path": path, "sha256": evidence._sha256(Path(path))}
+                  for name, path in tools.items()},
+    })
+    with (staging / "protocol.json").open("xb") as copied_protocol:
+        copied_protocol.write(PROTOCOL.read_bytes())
+    write_json(staging / "plan.json", evidence.measurement_plan(protocol, mode))
+    identities = {"subject": subject, "control": control}
+    original_roots = {"subject": subject_root, "control": reference}
+    roots = {role: targets / f"source-{role}" for role in original_roots}
+    sources = {
+        role: stage_source(original_roots[role], identities[role], roots[role], protocol)
+        for role in roots
+    }
+    (staging / "sources").mkdir()
+    for role, receipt in sources.items():
+        write_json(staging / "sources" / f"{role}.json", receipt)
+    executables = {
+        role: benchmark(
+            roots[role], targets / role, role, staging, tools, env, monitor
+        )
+        for role in ("control", "subject")
+    }
+    lists = {}
+    for role, executable in executables.items():
+        destination = staging / "builds" / f"{role}-list.txt"
+        monitor.run([str(executable), "--list"], destination, roots[role], env)
+        lists[role] = destination.read_bytes()
+    if lists["subject"] != lists["control"]:
+        raise ValueError("subject and control benchmark inputs differ")
+    roles = (
+        {"subject": "candidate", "control": "reference"}
+        if mode == "candidate-reference"
+        else {"subject": "reference-b", "control": "reference-a"}
+    )
+    metadata = {
+        "schema_version": 1,
+        "mode": mode,
+        "method_version": protocol["method_version"],
+        "protocol_sha256": evidence.PROTOCOL_SHA256,
+        "budget_sha256": evidence.BUDGET_SHA256,
+        "allocation_manifest_sha256": evidence.ALLOCATION_MANIFEST_SHA256,
+        "seed": protocol["randomisation"]["seed"],
+        "runner": evidence.RUNNER,
+        "toolchain": evidence.TOOLCHAIN,
+        "os_version": host["identity"]["os_version"],
+        "os_build": host["identity"]["os_build"],
+        "plan_sha256": evidence._sha256(staging / "plan.json"),
+        "recorded_at": now(),
+        "subject_role": roles["subject"],
+        "control_role": roles["control"],
+        "subject_revision": subject["revision"],
+        "control_revision": control["revision"],
+        "subject_lock_sha256": subject["hashes"]["Cargo.lock"],
+        "control_lock_sha256": control["hashes"]["Cargo.lock"],
+        "qualification_script_sha256": evidence._sha256(Path(__file__)),
+        "evaluator_script_sha256": evidence._sha256(
+            ROOT / "scripts/composition_performance.py"
+        ),
+        "capture_script_sha256": controller["hashes"][
+            "scripts/capture-composition-performance.sh"
+        ],
+        "workload_sha256": sources["subject"]["effective"]["rca-core/benches/composition.rs"],
+        "zero_host_sha256": sources["subject"]["effective"]["rca-core/tests/composition_qualification/main.rs"],
+        "workload_provenance": {
+            role: {
+                **{kind: {name: receipt[kind][name] for name in {
+                    row["workload_source"] for row in budget["rows"]}}
+                   for kind in ("original", "effective")},
+                "adapters": receipt["adapters"],
+                "receipt_sha256": evidence._sha256(staging / "sources" / f"{role}.json"),
+            } for role, receipt in sources.items()
+        },
+        "benchmark_list_sha256": evidence._sha256(
+            staging / "builds/subject-list.txt"
+        ),
+        **{
+            f"{role}_executable_sha256": evidence._sha256(executable)
+            for role, executable in executables.items()
+        },
+    }
+    return {"mode": mode, "staging": staging, "targets": targets, "subject": subject,
+            "roots": roots, "sources": sources, "executables": executables,
+            "roles": roles, "metadata": metadata, "paired": staging / "paired"}
+
+
+def finish_pair_capture(capture, protocol, controller, env, monitor):
+    """Evaluate all paired and absolute gates, preserving failed measurements."""
+    mode, staging, targets = capture["mode"], capture["staging"], capture["targets"]
+    subject, roots = capture["subject"], capture["roots"]
+    executables, roles, metadata = capture["executables"], capture["roles"], capture["metadata"]
+    for role, executable in executables.items():
+        monitor.run(
+            [str(executable), "--bench"],
+            staging / "diagnostics" / f"{roles[role]}.txt",
+            roots[role],
+            env,
+        )
+    evidence.validate_protocol_diagnostics(
+        staging / "diagnostics", tuple(roles.values()), protocol
+    )
+    subject_report, control_report, comparison = evidence.evaluate_protocol_paired(
+        BUDGET,
+        protocol,
+        staging / "paired/subject",
+        staging / "paired/control",
+        staging / "plan.json",
+        evidence._load_protocol_metadata(
+            staging / "metadata.json", protocol, staging / "plan.json"
+        ),
+    )
+    reports = {
+        f"{roles['subject']}.json": subject_report,
+        f"{roles['control']}.json": control_report,
+        "comparison.json": comparison,
+    }
+    capture_env = {
+        key: value
+        for key, value in env.items()
+        if not key.startswith("CARGO_PROFILE_")
+    }
+    capture_env["CARGO_TARGET_DIR"] = str(targets / "absolute")
+    raw = staging / "absolute-raw"
+    monitor.run(
+        [
+            str(ROOT / "scripts/capture-composition-performance.sh"),
+            str(raw),
+            str(staging / "sources/subject.json"),
+        ],
+        staging / "absolute-capture.txt",
+        roots["subject"],
+        capture_env,
+    )
+    absolute = evidence.evaluate_absolute(
+        BUDGET,
+        raw,
+        subject["revision"],
+        controller["hashes"]["scripts/capture-composition-performance.sh"],
+        subject["hashes"]["Cargo.lock"],
+        timing_report=subject_report,
+    )
+    captured_environment = evidence._parse_key_values(raw / "environment.txt")
+    if (
+        captured_environment["fixture_lock_sha256"]
+        != subject["hashes"]["benches/compile/Cargo.lock"]
+    ):
+        raise ValueError("absolute fixture lockfile provenance mismatch")
+    absolute["subject_revision"] = absolute.pop("candidate_revision")
+    absolute["mode"] = mode
+    absolute["reference_only"] = mode == "reference-reference-aa"
+    for role, executable in executables.items():
+        if evidence._sha256(executable) != metadata[f"{role}_executable_sha256"]:
+            raise ValueError("benchmark executable changed during capture")
+    reports["absolute.json"] = absolute
+    for role in roots:
+        if evidence._sha256(staging / "sources" / f"{role}.json") != metadata[
+            "workload_provenance"][role]["receipt_sha256"]:
+            raise ValueError("staged composition source receipt changed")
+        validate_staged_source(staging / "sources" / f"{role}.json")
+    for name, report in reports.items():
+        write_json(staging / name, report_paths(report, staging))
+    passed = all(report.get("passed", True) for report in reports.values())
+    write_json(staging / "complete.json", {"completed_at": now(), "passed": passed})
+    return passed
+
+
+def validate_interleaved_capture(directory, protocol):
+    """Reject detached controls, changed plans, missing blocks and reordered evidence."""
+    manifest = json.loads((directory / "capture.json").read_text())
+    digest = evidence._sha256(directory / "capture.json")
+    modes = ("candidate-reference", "reference-reference-aa")
+    schedule = [{"block": block, "mode": mode}
+                for block in range(1, len(evidence.seeded_order_schedule(protocol)) + 1)
+                for mode in evidence.interleaved_mode_order(protocol, block)]
+    if (not isinstance(manifest, dict) or manifest.get("protocol_sha256") != evidence.PROTOCOL_SHA256
+            or manifest.get("schedule") != schedule or not isinstance(manifest.get("modes"), dict)
+            or set(manifest["modes"]) != set(modes)):
+        raise ValueError("interleaved capture plan differs")
+    for mode in modes:
+        arm = directory / mode
+        if manifest["modes"][mode] != {name: evidence._sha256(arm / name)
+                                     for name in ("inputs.json", "plan.json")}:
+            raise ValueError("interleaved capture inputs changed")
+        inputs = json.loads((arm / "inputs.json").read_text())
+        if (not isinstance(inputs, dict) or inputs.get("mode") != mode
+                or inputs.get("controller") != manifest.get("controller")
+                or inputs.get("host") != manifest.get("host")
+                or json.loads((arm / "plan.json").read_text()) != evidence.measurement_plan(protocol, mode)):
+            raise ValueError("interleaved capture identity differs")
+        metadata = json.loads((arm / "metadata.json").read_text())
+        if not isinstance(metadata, dict) or metadata.get("capture_sha256") != digest:
+            raise ValueError("interleaved capture binding differs")
+    rows = [json.loads(line) for line in (directory / "blocks.jsonl").read_text().splitlines()]
+    expected = [{**item, "phase": phase, "capture_sha256": digest}
+                for item in schedule for phase in ("start", "finish")]
+    if len(rows) != len(expected):
+        raise ValueError("interleaved capture has incomplete or extra blocks")
+    previous = -1.0
+    for row, required in zip(rows, expected):
+        measured = {"sha256"} if required["phase"] == "finish" else set()
+        if (not isinstance(row, dict)
+                or any(type(row.get(key)) is not type(value) or row.get(key) != value
+                for key, value in required.items())
+                or set(row) != set(required) | {"recorded_at", "monotonic"} | measured
+                or not evidence._TIMESTAMP.fullmatch(str(row["recorded_at"]))
+                or type(row["monotonic"]) not in (int, float)
+                or not math.isfinite(row["monotonic"]) or row["monotonic"] < previous):
+            raise ValueError("interleaved capture block order or telemetry differs")
+        if measured and row["sha256"] != paired_block_hashes(
+            directory, protocol, required["block"], required["mode"]
+        ):
+            raise ValueError("interleaved measurement bytes changed after capture")
+        previous = row["monotonic"]
+    return digest
+
+
 def qualify(output, staging, reference, mode, aa_evidence=None):
+    if mode != "candidate-reference" or aa_evidence is not None:
+        raise ValueError("composition qualification needs one contemporaneous two-mode capture")
     if sys.platform != "darwin":
         raise ValueError("canonical qualification requires arm64 macOS")
     protocol = evidence.load_protocol(PROTOCOL)
     env, tools = tool_environment()
     host = canonical_host()
-    reference = Path(
-        read(["git", "rev-parse", "--show-toplevel"], cwd=reference)
-    ).resolve()
+    reference = Path(read(["git", "rev-parse", "--show-toplevel"], cwd=reference)).resolve()
     controller = source_identity(ROOT)
     control = source_identity(reference, reference=True)
-    aa_receipt = (
-        validate_aa_evidence(aa_evidence, protocol, controller, host)
-        if mode == "candidate-reference"
-        else None
-    )
-    subject_root = ROOT if mode == "candidate-reference" else reference
-    subject = source_identity(subject_root, reference=mode != "candidate-reference")
+    if controller["revision"] == control["revision"]:
+        raise ValueError("candidate and reference revisions must differ")
     capture_tool = check_capture_tool(ROOT, tools["cargo"], env)
     budget = evidence.validate_budget_document(
-        BUDGET,
-        expected_reference=evidence.REFERENCE_REVISION,
-        reference_root=reference,
-    )
-    if (
-        control["hashes"]["scripts/capture-composition-performance.sh"]
-        != budget["runner_source_hash"]
-    ):
+        BUDGET, expected_reference=evidence.REFERENCE_REVISION, reference_root=reference)
+    if control["hashes"]["scripts/capture-composition-performance.sh"] != budget["runner_source_hash"]:
         raise ValueError("reference capture script provenance mismatch")
-    if mode == "candidate-reference":
-        if subject["revision"] == control["revision"]:
-            raise ValueError("candidate and reference revisions must differ")
     evidence.validate_allocation_manifest(evidence.DEFAULT_ALLOCATION_MANIFEST)
     pinned_files = [
-        PROTOCOL,
-        BUDGET,
-        evidence.DEFAULT_ALLOCATION_MANIFEST,
-        Path(__file__),
-        ROOT / "scripts/composition_performance.py",
-        ROOT / "scripts/qualify-composition-performance.sh",
+        PROTOCOL, BUDGET, evidence.DEFAULT_ALLOCATION_MANIFEST, Path(__file__),
+        ROOT / "scripts/composition_performance.py", ROOT / "scripts/qualify-composition-performance.sh",
         *(ROOT / item["source"] for item in protocol["common_workloads"]["files"].values()),
-        capture_tool,
-        *(Path(path) for path in tools.values()),
+        capture_tool, *(Path(path) for path in tools.values()),
     ]
     hashes = {str(path): evidence._sha256(path) for path in pinned_files}
     staging.parent.mkdir(parents=True, exist_ok=True)
     staging.mkdir()
-    manifest = {
-        "mode": mode,
-        "recorded_at": now(),
-        "controller": controller,
-        "subject": subject,
-        "control": control,
-        "host": host,
-        "input_hashes": hashes,
-        "aa_evidence": aa_receipt,
-        "tools": {
-            name: {"path": path, "sha256": evidence._sha256(Path(path))}
-            for name, path in tools.items()
-        },
-    }
-    write_json(staging / "inputs.json", manifest)
-    with (staging / "protocol.json").open("xb") as copied_protocol:
-        copied_protocol.write(PROTOCOL.read_bytes())
-    plan = evidence.measurement_plan(protocol, mode)
-    write_json(staging / "plan.json", plan)
     monitor = HostMonitor(staging / "telemetry", protocol)
     monitor.idle("initial", sustained=True)
-    env.update(
-        CARGO_PROFILE_BENCH_DEBUG="false",
-        CARGO_PROFILE_BENCH_LTO="false",
-        CARGO_PROFILE_BENCH_STRIP="true",
-    )
-    # Only owned build targets are temporary. Logs and failed evidence remain in staging.
-    with tempfile.TemporaryDirectory(prefix="rca-composition-v6.") as temporary:
+    env.update(CARGO_PROFILE_BENCH_DEBUG="false", CARGO_PROFILE_BENCH_LTO="false",
+               CARGO_PROFILE_BENCH_STRIP="true")
+    modes = ("candidate-reference", "reference-reference-aa")
+    # Build trees are disposable. Transcripts and failed evidence remain in staging.
+    with tempfile.TemporaryDirectory(prefix="rca-composition-v7.") as temporary:
         targets = Path(temporary)
-        identities = {"subject": subject, "control": control}
-        original_roots = {"subject": subject_root, "control": reference}
-        roots = {role: targets / f"source-{role}" for role in original_roots}
-        sources = {
-            role: stage_source(original_roots[role], identities[role], roots[role], protocol)
-            for role in roots
-        }
-        (staging / "sources").mkdir()
-        for role, receipt in sources.items():
-            write_json(staging / "sources" / f"{role}.json", receipt)
-        executables = {
-            role: benchmark(
-                roots[role], targets / role, role, staging, tools, env, monitor
-            )
-            for role in ("control", "subject")
-        }
-        lists = {}
-        for role, executable in executables.items():
-            destination = staging / "builds" / f"{role}-list.txt"
-            monitor.run([str(executable), "--list"], destination, roots[role], env)
-            lists[role] = destination.read_bytes()
-        if lists["subject"] != lists["control"]:
-            raise ValueError("subject and control benchmark inputs differ")
-        roles = (
-            {"subject": "candidate", "control": "reference"}
-            if mode == "candidate-reference"
-            else {"subject": "reference-b", "control": "reference-a"}
-        )
-        metadata = {
-            "schema_version": 1,
-            "mode": mode,
-            "method_version": protocol["method_version"],
-            "protocol_sha256": evidence.PROTOCOL_SHA256,
-            "budget_sha256": evidence.BUDGET_SHA256,
-            "allocation_manifest_sha256": evidence.ALLOCATION_MANIFEST_SHA256,
-            "seed": protocol["randomisation"]["seed"],
-            "runner": evidence.RUNNER,
-            "toolchain": evidence.TOOLCHAIN,
-            "os_version": host["identity"]["os_version"],
-            "os_build": host["identity"]["os_build"],
-            "plan_sha256": evidence._sha256(staging / "plan.json"),
-            "recorded_at": now(),
-            "subject_role": roles["subject"],
-            "control_role": roles["control"],
-            "subject_revision": subject["revision"],
-            "control_revision": control["revision"],
-            "subject_lock_sha256": subject["hashes"]["Cargo.lock"],
-            "control_lock_sha256": control["hashes"]["Cargo.lock"],
-            "qualification_script_sha256": evidence._sha256(Path(__file__)),
-            "evaluator_script_sha256": evidence._sha256(
-                ROOT / "scripts/composition_performance.py"
-            ),
-            "capture_script_sha256": controller["hashes"][
-                "scripts/capture-composition-performance.sh"
-            ],
-            "workload_sha256": sources["subject"]["effective"]["rca-core/benches/composition.rs"],
-            "zero_host_sha256": sources["subject"]["effective"]["rca-core/tests/composition_qualification/main.rs"],
-            "workload_provenance": {
-                role: {
-                    **{kind: {name: receipt[kind][name] for name in {
-                        row["workload_source"] for row in budget["rows"]}}
-                       for kind in ("original", "effective")},
-                    "adapters": receipt["adapters"],
-                    "receipt_sha256": evidence._sha256(staging / "sources" / f"{role}.json"),
-                } for role, receipt in sources.items()
-            },
-            "benchmark_list_sha256": evidence._sha256(
-                staging / "builds/subject-list.txt"
-            ),
-            **{
-                f"{role}_executable_sha256": evidence._sha256(executable)
-                for role, executable in executables.items()
-            },
-        }
-        write_json(staging / "metadata.json", metadata)
-        evidence.validate_protocol_sources(staging, metadata, protocol)
-        execute_pairs(
-            protocol,
-            roots,
-            executables,
-            targets,
-            staging / "paired",
-            tools["cargo"],
-            env,
-            monitor,
-        )
-        for role, executable in executables.items():
-            monitor.run(
-                [str(executable), "--bench"],
-                staging / "diagnostics" / f"{roles[role]}.txt",
-                roots[role],
-                env,
-            )
-        evidence.validate_protocol_diagnostics(
-            staging / "diagnostics", tuple(roles.values()), protocol
-        )
-        subject_report, control_report, comparison = evidence.evaluate_protocol_paired(
-            BUDGET,
-            protocol,
-            staging / "paired/subject",
-            staging / "paired/control",
-            staging / "plan.json",
-            evidence._load_protocol_metadata(
-                staging / "metadata.json", protocol, staging / "plan.json"
-            ),
-        )
-        reports = {
-            f"{roles['subject']}.json": subject_report,
-            f"{roles['control']}.json": control_report,
-            "comparison.json": comparison,
-        }
-        capture_env = {
-            key: value
-            for key, value in env.items()
-            if not key.startswith("CARGO_PROFILE_")
-        }
-        capture_env["CARGO_TARGET_DIR"] = str(targets / "absolute")
-        raw = staging / "absolute-raw"
-        monitor.run(
-            [
-                str(ROOT / "scripts/capture-composition-performance.sh"),
-                str(raw),
-                str(staging / "sources/subject.json"),
-            ],
-            staging / "absolute-capture.txt",
-            roots["subject"],
-            capture_env,
-        )
-        absolute = evidence.evaluate_absolute(
-            BUDGET,
-            raw,
-            subject["revision"],
-            controller["hashes"]["scripts/capture-composition-performance.sh"],
-            subject["hashes"]["Cargo.lock"],
-            timing_report=subject_report,
-        )
-        captured_environment = evidence._parse_key_values(raw / "environment.txt")
-        if (
-            captured_environment["fixture_lock_sha256"]
-            != subject["hashes"]["benches/compile/Cargo.lock"]
-        ):
-            raise ValueError("absolute fixture lockfile provenance mismatch")
-        absolute["subject_revision"] = absolute.pop("candidate_revision")
-        absolute["mode"] = mode
-        absolute["reference_only"] = mode == "reference-reference-aa"
-        for role, executable in executables.items():
-            if evidence._sha256(executable) != metadata[f"{role}_executable_sha256"]:
-                raise ValueError("benchmark executable changed during capture")
-        reports["absolute.json"] = absolute
-        for role in roots:
-            if evidence._sha256(staging / "sources" / f"{role}.json") != metadata[
-                "workload_provenance"][role]["receipt_sha256"]:
-                raise ValueError("staged composition source receipt changed")
-            validate_staged_source(staging / "sources" / f"{role}.json")
+        captures = {item: prepare_pair_capture(
+            protocol, budget, item, staging / item, targets / item, reference,
+            controller, control, host, tools, env, monitor, hashes) for item in modes}
+        write_json(staging / "capture.json", {
+            "protocol_sha256": evidence.PROTOCOL_SHA256, "controller": controller, "host": host,
+            "modes": {item: {name: evidence._sha256(staging / item / name)
+                             for name in ("inputs.json", "plan.json")} for item in modes},
+            "schedule": [{"block": block, "mode": item}
+                         for block in range(1, len(evidence.seeded_order_schedule(protocol)) + 1)
+                         for item in evidence.interleaved_mode_order(protocol, block)],
+        })
+        capture_hash = evidence._sha256(staging / "capture.json")
+        for capture in captures.values():
+            capture["metadata"]["capture_sha256"] = capture_hash
+            write_json(capture["staging"] / "metadata.json", capture["metadata"])
+            evidence.validate_protocol_sources(capture["staging"], capture["metadata"], protocol)
+        execute_interleaved_pairs(protocol, captures, tools["cargo"], env, monitor, staging)
+        passed = {}
+        for item in modes:
+            passed[item] = finish_pair_capture(captures[item], protocol, controller, env, monitor)
+            # Final source and executable hashes are complete. No later sample uses this tree.
+            shutil.rmtree(captures[item]["targets"])
+        if validate_interleaved_capture(staging, protocol) != capture_hash:
+            raise ValueError("interleaved capture manifest changed")
     check_host_unchanged(host, monitor)
-    if (
-        source_identity(ROOT) != controller
-        or source_identity(reference, reference=True) != control
-    ):
+    if source_identity(ROOT) != controller or source_identity(reference, reference=True) != control:
         raise ValueError("source or host identity changed during qualification")
     if any(evidence._sha256(Path(path)) != value for path, value in hashes.items()):
         raise ValueError("qualification input hash changed")
-    if aa_receipt and validate_aa_evidence(
-        aa_receipt["path"], protocol, controller, host
-    ) != aa_receipt:
-        raise ValueError("A/A evidence changed during qualification")
-    for name, report in reports.items():
-        write_json(staging / name, report_paths(report, staging))
-    write_json(
-        staging / "complete.json",
-        {
-            "completed_at": now(),
-            "passed": all(report.get("passed", True) for report in reports.values()),
-        },
-    )
+    if passed["reference-reference-aa"]:
+        validate_aa_evidence(staging / "reference-reference-aa", protocol, controller, host,
+                             capture=staging)
+    write_json(staging / "complete.json", {
+        "completed_at": now(), "passed": all(passed.values()),
+        "capture_sha256": capture_hash, "blocks_sha256": evidence._sha256(staging / "blocks.jsonl"),
+        "modes": {item: {name: evidence._sha256(staging / item / name)
+                         for name in AA_RECEIPT_FILES} for item in modes},
+    })
     publish(staging, output)
-    return 0 if all(report.get("passed", True) for report in reports.values()) else 1
+    return 0 if all(passed.values()) else 1
 
 
 COUNTER_PROTOCOL = ROOT / "docs/performance/composable-counter-protocol-v1.json"
@@ -2040,10 +2135,8 @@ def main():
                 return qualify_counter(output, staging)
         if not args.output or not args.reference:
             parser.error("output and reference checkout are required")
-        if args.mode == "candidate-reference" and not args.aa_evidence:
-            raise ValueError("candidate qualification requires --aa-evidence")
-        if args.mode == "reference-reference-aa" and args.aa_evidence:
-            raise ValueError("A/A qualification does not accept --aa-evidence")
+        if args.mode != "candidate-reference" or args.aa_evidence:
+            raise ValueError("composition qualification captures both modes together; external A/A evidence is not accepted")
         output, staging = output_paths(args.output)
         with machine_lock(LOCK):
             return qualify(

@@ -793,7 +793,7 @@ class PairedComparisonTests(unittest.TestCase):
         )
 
         self.assertEqual(plan["method_version"], "composition-paired-v6")
-        self.assertEqual(plan["protocol_sha256"], composition_performance.PROTOCOL_SHA256)
+        self.assertEqual(plan["protocol_sha256"], composition_performance.LEGACY_PROTOCOL_SHA256)
         self.assertEqual(len(plan["runtime"]), 20 * 9)
         self.assertEqual(len(plan["compile"]), 20 * 4)
         self.assertEqual(plan["runtime"][0]["roles"], ["candidate", "reference"])
@@ -974,16 +974,154 @@ class PairedComparisonTests(unittest.TestCase):
 
 
 
+class InterleavedProtocolTests(unittest.TestCase):
+    def protocol(self):
+        return composition_performance.load_protocol(
+            REPO_ROOT / "docs/performance/composition/composition-protocol-v7.json"
+        )
+
+    def test_single_mode_cli_cannot_certify_a_v7_capture(self):
+        from types import SimpleNamespace
+        arguments = SimpleNamespace(
+            protocol=REPO_ROOT / "docs/performance/composition/composition-protocol-v7.json",
+            metadata=pathlib.Path("detached-metadata.json"), plan=pathlib.Path("detached-plan.json"),
+        )
+        with self.assertRaisesRegex(ValueError, "combined capture"):
+            composition_performance._command_evaluate_protocol(arguments)
+
+    def test_v7_loads_without_changing_historical_budgets_or_sampling(self):
+        path = REPO_ROOT / "docs/performance/composition/composition-protocol-v7.json"
+        self.assertTrue(path.is_file(), "the frozen v7 protocol is missing")
+        current = composition_performance.load_protocol(path)
+        legacy = composition_performance.load_protocol(path.with_name("composition-protocol-v6.json"))
+        for field in ("budget_sha256", "allocation_manifest_sha256", "runner", "minimum_macos_major",
+                      "reference_revision", "randomisation", "runtime", "compile", "confidence",
+                      "resource_counters", "common_workloads"):
+            self.assertEqual(current[field], legacy[field], field)
+        self.assertEqual(current["absolute_compatibility"]["budget_rows"], 33)
+        with tempfile.TemporaryDirectory() as directory:
+            changed = pathlib.Path(directory) / "changed.json"
+            changed.write_text(path.read_text() + "\n")
+            with self.assertRaisesRegex(ValueError, "file hash"):
+                composition_performance.load_protocol(changed)
+
+    def test_each_block_contains_both_modes_with_alternating_first_mode(self):
+        order = getattr(composition_performance, "interleaved_mode_order", None)
+        self.assertTrue(callable(order), "interleaved mode ordering is missing")
+        for block in range(1, 21):
+            expected = (("reference-reference-aa", "candidate-reference") if block % 2 else
+                        ("candidate-reference", "reference-reference-aa"))
+            self.assertEqual(order(self.protocol(), block), expected)
+        for invalid in (0, 21, -1, True, 1.0, "1", None):
+            with self.subTest(block=invalid), self.assertRaises(ValueError):
+                order(self.protocol(), invalid)
+        changed = self.protocol()
+        changed["interleaving"]["odd_block_modes"].reverse()
+        with self.assertRaises(ValueError):
+            order(changed, 1)
+
+    def test_mode_plans_bind_the_same_interleaving_without_extra_observations(self):
+        protocol = self.protocol()
+        for mode in ("reference-reference-aa", "candidate-reference"):
+            plan = composition_performance.measurement_plan(protocol, mode)
+            self.assertEqual(plan.get("interleaving"), protocol["interleaving"])
+            self.assertEqual(len(plan["runtime"]), 180)
+            self.assertEqual(len(plan["compile"]), 80)
+
+    def test_busy_valid_telemetry_and_foreign_processes_are_reported_not_rejected(self):
+        sample = composition_performance.validate_quiescence_sample(
+            self.protocol(), cpu_used_percent=100.0, load_average_1m=250.0,
+            thermal_text="Note: No thermal warning level has been recorded\n"
+                         "Note: No performance warning level has been recorded\n"
+                         "Note: No CPU power status has been recorded",
+            process_snapshot="100 1 python3\n101 100 /tmp/composition-owned\n"
+                             "200 1 /usr/bin/cargo\n201 1 /usr/bin/swiftc\n",
+            own_pid=100,
+        )
+        self.assertTrue(sample["passed"])
+        self.assertEqual(sample["cpu_used_percent"], 100.0)
+        self.assertEqual(sample["load_average_1m"], 250.0)
+        self.assertEqual([row["pid"] for row in sample["competing_processes"]], [200, 201])
+
+    def test_telemetry_still_rejects_invalid_values_warning_history_and_process_rows(self):
+        sample = dict(cpu_used_percent=0, load_average_1m=0,
+                      thermal_text="Note: No thermal warning level has been recorded\n"
+                                   "Note: No performance warning level has been recorded\n"
+                                   "Note: No CPU power status has been recorded",
+                      process_snapshot="100 1 python3", own_pid=100)
+        for field, invalid in (("cpu_used_percent", True), ("cpu_used_percent", -1),
+                               ("cpu_used_percent", 100.1), ("cpu_used_percent", float("nan")),
+                               ("load_average_1m", -1), ("load_average_1m", float("inf")),
+                               ("thermal_text", "warning"), ("process_snapshot", "not a process")):
+            with self.subTest(field=field, invalid=invalid), self.assertRaises(ValueError):
+                composition_performance.validate_quiescence_sample(
+                    self.protocol(), **{**sample, field: invalid})
+
+    def test_v7_rejects_foreign_measurements_but_excludes_own_benchmark_descendants(self):
+        sample = dict(cpu_used_percent=75, load_average_1m=25,
+                      thermal_text="Note: No thermal warning level has been recorded\n"
+                                   "Note: No performance warning level has been recorded\n"
+                                   "Note: No CPU power status has been recorded",
+                      own_pid=100)
+        owned = ("100 1 python3\n101 100 /tmp/composition-owned\n"
+                 "102 101 /tmp/qualification-owned\n200 1 /usr/bin/cargo\n")
+        result = composition_performance.validate_quiescence_sample(
+            self.protocol(), **sample, process_snapshot=owned)
+        self.assertEqual([row["pid"] for row in result["competing_processes"]], [200])
+        for name in ("composition-other", "qualification-other"):
+            with self.subTest(name=name), self.assertRaisesRegex(ValueError, "measurement"):
+                composition_performance.validate_quiescence_sample(
+                    self.protocol(), **sample,
+                    process_snapshot=owned + f"300 1 /tmp/{name}\n")
+
+    def test_process_reporter_adds_qualification_prefix_only_when_requested(self):
+        snapshot = "100 1 python3\n200 1 /tmp/composition-other\n201 1 /tmp/qualification-other\n"
+        self.assertEqual(
+            [row["pid"] for row in composition_performance.find_competing_processes(snapshot, 100)],
+            [200],
+        )
+        rows = composition_performance.find_competing_processes(
+            snapshot, 100, process_prefixes=("composition-", "qualification-"))
+        self.assertEqual([row["pid"] for row in rows], [200, 201])
+
+    def test_v7_evaluation_requires_capture_identity_and_retains_fourteen_gates(self):
+        budget = REPO_ROOT / "docs/performance/composition/composition-budgets.json"
+        protocol = self.protocol()
+        metadata = dict(mode="candidate-reference", subject_role="candidate", control_role="reference",
+                        subject_revision="1" * 40, control_revision=composition_performance.REFERENCE_REVISION,
+                        os_version="27.0", os_build="26A428")
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            subject, control, plan = PairedComparisonTests()._write_protocol_pair_fixture(
+                root, protocol, "candidate-reference")
+            for bad in (None, "", "bad", "g" * 64, True, int("1" * 64)):
+                with self.subTest(capture_sha256=bad), self.assertRaisesRegex(ValueError, "capture"):
+                    composition_performance.evaluate_protocol_paired(
+                        budget, protocol, subject, control, plan, {**metadata, "capture_sha256": bad})
+            reports = composition_performance.evaluate_protocol_paired(
+                budget, protocol, subject, control, plan, {**metadata, "capture_sha256": "a" * 64})
+        self.assertEqual(len(reports[2]["rows"]), 14)
+        self.assertTrue(reports[2]["passed"])
+        self.assertEqual(reports[2]["metadata"]["capture_sha256"], "a" * 64)
+        self.assertEqual(reports[2]["method_version"], "composition-paired-v7")
+
+
 class AbsoluteBudgetTests(unittest.TestCase):
     def test_current_absolute_uses_isolated_reference_arm_not_historical_timings(self):
+        self.assert_current_absolute("v6")
+
+    def test_v7_absolute_preserves_all_thirty_three_rows_and_twenty_observations(self):
+        self.assert_current_absolute("v7")
+
+    def assert_current_absolute(self, version):
         budget = REPO_ROOT / "docs/performance/composition/composition-budgets.json"
-        protocol = composition_performance.load_protocol(REPO_ROOT / "docs/performance/composition/composition-protocol-v6.json")
+        protocol = composition_performance.load_protocol(REPO_ROOT / f"docs/performance/composition/composition-protocol-{version}.json")
         with tempfile.TemporaryDirectory() as directory:
             root = pathlib.Path(directory)
             subject, control, plan = PairedComparisonTests()._write_protocol_pair_fixture(root, protocol, "reference-reference-aa")
             report, _, _ = composition_performance.evaluate_protocol_paired(
                 budget, protocol, subject, control, plan,
-                {"mode": "reference-reference-aa", "subject_role": "reference-b", "control_role": "reference-a", "subject_revision": composition_performance.REFERENCE_REVISION, "control_revision": composition_performance.REFERENCE_REVISION, "os_version": "27.0", "os_build": "26A428"},
+                {"mode": "reference-reference-aa", "subject_role": "reference-b", "control_role": "reference-a", "subject_revision": composition_performance.REFERENCE_REVISION, "control_revision": composition_performance.REFERENCE_REVISION, "os_version": "27.0", "os_build": "26A428", "capture_sha256": "a" * 64},
             )
             raw = root / "raw"
             raw.mkdir()
@@ -1001,7 +1139,7 @@ class AbsoluteBudgetTests(unittest.TestCase):
             absolute = composition_performance.evaluate_absolute(budget, raw, composition_performance.REFERENCE_REVISION, timing_report=report)
             timing = [row for row in absolute["rows"] if row["scenario"].startswith(("runtime/", "compile/"))]
             self.assertEqual(len(absolute["rows"]), 33)
-            self.assertEqual(absolute["timing_method"], "composition-paired-v6-subject-arm")
+            self.assertEqual(absolute["timing_method"], f"composition-paired-{version}-subject-arm")
             self.assertEqual(len(timing), 14)
             self.assertTrue(all(len(row["process_values"]) == 20 for row in timing))
             direct = next(row for row in timing if row["scenario"] == "runtime/direct/1")
@@ -1271,7 +1409,7 @@ CPU usage: 10.0% user, 4.0% sys, 86.0% idle
 
         self.assertEqual(result.returncode, 0, result.stderr)
         plan = json.loads(result.stdout)
-        self.assertEqual(plan["protocol_sha256"], composition_performance.PROTOCOL_SHA256)
+        self.assertEqual(plan["protocol_sha256"], composition_performance.LEGACY_PROTOCOL_SHA256)
         self.assertEqual(len(plan["runtime"]), 180)
 
     def test_time_cli_writes_machine_readable_counters(self):

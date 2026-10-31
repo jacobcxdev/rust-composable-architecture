@@ -54,7 +54,9 @@ jobs:
                   PYTHONDONTWRITEBYTECODE: 1
               run: |
                   python3 -m unittest scripts.tests.test_performance_cohort scripts.tests.test_performance_sources
-                  python3 -m unittest scripts.tests.test_composition_performance.ProtocolEvidenceTests scripts.tests.test_composition_performance.AbsoluteBudgetTests
+                  python3 -m unittest scripts.tests.test_windows_performance scripts.tests.test_native_performance_comparison
+                  python3 -m unittest scripts.tests.test_composition_performance.ProtocolEvidenceTests scripts.tests.test_composition_performance.AbsoluteBudgetTests scripts.tests.test_composition_performance.InterleavedProtocolTests
+                  python3 -m unittest scripts.tests.test_composition_runner.RunnerTests -k interleaved -k recorded_load -k busy_monitor -k prepared_modes -k candidate_cli -k absolute_capture
 
             - name: Lint all targets and features
               run: cargo clippy --workspace --all-targets --all-features -- -D warnings

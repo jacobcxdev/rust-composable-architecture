@@ -727,8 +727,8 @@ class RunnerTests(unittest.TestCase):
 
     def test_absolute_capture_uses_controller_fix_on_reference_sources(self):
         source = Path(runner.__file__).read_text()
-        start = source.index("        capture_env = {")
-        end = source.index("        captured_environment =", start)
+        start = source.index("    capture_env = {")
+        end = source.index("    captured_environment =", start)
         monitor = Mock()
         evidence = Mock()
         context = {
@@ -754,7 +754,7 @@ class RunnerTests(unittest.TestCase):
         self.assertEqual(monitor.run.call_args.args[2], Path("/reference"))
         self.assertEqual(evidence.evaluate_absolute.call_args.args[3], "corrected")
 
-    def test_candidate_cli_requires_passing_aa_evidence(self):
+    def test_candidate_cli_captures_its_own_contemporaneous_control(self):
         with (
             patch.object(
                 sys, "argv", ["runner", "--mode", "candidate-reference", "output", "reference"]
@@ -765,11 +765,23 @@ class RunnerTests(unittest.TestCase):
             patch.object(runner, "machine_lock", return_value=nullcontext()),
             patch.object(runner, "qualify", return_value=0) as qualify,
         ):
+            self.assertEqual(runner.main(), 0)
+            qualify.assert_called_once()
+
+    def test_candidate_cli_rejects_external_control_receipts(self):
+        with (
+            patch.object(sys, "argv", ["runner", "--mode", "candidate-reference",
+                                      "--aa-evidence", "old-aa", "output", "reference"]),
+            patch.object(runner, "output_paths", return_value=(Path("/tmp/output"), Path("/tmp/staging"))),
+            patch.object(runner, "machine_lock", return_value=nullcontext()),
+            patch.object(runner, "qualify") as qualify,
+        ):
             self.assertEqual(runner.main(), 1)
             qualify.assert_not_called()
 
     def test_candidate_accepts_only_passing_same_protocol_aa_receipt(self):
-        protocol = evaluator.load_protocol(runner.PROTOCOL)
+        protocol_path = runner.ROOT / "docs/performance/composition/composition-protocol-v6.json"
+        protocol = evaluator.load_protocol(protocol_path)
         controller = {"revision": "1" * 40}
         host = {
             "identity": {
@@ -782,7 +794,7 @@ class RunnerTests(unittest.TestCase):
             with patch.object(runner, "EVIDENCE_ROOT", Path(tmp)):
                 directory = Path(tmp) / "aa"
                 directory.mkdir()
-                (directory / "protocol.json").write_bytes(runner.PROTOCOL.read_bytes())
+                (directory / "protocol.json").write_bytes(protocol_path.read_bytes())
                 runner.write_json(
                     directory / "plan.json",
                     evaluator.measurement_plan(protocol, "reference-reference-aa"),
@@ -792,7 +804,7 @@ class RunnerTests(unittest.TestCase):
                     "schema_version": 1,
                     "mode": "reference-reference-aa",
                     "method_version": protocol["method_version"],
-                    "protocol_sha256": evaluator.PROTOCOL_SHA256,
+                    "protocol_sha256": evaluator.LEGACY_PROTOCOL_SHA256,
                     "budget_sha256": evaluator.BUDGET_SHA256,
                     "allocation_manifest_sha256": evaluator.ALLOCATION_MANIFEST_SHA256,
                     "seed": protocol["randomisation"]["seed"],
@@ -909,7 +921,7 @@ class RunnerTests(unittest.TestCase):
                     diagnostics.assert_called_once()
                     absolute.assert_called_once()
                     self.assertEqual(
-                        receipt["sha256"]["protocol.json"], evaluator.PROTOCOL_SHA256
+                        receipt["sha256"]["protocol.json"], evaluator.LEGACY_PROTOCOL_SHA256
                     )
                     source_path = directory / "sources/subject.json"
                     original_source = source_path.read_text()
@@ -922,7 +934,7 @@ class RunnerTests(unittest.TestCase):
                     )
                     with self.assertRaisesRegex(ValueError, "A/A evidence protocol hash"):
                         runner.validate_aa_evidence(directory, protocol, controller, host)
-                    (directory / "protocol.json").write_bytes(runner.PROTOCOL.read_bytes())
+                    (directory / "protocol.json").write_bytes(protocol_path.read_bytes())
                     for field, changed in (("os_version", "28.0"), ("os_build", "26A429")):
                         with self.subTest(metadata_field=field):
                             altered = {**metadata, field: changed}
@@ -1256,6 +1268,217 @@ class RunnerTests(unittest.TestCase):
             ) as sample:
                 monitor.idle("initial", sustained=True)
             self.assertEqual(sample.call_count, 5)
+
+    def test_recorded_load_policy_samples_once_without_waiting_or_retry(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            monitor = runner.HostMonitor(Path(tmp), {"quiescence": {
+                "admission": "recorded-background-load", "consecutive_samples": 7,
+                "timeout_seconds": 300, "sample_interval_seconds": 5,
+            }})
+            with patch.object(monitor, "sample", return_value={}) as sample, patch.object(
+                runner.time, "sleep", side_effect=AssertionError("background-load wait")
+            ):
+                monitor.idle("initial", sustained=True)
+            self.assertEqual(sample.call_count, 1)
+            with patch.object(monitor, "sample", side_effect=ValueError("invalid telemetry")) as sample:
+                with self.assertRaisesRegex(ValueError, "invalid telemetry"):
+                    monitor.idle("initial", sustained=True)
+            self.assertEqual(sample.call_count, 1)
+
+    def test_busy_monitor_records_actual_load_and_foreign_compiler(self):
+        protocol = evaluator.load_protocol(runner.PROTOCOL)
+        thermal = "\n".join(("Note: No thermal warning level has been recorded",
+                             "Note: No performance warning level has been recorded",
+                             "Note: No CPU power status has been recorded"))
+        replies = {"ps": f"{os.getpid()} 1 python\n999999 1 /usr/bin/swiftc",
+                   "sysctl": "{ 25.0 20.0 15.0 }", "top": "CPU usage: 5% idle\nCPU usage: 2% idle",
+                   "/usr/bin/osascript": "0"}
+
+        def probe(command, **_kwargs):
+            if command[0] == "pmset":
+                return thermal if command[-1] == "therm" else "Now drawing from 'AC Power'"
+            return replies[command[0]]
+
+        with tempfile.TemporaryDirectory() as tmp, patch.object(runner, "read", side_effect=probe):
+            monitor = runner.HostMonitor(Path(tmp), protocol)
+            sample = monitor.sample("before")
+            self.assertEqual(sample["cpu_used_percent"], 98.0)
+            self.assertEqual(sample["load_average_1m"], 25.0)
+            self.assertEqual(sample["competing_processes"][0]["command"], "/usr/bin/swiftc")
+            active = monitor.sample("during", active=True)
+            self.assertIsNone(active["cpu_used_percent"])
+            self.assertEqual(active["load_average_1m"], 25.0)
+
+    def test_interleaved_capture_keeps_twenty_blocks_per_mode_in_fixed_order(self):
+        protocol = evaluator.load_protocol(runner.PROTOCOL)
+        protocol["runtime"]["gated_scenarios"] = []
+        protocol["compile"]["fixtures"] = ["direct"]
+        calls = []
+
+        class Monitor:
+            def idle(self, *args, **kwargs):
+                pass
+
+            def run(self, command, destination, cwd, env, timed=True):
+                calls.append((destination, env["CARGO_TARGET_DIR"]))
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                destination.write_text("completed compile transcript")
+                destination.with_suffix(".resources.json").write_text("{}")
+
+        with tempfile.TemporaryDirectory() as tmp, patch.object(
+            evaluator, "seeded_order_schedule", return_value=["subject-control"] * 20
+        ):
+            directory = Path(tmp)
+            (directory / "capture.json").write_text("frozen capture")
+            captures = {mode: {"roots": {"subject": directory, "control": directory},
+                              "executables": {}, "targets": directory / mode / "targets",
+                              "paired": directory / mode / "paired"}
+                        for mode in ("candidate-reference", "reference-reference-aa")}
+            runner.execute_interleaved_pairs(protocol, captures, "/cargo", {}, Monitor(), directory)
+            events = [json.loads(line) for line in (directory / "blocks.jsonl").read_text().splitlines()]
+            expected = [(block, mode, phase) for block in range(1, 21)
+                        for mode in (("reference-reference-aa", "candidate-reference") if block % 2 else
+                                     ("candidate-reference", "reference-reference-aa"))
+                        for phase in ("start", "finish")]
+            self.assertEqual([(row["block"], row["mode"], row["phase"]) for row in events], expected)
+            self.assertEqual(len(calls), 80)
+            self.assertEqual(len({target for _, target in calls}), 80)
+            self.assertEqual(len({row["capture_sha256"] for row in events}), 1)
+            self.assertEqual(len(events[1]["sha256"]), 4)
+            for name, digest in events[1]["sha256"].items():
+                self.assertEqual(digest, evaluator._sha256(directory / name))
+
+    def test_interleaved_control_rejects_detached_binding_order_and_missing_blocks(self):
+        protocol = evaluator.load_protocol(runner.PROTOCOL)
+        protocol["runtime"]["gated_scenarios"] = []
+        protocol["compile"]["fixtures"] = ["direct"]
+        modes = ("candidate-reference", "reference-reference-aa")
+        with tempfile.TemporaryDirectory() as tmp:
+            directory = Path(tmp)
+            manifest = {"protocol_sha256": evaluator.PROTOCOL_SHA256,
+                        "controller": {"revision": "1" * 40}, "host": {"identity": "host"},
+                        "modes": {}, "schedule": []}
+            for mode in modes:
+                arm = directory / mode
+                arm.mkdir()
+                runner.write_json(arm / "inputs.json", {"mode": mode, "controller": manifest["controller"],
+                                                        "host": manifest["host"]})
+                runner.write_json(arm / "plan.json", evaluator.measurement_plan(protocol, mode))
+                manifest["modes"][mode] = {name: evaluator._sha256(arm / name)
+                                            for name in ("inputs.json", "plan.json")}
+            manifest["schedule"] = [{"block": block, "mode": mode} for block in range(1, 21)
+                                    for mode in ((modes[1], modes[0]) if block % 2 else modes)]
+            runner.write_json(directory / "capture.json", manifest)
+            digest = evaluator._sha256(directory / "capture.json")
+            for mode in modes:
+                runner.write_json(directory / mode / "metadata.json", {"capture_sha256": digest})
+            rows = [{**item, "capture_sha256": digest, "phase": phase, "recorded_at": "2026-10-30T23:00:00Z",
+                     "monotonic": float(index)}
+                    for index, (item, phase) in enumerate((item, phase) for item in manifest["schedule"]
+                                                          for phase in ("start", "finish"))]
+            for row in rows:
+                if row["phase"] == "finish":
+                    hashes = {}
+                    for role in ("subject", "control"):
+                        for suffix in (".txt", ".resources.json"):
+                            name = Path(row["mode"]) / "paired" / role / "compile/direct" / f"block-{row['block']:02d}{suffix}"
+                            (directory / name).parent.mkdir(parents=True, exist_ok=True)
+                            (directory / name).write_text("measured output")
+                            hashes[str(name)] = evaluator._sha256(directory / name)
+                    row["sha256"] = hashes
+            raw = "".join(json.dumps(row) + "\n" for row in rows)
+            (directory / "blocks.jsonl").write_text(raw)
+            self.assertEqual(runner.validate_interleaved_capture(directory, protocol), digest)
+            for bad in (rows[:-1], rows[:2] + rows[4:6] + rows[2:4] + rows[6:],
+                        [{**row, "capture_sha256": "0" * 64} for row in rows],
+                        [[]] + rows[1:], [{**rows[0], "block": True}] + rows[1:],
+                        [{**rows[0], "monotonic": float("nan")}] + rows[1:]):
+                (directory / "blocks.jsonl").write_text("".join(json.dumps(row) + "\n" for row in bad))
+                with self.assertRaises(ValueError):
+                    runner.validate_interleaved_capture(directory, protocol)
+            (directory / "blocks.jsonl").write_text(raw)
+            sample = directory / modes[1] / "paired/subject/compile/direct/block-01.txt"
+            sample.write_text("old capture substituted")
+            with self.assertRaisesRegex(ValueError, "bytes changed"):
+                runner.validate_interleaved_capture(directory, protocol)
+            sample.write_text("measured output")
+            (directory / modes[1] / "metadata.json").write_text(json.dumps({"capture_sha256": "0" * 64}))
+            with self.assertRaisesRegex(ValueError, "capture binding"):
+                runner.validate_interleaved_capture(directory, protocol)
+
+    def test_failed_interleaved_measurement_stops_without_retry_and_retains_evidence(self):
+        protocol = evaluator.load_protocol(runner.PROTOCOL)
+        protocol["runtime"]["gated_scenarios"] = []
+        protocol["compile"]["fixtures"] = ["direct"]
+        calls = []
+
+        class Monitor:
+            def idle(self, *_args, **_kwargs):
+                pass
+
+            def run(self, command, destination, _cwd, _env):
+                calls.append(destination)
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                destination.write_text("failed measurement")
+                raise subprocess.CalledProcessError(1, command)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            directory = Path(tmp)
+            (directory / "capture.json").write_text("frozen capture")
+            captures = {mode: {"roots": {"subject": directory, "control": directory},
+                              "executables": {}, "targets": directory / mode / "targets",
+                              "paired": directory / mode / "paired"}
+                        for mode in ("candidate-reference", "reference-reference-aa")}
+            with self.assertRaises(subprocess.CalledProcessError):
+                runner.execute_interleaved_pairs(protocol, captures, "/cargo", {}, Monitor(), directory)
+            self.assertEqual(len(calls), 1)
+            self.assertEqual(calls[0].read_text(), "failed measurement")
+            events = [json.loads(line) for line in (directory / "blocks.jsonl").read_text().splitlines()]
+            self.assertEqual([(row["block"], row["mode"], row["phase"]) for row in events],
+                             [(1, "reference-reference-aa", "start")])
+
+    def test_prepared_modes_keep_independent_builds_and_exact_source_provenance(self):
+        protocol = evaluator.load_protocol(runner.PROTOCOL)
+        budget = evaluator.validate_budget_document(runner.BUDGET)
+        original = {row["workload_source"]: row["workload_source_hash"] for row in budget["rows"]}
+        effective = {**original, **{name: row["sha256"] for name, row in protocol["common_workloads"]["files"].items()}}
+        hashes = {name: "0" * 64 for name in ("Cargo.lock", "benches/compile/Cargo.lock",
+                                               "scripts/capture-composition-performance.sh")}
+        controller = {"revision": "1" * 40, "hashes": hashes}
+        control = {"revision": evaluator.REFERENCE_REVISION, "hashes": hashes}
+        host = {"identity": {"os_version": "27.0", "os_build": "26A428"}}
+
+        def stage(_source, identity, destination, _protocol):
+            destination.mkdir()
+            return {"root": str(destination), "revision": identity["revision"], "tree": "2" * 40,
+                    "original": original, "effective": effective, "adapters": []}
+
+        def build(_root, target, _role, _staging, _tools, _env, _monitor):
+            target.mkdir()
+            executable = target / "composition"
+            executable.write_text("independent build")
+            return executable
+
+        class Monitor:
+            def run(self, _command, destination, _cwd, _env):
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                destination.write_text("same benchmark list")
+
+        with tempfile.TemporaryDirectory() as tmp, patch.object(runner, "stage_source", side_effect=stage), \
+                patch.object(runner, "benchmark", side_effect=build):
+            root = Path(tmp)
+            (root / "targets").mkdir()
+            captures = [runner.prepare_pair_capture(
+                protocol, budget, mode, root / mode, root / "targets" / mode, root / "reference",
+                controller, control, host, {"cargo": "/usr/bin/true"}, {}, Monitor(), {})
+                for mode in ("candidate-reference", "reference-reference-aa")]
+            self.assertEqual(len({path for item in captures for path in item["executables"].values()}), 4)
+            self.assertEqual([item["metadata"]["subject_revision"] for item in captures],
+                             ["1" * 40, evaluator.REFERENCE_REVISION])
+            for item in captures:
+                self.assertEqual(item["metadata"]["control_revision"], evaluator.REFERENCE_REVISION)
+                self.assertEqual(item["metadata"]["workload_provenance"]["subject"]["original"], original)
+                self.assertEqual(item["metadata"]["plan_sha256"], evaluator._sha256(item["staging"] / "plan.json"))
 
     def test_pair_execution_uses_exact_filters_seed_and_unique_clean_targets(self):
         protocol = evaluator.load_protocol(
