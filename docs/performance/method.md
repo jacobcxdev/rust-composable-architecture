@@ -193,11 +193,25 @@ No Windows value is compared with a Mac value.
 
 Release review names the native host selected for the relative gates.
 When Windows is selected, its complete pair supplies latency, throughput, CPU cycles, polls, allocation and Windows memory acceptance.
-The supporting Mac record must include retired instructions for all fifty scenarios, both contention profiles and the asynchronous-effect DHAT profile.
-It also retains the clean-target compile, stripped sizes, idle Store RSS and Divan results.
-Each reused record needs an applicable source, dependency, configuration and toolchain identity.
+The selected host must also supply the supporting measurements.
+On Windows, `scripts/capture_windows_support.py` captures the clean-target compile,
+stripped PE sizes, live idle working set, five Divan suites and asynchronous-effect DHAT profile.
+Qualification also requires two WPR contention traces with retained CPU-sample analysis.
+Missing profiles leave qualification incomplete.
+
+Run the support capture inside the reviewed Windows memory guard.
+Every child job retains the two-GiB limit.
+
+Windows native CPU evidence uses process cycles and sampled CPU profiles.
+Retired instructions remain `null`: neither cycles nor profile samples are instruction counts.
+Retired instructions are supporting measurements, not a numerical gate in the comparator.
+This Windows route removes the need for a separate Mac capture without changing any
+of the fifty scenarios, samples or numerical regression limits.
+Each reused record still needs an applicable source, dependency, configuration and toolchain identity.
 Any failed Mac timing observation remains explicit, with its review disposition and limits.
 Composition retains its separate platform-specific absolute and relative gates.
+Windows completion requires the [complete composition policy](composition/composition-windows-complete-v1.json),
+not a paired-only capture.
 
 ## Measurements
 
@@ -238,8 +252,11 @@ Every Mac qualification records:
 - Time Profiler trace for saturated eight-producer contention; and
 - DHAT heap profile for asynchronous effect completion.
 
-Windows qualification retains the applicable Mac profiles listed above.
-Its normal latency measurements do not run under Instruments or DHAT.
+Windows qualification records the same two contention workloads with WPR and
+retains the asynchronous-effect DHAT profile. Review must confirm CPU samples
+belong to the measured process, not unrelated host activity. Keep the trace,
+analysis, exact command, binary hash and collector result together.
+Normal latency measurements do not run under Instruments, WPR or DHAT.
 Fresh CPU Profiler captures can supplement the retained Time Profiler traces.
 They do not replace uninstrumented latency evidence.
 

@@ -162,6 +162,35 @@ Runtime calls require natural descendant exit and include that wait in elapsed t
 CPU cycles, CPU time and memory counters cover only the direct process. They are kept as raw
 diagnostics, not treated as compiler-child totals or instruction counts.
 
+## Complete Windows qualification
+
+The [complete Windows policy](composition-windows-complete-v1.json) adds native
+absolute measurements to the paired protocol above. It does not change that
+protocol or claim that Windows measurements satisfy Mac limits.
+
+```powershell
+python scripts/composition_runner.py --platform windows --windows-complete <capture-output> <pinned-reference-worktree>
+```
+
+Both paired modes and all 33 native absolute gates must pass. The thirteen
+allocation limits keep their original values, including three exact-zero contracts.
+The capture runs all forty-seven allocation workloads and both exact zero-test hosts.
+
+Timing and binary sizes need native reference values. The runner uses all twenty
+reference-b observations from the same A/A capture to set each timing limit.
+Maximum limits are the reference median times 1.10. The throughput minimum is the
+reference median divided by 1.10. Each of the six size limits is the freshly built,
+stripped reference PE size times 1.10, rounded up. Candidate values never set limits.
+The runner seals these reference-only limits before evaluating the candidate.
+
+The capture retains the policy, reference observations, derived limits and both
+absolute reports with their hashes. Mac protocols, limits and failed observations
+remain unchanged. The Windows result explicitly states `mac_absolute_qualified: false`.
+
+Complete mode permits pinned `cargo build` and `cargo test --no-run` calls to use
+the same checked compiler-telemetry cleanup as the paired builds. Tests execute
+separately and must exit naturally. All process memory limits remain unchanged.
+
 The retained [v7 protocol](composition-protocol-v7.json) describes historical
 Rust 1.98 measurements. Current commands use Rust 1.99. The old protocol and its
 evidence remain unchanged; they do not qualify the new toolchain.

@@ -56,6 +56,8 @@ class WindowsRunnerTests(unittest.TestCase):
     def test_runtime_and_unpinned_cargo_never_enable_telemetry_cleanup(self):
         for command in (["C:/runtime.exe"], ["C:/other/cargo.exe", "check"],
                         ["C:/pinned/cargo.exe", "run"], ["C:/pinned/cargo.exe", "bench"],
+                        ["C:/other/cargo.exe", "build"], ["C:/pinned/cargo.exe", "test"],
+                        ["C:/pinned/cargo.exe", "test", "--", "--no-run"],
                         ["C:/pinned/cargo.exe", "bench", "--", "--no-run"]):
             with self.subTest(command=command), tempfile.TemporaryDirectory() as tmp:
                 root = Path(tmp)
@@ -69,6 +71,23 @@ class WindowsRunnerTests(unittest.TestCase):
                 resource = json.loads(destination.with_suffix(".resources.json").read_text())
                 self.assertEqual(resource["real_seconds"], 2.5)
                 self.assertEqual(resource["process_receipt"]["command_kind"], "runtime")
+
+    def test_build_and_test_compile_keep_the_pinned_telemetry_cleanup(self):
+        for arguments in (["build", "--release"], ["test", "--no-run"]):
+            with self.subTest(arguments=arguments), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                execute = Mock(return_value=self.process_result(compiler=True, terminated=True))
+                protocol = {"process_timeout_seconds": 1800, "process_memory_limit_bytes": 2147483648,
+                            "compiler_telemetry": evidence.WINDOWS_COMPILER_TELEMETRY}
+                monitor = runner.WindowsMonitor(root / "telemetry", protocol, cargo="C:/pinned/cargo.exe",
+                                                provider=object(), run_process=execute, complete=True)
+                destination = root / "build.txt"
+                with patch.object(runner, "check_windows_compiler_telemetry", return_value=protocol["compiler_telemetry"]):
+                    monitor.run(["C:/pinned/cargo.exe", *arguments], destination, root, {})
+                resource = json.loads(destination.with_suffix(".resources.json").read_text())
+                self.assertEqual(resource["real_seconds"], 2.0)
+                self.assertEqual(resource["process_receipt"]["command_kind"], "compile")
+                self.assertEqual(execute.call_args.kwargs["compiler_telemetry_path"], protocol["compiler_telemetry"]["path"])
 
     def test_benchmark_build_checks_telemetry_identity_before_and_after_compile(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -34,6 +34,7 @@ ROOT = Path(__file__).resolve().parents[1]
 PROTOCOL = ROOT / "docs/performance/composition/composition-protocol-v7.json"
 CURRENT_PROTOCOL = ROOT / "docs/performance/composition/composition-protocol-v8.json"
 WINDOWS_PROTOCOL = ROOT / "docs/performance/composition/composition-windows-paired-v1.json"
+WINDOWS_COMPLETE_POLICY = ROOT / "docs/performance/composition/composition-windows-complete-v1.json"
 BUDGET = ROOT / "docs/performance/composition/composition-budgets.json"
 EVIDENCE_ROOT = ROOT / "target/qualification-evidence/0.1.0/composition"
 LOCK = Path("/tmp/rca-composition-performance.machine.lock")
@@ -55,10 +56,20 @@ def protocol_path(protocol):
     return CURRENT_PROTOCOL if protocol["method_version"] == "composition-paired-v8" else PROTOCOL
 
 
-def receipt_files(protocol):
+def receipt_files(protocol, *, windows_complete=False):
     """Windows paired evidence cannot include a Darwin absolute-gate result."""
-    return tuple(name for name in AA_RECEIPT_FILES
-                 if name != "absolute.json" or not evidence.is_windows_protocol(protocol))
+    files = tuple(name for name in AA_RECEIPT_FILES
+                  if name != "absolute.json" or not evidence.is_windows_protocol(protocol))
+    return (*files, "absolute-windows.json") if windows_complete else files
+
+
+def windows_objcopy(tools):
+    """Use only the LLVM strip tool shipped with the pinned Windows compiler."""
+    sysroot = Path(read([tools["rustc"], "--print", "sysroot"]))
+    tool = sysroot / "lib/rustlib/x86_64-pc-windows-msvc/bin/llvm-objcopy.exe"
+    if not sysroot.is_absolute() or tool.is_symlink() or not tool.is_file():
+        raise ValueError("pinned Windows llvm-objcopy is missing")
+    return str(tool)
 
 
 def windows_provider():
@@ -239,7 +250,8 @@ def output_paths(value):
     return output, staging
 
 
-def validate_aa_evidence(value, protocol, controller, host, *, capture=None):
+def validate_aa_evidence(value, protocol, controller, host, *, capture=None,
+                         windows_complete=None):
     path = Path(value).absolute().resolve()
     windows = evidence.is_windows_protocol(protocol)
     if (protocol["method_version"] in ("composition-paired-v7", "composition-paired-v8") or windows) and capture is None:
@@ -257,7 +269,7 @@ def validate_aa_evidence(value, protocol, controller, host, *, capture=None):
     try:
         receipts = {
             name: json.loads((path / name).read_text(encoding="utf-8"))
-            for name in receipt_files(protocol)
+            for name in receipt_files(protocol, windows_complete=windows_complete is not None)
             if name != "protocol.json"
         }
     except (OSError, json.JSONDecodeError) as error:
@@ -320,7 +332,8 @@ def validate_aa_evidence(value, protocol, controller, host, *, capture=None):
     ):
         raise ValueError("A/A evidence does not prove passing same-host reference gates")
     if windows:
-        if (complete.get("qualification_scope") != "windows-paired-only"
+        expected_scope = "windows-complete" if windows_complete is not None else "windows-paired-only"
+        if (complete.get("qualification_scope") != expected_scope
                 or complete.get("mac_absolute_qualified") is not False
                 or (path / "absolute.json").exists() or (path / "absolute-raw").exists()):
             raise ValueError("Windows A/A evidence cannot certify Darwin absolute gates")
@@ -348,8 +361,27 @@ def validate_aa_evidence(value, protocol, controller, host, *, capture=None):
         metadata.get("memory_watchdog_sha256"),
     )
     if windows:
+        if windows_complete is not None:
+            import composition_windows_complete as complete_evidence
+            baseline_path = capture / "Windows-reference-baseline.json"
+            if (baseline_path.is_symlink()
+                    or evidence._sha256(baseline_path) != complete.get("windows_reference_baseline_sha256")
+                    or evidence._sha256(path / "absolute-windows.json") != complete.get("absolute_windows_sha256")):
+                raise ValueError("Windows A/A baseline or report hash differs")
+            baseline = json.loads(baseline_path.read_text(encoding="utf-8"))
+            raw = json.loads((path / "absolute-windows-raw/observation.json").read_text(encoding="utf-8"))
+            expected_baseline = complete_evidence.seal_reference(
+                windows_complete, BUDGET, subject_report, raw)
+            if baseline != expected_baseline:
+                raise ValueError("Windows A/A baseline disagrees with raw measurements")
+            checked = complete_evidence.evaluate(windows_complete, BUDGET, subject_report, raw, baseline)
+            if not checked["passed"] or report_paths(checked, path) != receipts["absolute-windows.json"]:
+                raise ValueError("Windows A/A absolute gates disagree with raw measurements")
         return {"path": str(path),
-                "sha256": {name: evidence._sha256(path / name) for name in receipt_files(protocol)}}
+                "sha256": {name: evidence._sha256(path / name) for name in
+                           receipt_files(protocol, windows_complete=windows_complete is not None)},
+                **({"windows_reference_baseline_sha256": evidence._sha256(baseline_path)}
+                   if windows_complete is not None else {})}
     checked_absolute = evidence.evaluate_absolute(
         BUDGET,
         path / "absolute-raw",
@@ -762,13 +794,15 @@ def check_windows_compiler_telemetry(protocol):
 class WindowsMonitor(HostMonitor):
     """Record owned process trees without rejecting background desktop load."""
 
-    def __init__(self, directory, protocol, *, cargo=None, provider=None, run_process=None):
+    def __init__(self, directory, protocol, *, cargo=None, provider=None, run_process=None,
+                 complete=False):
         super().__init__(directory, protocol)
         if run_process is None:
             from windows_process import run_process
         self.run_process = run_process
         self.provider = windows_provider().WindowsCounters() if provider is None else provider
         self.cargo = cargo
+        self.complete = complete
 
     def idle(self, phase, sustained=False):
         self.event("telemetry.jsonl", {"phase": phase, "admission": "recorded-background-load"})
@@ -784,8 +818,11 @@ class WindowsMonitor(HostMonitor):
         cargo_arguments = executed[2:]
         if "--" in cargo_arguments:
             cargo_arguments = cargo_arguments[:cargo_arguments.index("--")]
-        compiler = pinned_cargo and (executed[1] == "check"
-                                    or (executed[1] == "bench" and "--no-run" in cargo_arguments))
+        compiler = pinned_cargo and (
+            executed[1] == "check"
+            or (executed[1] == "bench" and "--no-run" in cargo_arguments)
+            or (self.complete and (executed[1] == "build"
+                or (executed[1] == "test" and "--no-run" in cargo_arguments))))
 
         timeout = self.protocol["process_timeout_seconds"] if timeout is None else timeout
         memory_limit = self.protocol["process_memory_limit_bytes"]
@@ -1066,7 +1103,8 @@ def prepare_pair_capture(protocol, budget, mode, staging, targets, reference, co
             "roles": roles, "metadata": metadata, "paired": staging / "paired"}
 
 
-def finish_pair_capture(capture, protocol, controller, env, monitor):
+def finish_pair_capture(capture, protocol, controller, env, monitor, *,
+                        windows_complete=None, tools=None, baseline_path=None):
     """Evaluate all paired and absolute gates, preserving failed measurements."""
     mode, staging, targets = capture["mode"], capture["staging"], capture["targets"]
     subject, roots = capture["subject"], capture["roots"]
@@ -1098,6 +1136,9 @@ def finish_pair_capture(capture, protocol, controller, env, monitor):
         "comparison.json": comparison,
     }
     if evidence.is_windows_protocol(protocol):
+        if windows_complete is not None:
+            finish_windows_complete(capture, protocol, env, monitor, tools, windows_complete,
+                                    subject_report, reports, baseline_path)
         return complete_pair_capture(capture, reports, windows=True)
     capture_env = {
         key: value
@@ -1137,6 +1178,33 @@ def finish_pair_capture(capture, protocol, controller, env, monitor):
     return complete_pair_capture(capture, reports)
 
 
+def finish_windows_complete(capture, protocol, env, monitor, tools, policy,
+                            timing_report, reports, baseline_path):
+    """Seal reference-only ceilings before collecting candidate absolute evidence."""
+    import composition_windows_absolute as absolute_capture
+    import composition_windows_complete as complete
+
+    reference = capture["mode"] == "reference-reference-aa"
+    if reference:
+        if baseline_path.exists() or baseline_path.is_symlink():
+            raise FileExistsError(baseline_path)
+    else:
+        if (baseline_path.is_symlink() or not baseline_path.is_file()
+                or evidence._sha256(baseline_path) != capture["windows_baseline_sha256"]):
+            raise ValueError("Windows reference baseline changed")
+        baseline = json.loads(baseline_path.read_text(encoding="utf-8"))
+    raw = absolute_capture.capture_windows_absolute(capture, protocol, env, monitor, tools)
+    if reference:
+        baseline = complete.seal_reference(policy, BUDGET, timing_report, raw)
+        # Do not rewrite paths inside the sealed reference observations.
+        write_json(baseline_path, baseline)
+        capture["windows_baseline_sha256"] = evidence._sha256(baseline_path)
+    reports["absolute-windows.json"] = complete.evaluate(
+        policy, BUDGET, timing_report, raw, baseline)
+    if evidence._sha256(baseline_path) != capture["windows_baseline_sha256"]:
+        raise ValueError("Windows reference baseline changed")
+
+
 def complete_pair_capture(capture, reports, *, windows=False):
     """Seal reports only after the measured source and binaries remain unchanged."""
     staging, metadata = capture["staging"], capture["metadata"]
@@ -1152,6 +1220,10 @@ def complete_pair_capture(capture, reports, *, windows=False):
         write_json(staging / name, report_paths(report, staging))
     passed = all(report.get("passed", True) for report in reports.values())
     scope = {"qualification_scope": "windows-paired-only", "mac_absolute_qualified": False} if windows else {}
+    if windows and "windows_baseline_sha256" in capture:
+        scope.update(qualification_scope="windows-complete",
+                     windows_reference_baseline_sha256=capture["windows_baseline_sha256"],
+                     absolute_windows_sha256=evidence._sha256(staging / "absolute-windows.json"))
     write_json(staging / "complete.json", {"completed_at": now(), "passed": passed, **scope})
     return passed
 
@@ -1206,22 +1278,31 @@ def validate_interleaved_capture(directory, protocol):
     return digest
 
 
-def qualify(output, staging, reference, mode, aa_evidence=None, *, platform_name="macos"):
+def qualify(output, staging, reference, mode, aa_evidence=None, *, platform_name="macos",
+            windows_complete=False):
     if mode != "candidate-reference" or aa_evidence is not None:
         raise ValueError("composition qualification needs one contemporaneous two-mode capture")
     windows = platform_name == "windows"
+    if windows_complete and not windows:
+        raise ValueError("--windows-complete requires --platform windows")
     if windows and sys.platform != "win32":
         raise ValueError("Windows paired qualification requires Windows")
     if not windows and (platform_name != "macos" or sys.platform != "darwin"):
         raise ValueError("canonical qualification requires arm64 macOS")
     selected_protocol = WINDOWS_PROTOCOL if windows else CURRENT_PROTOCOL
     protocol = evidence.load_protocol(selected_protocol)
+    complete_policy = None
+    if windows_complete:
+        import composition_windows_complete as complete
+        complete_policy = complete.load_policy(WINDOWS_COMPLETE_POLICY)
     env, tools = tool_environment(include_capture_tool=False) if windows else tool_environment()
     if windows:
         tools["python"] = str(Path(sys.executable).resolve(strict=True))
         if "host: x86_64-pc-windows-msvc" not in read([tools["rustc"], "-vV"]).splitlines():
             raise ValueError("Windows composition requires the pinned MSVC host toolchain")
         tools["compiler_telemetry"] = check_windows_compiler_telemetry(protocol)["path"]
+        if windows_complete:
+            tools["objcopy"] = windows_objcopy(tools)
     host = windows_host() if windows else canonical_host()
     reference = Path(read(["git", "rev-parse", "--show-toplevel"], cwd=reference)).resolve()
     controller = source_identity(ROOT)
@@ -1243,17 +1324,23 @@ def qualify(output, staging, reference, mode, aa_evidence=None, *, platform_name
     if windows:
         pinned_files.extend(ROOT / "scripts" / name for name in
                             ("capture-windows-performance.py", "windows_process.py"))
+        if windows_complete:
+            pinned_files.extend((WINDOWS_COMPLETE_POLICY,
+                                 ROOT / "scripts/composition_windows_complete.py",
+                                 ROOT / "scripts/composition_windows_absolute.py"))
     else:
         pinned_files.extend((capture_tool, ROOT / "scripts/guard_cargo_memory.py"))
     hashes = {str(path): evidence._sha256(path) for path in pinned_files}
     staging.parent.mkdir(parents=True, exist_ok=True)
     staging.mkdir()
-    monitor = (WindowsMonitor(staging / "telemetry", protocol, cargo=tools["cargo"]) if windows
+    monitor = (WindowsMonitor(staging / "telemetry", protocol, cargo=tools["cargo"],
+                              **({"complete": True} if windows_complete else {})) if windows
                else HostMonitor(staging / "telemetry", protocol))
     monitor.idle("initial", sustained=True)
     env.update(CARGO_PROFILE_BENCH_DEBUG="false", CARGO_PROFILE_BENCH_LTO="false",
                CARGO_PROFILE_BENCH_STRIP="true")
     modes = ("candidate-reference", "reference-reference-aa")
+    baseline_path = staging / "Windows-reference-baseline.json"
     # Build trees are disposable. Transcripts and failed evidence remain in staging.
     with tempfile.TemporaryDirectory(prefix="rca-composition-paired.") as temporary:
         targets = Path(temporary)
@@ -1275,8 +1362,15 @@ def qualify(output, staging, reference, mode, aa_evidence=None, *, platform_name
             evidence.validate_protocol_sources(capture["staging"], capture["metadata"], protocol)
         execute_interleaved_pairs(protocol, captures, tools["cargo"], env, monitor, staging)
         passed = {}
-        for item in modes:
-            passed[item] = finish_pair_capture(captures[item], protocol, controller, env, monitor)
+        # Only finalisation order changes. The measured 40-block schedule is unchanged.
+        for item in (tuple(reversed(modes)) if windows_complete else modes):
+            if windows_complete and item == "candidate-reference":
+                captures[item]["windows_baseline_sha256"] = captures[
+                    "reference-reference-aa"]["windows_baseline_sha256"]
+            options = ({"windows_complete": complete_policy, "tools": tools,
+                        "baseline_path": baseline_path} if windows_complete else {})
+            passed[item] = finish_pair_capture(captures[item], protocol, controller, env, monitor,
+                                                **options)
             # Final source and executable hashes are complete. No later sample uses this tree.
             shutil.rmtree(captures[item]["targets"])
         if validate_interleaved_capture(staging, protocol) != capture_hash:
@@ -1288,13 +1382,22 @@ def qualify(output, staging, reference, mode, aa_evidence=None, *, platform_name
         raise ValueError("qualification input hash changed")
     if passed["reference-reference-aa"]:
         validate_aa_evidence(staging / "reference-reference-aa", protocol, controller, host,
-                             capture=staging)
+                             capture=staging,
+                             **({"windows_complete": complete_policy} if windows_complete else {}))
+    complete_scope = {"qualification_scope": "windows-paired-only", "mac_absolute_qualified": False} if windows else {}
+    if windows_complete:
+        baseline_hash = evidence._sha256(baseline_path)
+        if any(item["windows_baseline_sha256"] != baseline_hash for item in captures.values()):
+            raise ValueError("Windows reference baseline changed")
+        complete_scope.update(qualification_scope="windows-complete",
+                              windows_reference_baseline_sha256=baseline_hash,
+                              windows_complete_policy_sha256=hashes[str(WINDOWS_COMPLETE_POLICY)])
     write_json(staging / "complete.json", {
         "completed_at": now(), "passed": all(passed.values()),
         "capture_sha256": capture_hash, "blocks_sha256": evidence._sha256(staging / "blocks.jsonl"),
         "modes": {item: {name: evidence._sha256(staging / item / name)
-                         for name in receipt_files(protocol)} for item in modes},
-        **({"qualification_scope": "windows-paired-only", "mac_absolute_qualified": False} if windows else {}),
+                         for name in receipt_files(protocol, windows_complete=windows_complete)} for item in modes},
+        **complete_scope,
     })
     publish(staging, output)
     return 0 if all(passed.values()) else 1
@@ -2253,6 +2356,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--platform", choices=("macos", "windows"), default="macos",
                         help="Windows captures paired gates only; Darwin absolute gates remain separate")
+    parser.add_argument("--windows-complete", action="store_true",
+                        help="add Windows allocation and reference-only timing/PE gates")
     parser.add_argument(
         "--mode",
         choices=(
@@ -2277,6 +2382,8 @@ def main():
     parser.add_argument("reference", nargs="?")
     args = parser.parse_args()
     try:
+        if args.windows_complete and args.platform != "windows":
+            raise ValueError("--windows-complete requires --platform windows")
         if args.platform == "windows" and args.mode != "candidate-reference":
             raise ValueError("Windows qualification supports only paired candidate/reference captures")
         if args.check_staged_source:
@@ -2289,6 +2396,10 @@ def main():
                 _env, tools = tool_environment(include_capture_tool=False)
                 if "host: x86_64-pc-windows-msvc" not in read([tools["rustc"], "-vV"]).splitlines():
                     raise ValueError("Windows composition requires the pinned MSVC host toolchain")
+                if args.windows_complete:
+                    import composition_windows_complete as complete
+                    complete.load_policy(WINDOWS_COMPLETE_POLICY)
+                    windows_objcopy(tools)
                 print("the pinned Windows Cargo, rustc and rustdoc are available")
             else:
                 tool_environment()
@@ -2341,6 +2452,7 @@ def main():
             return qualify(
                 output, staging, Path(args.reference), args.mode, args.aa_evidence,
                 **({"platform_name": "windows"} if args.platform == "windows" else {}),
+                **({"windows_complete": True} if args.windows_complete else {}),
             )
     except (ValueError, OSError, subprocess.SubprocessError) as error:
         print(
