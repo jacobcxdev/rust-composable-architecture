@@ -1,6 +1,6 @@
 # Composition performance qualification
 
-The [v6 protocol](composition-protocol-v6.json) and
+The [v7 protocol](composition-protocol-v7.json) and
 [absolute budgets](composition-budgets.json) define the composition performance
 gate. Their contents, hashes and thresholds are frozen before capture. This directory holds
 the maintained method and the three receipts needed to validate those budgets,
@@ -33,25 +33,46 @@ identify the recorded evidence.
 
 ## Run the gate
 
-The v6 protocol requires macOS 27 or later, the named hardware and toolchain,
-host-load checks, twenty paired blocks, the fixed ordering seed and confidence
-rule, and the 1.10 relative limit. These host requirements do not set RCA's
-deployment support. Host load constrains timing evidence, not independent
-implementation or correctness work.
+The v7 protocol requires macOS 27 or later, the named hardware and toolchain,
+twenty paired blocks per mode, the fixed ordering seed and confidence rule,
+and the 1.10 relative limit. These host requirements do not set RCA's deployment support.
+The runner records background CPU load and compiler processes without waiting for an idle host.
+It still requires nominal thermal state, unchanged power settings and no competing composition or qualification benchmark.
 
-With the exact reference available, first qualify a reference/reference
-run, then measure the candidate against it:
+With the exact reference available, capture the candidate and its reference/reference control together:
 
 ```sh
-scripts/qualify-composition-performance.sh --mode reference-reference-aa <aa-output> <pinned-reference-worktree>
-scripts/qualify-composition-performance.sh --mode candidate-reference --aa-evidence <aa-output> <candidate-output> <pinned-reference-worktree>
+scripts/qualify-composition-performance.sh --mode candidate-reference <capture-output> <pinned-reference-worktree>
 ```
 
-Use distinct output paths and retain failed evidence outside the tracked tree.
-The runner checks the same controller revision, scripts, protocol and exact
-host OS/build between both runs. All relative gates and all 33 absolute gates
-remain required. Binary-only measurements do not replace the paired timing
-run.
+Use a new output path below `target/qualification-evidence/0.1.0/composition`.
+Retain failed evidence outside the tracked tree.
+The capture contains separate `candidate-reference` and `reference-reference-aa` directories.
+Both modes use the same controller revision, scripts, protocol and exact host OS/build.
+All relative gates and all 33 absolute gates remain required for each mode.
+
+The top-level `complete.json` reports the combined result.
+The single-mode evaluator remains available for historical v6 evidence, not v7 acceptance.
+Binary-only measurements do not replace the paired timing run.
+
+Each mode retains twenty blocks. The complete capture uses four independent benchmark builds.
+Odd-numbered blocks run the A/A control first. Even-numbered blocks run the candidate comparison first.
+The existing subject/control order stays unchanged inside each block.
+Both modes bind to one capture manifest, which records the complete schedule before measurement.
+Ordered start/finish receipts bind each block to that manifest.
+Each finished block also records the hashes of its transcripts and resource counters.
+
+A control from another capture cannot qualify the candidate.
+
+Background load can affect latency, throughput and compile time. Process CPU time and instruction counts do not replace these measurements.
+Interleaved controls expose interference during the capture, but they do not prove that observations are independent.
+The confidence bound still assumes independent, identically distributed observations within each execution-order group.
+Correlated load can violate that assumption. A passing A/A control is not proof of immunity to arbitrary load.
+
+The runner never removes inconvenient samples or repeats a failed measurement.
+A failed control makes the combined result fail. Thermal or malformed-evidence failures stop the capture and retain its incomplete evidence.
+The unchanged absolute limits can still fail on a busy host.
+Recorded telemetry supports review of interference. It does not convert CPU time into response time.
 
 Both modes use the controller's capture script and the same hash-pinned consumer
 workloads. Each arm starts from an archive of its exact product revision.
@@ -78,7 +99,7 @@ libtest receiver thread. None-effect checks use public Debug output after the
 allocation snapshot, rather than private implementation fields.
 
 All 33 numerical ceilings retain their historical values and source hashes.
-V6 applies those unchanged ceilings to the common workloads. It does not claim
+V7 applies those unchanged ceilings to the common workloads. It does not claim
 that the historical measurements used this later harness. Each result separates
 historical budget provenance from the effective measured workload.
 
@@ -90,7 +111,9 @@ hash, subject revision, workload hashes and lockfiles.
 Each compile sample uses a distinct clean target. After its transcript and
 resource counters are complete, the runner deletes that check-only target.
 Failed transcripts remain available. Runtime binaries remain available until
-their final hash check completes. These deletions occur outside measured intervals.
+their final hash check completes. After each mode completes all source and binary checks,
+the runner deletes its temporary source and build trees. Receipts and measurements remain.
+These deletions occur outside measured intervals.
 
 ## Test inputs are not release evidence
 
