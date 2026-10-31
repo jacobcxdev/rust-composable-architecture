@@ -330,7 +330,10 @@ profiles from compilers with different flags; retain those inputs, but do not co
 same-configuration production coverage. The initial build-stage export is the macro-entry check.
 
 Capture requires Python 3.11 or later, the pinned `llvm-tools-preview` component
-and at least 12 GiB of free disk space. If a disk check finds less than two GiB
+and at least 12 GiB of free disk space.
+If a GitHub-hosted Linux runner lacks this space, CI removes only its unused Android SDK.
+It keeps source files and Cargo caches.
+If a disk check finds less than two GiB
 free, capture stops the active command. Each parent test binary must report passing
 tests without a test-name filter. Listener tests also run exact-filtered child
 processes for isolation. Capture retains their summaries and checks them separately
