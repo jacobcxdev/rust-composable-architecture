@@ -638,7 +638,10 @@ async fn assert_step(fixture: &Fixture, model: &ReferenceModel, pending: &[Pendi
     assert_eq!(snapshot.commit_version, model.version);
     assert_eq!(snapshot.live_task_ids.len(), live_count);
     assert_eq!(snapshot.cancellation_count, usize::from(live_count != 0));
-    assert!(snapshot.timer_deadlines.is_empty());
+    assert_eq!(
+        snapshot.timer_deadlines,
+        [] as [rca_core::MonotonicInstant; 0]
+    );
     assert_eq!(snapshot.observation_count, 0);
 }
 

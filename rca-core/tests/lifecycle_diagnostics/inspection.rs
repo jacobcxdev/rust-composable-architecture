@@ -187,7 +187,7 @@ fn normal_stop_waits_for_inspection_and_payload_retirement_before_terminal_event
         assert!(action.gate.has_pending());
         assert_eq!(action.probe.payload_drops.load(Ordering::SeqCst), 0);
         assert_eq!(action.probe.state_drops.load(Ordering::SeqCst), 0);
-        assert!(action.probe.take().is_empty());
+        assert_eq!(action.probe.take(), [] as [Entry; 0]);
     })
     .expect("the pending root action must remain inspectable");
 

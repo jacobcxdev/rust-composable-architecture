@@ -77,7 +77,7 @@ fn diagnostics_timer_formatting_observes_state_without_using_the_clock() {
     assert!(idle.contains("waiting: false"));
     assert!(idle.contains("finished: false"));
     fixture.assert_unused().unwrap();
-    assert!(recorder.snapshot().is_empty());
+    assert_eq!(recorder.snapshot(), [] as [Issue; 0]);
 
     let mut next = Box::pin(timer.next());
     assert!(
@@ -349,7 +349,7 @@ fn clock_injection_does_not_poll_the_store_actor_inline() {
             .is_pending()
     );
     fixture.assert_unused().unwrap();
-    assert!(recorder.snapshot().is_empty());
+    assert_eq!(recorder.snapshot(), [] as [Issue; 0]);
     let mut actor = runtime.take_only_queued_task();
     assert_eq!(poll(&mut actor), Poll::Pending);
     assert_eq!(fixture.assert_unused(), Err(ForbiddenClockUsed));

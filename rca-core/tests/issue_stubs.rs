@@ -137,7 +137,7 @@ fn disabled_delivery_retains_diagnostic_and_fallback() {
 fn closed_delivery_retains_diagnostic_and_fallback() {
     let collector = IssueCollector::new();
     let reporter = collector.reporter();
-    assert!(collector.finish().is_empty());
+    assert_eq!(collector.finish(), [] as [Issue; 0]);
     let stub = EndpointStub::new("Client.load", |issue| reporter.report(issue));
     let (value, delivery) = stub.call_with(|| Issue::new("stub", "closed"), || 29);
     assert_eq!(value, 29);

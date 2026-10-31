@@ -365,7 +365,7 @@ mod tests {
         ] {
             let collector = IssueCollector::new();
             let closed = collector.reporter();
-            assert!(collector.finish().is_empty());
+            assert_eq!(collector.finish(), [] as [crate::Issue; 0]);
             for (reporter, disabled) in [(IssueReporter::default(), true), (closed, false)] {
                 let calls = Rc::new(Cell::new(0));
                 let mut reducer = counting(Rc::clone(&calls));

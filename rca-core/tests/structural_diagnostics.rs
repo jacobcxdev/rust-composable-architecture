@@ -64,7 +64,10 @@ fn aligns_fields_by_identity_and_reports_order_insertions_and_removals() {
 fn maps_match_typed_keys_instead_of_order_or_printed_key() {
     let map =
         |pairs: &[(i32, i32)]| View::Map(pairs.iter().map(|&(k, v)| (k, View::Value(v))).collect());
-    assert!(compare(map(&[(1, 10), (2, 20)]), map(&[(2, 20), (1, 10)])).is_empty());
+    assert_eq!(
+        compare(map(&[(1, 10), (2, 20)]), map(&[(2, 20), (1, 10)])),
+        [] as [ViewChange; 0]
+    );
     let changes = compare(
         map(&[(1, 10), (2, 20), (3, 30)]),
         map(&[(1, 10), (3, 31), (4, 40)]),
@@ -256,7 +259,7 @@ fn represented_value_work_limits_fail_before_redaction_or_output() {
         assert_eq!(error.work_used(), expected_used);
         assert_eq!(error.output_written(), 0);
         assert_eq!(redactions.get(), 0);
-        assert!(out.is_empty());
+        assert_eq!(out, "");
     }
     let redactions = Cell::new(0);
     let mut out = String::new();
@@ -698,7 +701,7 @@ fn exact_work_and_scalar_boundaries_allow_success_without_one_extra_dispatch() {
     assert!(error.is_work_limit());
     assert_eq!(error.work_used(), 5);
     assert_eq!(error.output_written(), 0);
-    assert!(out.is_empty());
+    assert_eq!(out, "");
     let diff = diff_graph_views(&graph, &graph, DiagnosticLimits::new(9, 0, 0), |_| {
         View::Value(0)
     })
@@ -1217,7 +1220,7 @@ fn selected_reference_chain_depth_is_independent_of_captured_edge_depth() {
     let diff = diff_graph_views(&graph, &graph, DiagnosticLimits::new(100, 2, 0), project).unwrap();
     assert!(!diff.semantic_changed());
     assert!(!diff.view_changed());
-    assert!(diff.changes().is_empty());
+    assert_eq!(diff.changes(), []);
     assert_eq!(projections.get(), 6);
 }
 
@@ -1369,7 +1372,7 @@ fn invalid_wide_view_drops_all_projected_values_without_redaction() {
     .unwrap_err();
     assert!(error.is_invalid_view());
     assert_eq!(error.output_written(), 0);
-    assert!(output.is_empty());
+    assert_eq!(output, "");
     assert_eq!(*projections.borrow(), [0, 1, 2]);
     assert_eq!(*drops.borrow(), (0..34).collect::<Vec<_>>());
 }

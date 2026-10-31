@@ -320,7 +320,7 @@ fn heterogeneous_child_timer_concat_and_task_use_actor_registration() {
     assert!(receipt.is_finished());
     assert!(actor.sequences.is_empty());
     #[cfg(feature = "test-util")]
-    assert!(actor.registry.live_task_ids().is_empty());
+    assert_eq!(actor.registry.live_task_ids(), [] as [u64; 0]);
 }
 
 #[test]
@@ -387,7 +387,7 @@ fn nested_retirement_prunes_new_effect_but_keeps_mounted_sibling_work() {
     assert!(actor.sequences.is_empty());
     assert!(actor.timers.is_empty());
     #[cfg(feature = "test-util")]
-    assert!(actor.registry.live_task_ids().is_empty());
+    assert_eq!(actor.registry.live_task_ids(), [] as [u64; 0]);
 }
 
 #[cfg(feature = "test-util")]
@@ -611,7 +611,7 @@ fn cancelling_child_receipt_before_first_poll_cleans_tasks_timers_and_sequences(
     assert!(actor.timers.is_empty());
     assert!(actor.sequences.is_empty());
     #[cfg(feature = "test-util")]
-    assert!(actor.registry.live_task_ids().is_empty());
+    assert_eq!(actor.registry.live_task_ids(), [] as [u64; 0]);
     assert!(receipt.is_finished());
     assert_eq!(
         actor.mounted.len(),
@@ -732,7 +732,7 @@ fn child_interval_stops_factory_after_scope_retirement() {
     assert!(receipt.is_finished());
     assert!(actor.timers.is_empty());
     #[cfg(feature = "test-util")]
-    assert!(actor.registry.live_task_ids().is_empty());
+    assert_eq!(actor.registry.live_task_ids(), [] as [u64; 0]);
 }
 
 #[test]

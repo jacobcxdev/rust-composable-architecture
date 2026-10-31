@@ -1473,7 +1473,8 @@ fn shutdown_is_abortive_not_a_flush() {
         store.shutdown().await.unwrap();
         assert!(matches!(receipt.await, Err(ReceiptError::Abandoned)));
         assert_eq!(io.saves(), 1);
-        assert!(io.0.lock().unwrap().written.is_empty());
+        let written_is_empty = io.0.lock().unwrap().written.is_empty();
+        assert!(written_is_empty);
     }))
     .unwrap();
     host.run_until_stalled().unwrap(); // Store shutdown issues aborts but does not join runtime wrappers.

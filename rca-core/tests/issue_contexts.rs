@@ -676,7 +676,7 @@ fn closed_endpoint_recovers_payload_and_still_attempts_later_members() {
         expected
     );
     assert_eq!(*events.lock().unwrap(), [expected]);
-    assert!(recorder.snapshot().is_empty());
+    assert_eq!(recorder.snapshot(), [] as [Issue; 0]);
     drop(store);
 }
 

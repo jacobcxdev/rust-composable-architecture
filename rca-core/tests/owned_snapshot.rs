@@ -166,10 +166,6 @@ fn recursive_containers_do_not_impose_consumer_bounds_on_values() {
 }
 
 #[test]
-#[expect(
-    clippy::float_cmp,
-    reason = "Snapshot copies preserve these exact scalar values without numerical computation"
-)]
 fn explicit_scalar_and_time_snapshots_preserve_values() {
     macro_rules! same {
         ($($value:expr),+ $(,)?) => {$(assert_eq!($value.snapshot(), $value);)+};
@@ -361,7 +357,7 @@ fn diagnostics_accept_manual_snapshot_without_test_store_value_bounds() {
     if cfg!(debug_assertions) {
         assert_eq!(changes, [(2, 4, true)]);
     } else {
-        assert!(changes.is_empty());
+        assert_eq!(changes, [] as [(usize, usize, bool); 0]);
     }
 }
 

@@ -198,7 +198,7 @@ fn closure_during_gated_native_installation_emits_no_installation_fact() {
     let mut actor = runtime.take_only_queued_task();
     assert!(poll(actor.as_mut()).is_pending());
     assert!(gate.has_pending());
-    assert!(probe.take().is_empty());
+    assert_eq!(probe.take(), [] as [LifecycleEvent; 0]);
     drop(store);
     assert!(poll(actor.as_mut()).is_ready());
     assert!(!gate.has_pending());
@@ -230,15 +230,15 @@ fn destroying_an_unpolled_actor_never_reports_root_installation_or_terminal_even
                 sink.record(event);
             },
         );
-        assert!(probe.take().is_empty());
+        assert_eq!(probe.take(), [] as [LifecycleEvent; 0]);
         let actor = runtime.take_only_queued_task();
-        assert!(probe.take().is_empty());
+        assert_eq!(probe.take(), [] as [LifecycleEvent; 0]);
         drop(actor);
-        assert!(probe.take().is_empty());
+        assert_eq!(probe.take(), [] as [LifecycleEvent; 0]);
         assert_eq!(probe.reductions.load(Ordering::SeqCst), 0);
         assert_eq!(probe.state_drops.load(Ordering::SeqCst), 1);
         drop(store);
-        assert!(probe.take().is_empty());
+        assert_eq!(probe.take(), [] as [LifecycleEvent; 0]);
     }
 }
 
@@ -258,7 +258,7 @@ fn closing_store_before_first_poll_never_reports_root_installation() {
         );
         let mut actor = runtime.take_only_queued_task();
         drop(store);
-        assert!(probe.take().is_empty());
+        assert_eq!(probe.take(), [] as [LifecycleEvent; 0]);
         assert!(poll(actor.as_mut()).is_ready());
         let stopped = probe.take();
         assert_eq!(
@@ -315,7 +315,7 @@ fn closing_during_lifecycle_notification_never_installs_root() {
                 .poll(&mut Context::from_waker(&waker))
                 .is_pending()
         );
-        assert!(probe.take().is_empty());
+        assert_eq!(probe.take(), [] as [LifecycleEvent; 0]);
         assert_eq!(probe.state_drops.load(Ordering::SeqCst), 0);
 
         // Closure notification polls the actor before Store::drop closes its ingress.
@@ -353,7 +353,7 @@ fn mount_free_default_builders_install_root_only_on_the_first_live_poll_at_revis
             },
         );
         let mut actor = runtime.take_only_queued_task();
-        assert!(probe.take().is_empty());
+        assert_eq!(probe.take(), [] as [LifecycleEvent; 0]);
         assert!(poll(actor.as_mut()).is_pending());
         let installed = probe.take();
         assert_eq!(installed.len(), 1);
@@ -367,7 +367,7 @@ fn mount_free_default_builders_install_root_only_on_the_first_live_poll_at_revis
         );
         assert_eq!(installed[0].last_committed_version(), 0);
         assert!(poll(actor.as_mut()).is_pending());
-        assert!(probe.take().is_empty());
+        assert_eq!(probe.take(), [] as [LifecycleEvent; 0]);
         assert_eq!(probe.reductions.load(Ordering::SeqCst), 0);
         drop(store);
         assert!(poll(actor.as_mut()).is_ready());
@@ -402,7 +402,7 @@ fn shutdown_admitted_at_the_first_head_suppresses_root_installation_on_all_build
         let mut actor = runtime.take_only_queued_task();
         let mut shutdown = Box::pin(store.shutdown());
         assert!(poll(shutdown.as_mut()).is_pending());
-        assert!(probe.take().is_empty());
+        assert_eq!(probe.take(), [] as [LifecycleEvent; 0]);
         assert!(poll(actor.as_mut()).is_ready());
         assert!(matches!(poll(shutdown.as_mut()), Poll::Ready(Ok(()))));
         let stopped = probe.take();
@@ -444,7 +444,7 @@ fn installed_callback_closing_root_rejects_the_retained_head_without_reducer_ent
         let receipt = store.try_send(()).unwrap();
         *owner.lock().unwrap() = Some(store);
         let mut actor = runtime.take_only_queued_task();
-        assert!(probe.take().is_empty());
+        assert_eq!(probe.take(), [] as [LifecycleEvent; 0]);
         assert!(poll(actor.as_mut()).is_ready());
         assert!(owner.lock().unwrap().is_none());
         assert!(matches!(

@@ -363,7 +363,7 @@ enum EmptyShapes {
 #[test]
 fn empty_enum_catalogue_and_empty_payload_shapes_preserve_rust_domains() {
     let _: Option<Empty> = None;
-    assert!(EmptyCases::ALL.is_empty());
+    assert_eq!(EmptyCases::ALL, &[] as &[EmptyCase]);
     assert_eq!(
         EmptyShapesCases::ALL,
         &[EmptyShapesCase::Tuple, EmptyShapesCase::Named]
@@ -397,6 +397,10 @@ fn inhabited_tags_preserve_identity_hashing_and_debug_labels() {
         (EventCase::Recursive, "Recursive"),
         (EventCase::Skipped, "Skipped"),
     ] {
+        #[expect(
+            clippy::clone_on_copy,
+            reason = "exercises the generated Clone implementation rather than Copy"
+        )]
         let cloned = Clone::clone(&tag);
         assert_eq!(cloned, tag);
         assert_eq!(format!("{cloned:?}"), expected_debug);

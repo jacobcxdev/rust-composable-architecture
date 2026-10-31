@@ -71,7 +71,7 @@ fn measured_drain(count: usize, distinct: bool) -> (u64, u64) {
     assert_eq!(report.current_time(), expected_time);
     assert_eq!(host.now(), expected_time);
     assert_eq!(probe.wakes.load(Ordering::SeqCst), count);
-    assert!(host.pending_sleeps().is_empty());
+    assert_eq!(host.pending_sleeps(), [] as [PendingSleep; 0]);
     for wait in &mut waits {
         assert!(wait.as_mut().poll(&mut context).is_ready());
     }

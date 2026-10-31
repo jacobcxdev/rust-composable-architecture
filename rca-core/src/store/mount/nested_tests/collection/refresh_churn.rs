@@ -334,7 +334,7 @@ fn parent_refresh_preserves_same_transaction_nested_edits_and_insertions() {
     assert_eq!(f.live_owners(), [(1, 0), (1, 1)]);
     run(&f.driver, f.store.shutdown()).unwrap();
     f.driver.turn();
-    assert!(f.live_owners().is_empty());
+    assert_eq!(f.live_owners(), [] as [(u8, u8); 0]);
     assert_eq!(f.count("pool drop"), 1);
     assert_eq!(f.count("worker drop"), 2);
     assert!(f.driver.0.lock().is_empty());
@@ -410,7 +410,7 @@ fn nested_collection_churn_releases_retired_owners_without_remounting_survivors(
     }
     run(&f.driver, f.store.shutdown()).unwrap();
     f.driver.turn();
-    assert!(f.live_owners().is_empty());
+    assert_eq!(f.live_owners(), [] as [(u8, u8); 0]);
     for event in [
         "pool drop",
         "pool config drop",

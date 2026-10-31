@@ -8,7 +8,9 @@ use std::{
 
 use async_channel::{Receiver, Sender};
 use futures_executor::block_on;
-use rca_core::{ActionPath, Effect, OptionalStatePath, ReduceContext, Reducer, ReducerExt};
+use rca_core::{
+    ActionPath, Effect, MonotonicInstant, OptionalStatePath, ReduceContext, Reducer, ReducerExt,
+};
 use rca_test::TestStore;
 
 /// Virtual delay shared by the independently asserted timing boundaries.
@@ -1096,10 +1098,7 @@ fn cancelling_lineage_mid_timer_batch_rejects_siblings_and_new_timers() {
                 .unwrap()
                 .unwrap();
             assert_eq!(snapshot.live_task_ids, [] as [u64; 0]);
-            assert_eq!(
-                snapshot.timer_deadlines,
-                [] as [rca_core::MonotonicInstant; 0]
-            );
+            assert_eq!(snapshot.timer_deadlines, [] as [MonotonicInstant; 0]);
             assert_eq!(runtime.pending_sleeps(), [] as [rca_test::PendingSleep; 0]);
             runtime.run(store.shutdown()).await.unwrap().unwrap();
         });

@@ -591,8 +591,8 @@ mod tests {
                 alias.ty.to_token_stream().to_string(),
                 expected_alias.to_token_stream().to_string()
             );
-            assert!(cfg_tokens(&namespace.attrs).is_empty());
-            assert!(cfg_tokens(&alias.attrs).is_empty());
+            assert_eq!(cfg_tokens(&namespace.attrs), "");
+            assert_eq!(cfg_tokens(&alias.attrs), "");
             for attributes in [&marker.attrs, &gate.attrs] {
                 assert_eq!(
                     cfg_tokens(attributes),

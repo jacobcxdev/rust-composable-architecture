@@ -356,7 +356,7 @@ fn result_trace(
         actor,
         store.read(|state| {
             assert_eq!(state.failure, None);
-            assert!(state.results.is_empty());
+            assert_eq!(state.results, [] as [SearchResult; 0]);
         }),
     )
     .unwrap();

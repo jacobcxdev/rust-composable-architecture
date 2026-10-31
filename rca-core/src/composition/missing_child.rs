@@ -80,7 +80,7 @@ mod tests {
     fn rejected_required_delivery_retains_original_typed_issue_and_source() {
         let collector = IssueCollector::new();
         let closed = collector.reporter();
-        assert!(collector.finish().is_empty());
+        assert_eq!(collector.finish(), [] as [Issue; 0]);
         for (reporter, disabled) in [(IssueReporter::default(), true), (closed, false)] {
             let mut dependencies = DependencyValues::new();
             let (_scopes_lifecycle, mut scopes) = ScopeRegistry::for_test();

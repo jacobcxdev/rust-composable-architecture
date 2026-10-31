@@ -2344,7 +2344,7 @@ fn queued_root_shutdown_discards_owned_scoped_send_before_embedding() {
     );
     assert!(store.is_closed());
     assert_eq!((state.child.id, state.child.count), (7, 3));
-    assert!(state.child.commits.is_empty());
+    assert_eq!(state.child.commits, [] as [usize; 0]);
     assert!(state.optional_child.is_none());
     assert_eq!(state.optional_reductions, 0);
     assert_eq!(embeddings.load(Ordering::SeqCst), 0);

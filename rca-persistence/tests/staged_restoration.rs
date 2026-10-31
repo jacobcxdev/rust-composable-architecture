@@ -142,7 +142,8 @@ fn restoration_publishes_only_after_both_stages_validate() {
                 (Some(expected), Disposition::Failed(actual, None)) => assert_eq!(actual, expected),
                 unexpected => panic!("wrong boundary outcome: {unexpected:?}"),
             }
-            assert!(controls.io.lock().unwrap().hydrated.is_empty());
+            let hydrated_is_empty = controls.io.lock().unwrap().hydrated.is_empty();
+            assert!(hydrated_is_empty);
             assert_eq!(controls.permits.len(), 2);
             store.finish().await.unwrap();
         });

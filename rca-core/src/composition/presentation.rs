@@ -823,7 +823,7 @@ mod tests {
     fn unavailable_dismiss_preserves_required_disabled_and_closed_delivery_errors() {
         let collector = IssueCollector::new();
         let closed = collector.reporter();
-        assert!(collector.finish().is_empty());
+        assert_eq!(collector.finish(), [] as [Issue; 0]);
         for (issues, disabled) in [(IssueReporter::default(), true), (closed, false)] {
             let dismiss = Dismiss::new(None, issues);
             let failure = catch_unwind(AssertUnwindSafe(|| dismiss.effect::<()>())).unwrap_err();

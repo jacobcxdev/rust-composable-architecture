@@ -613,9 +613,9 @@ fn local_runtime_snapshots_are_ordered_and_stop_after_graceful_or_host_closure()
         host.run(task.finish());
         let after = host.run(store.runtime_snapshot()).unwrap();
         assert_eq!(after.commit_version, 1);
-        assert!(after.live_task_ids.is_empty());
+        assert_eq!(after.live_task_ids, [] as [u64; 0]);
         assert_eq!(after.cancellation_count, 0);
-        assert!(after.timer_deadlines.is_empty());
+        assert_eq!(after.timer_deadlines, [] as [MonotonicInstant; 0]);
         assert_eq!(after.observation_count, 0);
         let mut closed = Box::pin(store.closed());
         assert!(
@@ -1398,7 +1398,10 @@ fn local_absolute_deadline_is_not_rebased_by_predecessor_or_delay() {
     let task = host.run(store.send(None)).unwrap();
 
     host.advance_to(Duration::from_secs(4));
-    assert!(host.run(store.read(Clone::clone)).unwrap().is_empty());
+    assert_eq!(
+        host.run(store.read(Clone::clone)).unwrap(),
+        [] as [usize; 0]
+    );
     host.advance_to(Duration::from_secs(5));
     assert_eq!(host.run(store.read(Clone::clone)).unwrap(), [1]);
     host.advance_to(Duration::from_secs(6));
@@ -1523,7 +1526,10 @@ fn local_positive_delay_defers_owned_operation_and_cancellation_releases_it() {
         host.advance_to(Duration::from_secs(2));
         assert_eq!((calls.get(), drops.get()), (0, 0));
         assert!(weak.upgrade().is_some());
-        assert!(host.run(store.read(Clone::clone)).unwrap().is_empty());
+        assert_eq!(
+            host.run(store.read(Clone::clone)).unwrap(),
+            [] as [usize; 0]
+        );
         assert!(!task.is_finished());
         if cancel {
             task.cancel();
@@ -1531,7 +1537,10 @@ fn local_positive_delay_defers_owned_operation_and_cancellation_releases_it() {
             assert_eq!((calls.get(), drops.get()), (0, 1));
             assert!(weak.upgrade().is_none());
             host.advance_to(Duration::from_secs(8));
-            assert!(host.run(store.read(Clone::clone)).unwrap().is_empty());
+            assert_eq!(
+                host.run(store.read(Clone::clone)).unwrap(),
+                [] as [usize; 0]
+            );
         } else {
             host.advance_to(Duration::from_secs(3));
             host.run(task.finish());
@@ -1669,7 +1678,10 @@ fn local_reported_success_and_explicit_cancellation_produce_no_issue_or_outcome(
         let task = host.run(store.send(None)).unwrap();
         host.run(task.finish());
         assert_eq!((calls.get(), drops.get()), (1, 1));
-        assert!(host.run(store.shutdown_into_state()).unwrap().is_empty());
+        assert_eq!(
+            host.run(store.shutdown_into_state()).unwrap(),
+            [] as [usize; 0]
+        );
     }
 }
 
@@ -1696,7 +1708,10 @@ fn local_optional_future_none_finishes_without_emission_and_releases_capture() {
     assert!(task.is_finished() && !task.is_cancelled());
     assert_eq!((polls.get(), drops.get()), (1, 1));
     assert!(weak.upgrade().is_none());
-    assert!(host.run(store.shutdown_into_state()).unwrap().is_empty());
+    assert_eq!(
+        host.run(store.shutdown_into_state()).unwrap(),
+        [] as [usize; 0]
+    );
     assert!(host.0.tasks.borrow().is_empty());
 }
 
@@ -1793,7 +1808,10 @@ fn local_escaped_effect_sender_rejects_cancellation_and_owner_closure_before_pub
             assert!(retained.upgrade().is_none());
         }
         if let Some(store) = store.take() {
-            assert!(host.run(store.shutdown_into_state()).unwrap().is_empty());
+            assert_eq!(
+                host.run(store.shutdown_into_state()).unwrap(),
+                [] as [usize; 0]
+            );
         }
         drop(sender);
         assert!(host.0.tasks.borrow().is_empty());
@@ -1974,7 +1992,10 @@ fn local_reported_failure_after_causal_cancellation_suppresses_issue_and_outcome
     assert!(task.is_finished() && task.is_cancelled());
     assert_eq!((calls.get(), drops.get()), (1, 1));
     assert!(weak.upgrade().is_none());
-    assert!(host.run(store.shutdown_into_state()).unwrap().is_empty());
+    assert_eq!(
+        host.run(store.shutdown_into_state()).unwrap(),
+        [] as [usize; 0]
+    );
     assert!(host.0.tasks.borrow().is_empty());
 }
 

@@ -1518,7 +1518,10 @@ fn delayed_send_completes_before_concatenate_suffix_starts() {
             .await
             .expect("sequence commit");
         runtime.wait_for_sleep();
-        assert!(store.read(Clone::clone).await.expect("state").is_empty());
+        assert_eq!(
+            store.read(Clone::clone).await.expect("state"),
+            [] as [TimerAction; 0]
+        );
 
         runtime.advance_to(MonotonicInstant::from_elapsed(Duration::from_secs(1)));
         sequence.finish().await;
@@ -1554,7 +1557,10 @@ fn cancelling_far_future_timer_reclaims_sleep_promptly() {
         timer.finish().await;
         VirtualRuntime::wait_until(|| runtime.active_sleeps() == 0);
 
-        assert!(store.read(Clone::clone).await.expect("state").is_empty());
+        assert_eq!(
+            store.read(Clone::clone).await.expect("state"),
+            [] as [TimerAction; 0]
+        );
         store.shutdown().await.expect("clean shutdown");
     });
     runtime.join_all();
@@ -1695,7 +1701,10 @@ fn saturated_deadline_creates_no_sleep_and_remains_cancellable() {
         timer.finish().await;
 
         assert!(timer.is_cancelled());
-        assert!(store.read(Clone::clone).await.expect("state").is_empty());
+        assert_eq!(
+            store.read(Clone::clone).await.expect("state"),
+            [] as [TimerAction; 0]
+        );
         store.shutdown().await.expect("clean shutdown");
     });
     runtime.join_all();
@@ -2342,7 +2351,7 @@ fn dropping_observation_during_timer_construction_closes_queued_take() {
     let Poll::Ready(Ok(state)) = shutdown.as_mut().poll(&mut cx) else {
         panic!("manual actor must acknowledge shutdown");
     };
-    assert!(state.is_empty());
+    assert_eq!(state, [] as [TimerAction; 0]);
     assert_eq!(selections.load(Ordering::SeqCst), 2);
     assert_eq!(Arc::strong_count(&payload), 1);
 }
@@ -2572,7 +2581,7 @@ fn final_owner_drop_rejects_gated_timer_delivery_and_releases_resources() {
             runtime.advance_to(MonotonicInstant::from_elapsed(Duration::from_secs(1)));
             gate.wait_for_pending().await;
             assert_eq!(gate.inspect_pending(|action| *action), Some(pending));
-            gate.assert_state::<Vec<TimerAction>>(|state| assert!(state.is_empty()))
+            gate.assert_state::<Vec<TimerAction>>(|state| assert_eq!(state.as_slice(), []))
                 .finish()
                 .await
                 .expect("timer output has not committed");
@@ -2675,7 +2684,7 @@ fn already_due_gated_timer_obeys_owner_lifetime_across_command_arbitration() {
                 if queued_command {
                     assert_eq!(state, &[TimerAction::External(7)]);
                 } else {
-                    assert!(state.is_empty());
+                    assert_eq!(state.as_slice(), []);
                 }
             });
             assert!(actor.as_mut().poll(&mut context).is_pending());

@@ -271,10 +271,10 @@ mod tests {
         assert!(!error.is_timer_missing());
         let source = error.source().expect("retained Tokio construction cause");
         assert!(source.is::<tokio::runtime::TryCurrentError>());
-        assert!(!source.to_string().is_empty());
-        assert!(!error.to_string().is_empty());
+        assert_ne!(source.to_string(), "");
+        assert_ne!(error.to_string(), "");
         assert_ne!(error.to_string(), source.to_string());
-        assert!(!error.backtrace().to_string().is_empty());
+        assert_ne!(error.backtrace().to_string(), "");
     }
 
     #[test]
@@ -292,11 +292,11 @@ mod tests {
         let probe = source
             .downcast_ref::<super::TimerProbeError>()
             .expect("timer probe error type");
-        assert!(!probe.0.is_empty());
+        assert_ne!(probe.0, "");
         assert_eq!(source.to_string(), probe.0);
-        assert!(!error.to_string().is_empty());
+        assert_ne!(error.to_string(), "");
         assert_ne!(error.to_string(), source.to_string());
-        assert!(!error.backtrace().to_string().is_empty());
+        assert_ne!(error.backtrace().to_string(), "");
     }
 
     #[tokio::test(flavor = "current_thread")]

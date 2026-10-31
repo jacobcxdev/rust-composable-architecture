@@ -1194,7 +1194,7 @@ fn default_diagnostics_are_inert_but_direct_access_is_not_lazy() {
         5
     });
     let _ = format!("{default:?}");
-    assert!(key.events().is_empty());
+    assert_eq!(key.events(), [] as [String; 0]);
     assert_eq!(default.initial_value(), 5);
     assert_eq!(default.initial_value(), 5);
     assert_eq!(key.events(), ["default", "default"]);
@@ -1350,7 +1350,7 @@ fn reload_rejects_unkeyed_and_wrong_concrete_key_readers_before_provider_work() 
             .unwrap_err()
             .is_collision()
     );
-    assert!(key.events().is_empty());
+    assert_eq!(key.events(), [] as [String; 0]);
     assert_eq!(unkeyed.read(|value| *value).unwrap(), 5);
 
     let keyed = block_on(cache.reader(key.clone(), key.seed(3))).unwrap();
@@ -2073,7 +2073,7 @@ fn seed_panic_leaves_the_namespace_usable_for_fresh_construction() {
     }));
     let panic = panic.expect_err("the construction seed panic must propagate");
     assert_eq!(panic.downcast_ref::<&str>(), Some(&"seed failed"));
-    assert!(key.events().is_empty());
+    assert_eq!(key.events(), [] as [String; 0]);
     let owner = block_on(cache.shared(key.clone(), key.seed(9))).unwrap();
     assert_eq!(owner.read(|value| *value).unwrap(), 9);
     assert_eq!(key.events(), ["seed:9", "initial:9", "subscribe:initial"]);
@@ -2239,7 +2239,7 @@ fn replacement_source_busy_preserves_binding_until_a_successful_retry() {
         assert!(error.to_string().contains("busy"));
         assert!(error.into_failure().is_none());
         assert_eq!(seeds.get(), 0);
-        assert!(key.events().is_empty());
+        assert_eq!(key.events(), [] as [String; 0]);
         assert_eq!(shared.read(|value| *value).unwrap(), 5);
         assert_eq!(reader.read(|value| *value).unwrap(), 5);
 
@@ -2355,7 +2355,7 @@ fn replacement_seed_panic_poisons_only_the_captured_source_value() {
     }));
     let panic = panic.expect_err("the replacement seed panic must propagate");
     assert_eq!(panic.downcast_ref::<&str>(), Some(&"seed failed"));
-    assert!(key.events().is_empty());
+    assert_eq!(key.events(), [] as [String; 0]);
     assert!(shared.read(|_| ()).unwrap_err().is_poisoned());
     assert!(captured.read(|_| ()).unwrap_err().is_poisoned());
     let error = block_on(cache.load(&shared, key.clone(), |_| {
@@ -2364,7 +2364,7 @@ fn replacement_seed_panic_poisons_only_the_captured_source_value() {
     .unwrap_err();
     assert!(error.access_error().unwrap().is_poisoned());
     assert!(!error.is_poisoned());
-    assert!(key.events().is_empty());
+    assert_eq!(key.events(), [] as [String; 0]);
 
     let replacement = block_on(cache.shared(key.clone(), key.seed(9))).unwrap();
     shared.rebind(&replacement).unwrap();
