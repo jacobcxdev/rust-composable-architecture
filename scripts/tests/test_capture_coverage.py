@@ -241,9 +241,10 @@ class CaptureCoverageTests(unittest.TestCase):
                     expected.extend(("--nocapture", "--test-threads=1"))
                 self.assertEqual(self.capture.host_arguments("core-terminal", ["test"], executable), expected)
 
-    def test_test_store_group_selects_only_seven_local_unfiltered_integration_hosts(self):
+    def test_test_store_group_selects_ten_local_unfiltered_integration_hosts(self):
         names = ("controls", "error_contracts", "snapshot_contracts", "local_test_store",
-                 "output_delivery", "focused_outputs", "conformance_deterministic")
+                 "output_delivery", "focused_outputs", "conformance_deterministic",
+                 "semantic_checks", "issue_expectations", "snapshot_strategies")
         self.assertIn("test-store", self.capture.TARGETS)
         self.assertEqual(self.capture.group_arguments("test-store"), [
             "-p", "rca-test", "--features", "local",
@@ -269,8 +270,9 @@ class CaptureCoverageTests(unittest.TestCase):
                 self.assertEqual(self.capture.host_arguments("core-services", ["test"], executable),
                                  [str(executable)])
 
-    def test_persistence_file_group_selects_only_three_unfiltered_integration_hosts(self):
-        names = ("document", "file", "shared_document_session_replacement")
+    def test_persistence_file_group_selects_six_unfiltered_integration_hosts(self):
+        names = ("document", "file", "shared_document_session_replacement",
+                 "shared_document", "shared_key_cache", "shared_subscription")
         self.assertIn("persistence-file", self.capture.TARGETS)
         self.assertEqual(self.capture.group_arguments("persistence-file"), [
             "-p", "rca-persistence", "--features", "file",
@@ -386,9 +388,11 @@ class CaptureCoverageTests(unittest.TestCase):
               "diagnostics", "diagnostics_checkpoint", "presentation", "fallible_effect", "fallible_effect_lifecycle"]),
             ("test-store", "rca-test", "rca_test", ["local"],
              ["controls", "error_contracts", "snapshot_contracts", "local_test_store",
-              "output_delivery", "focused_outputs", "conformance_deterministic"]),
+              "output_delivery", "focused_outputs", "conformance_deterministic",
+              "semantic_checks", "issue_expectations", "snapshot_strategies"]),
             ("persistence-file", "rca-persistence", "rca_persistence", ["default", "file"],
-             ["document", "file", "shared_document_session_replacement"]),
+             ["document", "file", "shared_document_session_replacement",
+              "shared_document", "shared_key_cache", "shared_subscription"]),
             ("tokio", "rca-tokio", "rca_tokio", [],
              ["rca_tokio", "async_cleanup_host", "client_clock", "panic_subprocess", "synchronous_host", "thread_affine_host"]),
             ("listener-std", "dependencies/rca-event-listener", "event_listener", ["default", "parking", "std"],

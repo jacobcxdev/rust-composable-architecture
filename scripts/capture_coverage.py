@@ -115,13 +115,15 @@ TARGETS = {
         "rca-test", "rca-test", "rca_test", frozenset({"local"}),
         ("--features", "local"),
         ("controls", "error_contracts", "snapshot_contracts", "local_test_store",
-         "output_delivery", "focused_outputs", "conformance_deterministic"),
+         "output_delivery", "focused_outputs", "conformance_deterministic",
+         "semantic_checks", "issue_expectations", "snapshot_strategies"),
         include_library=False,
     ),
     "persistence-file": CaptureGroup(
         "rca-persistence", "rca-persistence", "rca_persistence", frozenset({"default", "file"}),
         ("--features", "file"),
-        ("document", "file", "shared_document_session_replacement"),
+        ("document", "file", "shared_document_session_replacement",
+         "shared_document", "shared_key_cache", "shared_subscription"),
         include_library=False,
     ),
     "tokio": CaptureGroup(
