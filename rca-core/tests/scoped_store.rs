@@ -2930,6 +2930,94 @@ fn cloned_scoped_handles_commit_unique_actions_in_admission_order() {
 }
 
 #[test]
+fn ended_optional_child_observation_rejects_without_actor_or_selector() {
+    /// Counts release of the rejected selector's owned capture.
+    struct CaptureDrop(Arc<AtomicUsize>);
+
+    impl Drop for CaptureDrop {
+        fn drop(&mut self) {
+            self.0.fetch_add(1, Ordering::SeqCst);
+        }
+    }
+
+    let runtime = ManualRuntime::new();
+    let store = Store::new(
+        AppState {
+            optional_child: Some(ChildState::default()),
+            ..AppState::default()
+        },
+        AppReducer,
+        runtime.runtime(),
+    );
+    let mut actor = runtime.take_only_queued_task();
+    let child = drive_scoped_actor(
+        &mut actor,
+        store.scope_some(optional_child_state_path(), optional_child_action_path()),
+    )
+    .unwrap();
+    assert!(
+        drive_scoped_actor(&mut actor, store.send(AppAction::RemoveChild))
+            .unwrap()
+            .is_finished()
+    );
+    assert!(
+        drive_scoped_actor(&mut actor, store.send(AppAction::InsertChild))
+            .unwrap()
+            .is_finished()
+    );
+
+    let drops = Arc::new(AtomicUsize::new(0));
+    let capture = CaptureDrop(Arc::clone(&drops));
+    let calls = Arc::new(AtomicUsize::new(0));
+    let selected = Arc::clone(&calls);
+    let mut registration = Box::pin(child.observe(move |state| {
+        std::hint::black_box(&capture);
+        selected.fetch_add(1, Ordering::SeqCst);
+        state.count
+    }));
+    assert_eq!(drops.load(Ordering::SeqCst), 0);
+    let mut context = Context::from_waker(std::task::Waker::noop());
+    // The retained handle is already ended. No actor poll admits this selector.
+    let Poll::Ready(Err(error)) = registration.as_mut().poll(&mut context) else {
+        panic!("an ended child must reject observation immediately");
+    };
+    assert!(error.is_scope_ended());
+    assert!(!error.is_store_stopped());
+    assert_eq!(calls.load(Ordering::SeqCst), 0);
+    assert_eq!(drops.load(Ordering::SeqCst), 1);
+    drop(registration);
+
+    let replacement = drive_scoped_actor(
+        &mut actor,
+        store.scope_some(optional_child_state_path(), optional_child_action_path()),
+    )
+    .unwrap();
+    let mut values =
+        drive_scoped_actor(&mut actor, replacement.observe(|state| state.count)).unwrap();
+    assert_eq!(drive_scoped_actor(&mut actor, values.next()), Some(0));
+    assert!(
+        drive_scoped_actor(&mut actor, replacement.send(ChildAction::Increment))
+            .unwrap()
+            .is_finished()
+    );
+    assert_eq!(drive_scoped_actor(&mut actor, values.next()), Some(1));
+    assert_eq!(
+        drive_scoped_actor(
+            &mut actor,
+            store.read(|state| { state.optional_child.as_ref().map(|child| child.count) })
+        )
+        .unwrap(),
+        Some(1)
+    );
+    assert!(!store.is_closed());
+    drop((values, replacement, child));
+    drop(store);
+    assert!(actor.as_mut().poll(&mut context).is_ready());
+    assert_eq!(calls.load(Ordering::SeqCst), 0);
+    assert_eq!(drops.load(Ordering::SeqCst), 1);
+}
+
+#[test]
 fn ended_optional_child_try_send_recovers_payload_before_embedding() {
     let runtime = ManualRuntime::new();
     let reducer = rca_core::Reduce::new(

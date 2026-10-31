@@ -581,6 +581,40 @@ fn actor_is_spawned_without_inline_polling_and_commits_actions() {
 }
 
 #[test]
+fn cancelling_completed_task_preserves_commit_and_immediate_completion() {
+    use futures_util::FutureExt as _;
+
+    let runtime = ManualRuntime::new();
+    let store = Store::new(0, ByteCounter, runtime.runtime());
+    let mut actor = runtime.take_only_queued_task();
+    let mut context = Context::from_waker(std::task::Waker::noop());
+    let receipt = store.try_send(7).unwrap();
+    assert!(actor.as_mut().poll(&mut context).is_pending());
+    let task = receipt.finish().now_or_never().unwrap().unwrap();
+    let cloned = task.clone();
+
+    // No effect registered causal work. Cancellation cannot undo this commit.
+    task.cancel();
+    cloned.cancel();
+    for completed in [&task, &cloned] {
+        assert!(completed.is_finished());
+        assert!(!completed.is_cancelled());
+        assert_eq!(completed.finish().now_or_never(), Some(()));
+    }
+
+    let mut read = Box::pin(store.read(|state| *state));
+    assert!(read.as_mut().poll(&mut context).is_pending());
+    assert!(actor.as_mut().poll(&mut context).is_pending());
+    assert!(matches!(
+        read.as_mut().poll(&mut context),
+        Poll::Ready(Ok(7))
+    ));
+    drop(read);
+    drop(store);
+    assert!(actor.as_mut().poll(&mut context).is_ready());
+}
+
+#[test]
 fn fifo_actions_commit_in_admission_order() {
     let runtime = ManualRuntime::new();
     let reducer = rca_core::Reduce::new(|state: &mut Vec<u8>, action: &u8, _| {
@@ -1587,6 +1621,93 @@ fn latest_snapshot_reads_do_not_drive_assertions_or_release_effect_actions() {
     drop(read);
     drop(store);
     assert!(actor.as_mut().poll(&mut context).is_ready());
+}
+
+#[cfg(feature = "test-util")]
+#[test]
+fn dropped_state_assertion_receipt_skips_callback_without_releasing_action() {
+    use std::sync::atomic::AtomicUsize;
+
+    use futures_util::FutureExt as _;
+    use rca_core::testing::AssertionGate;
+
+    /// Counts disposal independently of whether the assertion executes.
+    struct CaptureDrop(Arc<AtomicUsize>);
+
+    impl Drop for CaptureDrop {
+        fn drop(&mut self) {
+            self.0.fetch_add(1, Ordering::SeqCst);
+        }
+    }
+
+    let runtime = ManualRuntime::new();
+    let gate = AssertionGate::new();
+    let reducer = rca_core::Reduce::new(|state: &mut usize, action: &u8, _| {
+        *state += usize::from(*action);
+        if *action == 1 {
+            Effect::send(2)
+        } else {
+            Effect::none()
+        }
+    });
+    let store = Store::builder(0, reducer, runtime.runtime())
+        .assertion_gate(gate.clone())
+        .build()
+        .unwrap();
+    let mut actor = runtime.take_only_queued_task();
+    let mut context = Context::from_waker(std::task::Waker::noop());
+    let start = store.try_send(1).unwrap();
+    assert!(actor.as_mut().poll(&mut context).is_pending());
+    let task = start.finish().now_or_never().unwrap().unwrap();
+    let mut effect = runtime.take_only_queued_task();
+    assert!(effect.as_mut().poll(&mut context).is_pending());
+    assert!(actor.as_mut().poll(&mut context).is_pending());
+    assert_eq!(gate.inspect_pending(|action| *action), Some(2));
+
+    let drops = Arc::new(AtomicUsize::new(0));
+    let capture = CaptureDrop(Arc::clone(&drops));
+    let abandoned_calls = Arc::new(AtomicUsize::new(0));
+    let called = Arc::clone(&abandoned_calls);
+    let abandoned = gate.assert_state(move |_: &usize| {
+        called.fetch_add(1, Ordering::SeqCst);
+        drop(capture);
+    });
+    drop(abandoned);
+    assert_eq!(drops.load(Ordering::SeqCst), 0);
+    let retained_calls = Arc::new(AtomicUsize::new(0));
+    let called = Arc::clone(&retained_calls);
+    let retained = gate.assert_state(move |state: &usize| {
+        assert_eq!(*state, 1);
+        called.fetch_add(1, Ordering::SeqCst);
+    });
+
+    assert!(actor.as_mut().poll(&mut context).is_pending());
+    retained.finish().now_or_never().unwrap().unwrap();
+    assert_eq!(abandoned_calls.load(Ordering::SeqCst), 0);
+    assert_eq!(drops.load(Ordering::SeqCst), 1);
+    assert_eq!(retained_calls.load(Ordering::SeqCst), 1);
+    assert_eq!(gate.inspect_pending(|action| *action), Some(2));
+    assert!(!task.is_finished());
+
+    let release = gate.release_pending_with_receipt().unwrap();
+    assert!(actor.as_mut().poll(&mut context).is_pending());
+    let released = release.finish().now_or_never().unwrap().unwrap();
+    assert!(effect.as_mut().poll(&mut context).is_ready());
+    assert!(task.is_finished());
+    assert!(released.is_finished());
+    assert!(!gate.has_pending());
+    let mut read = Box::pin(store.read(|state| *state));
+    assert!(read.as_mut().poll(&mut context).is_pending());
+    assert!(actor.as_mut().poll(&mut context).is_pending());
+    assert!(matches!(
+        read.as_mut().poll(&mut context),
+        Poll::Ready(Ok(3))
+    ));
+    drop(read);
+    drop(store);
+    assert!(actor.as_mut().poll(&mut context).is_ready());
+    assert_eq!(drops.load(Ordering::SeqCst), 1);
+    assert_eq!(retained_calls.load(Ordering::SeqCst), 1);
 }
 
 #[cfg(feature = "test-util")]
