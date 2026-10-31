@@ -161,6 +161,22 @@ jobs:
                   key: coverage-${{ matrix.group }}
                   workspaces: . -> target/coverage/${{ matrix.group }}
 
+            - name: Reclaim unused hosted SDK if needed
+              shell: bash
+              run: |
+                  available=$(df --output=avail -B1 . | tail -n 1 | tr -d '[:space:]')
+                  if [[ ! "$available" =~ ^[0-9]+$ ]]; then
+                      echo "Invalid disk-space reading" >&2
+                      exit 1
+                  fi
+                  if (( 10#$available < 12 * 1024 * 1024 * 1024 )); then
+                      test "$RUNNER_ENVIRONMENT" = github-hosted
+                      test "$(readlink -f /usr/local/lib/android)" = /usr/local/lib/android
+                      du -sh /usr/local/lib/android
+                      sudo rm -rf -- /usr/local/lib/android
+                  fi
+                  df -h .
+
             - name: Test capture boundaries
               run: python3 -m unittest scripts.tests.test_capture_coverage
 
