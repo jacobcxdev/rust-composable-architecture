@@ -383,7 +383,7 @@ fn bench_store(
     calls_per_action: usize,
 ) {
     let fixture = Fixture::new(State { calls: 0 }, reducer);
-    bench_store_fixture(bencher, fixture, action_depth, calls_per_action);
+    bench_store_fixture(bencher, &fixture, action_depth, calls_per_action);
 }
 
 /// Measures committed actions and checks exact leaf work after the timed loop.
@@ -391,7 +391,7 @@ fn bench_store(
 /// The loop has no reducer type parameter, so all reducer types share its benchmark closures.
 fn bench_store_fixture(
     bencher: divan::Bencher<'_, '_>,
-    fixture: Fixture<State, Action>,
+    fixture: &Fixture<State, Action>,
     action_depth: usize,
     calls_per_action: usize,
 ) {
