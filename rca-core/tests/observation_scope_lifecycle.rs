@@ -166,6 +166,60 @@ fn cancelling_an_admitted_predicate_wait_retires_its_causal_work() {
     drive(&mut actor, store.shutdown()).unwrap();
 }
 
+// Cancellation during reduction must also reach work installed after the request.
+#[test]
+fn cancellation_during_reduction_retires_the_later_installed_causal_task() {
+    let runtime = support::ManualRuntime::new();
+    let waiting = Arc::new(std::sync::Mutex::new(None::<rca_core::PredicateWait>));
+    let cancel_during_reduction = Arc::clone(&waiting);
+    let capture = Arc::new(());
+    let weak_capture = Arc::downgrade(&capture);
+    let mut capture = Some(capture);
+    let starts = Arc::new(AtomicUsize::new(0));
+    let started = Arc::clone(&starts);
+    let store = Store::new(
+        0,
+        Reduce::new(move |state: &mut usize, action: &usize, _| {
+            *state += *action;
+            cancel_during_reduction
+                .lock()
+                .unwrap()
+                .as_mut()
+                .unwrap()
+                .cancel();
+            let capture = capture.take().unwrap();
+            let started = Arc::clone(&started);
+            Effect::run(move |_| {
+                started.fetch_add(1, Ordering::Relaxed);
+                async move { drop(capture) }
+            })
+        }),
+        runtime.runtime(),
+    );
+    let mut actor = runtime.take_only_queued_task();
+    let mut wait = store.send_and_wait_while(7, |_| {
+        panic!("cancelled wait must not register its predicate");
+    });
+    let mut context = Context::from_waker(Waker::noop());
+    assert!(Pin::new(&mut wait).poll(&mut context).is_pending());
+    *waiting.lock().unwrap() = Some(wait);
+
+    assert!(actor.as_mut().poll(&mut context).is_pending());
+    let mut wait = waiting.lock().unwrap().take().unwrap();
+    assert_eq!(
+        Pin::new(&mut wait).poll(&mut context),
+        Poll::Ready(PredicateWaitOutcome::Cancelled)
+    );
+    let mut effect = runtime.take_only_queued_task();
+    assert!(effect.as_mut().poll(&mut context).is_ready());
+    assert_eq!(starts.load(Ordering::Relaxed), 0);
+    assert!(weak_capture.upgrade().is_none());
+    assert_eq!(drive(&mut actor, store.read(|state| *state)).unwrap(), 7);
+    assert!(!store.is_closed());
+    assert!(runtime.take_queued_tasks().is_empty());
+    drive(&mut actor, store.shutdown()).unwrap();
+}
+
 // The owned scoped send must register after its commit and consume that false state.
 #[test]
 fn scoped_owned_send_observes_its_committed_false_selection() {

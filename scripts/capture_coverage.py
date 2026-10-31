@@ -96,14 +96,14 @@ TARGETS = {
         "rca-core", "rca-core", "rca_core",
         frozenset({"default", "diagnostics", "futures-stream", "local", "test-util"}),
         ("--features", "diagnostics,futures-stream,local,test-util"),
-        ("clock_fixtures", "store_actor", "terminal_unwind"), include_library=False,
+        ("clock_fixtures", "store_actor", "local_store", "effects", "terminal_unwind"), include_library=False,
     ),
     "core-services": CaptureGroup(
         "rca-core", "rca-core", "rca_core",
         frozenset({"default", "diagnostics", "futures-stream", "local", "test-util"}),
         ("--features", "diagnostics,futures-stream,local,test-util"),
         ("dependency_defaults", "dependency_preparation", "issue_operations", "issue_contexts",
-         "diagnostics", "diagnostics_checkpoint", "presentation", "fallible_effect"),
+         "diagnostics", "diagnostics_checkpoint", "presentation", "fallible_effect", "fallible_effect_lifecycle"),
         include_library=False,
     ),
     "macros": CaptureGroup(
@@ -190,6 +190,8 @@ def host_arguments(group, kind, executable):
         args.append("--test-threads=1")
     if group == "macros" and executable.name.startswith("reducer-"):
         args.append("--test-threads=1")
+    if group == "core-terminal" and kind == ["test"] and executable.name.startswith("effects-"):
+        args.extend(("--nocapture", "--test-threads=1"))
     if group in ("channel-overflow-std", "channel-overflow-nostd") and kind == ["lib"]:
         args.extend(("--nocapture", "--test-threads=1"))
     return args
@@ -351,7 +353,7 @@ def test_summary(text, allow_exact_children=False, macro_children=False):
                 or any(child["passed"] != 1 or child["failed"] != 0
                        or child["ignored"] != 0 or child["measured"] != 0
                        or child["filtered_out"] != total_tests - 1 for child in children)):
-            raise ValueError("Listener child did not finish one exact-filtered test")
+            raise ValueError("Child did not finish one exact-filtered test")
         return dict(summary, exact_children=children)
     return summary
 
@@ -598,11 +600,17 @@ def capture(root, group, output):
                                         "listener-std-critical-section")
                               and record["target"]["kind"] == ["test"])
             macro_child = group == "macros" and record["target"]["name"] == "reducer"
-            write_json(host / "test-summary.json",
-                       test_summary((host / "run.stdout").read_text(), listener_child, macro_child))
+            effect_children = group == "core-terminal" and record["target"]["name"] == "effects"
+            summary = test_summary((host / "run.stdout").read_text(), listener_child or effect_children, macro_child)
+            # This host isolates eighteen tests in the same executable.
+            if effect_children and len(summary["exact_children"]) != 18:
+                raise ValueError("Effects host must report eighteen successful exact-filtered children")
+            write_json(host / "test-summary.json", summary)
             profiles = sorted(raw.glob("*.profraw"))
             if not profiles or set(raw.iterdir()) != set(profiles) or any(path.is_symlink() for path in profiles):
                 raise ValueError("Missing or unexpected runtime profiles")
+            if effect_children and len(profiles) != 19:
+                raise ValueError("Effects host must retain its parent and eighteen child profiles")
             write_json(host / "raw-sha256.json", {path.name: digest(path) for path in profiles})
             if channel_overflow:
                 write_json(host / "overflow-outcomes.json",

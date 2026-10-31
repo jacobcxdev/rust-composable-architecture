@@ -226,8 +226,8 @@ class CaptureCoverageTests(unittest.TestCase):
                 self.assertEqual(self.capture.host_arguments("core-observation-operations", ["test"], executable),
                                  [str(executable)])
 
-    def test_terminal_group_selects_only_three_rich_unfiltered_integration_hosts(self):
-        names = ("clock_fixtures", "store_actor", "terminal_unwind")
+    def test_terminal_group_selects_five_rich_unfiltered_integration_hosts(self):
+        names = ("clock_fixtures", "store_actor", "local_store", "effects", "terminal_unwind")
         self.assertIn("core-terminal", self.capture.TARGETS)
         self.assertEqual(self.capture.group_arguments("core-terminal"), [
             "-p", "rca-core", "--features", "diagnostics,futures-stream,local,test-util",
@@ -236,8 +236,10 @@ class CaptureCoverageTests(unittest.TestCase):
         for name in names:
             executable = self.root / (name + "-123")
             with self.subTest(host=name):
-                self.assertEqual(self.capture.host_arguments("core-terminal", ["test"], executable),
-                                 [str(executable)])
+                expected = [str(executable)]
+                if name == "effects":
+                    expected.extend(("--nocapture", "--test-threads=1"))
+                self.assertEqual(self.capture.host_arguments("core-terminal", ["test"], executable), expected)
 
     def test_test_store_group_selects_only_seven_local_unfiltered_integration_hosts(self):
         names = ("controls", "error_contracts", "snapshot_contracts", "local_test_store",
@@ -253,9 +255,9 @@ class CaptureCoverageTests(unittest.TestCase):
                 self.assertEqual(self.capture.host_arguments("test-store", ["test"], executable),
                                  [str(executable)])
 
-    def test_services_group_selects_only_eight_rich_unfiltered_integration_hosts(self):
+    def test_services_group_selects_nine_rich_unfiltered_integration_hosts(self):
         names = ("dependency_defaults", "dependency_preparation", "issue_operations", "issue_contexts",
-                 "diagnostics", "diagnostics_checkpoint", "presentation", "fallible_effect")
+                 "diagnostics", "diagnostics_checkpoint", "presentation", "fallible_effect", "fallible_effect_lifecycle")
         self.assertIn("core-services", self.capture.TARGETS)
         self.assertEqual(self.capture.group_arguments("core-services"), [
             "-p", "rca-core", "--features", "diagnostics,futures-stream,local,test-util",
@@ -378,10 +380,10 @@ class CaptureCoverageTests(unittest.TestCase):
               "observation_waker_lifecycle", "observation_adapter_scopes", "named_operations",
               "named_operation_races", "local_named_operations"]),
             ("core-terminal", "rca-core", "rca_core", ["default", "diagnostics", "futures-stream", "local", "test-util"],
-             ["clock_fixtures", "store_actor", "terminal_unwind"]),
+             ["clock_fixtures", "store_actor", "local_store", "effects", "terminal_unwind"]),
             ("core-services", "rca-core", "rca_core", ["default", "diagnostics", "futures-stream", "local", "test-util"],
              ["dependency_defaults", "dependency_preparation", "issue_operations", "issue_contexts",
-              "diagnostics", "diagnostics_checkpoint", "presentation", "fallible_effect"]),
+              "diagnostics", "diagnostics_checkpoint", "presentation", "fallible_effect", "fallible_effect_lifecycle"]),
             ("test-store", "rca-test", "rca_test", ["local"],
              ["controls", "error_contracts", "snapshot_contracts", "local_test_store",
               "output_delivery", "focused_outputs", "conformance_deterministic"]),
@@ -578,6 +580,11 @@ class CaptureCoverageTests(unittest.TestCase):
         names, features = ["rca_core", "store_actor", "local_store"], ["local"]
         options = ["-p", "rca-core", "--no-default-features", "--features", "local",
                    "--lib", "--test", "store_actor", "--test", "local_store"]
+        if group == "core-terminal":
+            names = ["clock_fixtures", "store_actor", "local_store", "effects", "terminal_unwind"]
+            features = ["default", "diagnostics", "futures-stream", "local", "test-util"]
+            options = ["-p", "rca-core", "--features", "diagnostics,futures-stream,local,test-util",
+                       *[item for name in names for item in ("--test", name)]]
         if group in ("listener-spin", "listener-std-critical-section"):
             package, package_name, library = "dependencies/rca-event-listener", "rca-event-listener", "event_listener"
             if group == "listener-spin":
@@ -622,6 +629,17 @@ raw.write_bytes(b"runtime profile")
 mode = (root / ".tools/mode").read_text()
 listener = {group!r} in ("listener-spin", "listener-std-critical-section")
 channel = {group!r} in ("channel-overflow-std", "channel-overflow-nostd")
+effects = {group!r} == "core-terminal" and Path(__file__).name.startswith("effects-")
+if effects:
+    assert sys.argv[1:] == ["--nocapture", "--test-threads=1"]
+    children = 17 if mode == "missing-effect-child" else (19 if mode == "extra-effect-child" else 18)
+    for index in range(children):
+        if mode != "missing-effect-profile" or index != 17:
+            (raw.parent / f"current-child-{{index}}-fixture.profraw").write_bytes(b"runtime profile")
+        passed = 0 if mode == "empty-effect-child" and index == 0 else 1
+        print(f"test result: ok. {{passed}} passed; 0 failed; 0 ignored; 0 measured; 19 filtered out")
+    if mode == "extra-effect-profile":
+        (raw.parent / "current-extra-fixture.profraw").write_bytes(b"runtime profile")
 if channel:
     assert sys.argv[1:] == ["--nocapture", "--test-threads=1"]
     assert Path(os.environ["LLVM_PROFILE_FILE"]).name == "current-%p%c.profraw"
@@ -640,8 +658,8 @@ if mode == "tool-change":
     with (root / ".tools/cc").open("a") as stream:
         stream.write("\\n# changed\\n")
 if mode != "missing-summary":
-    passed = 0 if mode == "zero-tests" else 1
-    ignored = 0 if listener or channel else 1
+    passed = 20 if effects else (0 if mode == "zero-tests" else 1)
+    ignored = 0 if listener or channel or effects else 1
     print(f"test result: ok. {{passed}} passed; 0 failed; {{ignored}} ignored; 0 measured; 0 filtered out")
 '''
         tool_code = f'''#!{sys.executable}
@@ -697,6 +715,40 @@ elif name == "llvm-cov":
 
     def test_channel_std_capture_retains_continuous_profiles_and_checked_outcomes(self):
         self.check_channel_capture("channel-overflow-std")
+
+    def test_effect_capture_requires_all_eighteen_children_and_parent_profiles(self):
+        group = "core-terminal"
+        tools, output = self.capture_fixture(group=group)
+        self.run_capture_fixture(tools, output, group=group)
+        host = output / "hosts/effects"
+        summary = json.loads((host / "test-summary.json").read_text())
+        self.assertEqual(summary["passed"], 20)
+        self.assertEqual(len(summary["exact_children"]), 18)
+        self.assertEqual(len(json.loads((host / "raw-sha256.json").read_text())), 19)
+        self.assertTrue(json.loads((output / "capture.json").read_text())["capture_complete"])
+
+    def test_effect_capture_rejects_missing_or_empty_children_and_missing_profiles(self):
+        group = "core-terminal"
+        errors = {
+            "missing-effect-child": "Effects host must report eighteen successful exact-filtered children",
+            "extra-effect-child": "Effects host must report eighteen successful exact-filtered children",
+            "empty-effect-child": "Child did not finish one exact-filtered test",
+            "missing-effect-profile": "Effects host must retain its parent and eighteen child profiles",
+            "extra-effect-profile": "Effects host must retain its parent and eighteen child profiles",
+        }
+        for mode, expected_error in errors.items():
+            with self.subTest(mode=mode), tempfile.TemporaryDirectory() as directory:
+                original_root = self.root
+                self.root = Path(directory).resolve()
+                try:
+                    tools, output = self.capture_fixture(mode, group=group)
+                    with self.assertRaises(ValueError):
+                        self.run_capture_fixture(tools, output, group=group)
+                    receipt = json.loads((output / "capture.json").read_text())
+                    self.assertFalse(receipt["capture_complete"])
+                    self.assertEqual(receipt["error"], expected_error)
+                finally:
+                    self.root = original_root
 
     def test_channel_nostd_capture_retains_continuous_profiles_and_checked_outcomes(self):
         self.check_channel_capture("channel-overflow-nostd")
