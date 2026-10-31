@@ -116,6 +116,17 @@ TARGETS = {
         ("notify", "public_surface", "callback_contracts", "first_use",
          "backend_contention", "notification_policy", "panic_contracts"),
     ),
+    "listener-spin": CaptureGroup(
+        "rca-event-listener", "dependencies/rca-event-listener", "event_listener",
+        frozenset(), ("--no-default-features",),
+        ("backend_contention",), include_library=False,
+    ),
+    "listener-std-critical-section": CaptureGroup(
+        "rca-event-listener", "dependencies/rca-event-listener", "event_listener",
+        frozenset({"critical-section", "default", "parking", "std"}),
+        ("--features", "critical-section"),
+        ("public_surface",), include_library=False,
+    ),
     "strategy-std": CaptureGroup(
         "rca-event-listener-strategy", "dependencies/rca-event-listener-strategy",
         "event_listener_strategy", frozenset({"default", "std"}), (),
@@ -139,7 +150,8 @@ def group_arguments(group):
 def host_arguments(group, kind, executable):
     """Serialize parents that inherit child output without filtering tests."""
     args = [str(executable)]
-    if group in ("listener-std", "listener-critical-section") and kind == ["test"]:
+    if group in ("listener-std", "listener-critical-section", "listener-spin",
+                 "listener-std-critical-section") and kind == ["test"]:
         args.append("--test-threads=1")
     if group == "macros" and executable.name.startswith("reducer-"):
         args.append("--test-threads=1")
@@ -515,7 +527,8 @@ def capture(root, group, output):
             write_json(host / "environment.json", host_env)
             run_command(host_arguments(group, record["target"]["kind"], retained),
                         package, host_env, host / "run", 600)
-            listener_child = (group in ("listener-std", "listener-critical-section")
+            listener_child = (group in ("listener-std", "listener-critical-section", "listener-spin",
+                                        "listener-std-critical-section")
                               and record["target"]["kind"] == ["test"])
             macro_child = group == "macros" and record["target"]["name"] == "reducer"
             write_json(host / "test-summary.json",

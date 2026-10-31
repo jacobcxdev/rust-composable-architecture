@@ -122,6 +122,8 @@ jobs:
                     - tokio
                     - listener-std
                     - listener-critical-section
+                    - listener-spin
+                    - listener-std-critical-section
                     - strategy-std
         env:
             CARGO_BUILD_JOBS: 1

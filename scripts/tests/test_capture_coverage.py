@@ -168,6 +168,20 @@ class CaptureCoverageTests(unittest.TestCase):
                                             "typed_transactions") for item in ("--test", name)],
         ])
 
+    def test_listener_gap_groups_select_one_host_without_library_or_loom(self):
+        expected = {
+            "listener-spin": ["-p", "rca-event-listener", "--no-default-features",
+                              "--test", "backend_contention"],
+            "listener-std-critical-section": ["-p", "rca-event-listener", "--features",
+                                              "critical-section", "--test", "public_surface"],
+        }
+        for group, options in expected.items():
+            with self.subTest(group=group):
+                self.assertIn(group, self.capture.TARGETS)
+                self.assertEqual(self.capture.group_arguments(group), options)
+        with self.assertRaises(ValueError):
+            self.capture.group_arguments("listener-unselected")
+
     def test_fold_command_group_selects_only_eight_rich_in_process_hosts(self):
         names = ("fold_local", "fold_gate", "fold_shape", "fold_terminal", "fold_selector_close",
                  "recipe_commands", "recipe_commands_local", "recipe_command_failures")
@@ -298,11 +312,16 @@ class CaptureCoverageTests(unittest.TestCase):
             ("listener-critical-section", "dependencies/rca-event-listener", "event_listener", ["critical-section"],
              ["event_listener", "notify", "public_surface", "callback_contracts", "first_use", "backend_contention",
               "notification_policy", "panic_contracts"]),
+            ("listener-spin", "dependencies/rca-event-listener", "event_listener", [],
+             ["backend_contention"]),
+            ("listener-std-critical-section", "dependencies/rca-event-listener", "event_listener",
+             ["critical-section", "default", "parking", "std"], ["public_surface"]),
             ("strategy-std", "dependencies/rca-event-listener-strategy", "event_listener_strategy", ["default", "std"],
              ["event_listener_strategy", "easy_wrapper", "public_contracts"]),
         )
         for group, package, library, features, names in cases:
             with self.subTest(group=group):
+                self.assertIn(group, self.capture.TARGETS)
                 rows = [self.artifact(name, features, group, package, library) for name in names]
                 target = self.root / "target/coverage" / group
 
@@ -326,6 +345,11 @@ class CaptureCoverageTests(unittest.TestCase):
                 if library not in names:
                     with self.assertRaises(ValueError):
                         parse([*rows, self.artifact(library, features, group, package, library)])
+                if group in ("listener-spin", "listener-std-critical-section"):
+                    for wrong_features in (["default", "parking", "std"], ["critical-section"],
+                                           [*features, "loom"], [*features, "portable-atomic"]):
+                        with self.subTest(group=group, features=wrong_features), self.assertRaises(ValueError):
+                            parse([dict(rows[0], features=wrong_features)])
 
     def test_snapshot_requires_clean_tracked_files_and_lock_and_detects_changes(self):
         def git(*args):
@@ -448,12 +472,24 @@ class CaptureCoverageTests(unittest.TestCase):
             with self.subTest(tool=name), self.assertRaises(ValueError):
                 self.capture.validate_tool_versions(dict(versions, **{name: value}))
 
-    def capture_fixture(self, mode="success"):
+    def capture_fixture(self, mode="success", group="core-minimal"):
+        package, package_name, library = "rca-core", "rca-core", "rca_core"
+        names, features = ["rca_core", "store_actor", "local_store"], ["local"]
+        options = ["-p", "rca-core", "--no-default-features", "--features", "local",
+                   "--lib", "--test", "store_actor", "--test", "local_store"]
+        if group in ("listener-spin", "listener-std-critical-section"):
+            package, package_name, library = "dependencies/rca-event-listener", "rca-event-listener", "event_listener"
+            if group == "listener-spin":
+                names, features = ["backend_contention"], []
+                options = ["-p", "rca-event-listener", "--no-default-features", "--test", "backend_contention"]
+            else:
+                names, features = ["public_surface"], ["critical-section", "default", "parking", "std"]
+                options = ["-p", "rca-event-listener", "--features", "critical-section", "--test", "public_surface"]
         files = {".gitignore": "target/\n.tools/\n", "Cargo.lock": "version = 4\n",
                  "rust-toolchain.toml": '[toolchain]\nchannel = "1.99.0"\n',
-                 "Cargo.toml": '[workspace]\nmembers = ["rca-core"]\n',
-                 "rca-core/Cargo.toml": '[package]\nname = "rca-core"\nversion = "0.1.0"\n',
-                 "rca-core/src/lib.rs": "pub fn fixture() {}\n"}
+                 "Cargo.toml": f'[workspace]\nmembers = ["{package}"]\n',
+                 f"{package}/Cargo.toml": f'[package]\nname = "{package_name}"\nversion = "0.1.0"\n',
+                 f"{package}/src/lib.rs": "pub fn fixture() {}\n"}
         for name, text in files.items():
             path = self.root / name
             path.parent.mkdir(parents=True, exist_ok=True)
@@ -465,16 +501,20 @@ class CaptureCoverageTests(unittest.TestCase):
         directory.mkdir()
         (directory / "mode").write_text(mode)
         host_code = f'''#!{sys.executable}
-import os
+import os, subprocess, sys
 from pathlib import Path
 root = Path({str(self.root)!r})
-assert Path.cwd() == root / "rca-core"
-assert os.environ["CARGO_MANIFEST_DIR"] == str(root / "rca-core")
+assert Path.cwd() == root / {package!r}
+assert os.environ["CARGO_MANIFEST_DIR"] == str(root / {package!r})
 assert "LD_LIBRARY_PATH" in os.environ
 raw = Path(os.environ["LLVM_PROFILE_FILE"].replace("%p", str(os.getpid())).replace("%m", "fixture"))
 raw.parent.mkdir(parents=True, exist_ok=True)
 raw.write_bytes(b"runtime profile")
 mode = (root / ".tools/mode").read_text()
+listener = {group!r} in ("listener-spin", "listener-std-critical-section")
+if listener and not os.environ.get("CAPTURE_FIXTURE_CHILD"):
+    assert sys.argv[1:] == ["--test-threads=1"]
+    subprocess.run([sys.executable, __file__], env=dict(os.environ, CAPTURE_FIXTURE_CHILD="1"), check=True)
 if mode == "source-change":
     (root / "rca-core/src/lib.rs").write_text("pub fn changed() {{}}\\n")
 if mode == "tool-change":
@@ -482,7 +522,8 @@ if mode == "tool-change":
         stream.write("\\n# changed\\n")
 if mode != "missing-summary":
     passed = 0 if mode == "zero-tests" else 1
-    print(f"test result: ok. {{passed}} passed; 0 failed; 1 ignored; 0 measured; 0 filtered out")
+    ignored = 0 if listener else 1
+    print(f"test result: ok. {{passed}} passed; 0 failed; {{ignored}} ignored; 0 measured; 0 filtered out")
 '''
         tool_code = f'''#!{sys.executable}
 import json, os, sys
@@ -490,14 +531,14 @@ from pathlib import Path
 root = Path({str(self.root)!r})
 name = Path(sys.argv[0]).name
 if name == "cargo":
-    assert sys.argv[1:] == ["test", "--locked", "-j1", "--message-format=json-render-diagnostics", "-p", "rca-core", "--no-default-features", "--features", "local", "--lib", "--test", "store_actor", "--test", "local_store", "--no-run"]
+    assert sys.argv[1:] == ["test", "--locked", "-j1", "--message-format=json-render-diagnostics", *{options!r}, "--no-run"]
     target = Path(os.environ["CARGO_TARGET_DIR"]) / "debug/deps"
     target.mkdir(parents=True, exist_ok=True)
-    for host in ["rca_core", "store_actor", "local_store"]:
+    for host in {names!r}:
         executable = target / (host + "-fixture")
         executable.write_text({host_code!r})
         executable.chmod(0o755)
-        print(json.dumps({{"reason": "compiler-artifact", "package_id": "path+file://fixture/rca-core#0.1.0", "manifest_path": str(root / "rca-core/Cargo.toml"), "target": {{"name": host, "kind": ["lib" if host == "rca_core" else "test"]}}, "profile": {{"test": True}}, "features": ["local"], "filenames": [str(executable)], "executable": str(executable)}}))
+        print(json.dumps({{"reason": "compiler-artifact", "package_id": "path+file://fixture/{package_name}#0.1.0", "manifest_path": str(root / {package!r} / "Cargo.toml"), "target": {{"name": host, "kind": ["lib" if host == {library!r} else "test"]}}, "profile": {{"test": True}}, "features": {features!r}, "filenames": [str(executable)], "executable": str(executable)}}))
     raw = Path(os.environ["LLVM_PROFILE_FILE"].replace("%p", str(os.getpid())).replace("%m", "build"))
     raw.parent.mkdir(parents=True, exist_ok=True)
     raw.write_bytes(b"compiler profile must not merge")
@@ -510,19 +551,40 @@ elif name == "llvm-cov":
     assert sys.argv[1:3] == ["export", "-format=text"]
     if (root / ".tools/mode").read_text() == "warning":
         print("warning: profile mismatch", file=sys.stderr)
-    print(json.dumps({{"type": "llvm.coverage.json.export", "version": "2.0.1", "data": [{{"functions": [{{"name": "unwitnessed", "count": 0, "filenames": [str(root / "rca-core/src/lib.rs")], "regions": [[1, 1, 1, 8, 0, 0, 0, 0]], "branches": [[1, 1, 1, 8, 0, 0, 0, 0, 4]], "mcdc_records": []}}]}}]}}))
+    print(json.dumps({{"type": "llvm.coverage.json.export", "version": "2.0.1", "data": [{{"functions": [{{"name": "unwitnessed", "count": 0, "filenames": [str(root / {package!r} / "src/lib.rs")], "regions": [[1, 1, 1, 8, 0, 0, 0, 0]], "branches": [[1, 1, 1, 8, 0, 0, 0, 0, 4]], "mcdc_records": []}}]}}]}}))
 '''
         tools = {}
         for name in ("cargo", "rustc", "rustdoc", "llvm-profdata", "llvm-cov", "cc", "ld"):
             tools[name] = directory / name
             tools[name].write_text(tool_code)
             tools[name].chmod(0o755)
-        return tools, self.root / "target/coverage-evidence/core-minimal"
+        return tools, self.root / "target/coverage-evidence" / group
 
-    def run_capture_fixture(self, tools, output, platform="linux"):
+    def run_capture_fixture(self, tools, output, platform="linux", group="core-minimal"):
         self.assertTrue(hasattr(self.capture, "capture"), "capture orchestration is missing")
         with patch.object(self.capture, "discover_tools", return_value=tools, create=True), patch.object(self.capture.sys, "platform", platform), patch.object(self.capture.shutil, "disk_usage", return_value=SimpleNamespace(free=100 * 1024 ** 3)):
-            return self.capture.capture(self.root, "core-minimal", output)
+            return self.capture.capture(self.root, group, output)
+
+    def test_listener_spin_capture_retains_exact_child_and_parent_profiles(self):
+        self.check_listener_capture("listener-spin", "backend_contention")
+
+    def test_listener_std_critical_capture_retains_exact_child_and_parent_profiles(self):
+        self.check_listener_capture("listener-std-critical-section", "public_surface")
+
+    def check_listener_capture(self, group, name):
+        self.assertIn(group, self.capture.TARGETS)
+        tools, output = self.capture_fixture(group=group)
+        self.run_capture_fixture(tools, output, group=group)
+        receipt = json.loads((output / "capture.json").read_text())
+        self.assertTrue(receipt["capture_complete"])
+        self.assertFalse(receipt["coverage_complete"])
+        self.assertEqual([host.name for host in (output / "hosts").iterdir()], [name])
+        host = output / "hosts" / name
+        self.assertEqual(len(json.loads((host / "raw-sha256.json").read_text())), 2)
+        self.assertEqual(json.loads((host / "test-summary.json").read_text()),
+                         {"passed": 1, "failed": 0, "ignored": 0, "measured": 0, "filtered_out": 0,
+                          "exact_children": [{"passed": 1, "failed": 0, "ignored": 0,
+                                              "measured": 0, "filtered_out": 0}]})
 
     def test_capture_retains_runtime_only_profiles_zeros_and_immutable_objects(self):
         tools, output = self.capture_fixture()
@@ -623,13 +685,13 @@ elif name == "llvm-cov":
 
     def test_only_listener_integration_parents_run_serial_libtest_threads(self):
         executable = self.root / "listener-fixture"
-        for group in ("listener-std", "listener-critical-section"):
+        for group in ("listener-std", "listener-critical-section", "listener-spin", "listener-std-critical-section"):
             with self.subTest(group=group):
                 self.assertEqual(self.capture.host_arguments(group, ["test"], executable),
                                  [str(executable), "--test-threads=1"])
                 self.assertEqual(self.capture.host_arguments(group, ["lib"], executable),
                                  [str(executable)])
-        for group in ("core-minimal", "core-rich", "core-removal", "tokio", "strategy-std"):
+        for group in ("core-minimal", "core-rich", "core-removal", "tokio", "strategy-std", "listener-unselected"):
             with self.subTest(group=group):
                 self.assertEqual(self.capture.host_arguments(group, ["test"], executable),
                                  [str(executable)])

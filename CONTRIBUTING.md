@@ -282,7 +282,15 @@ change implementation.
 | `tokio` | Tokio unit tests and host lifecycle, clock and panic tests |
 | `listener-std` | Listener unit and integration tests with the standard-library backend |
 | `listener-critical-section` | Listener unit and integration tests with the critical-section backend, without `std` |
+| `listener-spin` | Listener backend-contention integration test without default features or `critical-section` |
+| `listener-std-critical-section` | Listener public-surface integration tests with default features and `critical-section` |
 | `strategy-std` | Listener strategy unit and integration tests with `std` |
+
+The `listener-spin` group captures the fallback only for regression evidence.
+It does not expand supported production configurations.
+The listener recommends `std` or `critical-section` for production use.
+Its contention window does not prove that a particular compare-and-swap retry or spin branch ran.
+Those paths need positive native counters.
 
 The capture uses Rust 1.99.0 and its matching LLVM tools. Dependency build outputs
 are cached separately for each group. CI rebuilds workspace crates. Each artefact
