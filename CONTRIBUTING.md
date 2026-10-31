@@ -273,6 +273,9 @@ change implementation.
 | `core-minimal` | Core unit, actor and Local Store tests with `local`, without `test-util` |
 | `core-rich` | Core unit and integration tests with diagnostics, streams, Local and test support |
 | `core-removal` | Removed-child integration tests with the rich Core features |
+| `core-timers-rich` | Core timer and transaction tests with the rich Core features |
+| `core-timers-minimal` | Core timer and transaction tests with `local` only |
+| `macros` | Macro unit and integration tests, plus compiler-stage profiles from the proc-macro library |
 | `tokio` | Tokio unit tests and host lifecycle, clock and panic tests |
 | `listener-std` | Listener unit and integration tests with the standard-library backend |
 | `listener-critical-section` | Listener unit and integration tests with the critical-section backend, without `std` |
@@ -283,6 +286,14 @@ are cached separately for each group. CI rebuilds workspace crates. Each artefac
 records source and tool hashes, Cargo arguments, compiler configuration, test output,
 executable objects, raw profiles and the LLVM export. Failed captures retain their available evidence.
 Download required evidence before its seven-day retention period ends.
+
+The `macros` group also retains the proc-macro dynamic library from Cargo's build record.
+It exports compiler-stage profiles against that exact library, separately from test runtime profiles.
+The capture fails if any of the eight macro entry functions has no positive source-owned region.
+Passing macro unit tests alone do not prove that compiler-stage entry functions ran.
+Some macro tests run child Cargo and trybuild commands. Their host profile directories can contain
+profiles from compilers with different flags; retain those inputs, but do not count them as
+same-configuration production coverage. The initial build-stage export is the macro-entry check.
 
 Capture requires Python 3.11 or later, the pinned `llvm-tools-preview` component
 and at least 12 GiB of free disk space. If a disk check finds less than two GiB
