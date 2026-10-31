@@ -2930,6 +2930,71 @@ fn cloned_scoped_handles_commit_unique_actions_in_admission_order() {
 }
 
 #[test]
+fn ended_optional_child_try_send_recovers_payload_before_embedding() {
+    let runtime = ManualRuntime::new();
+    let reducer = rca_core::Reduce::new(
+        |state: &mut Option<usize>, action: &Option<Arc<usize>>, _| {
+            if let Some(amount) = action {
+                *state.as_mut().expect("only live handles may reduce") += **amount;
+            } else {
+                *state = None;
+            }
+            Effect::none()
+        },
+    );
+    let store = Store::new(Some(0), reducer, runtime.runtime());
+    let mut actor = runtime.take_only_queued_task();
+    let embeddings = Arc::new(AtomicUsize::new(0));
+    let embedded = Arc::clone(&embeddings);
+    let child = drive_scoped_actor(
+        &mut actor,
+        store.scope_some(
+            OptionalStatePath::new(
+                |state: &Option<usize>| state.as_ref(),
+                |state: &mut Option<usize>| state.as_mut(),
+            ),
+            ActionPath::new(
+                |action: &Option<Arc<usize>>| action.as_ref(),
+                move |action| {
+                    embedded.fetch_add(1, Ordering::SeqCst);
+                    Some(action)
+                },
+            ),
+        ),
+    )
+    .unwrap();
+    assert!(
+        drive_scoped_actor(&mut actor, store.send(None))
+            .unwrap()
+            .is_finished()
+    );
+
+    let payload = Arc::new(11);
+    let error = child
+        .try_send(Arc::clone(&payload))
+        .expect_err("an ended child must reject before mailbox admission");
+    assert!(error.is_scope_ended());
+    assert!(!error.is_full());
+    assert!(!error.is_store_stopped());
+    let recovered = error.into_action();
+    assert!(Arc::ptr_eq(&recovered, &payload));
+    assert_eq!(Arc::strong_count(&payload), 2);
+    drop(recovered);
+    assert_eq!(Arc::strong_count(&payload), 1);
+    assert_eq!(embeddings.load(Ordering::SeqCst), 0);
+    assert_eq!(
+        drive_scoped_actor(&mut actor, store.read(|state| *state)).unwrap(),
+        None
+    );
+
+    drop(child);
+    drop(store);
+    let mut context = Context::from_waker(std::task::Waker::noop());
+    assert!(actor.as_mut().poll(&mut context).is_ready());
+    assert_eq!(Arc::strong_count(&payload), 1);
+}
+
+#[test]
 fn queued_optional_removal_rejects_admitted_handle_before_embedding() {
     let runtime = ManualRuntime::new();
     let reducer = rca_core::Reduce::new(

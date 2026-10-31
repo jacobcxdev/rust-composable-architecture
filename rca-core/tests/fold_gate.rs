@@ -372,6 +372,65 @@ macro_rules! gate_cases {
         }
 
         #[test]
+        fn foreign_root_rejects_diagnostic_view_without_touching_either_transaction() {
+            let f = fixture();
+            let foreign = fixture();
+            let view = f
+                .driver
+                .finish(f.gate.acquire_fold(&f.store, &f.fold, &f.site))
+                .unwrap()
+                .unwrap();
+            let receipt = f
+                .store
+                .try_send(Action {
+                    payload: Arc::new(()),
+                    refresh: false,
+                })
+                .unwrap_or_else(|_| panic!("admitted action"));
+            f.driver.turn();
+            let boundary = f.gate.boundary().unwrap();
+            let before = f.gate.pending_diagnostics().unwrap();
+            let latest = f.gate.latest_diagnostics();
+            let foreign_boundary = foreign.gate.boundary();
+            let foreign_before = foreign.gate.pending_diagnostics();
+            let foreign_latest = foreign.gate.latest_diagnostics();
+            let selected = f.selections.load(Ordering::SeqCst);
+            let foreign_selected = foreign.selections.load(Ordering::SeqCst);
+            let mut read = Box::pin(f.gate.fold_view(&foreign.store, &view));
+            let std::task::Poll::Ready(Err(error)) = poll(read.as_mut()) else {
+                panic!("foreign root must reject the diagnostic view before submission");
+            };
+            assert_eq!(error.reason(), TaskAccessReason::ScopeEnded);
+            assert_eq!(error.progress(), TaskProgress::NotStarted);
+            assert_eq!(f.calls.load(Ordering::SeqCst), 0);
+            assert_eq!(foreign.calls.load(Ordering::SeqCst), 0);
+            assert_eq!(f.selections.load(Ordering::SeqCst), selected);
+            assert_eq!(foreign.selections.load(Ordering::SeqCst), foreign_selected);
+            assert_eq!(f.gate.boundary(), Some(boundary));
+            assert_eq!(f.gate.pending_diagnostics(), Some(before));
+            assert_eq!(f.gate.latest_diagnostics(), latest);
+            assert!(f.gate.has_pending());
+            assert_eq!(foreign.gate.boundary(), foreign_boundary);
+            assert_eq!(foreign.gate.pending_diagnostics(), foreign_before);
+            assert_eq!(foreign.gate.latest_diagnostics(), foreign_latest);
+            assert!(!foreign.gate.has_pending());
+            drop(read);
+
+            let release = f.gate.release_pending_with_receipt().unwrap();
+            drop(f.driver.finish(release.finish()).unwrap());
+            drop(f.driver.finish(receipt.finish()).unwrap());
+            assert!(f.gate.acknowledge(boundary));
+            drop(f.store);
+            f.driver.turn();
+            drop(foreign.store);
+            foreign.driver.turn();
+            assert!(f.feature.upgrade().is_none());
+            assert!(foreign.feature.upgrade().is_none());
+            assert!(f.callback.upgrade().is_none());
+            assert!(foreign.callback.upgrade().is_none());
+        }
+
+        #[test]
         fn foreign_gate_rejects_acquisition_after_submitting_owner_expires() {
             let f = fixture();
             let foreign = fixture();
