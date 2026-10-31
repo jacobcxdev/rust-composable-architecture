@@ -92,6 +92,12 @@ TARGETS = {
          "observation_waker_lifecycle", "observation_adapter_scopes", "named_operations",
          "named_operation_races", "local_named_operations"), include_library=False,
     ),
+    "core-terminal": CaptureGroup(
+        "rca-core", "rca-core", "rca_core",
+        frozenset({"default", "diagnostics", "futures-stream", "local", "test-util"}),
+        ("--features", "diagnostics,futures-stream,local,test-util"),
+        ("clock_fixtures", "store_actor", "terminal_unwind"), include_library=False,
+    ),
     "macros": CaptureGroup(
         "rca-macros", "rca-macros", "rca_macros", frozenset(), (),
         ("action_paths", "aggregate_paths", "case_descriptors", "dependency_client",
@@ -306,7 +312,8 @@ def test_summary(text, allow_exact_children=False, macro_children=False):
     if summary["passed"] == 0 or summary["failed"] != 0 or summary["filtered_out"] != 0:
         raise ValueError("Selected host did not run its positive, unfiltered test cohort")
     if macro_children:
-        counts = (3, 3, 14, 1, 1)
+        # The first three consumers also include five shared thread-runtime tests.
+        counts = (8, 8, 19, 1, 1)
         children = summaries[:-1]
         summary_lines = re.findall(r"^test result: [^\n]+$", text, re.MULTILINE)
         if (summary != dict(passed=9, failed=0, ignored=0, measured=0, filtered_out=0)
