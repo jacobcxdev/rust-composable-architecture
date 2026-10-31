@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """Capture fixed paired workloads with Windows process counters.
 
-This script consumes four existing binaries and their source/build receipt.
+This script consumes eight existing binaries and their source/build receipt.
+Native rows use default-Core binaries; deterministic rows use test-runtime
+binaries. All 50 scenarios remain required in one paired cohort.
 It does not build code, compare products, retry failures or publish evidence.
 PeakWorkingSetSize measures peak resident working-set bytes. PeakPagefileUsage
 measures peak process commit charge, not physical memory or macOS footprint.
@@ -31,6 +33,12 @@ import uuid
 ROOT = Path(__file__).resolve().parents[1]
 MANIFEST = ROOT / "docs/performance/scenarios.txt"
 PROVIDER = "win32-process-v1"
+CONFIGURATION = "split-native-deterministic-v1"
+BINARY_ROLES = {
+    f"{role}_{'deterministic_' if configuration == 'deterministic' else ''}{mode}": (role, configuration, mode)
+    for role in ("candidate", "reference") for configuration in ("native", "deterministic")
+    for mode in ("normal", "allocation")
+}
 
 
 class FileTime(ctypes.Structure):
@@ -206,7 +214,7 @@ def validate_counters(value):
         raise ValueError("invalid process lifetime or unsupported instruction counter")
 
 
-def validate_metadata(value):
+def validate_source_metadata(value):
     """Require pinned source and tool identities from the separate build step."""
     try:
         for role in ("candidate", "reference"):
@@ -218,10 +226,6 @@ def validate_metadata(value):
             raise ValueError("invalid common harness hash")
         if not re.fullmatch("[0-9a-f]{64}", value["scenario_manifest_sha256"]):
             raise ValueError("invalid scenario manifest hash")
-        for role in ("candidate", "reference"):
-            for mode in ("normal", "allocation"):
-                if not re.fullmatch("[0-9a-f]{64}", value["binaries"][f"{role}_{mode}"]["sha256"]):
-                    raise ValueError("invalid build binary hash")
         tools = value["toolchain"]
         if not tools["rustc"].startswith("rustc 1.99.0 ") or not tools["cargo"].startswith("cargo 1.99.0 "):
             raise ValueError("Windows capture requires pinned Rust 1.99.0")
@@ -231,6 +235,184 @@ def validate_metadata(value):
             raise ValueError("candidate and reference revisions must differ")
     except (KeyError, TypeError) as error:
         raise ValueError("missing or malformed source/build metadata") from error
+
+
+def validate_metadata(value):
+    """Require common identities and all eight runtime build configurations."""
+    validate_source_metadata(value)
+    try:
+        for role in ("candidate", "reference"):
+            if not re.fullmatch("[0-9a-f]{64}", value[role]["tokio_manifest_sha256"]):
+                raise ValueError(f"invalid {role} tokio_manifest_sha256")
+        validate_configurations(value)
+    except (KeyError, TypeError) as error:
+        raise ValueError("missing or malformed source/build metadata") from error
+
+
+def validate_configurations(value):
+    """Bind eight build roles to their effective source and actual Core features."""
+    if value["configuration"] != CONFIGURATION or set(value["binaries"]) != set(BINARY_ROLES):
+        raise ValueError("split qualification requires exactly eight binary roles")
+    commands = {item["binary_role"]: item for item in value["commands"]}
+    if len(value["commands"]) != 8 or set(commands) != set(BINARY_ROLES):
+        raise ValueError("exactly eight distinct build commands are required")
+    source_fields = ("source_manifest_sha256", "harness_sha256", "manifest_sha256", "lock_sha256")
+    for key, (role, configuration, mode) in BINARY_ROLES.items():
+        binary, command = value["binaries"][key], commands[key]
+        native = configuration == "native"
+        deterministic_features = value[role]["deterministic_core_features"]
+        if deterministic_features not in (["default", "test-util"], ["default", "diagnostics", "test-util"]):
+            raise ValueError("invalid deterministic Core features")
+        expected_features = ["default"] if native else deterministic_features
+        if binary["configuration"] != configuration or binary["core_features"] != expected_features:
+            raise ValueError(f"binary configuration or Core features differ: {key}")
+        for digest in (binary["sha256"], *(binary[field] for field in source_fields),
+                       value[f"{role}_source_manifest_sha256"], command["transcript_sha256"]):
+            if not re.fullmatch("[0-9a-f]{64}", digest):
+                raise ValueError(f"invalid source/build hash: {key}")
+        before = {"rca-tokio/benches/qualification.rs": ("harness_sha256", value["harness_sha256"]),
+                  "rca-tokio/Cargo.toml": ("manifest_sha256", value[role]["tokio_manifest_sha256"]),
+                  "Cargo.lock": ("lock_sha256", value[role]["lock_sha256"])}
+        if native:
+            expected = {path: {"before_sha256": digest, "after_sha256": binary[field]}
+                        for path, (field, digest) in before.items()}
+            if binary["transformation"]["files"] != expected:
+                raise ValueError(f"native transformation must bind exactly the three staged files: {key}")
+        elif (any(binary[field] != digest for field, digest in before.values())
+              or binary["source_manifest_sha256"] != value[f"{role}_source_manifest_sha256"]
+              or "transformation" in binary):
+            raise ValueError(f"deterministic source must retain the original common harness and dependency graph: {key}")
+        normal_key = key.removesuffix(mode) + "normal"
+        if any(binary[field] != value["binaries"][normal_key][field] for field in (*source_fields, "source_root", "source_manifest")):
+            raise ValueError(f"normal/allocation source mismatch: {key}")
+        source_root = binary["source_root"].replace("\\", "/").rstrip("/")
+        if type(command["returncode"]) is not int or command["returncode"] != 0 or command["binary"]["sha256"] != binary["sha256"]:
+            raise ValueError(f"unsuccessful or mismatched build command: {key}")
+        for field, name, kind, crate_type, features, test, package, src in (
+                ("core_artifact", "rca_core", "lib", "lib", expected_features, False, "rca-core", "src/lib.rs"),
+                ("cargo_artifact", "qualification", "bench", "bin", ["qualification-dhat"] if mode == "allocation" else [],
+                 True, "rca-tokio", "benches/qualification.rs")):
+            artifact = command[field]
+            target, profile = artifact["target"], artifact["profile"]
+            if (artifact["reason"] != "compiler-artifact" or target["name"] != name or target["kind"] != [kind]
+                    or target["crate_types"] != [crate_type] or artifact["features"] != features
+                    or artifact["manifest_path"].replace("\\", "/") != f"{source_root}/{package}/Cargo.toml"
+                    or target["src_path"].replace("\\", "/") != f"{source_root}/{package}/{src}"
+                    or profile["opt_level"] != "3" or profile["debuginfo"] != 2
+                    or profile["test"] is not test or profile["debug_assertions"] is not False
+                    or profile["overflow_checks"] is not False):
+                raise ValueError(f"unexpected compiler artifact features, source or profile: {key}/{field}")
+            if test and (artifact["executable"] != binary["path"] or binary["path"] not in artifact["filenames"]):
+                raise ValueError(f"compiler artifact does not identify the selected binary: {key}")
+            if not test and artifact["executable"] is not None:
+                raise ValueError(f"Core artifact is not a library: {key}")
+    if value["binaries"]["candidate_normal"]["harness_sha256"] != value["binaries"]["reference_normal"]["harness_sha256"]:
+        raise ValueError("candidate/reference native harnesses differ")
+    if len({value["binaries"][key]["source_root"] for key in BINARY_ROLES if key.endswith("_normal")}) != 4:
+        raise ValueError("four distinct candidate/reference native/deterministic source roots are required")
+
+
+def validate_build_transcripts(source):
+    """Verify the selected Core and benchmark artifacts in each pinned build log."""
+    pins = {}
+    for command in source["commands"]:
+        path = Path(command["transcript"]).resolve(strict=True)
+        if sha256(path) != command["transcript_sha256"]:
+            raise ValueError("build transcript hash differs from source/build receipt")
+        selected = {"rca_core": [], "qualification": []}
+        finished, last = [], None
+        with path.open(encoding="utf-8") as stream:
+            for line in stream:
+                if not line.lstrip().startswith("{"):
+                    continue
+                record = json.loads(line)
+                last = record
+                if record.get("reason") == "build-finished":
+                    finished.append(record)
+                if record.get("reason") == "compiler-artifact":
+                    target = record.get("target", {})
+                    name = target.get("name")
+                    if (name == "rca_core" and target.get("kind") == ["lib"]
+                            or name == "qualification" and target.get("kind") == ["bench"]):
+                        selected[name].append(record)
+        if selected != {"rca_core": [command["core_artifact"]], "qualification": [command["cargo_artifact"]]}:
+            raise ValueError("build transcript does not contain the unique selected compiler artifacts")
+        if len(finished) != 1 or finished[0].get("success") is not True or last != finished[0]:
+            raise ValueError("build transcript lacks one successful terminal build-finished record")
+        pins[path] = command["transcript_sha256"]
+    return pins
+
+
+def native_staged_files(original):
+    """Derive the reviewed native-only harness and remove its two test-runtime edges."""
+    def once(text, old, new):
+        if text.count(old) != 1:
+            raise ValueError("native staging input does not match the fixed transformation")
+        return text.replace(old, new, 1)
+
+    harness = original["rca-tokio/benches/qualification.rs"].decode("utf-8")
+    for declaration in ("use rca_test::{DEFAULT_STEP_BUDGET, DeterministicRuntime};",
+                        "fn measure_sync<F>(", "fn deterministic(", "struct InfiniteSelfWake;",
+                        "impl Future for InfiniteSelfWake {"):
+        harness = once(harness, declaration, "#[cfg(any())]\n" + declaration)
+    for name in ("ready/1", "ready/16", "ready/256", "timer/1", "timer/1000", "budget"):
+        harness = once(harness, f'    "deterministic/{name}",\n', "")
+    harness = once(harness, '    if let Some(kind) = scenario.strip_prefix("deterministic/") {\n'
+                           '        return deterministic(kind, samples);\n    }\n', "")
+    manifest = once(original["rca-tokio/Cargo.toml"], b"rca-test.workspace = true\n", b"")
+    lock = original["Cargo.lock"]
+    packages = list(re.finditer(rb'(?ms)^\[\[package\]\]\nname = "rca-tokio"\n.*?(?=^\[\[package\]\]|\Z)', lock))
+    if len(packages) != 1:
+        raise ValueError("native staging requires one rca-tokio lockfile package")
+    package = packages[0]
+    lock = lock[:package.start()] + once(package.group(), b' "rca-test",\n', b"") + lock[package.end():]
+    return {"rca-tokio/benches/qualification.rs": harness.encode("utf-8"),
+            "rca-tokio/Cargo.toml": manifest, "Cargo.lock": lock}
+
+
+def validate_staged_sources(source):
+    """Check existing full inventories and permit only the three native staging edits."""
+    roots, inventories = set(), {}
+    for key, (role, configuration, mode) in BINARY_ROLES.items():
+        if mode != "normal":
+            continue
+        binary = source["binaries"][key]
+        root = Path(binary["source_root"]).resolve(strict=True)
+        roots.add(root)
+        manifest = Path(binary["source_manifest"]).resolve(strict=True)
+        if sha256(manifest) != binary["source_manifest_sha256"]:
+            raise ValueError("source inventory hash differs from source/build receipt")
+        inventory = json.loads(manifest.read_text(encoding="utf-8"))
+        if not isinstance(inventory, dict) or not inventory:
+            raise ValueError("source inventory must contain the complete relative-path hash map")
+        for relative, digest in inventory.items():
+            path = root / relative
+            if (Path(relative).is_absolute() or ".." in Path(relative).parts or path.is_symlink()
+                    or not path.resolve(strict=True).is_relative_to(root)
+                    or not isinstance(digest, str) or not re.fullmatch("[0-9a-f]{64}", digest)
+                    or sha256(path) != digest):
+                raise ValueError(f"staged source differs from its inventory: {relative}")
+        if {path.relative_to(root).as_posix() for path in root.rglob("*") if path.is_file() or path.is_symlink()} != set(inventory):
+            raise ValueError("staged source membership differs from its inventory")
+        for relative, digest in (("Cargo.toml", source[role]["manifest_sha256"]),
+                                 ("Cargo.lock", binary["lock_sha256"]),
+                                 ("rca-tokio/Cargo.toml", binary["manifest_sha256"]),
+                                 ("rca-tokio/benches/qualification.rs", binary["harness_sha256"])):
+            if inventory.get(relative) != digest:
+                raise ValueError(f"source inventory does not bind {relative}")
+        inventories[role, configuration] = inventory
+    if len(roots) != 4:
+        raise ValueError("staged source roots must resolve to four distinct directories")
+    for role in ("candidate", "reference"):
+        native, deterministic = inventories[role, "native"], inventories[role, "deterministic"]
+        changed = {path for path in native.keys() | deterministic.keys() if native.get(path) != deterministic.get(path)}
+        expected = set(source["binaries"][f"{role}_normal"]["transformation"]["files"])
+        if native.keys() != deterministic.keys() or changed != expected:
+            raise ValueError("native staging changed source outside the exact three-file transformation")
+        root = Path(source["binaries"][f"{role}_deterministic_normal"]["source_root"])
+        transformed = native_staged_files({path: (root / path).read_bytes() for path in expected})
+        if any(native[path] != hashlib.sha256(content).hexdigest() for path, content in transformed.items()):
+            raise ValueError("native source differs from the fixed three-file transformation")
 
 
 def host_metadata():
@@ -270,12 +452,11 @@ def capture(binaries, metadata_path, output, timeout):
     source_bytes = metadata_path.read_bytes()
     source = json.loads(source_bytes.decode("utf-8"))
     validate_metadata(source)
-    expected_keys = {f"{role}_{mode}" for role in ("candidate", "reference") for mode in ("normal", "allocation")}
-    if set(binaries) != expected_keys:
-        raise ValueError("exactly four candidate/reference normal/allocation binaries are required")
+    if set(binaries) != set(BINARY_ROLES):
+        raise ValueError("exactly eight candidate/reference native/deterministic normal/allocation binaries are required")
     binaries = {key: path.resolve(strict=True) for key, path in binaries.items()}
-    if len(set(binaries.values())) != 4 or any(not path.is_file() for path in binaries.values()):
-        raise ValueError("four distinct binary files are required")
+    if len(set(binaries.values())) != 8 or any(not path.is_file() for path in binaries.values()):
+        raise ValueError("eight distinct binary files are required")
     identities = {key: {"path": str(path), "sha256": sha256(path)} for key, path in binaries.items()}
     if any(identity["sha256"] != source["binaries"][key]["sha256"] for key, identity in identities.items()):
         raise ValueError("binary role hash differs from source/build receipt")
@@ -283,18 +464,22 @@ def capture(binaries, metadata_path, output, timeout):
         raise ValueError("common harness differs from source/build receipt")
     if source["scenario_manifest_sha256"] != sha256(MANIFEST):
         raise ValueError("scenario manifest differs from source/build receipt")
+    build_pins = validate_build_transcripts(source)
+    validate_staged_sources(source)
     provider = WindowsCounters()
     host = host_metadata()
     scenarios = load_scenarios()
     recorded_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     script_hash, manifest_hash = sha256(Path(__file__)), sha256(MANIFEST)
-    protocol_hash = hashlib.sha256((source["harness_sha256"] + "\n" + manifest_hash + "\n" + script_hash + "\n").encode()).hexdigest()
+    source_hash = hashlib.sha256(source_bytes).hexdigest()
+    protocol_hash = hashlib.sha256((source["harness_sha256"] + "\n" + manifest_hash + "\n" + script_hash + "\n" + source_hash + "\n").encode()).hexdigest()
     runner = f"windows-native-{host.get('hostname', 'unknown')}-{source['toolchain']['target']}"
     cohort = {"id": hashlib.sha256(uuid.uuid4().bytes).hexdigest(), "recorded_at": recorded_at, "runner": runner,
               "compiler": source["toolchain"]["rustc"], "cargo": source["toolchain"]["cargo"],
               "rustc_commit": source["toolchain"]["rustc_commit"], **host,
               "protocol_sha256": protocol_hash, "qualification_source_sha256": source["harness_sha256"],
-              "qualification_script_sha256": script_hash, "scenario_manifest_sha256": manifest_hash}
+              "qualification_script_sha256": script_hash, "scenario_manifest_sha256": manifest_hash,
+              "configuration": CONFIGURATION, "source_build_sha256": source_hash}
     for role in ("candidate", "reference"):
         for name, key in (("source_tree", "tree"), ("lock_sha256", "lock_sha256"),
                           ("manifest_sha256", "manifest_sha256"), ("original_harness_sha256", "original_harness_sha256")):
@@ -304,8 +489,8 @@ def capture(binaries, metadata_path, output, timeout):
                 "cohort": cohort, "method": {"aggregation": "geometric mean of order-stratified paired medians",
                 "normal_repetitions": 10, "allocation_repetitions": 6,
                 "pair": {f"{role}_revision": source[role]["revision"] for role in ("candidate", "reference")}},
-                "binaries": identities, "source_build": source,
-                "source_build_sha256": hashlib.sha256(source_bytes).hexdigest()}
+                "binaries": identities, "source_build": source, "configuration": CONFIGURATION,
+                "source_build_sha256": source_hash}
     output.mkdir()
     raw = output / "raw"
     raw.mkdir()
@@ -318,9 +503,11 @@ def capture(binaries, metadata_path, output, timeout):
         for key, binary in binaries.items():
             stem = raw / f"{key}-list"
             run_process([str(binary), "--list"], stem, env, timeout, provider)
-            if stem.with_suffix(".stdout").read_text(encoding="utf-8").splitlines() != scenarios:
+            expected = scenarios if BINARY_ROLES[key][1] == "deterministic" else [name for name in scenarios if not name.startswith("deterministic/")]
+            if stem.with_suffix(".stdout").read_text(encoding="utf-8").splitlines() != expected:
                 raise ValueError(f"scenario manifest mismatch: {key}")
         for index, scenario in enumerate(scenarios):
+            configuration = "deterministic" if scenario.startswith("deterministic/") else "native"
             observations = {role: {"normal": [], "allocation": []} for role in rows}
             pairs = {"normal": [], "allocation": []}
             for mode, repetitions, samples in (("normal", 10, 10000), ("allocation", 6, allocation_samples(scenario))):
@@ -332,7 +519,8 @@ def capture(binaries, metadata_path, output, timeout):
                         process_env = dict(env)
                         if mode == "allocation":
                             process_env.update(RCA_QUALIFY_ALLOCATIONS="1", RCA_DHAT_FILE=str(stem.with_suffix(".dhat.json")))
-                        counters = run_process([str(binaries[f"{role}_{mode}"]), scenario, str(samples)], stem,
+                        binary_key = f"{role}_{'deterministic_' if configuration == 'deterministic' else ''}{mode}"
+                        counters = run_process([str(binaries[binary_key]), scenario, str(samples)], stem,
                                                process_env, timeout, provider)
                         value = json.loads(stem.with_suffix(".stdout").read_text(encoding="utf-8"))
                         validate_measurement(value, scenario, samples, mode)
@@ -341,7 +529,7 @@ def capture(binaries, metadata_path, output, timeout):
                             profile = json.loads(stem.with_suffix(".dhat.json").read_text(encoding="utf-8"))
                             if profile.get("dhatFileVersion") != 2 or not isinstance(profile.get("pps"), list):
                                 raise ValueError("missing or malformed DHAT profile")
-                        value.update(repetition=repetition, order=order)
+                        value.update(repetition=repetition, order=order, configuration=configuration)
                         if mode == "normal":
                             value.update(cpu_cycles=counters["QueryProcessCycleTime"], instructions_retired=None,
                                          peak_working_set_bytes=counters["PeakWorkingSetSize"],
@@ -360,9 +548,12 @@ def capture(binaries, metadata_path, output, timeout):
             raise ValueError("capture inputs changed")
         if sha256(ROOT / "rca-tokio/benches/qualification.rs") != source["harness_sha256"]:
             raise ValueError("common harness changed during capture")
+        if any(sha256(path) != digest for path, digest in build_pins.items()):
+            raise ValueError("build transcript changed during capture")
+        validate_staged_sources(source)
         documents = {}
         for role in rows:
-            document = {"schema_version": 5, "suite": "rca-performance-qualification",
+            document = {"schema_version": 6, "suite": "rca-performance-qualification",
                         "reference_kind": "qualification" if role == "candidate" else "paired-reference",
                         "revision": source[role]["revision"], "runner": runner, "recorded_at": recorded_at,
                         "accepted_regressions": [], "metadata": metadata, "supporting_metrics": {}, "rows": rows[role]}
@@ -379,15 +570,13 @@ def capture(binaries, metadata_path, output, timeout):
 def main():
     """Parse one fixed Windows capture request."""
     parser = argparse.ArgumentParser(description=__doc__)
-    for role in ("candidate", "reference"):
-        for mode in ("normal", "allocation"):
-            parser.add_argument(f"--{role}-{mode}", required=True, type=Path)
+    for key in BINARY_ROLES:
+        parser.add_argument(f"--{key.replace('_', '-')}", required=True, type=Path)
     parser.add_argument("--metadata", required=True, type=Path)
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--timeout-seconds", type=float, default=1800)
     args = parser.parse_args()
-    binaries = {f"{role}_{mode}": getattr(args, f"{role}_{mode}")
-                for role in ("candidate", "reference") for mode in ("normal", "allocation")}
+    binaries = {key: getattr(args, key) for key in BINARY_ROLES}
     capture(binaries, args.metadata, args.output.resolve(), args.timeout_seconds)
 
 

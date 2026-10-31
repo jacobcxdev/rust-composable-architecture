@@ -102,6 +102,23 @@ class WindowsSupportTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.validate(args)
 
+    def test_support_needs_candidate_binaries_not_the_runtime_cohort(self):
+        args = self.inputs()
+        metadata = json.loads(args.metadata.read_text())
+        for name in ("reference_normal", "reference_allocation"):
+            del metadata["binaries"][name]
+        args.metadata.write_text(json.dumps(metadata))
+        self.validate(args)
+        metadata["binaries"]["candidate_normal"]["sha256"] = "0" * 64
+        args.metadata.write_text(json.dumps(metadata))
+        with self.assertRaisesRegex(ValueError, "candidate_normal differs"):
+            self.validate(args)
+        metadata["binaries"]["candidate_normal"]["sha256"] = self.capture.file_record(args.candidate_normal)["sha256"]
+        metadata["toolchain"]["rustc"] = "rustc 1.98.0 (pinned)"
+        args.metadata.write_text(json.dumps(metadata))
+        with self.assertRaisesRegex(ValueError, "pinned Rust 1.99.0"):
+            self.validate(args)
+
     def test_changed_tool_is_not_accepted_from_a_rewritten_descriptor(self):
         args = self.inputs()
         tools = json.loads(args.tools.read_text())

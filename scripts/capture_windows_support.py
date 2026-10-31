@@ -84,7 +84,7 @@ def build_environment(inherited, tools, target):
 def validate_inputs(source, manifest_path, metadata_path, tools_path, normal, allocation, revision):
     """Bind source, tools and existing workload binaries to one successful build."""
     metadata = read_json(metadata_path)
-    provider_module.validate_metadata(metadata)
+    provider_module.validate_source_metadata(metadata)
     if (metadata["candidate"]["revision"] != revision or metadata.get("build_exit_code") != 0
             or metadata.get("profile_environment") != {}):
         raise ValueError("candidate build identity or clean profile environment is unverified")

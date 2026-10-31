@@ -52,16 +52,44 @@ check_measured_inputs() {
 
 # Preserve the independent build receipt, including each executable role.
 check_windows_build_receipt() {
-  local result=$1 receipt
+  local result=$1 receipt candidate_tokio_manifest reference_tokio_manifest
   receipt=$(dirname "${result}")/source-build.json
   if [[ ! -f "${receipt}" ]] \
     || [[ "$(shasum -a 256 "${receipt}" | awk '{print $1}')" != "$(jq -r '.metadata.source_build_sha256' "${result}")" ]]; then
     echo "Windows source/build receipt is missing or changed" >&2
     return 1
   fi
-  if ! jq -e --slurpfile receipt "${receipt}" '
+  # Use the capture's validator instead of maintaining a second build schema.
+  if ! python3 - "${qualification_script}" "${receipt}" <<'PY'
+import importlib.util
+import json
+import sys
+
+try:
+    spec = importlib.util.spec_from_file_location("windows_capture", sys.argv[1])
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    with open(sys.argv[2], encoding="utf-8") as stream:
+        module.validate_metadata(json.load(stream))
+except (OSError, ValueError, KeyError, TypeError) as error:
+    print(f"invalid Windows source/build receipt: {error}", file=sys.stderr)
+    sys.exit(1)
+PY
+  then
+    return 1
+  fi
+  candidate_tokio_manifest=$(git show "$(jq -r '.metadata.method.pair.candidate_revision' "${result}"):rca-tokio/Cargo.toml" \
+    | shasum -a 256 | awk '{print $1}')
+  reference_tokio_manifest=$(git show "$(jq -r '.metadata.method.pair.reference_revision' "${result}"):rca-tokio/Cargo.toml" \
+    | shasum -a 256 | awk '{print $1}')
+  if ! jq -e --slurpfile receipt "${receipt}" \
+    --arg candidate_tokio_manifest "${candidate_tokio_manifest}" \
+    --arg reference_tokio_manifest "${reference_tokio_manifest}" '
     .metadata as $m | $m.source_build as $s | $m.cohort as $c
     | $s == $receipt[0]
+    and $s.configuration == "split-native-deterministic-v1"
+    and $m.configuration == $s.configuration and $c.configuration == $s.configuration
+    and $c.source_build_sha256 == $m.source_build_sha256
     and ($m.compiler | type == "string" and test("^rustc 1\\.99\\.0 "))
     and ($m.cargo | type == "string" and test("^cargo 1\\.99\\.0 "))
     and ($m.rustc_commit | type == "string" and test("^[0-9a-f]{40}$"))
@@ -71,6 +99,8 @@ check_windows_build_receipt() {
     and $s.toolchain.target == "x86_64-pc-windows-msvc"
     and $s.harness_sha256 == $c.qualification_source_sha256
     and $s.scenario_manifest_sha256 == $c.scenario_manifest_sha256
+    and $s.candidate.tokio_manifest_sha256 == $candidate_tokio_manifest
+    and $s.reference.tokio_manifest_sha256 == $reference_tokio_manifest
     and all(["candidate", "reference"][];
       . as $role
       | $s[$role].revision == $m.method.pair[$role + "_revision"]
@@ -78,7 +108,6 @@ check_windows_build_receipt() {
       and $s[$role].lock_sha256 == $c[$role + "_lock_sha256"]
       and $s[$role].manifest_sha256 == $c[$role + "_manifest_sha256"]
       and $s[$role].original_harness_sha256 == $c[$role + "_original_harness_sha256"])
-    and ($m.binaries | keys) == ["candidate_allocation", "candidate_normal", "reference_allocation", "reference_normal"]
     and ($s.binaries | keys) == ($m.binaries | keys)
     and all($m.binaries | keys[];
       . as $role
@@ -126,9 +155,13 @@ candidate_lock=${repo_root}/Cargo.lock
 protocol=${repo_root}/rca-tokio/benches/qualification.rs
 qualification_script=${repo_root}/scripts/qualify-performance.sh
 windows=false
-if [[ -f "${candidate}" ]] && [[ "$(jq -r '.schema_version' "${candidate}")" == "5" ]]; then
+if [[ -f "${candidate}" ]] && [[ "$(jq -r '.schema_version' "${candidate}")" == "6" ]]; then
   windows=true
   qualification_script=${repo_root}/scripts/capture-windows-performance.py
+  if ! command -v python3 >/dev/null 2>&1; then
+    echo "required command not found: python3" >&2
+    exit 1
+  fi
 fi
 scenario_manifest=${repo_root}/docs/performance/scenarios.txt
 if [[ ! -f "${revision_pin}" || ! -f "${baseline_lock}" \
@@ -154,9 +187,11 @@ if [[ "${windows}" == false ]]; then
   fi
   expected_memory_watchdog_sha256=$(shasum -a 256 "${memory_watchdog}" | awk '{print $1}')
   protocol_inputs+=("${expected_memory_watchdog_sha256}")
+else
+  protocol_inputs+=("$(jq -r '.metadata.source_build_sha256' "${candidate}")")
 fi
-# Windows retains its existing tuple. Old Mac captures remain historical
-# evidence; they cannot establish the current memory-guarded qualification.
+# Build configuration is part of the Windows protocol. Historical captures
+# cannot establish the current feature-isolated qualification.
 expected_protocol_sha256=$(printf '%s\n' "${protocol_inputs[@]}" | shasum -a 256 | awk '{print $1}')
 expected_scenarios=$(jq -R -s -c 'split("\n") | map(select(length > 0))' \
   "${scenario_manifest}")
@@ -194,8 +229,14 @@ for result in "${baseline}" "${candidate}"; do
       and .reference.repetition == .repetition
       and .candidate.order == .order
       and .reference.order == .order;
+    def valid_configuration:
+      if $windows then
+        .configuration == (if (.scenario | startswith("deterministic/"))
+                           then "deterministic" else "native" end)
+      else true end;
     def valid_normal:
       same_workload
+      and (.candidate | valid_configuration) and (.reference | valid_configuration)
       and .candidate.throughput_per_second > 0
       and .reference.throughput_per_second > 0
       and .candidate.latency_ns.p50 > 0
@@ -210,6 +251,7 @@ for result in "${baseline}" "${candidate}"; do
       and (.reference | valid_memory);
     def valid_allocation:
       same_workload
+      and (.candidate | valid_configuration) and (.reference | valid_configuration)
       and .candidate.allocations > 0
       and .reference.allocations > 0
       and .candidate.allocated_bytes > 0
@@ -217,7 +259,7 @@ for result in "${baseline}" "${candidate}"; do
       and .candidate.peak_bytes > 0
       and .reference.peak_bytes > 0;
     (if $windows then
-      .schema_version == 5 and .metadata.resource_provider == "win32-process-v1"
+      .schema_version == 6 and .metadata.resource_provider == "win32-process-v1"
     else
       .schema_version == 4 and .metadata.resource_provider == null
     end)
@@ -245,6 +287,7 @@ for result in "${baseline}" "${candidate}"; do
     and ((.rows | map(.scenario) | unique | length) == (.rows | length))
     and all(.rows[];
       (.scenario | type == "string" and length > 0)
+      and valid_configuration
       and expected_samples
       and expected_allocation_samples
       and (.revision == $revision)
@@ -426,11 +469,20 @@ jq -n \
     ([$pairs[] | select(.order == "reference-candidate") | metric] | median) as $ab
     | ([$pairs[] | select(.order == "candidate-reference") | metric] | median) as $ba
     | (($ab * $ba) | sqrt);
-  def accepted($candidate; $id):
-    $id != null
+  def gated_metrics:
+    ["median_ratio", "p99_ratio", "throughput_ratio", "allocation_ratio",
+     "allocated_bytes_ratio", "peak_memory_ratio", "resident_memory_ratio",
+     "cpu_cycles_ratio", "task_wakes_ratio"];
+  def accepted($candidate; $comparison):
+    $comparison.rationale_id != null
     and any($candidate.accepted_regressions[]?;
-      .id == $id
-      and (.review | type == "string" and length > 0)
+      .id == $comparison.rationale_id
+      and .scenario == $comparison.scenario
+      and (.review | type == "string" and test("\\S"))
+      and (.metrics | if type == "array" then
+        length > 0 and ((. - gated_metrics) | length == 0)
+        else false end)
+      and (($comparison.regressed_metrics - .metrics) | length == 0)
     );
   $baseline[0] as $base
   | $candidate[0] as $next
@@ -486,18 +538,11 @@ jq -n \
                 .candidate.task_wakes / .reference.task_wakes),
               rationale_id: ($after.rationale_id // null)
             }
-            | .regressed = (
-                .median_ratio > $limit
-                or .p99_ratio > $limit
-                or .throughput_ratio > $limit
-                or .allocation_ratio > $limit
-                or .allocated_bytes_ratio > $limit
-                or .peak_memory_ratio > $limit
-                or .resident_memory_ratio > $limit
-                or .cpu_cycles_ratio > $limit
-                or .task_wakes_ratio > $limit
-              )
-            | .accepted = (if .regressed then accepted($next; .rationale_id) else false end)
+            | .regressed_metrics = [
+                gated_metrics[] as $metric | select(.[$metric] > $limit) | $metric
+              ]
+            | .regressed = (.regressed_metrics | length > 0)
+            | .accepted = (if .regressed then accepted($next; .) else false end)
             end
         end
     ] as $comparisons

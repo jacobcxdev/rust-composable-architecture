@@ -1,6 +1,7 @@
 """Exercise Windows capture validation without running performance workloads."""
 
 import ctypes
+import copy
 import hashlib
 import importlib.util
 import json
@@ -25,7 +26,7 @@ class WindowsPerformanceTests(unittest.TestCase):
         self.root = Path(self.temporary.name)
 
     def metadata(self):
-        return {
+        value = {
             "candidate": {"revision": "a" * 40, "tree": "b" * 40, "lock_sha256": "c" * 64,
                           "manifest_sha256": "2" * 64, "original_harness_sha256": "3" * 64},
             "reference": {"revision": "d" * 40, "tree": "e" * 40, "lock_sha256": "f" * 64,
@@ -37,6 +38,51 @@ class WindowsPerformanceTests(unittest.TestCase):
             "binaries": {f"{role}_{mode}": {"sha256": "7" * 64}
                          for role in ("candidate", "reference") for mode in ("normal", "allocation")},
         }
+        value["configuration"] = "split-native-deterministic-v1"
+        value["commands"] = []
+        for role in ("candidate", "reference"):
+            value[f"{role}_source_manifest_sha256"] = "8" * 64
+            value[role]["tokio_manifest_sha256"] = "e" * 64
+            value[role]["deterministic_core_features"] = ["default", "diagnostics", "test-util"]
+            for configuration in ("native", "deterministic"):
+                for mode in ("normal", "allocation"):
+                    key = f"{role}_{'deterministic_' if configuration == 'deterministic' else ''}{mode}"
+                    native = configuration == "native"
+                    binary = {"sha256": "7" * 64, "path": str(self.root / key),
+                              "configuration": configuration,
+                              "source_root": str(self.root / f"{role}-{configuration}-source"),
+                              "source_manifest": str(self.root / f"{role}-{configuration}-manifest.json"),
+                              "source_manifest_sha256": ("9" if native else "8") * 64,
+                              "harness_sha256": "a" * 64 if native else value["harness_sha256"],
+                              "manifest_sha256": "b" * 64 if native else value[role]["tokio_manifest_sha256"],
+                              "lock_sha256": "c" * 64 if native else value[role]["lock_sha256"],
+                              "core_features": ["default"] if native else value[role]["deterministic_core_features"]}
+                    if native:
+                        binary["transformation"] = {"files": {
+                            path: {"before_sha256": before, "after_sha256": binary[field]}
+                            for path, field, before in (
+                                ("rca-tokio/benches/qualification.rs", "harness_sha256", value["harness_sha256"]),
+                                ("rca-tokio/Cargo.toml", "manifest_sha256", value[role]["tokio_manifest_sha256"]),
+                                ("Cargo.lock", "lock_sha256", value[role]["lock_sha256"]))}}
+                    value["binaries"][key] = binary
+                    artifacts = []
+                    for name, kind, crate_type, features, test in (
+                            ("qualification", "bench", "bin", ["qualification-dhat"] if mode == "allocation" else [], True),
+                            ("rca_core", "lib", "lib", binary["core_features"], False)):
+                        package, src = ("rca-tokio", "benches/qualification.rs") if test else ("rca-core", "src/lib.rs")
+                        source_root = binary["source_root"]
+                        artifacts.append({"reason": "compiler-artifact", "manifest_path": f"{source_root}/{package}/Cargo.toml",
+                                          "target": {"name": name, "kind": [kind], "crate_types": [crate_type],
+                                                     "src_path": f"{source_root}/{package}/{src}"}, "features": features,
+                                          "profile": {"opt_level": "3", "debuginfo": 2, "debug_assertions": False,
+                                                      "overflow_checks": False, "test": test},
+                                          "executable": binary["path"] if test else None,
+                                          "filenames": [binary["path"]] if test else ["/source/rca_core.rlib"]})
+                    value["commands"].append({"binary_role": key, "returncode": 0, "transcript_sha256": "d" * 64,
+                                               "transcript": str(self.root / f"{key}.build.jsonl"),
+                                               "binary": {"sha256": binary["sha256"]},
+                                               "cargo_artifact": artifacts[0], "core_artifact": artifacts[1]})
+        return value
 
     def measurement(self, scenario="query/multi", samples=10000, operations=10000):
         return {"scenario": scenario, "samples": samples, "operations": operations,
@@ -51,12 +97,52 @@ class WindowsPerformanceTests(unittest.TestCase):
     def capture_inputs(self):
         binaries = {}
         metadata = self.metadata()
+        common_harness = (SCRIPT.parents[1] / "rca-tokio/benches/qualification.rs").read_bytes()
         for role in ("candidate", "reference"):
-            for mode in ("normal", "allocation"):
-                key = f"{role}_{mode}"
-                binaries[key] = self.root / key
-                binaries[key].write_text(key)
-                metadata["binaries"][key]["sha256"] = hashlib.sha256(key.encode()).hexdigest()
+            original = {"Cargo.toml": f"{role} workspace".encode(),
+                        "Cargo.lock": f'# {role}\n[[package]]\nname = "rca-tokio"\ndependencies = [\n "rca-test",\n]\n'.encode(),
+                        "rca-tokio/Cargo.toml": f"# {role}\n[dev-dependencies]\nrca-test.workspace = true\n".encode(),
+                        "rca-tokio/benches/qualification.rs": common_harness,
+                        "rca-core/src/lib.rs": f"{role} production source".encode()}
+            metadata[role].update(manifest_sha256=hashlib.sha256(original["Cargo.toml"]).hexdigest(),
+                                  lock_sha256=hashlib.sha256(original["Cargo.lock"]).hexdigest(),
+                                  tokio_manifest_sha256=hashlib.sha256(original["rca-tokio/Cargo.toml"]).hexdigest())
+            for configuration in ("deterministic", "native"):
+                contents = dict(original)
+                if configuration == "native":
+                    contents.update(self.runner.native_staged_files(original))
+                key = f"{role}_{'deterministic_' if configuration == 'deterministic' else ''}normal"
+                source_root = Path(metadata["binaries"][key]["source_root"])
+                inventory = {}
+                for relative, content in contents.items():
+                    path = source_root / relative
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    path.write_bytes(content)
+                    inventory[relative] = hashlib.sha256(content).hexdigest()
+                inventory_path = Path(metadata["binaries"][key]["source_manifest"])
+                inventory_path.write_text(json.dumps(inventory))
+                inventory_hash = hashlib.sha256(inventory_path.read_bytes()).hexdigest()
+                if configuration == "deterministic":
+                    metadata[f"{role}_source_manifest_sha256"] = inventory_hash
+                for mode in ("normal", "allocation"):
+                    binary = metadata["binaries"][key.removesuffix("normal") + mode]
+                    binary.update(source_manifest_sha256=inventory_hash, harness_sha256=inventory["rca-tokio/benches/qualification.rs"],
+                                  manifest_sha256=inventory["rca-tokio/Cargo.toml"], lock_sha256=inventory["Cargo.lock"])
+                    if configuration == "native":
+                        binary["transformation"]["files"] = {
+                            path: {"before_sha256": hashlib.sha256(original[path]).hexdigest(), "after_sha256": inventory[path]}
+                            for path in ("rca-tokio/benches/qualification.rs", "rca-tokio/Cargo.toml", "Cargo.lock")}
+        for key, binary in metadata["binaries"].items():
+            binaries[key] = self.root / key
+            binaries[key].write_text(key)
+            binary["sha256"] = hashlib.sha256(key.encode()).hexdigest()
+        for command in metadata["commands"]:
+            command["binary"]["sha256"] = metadata["binaries"][command["binary_role"]]["sha256"]
+            transcript = Path(command["transcript"])
+            records = [command[key] for key in ("cargo_artifact", "core_artifact")]
+            records.append({"reason": "build-finished", "success": True})
+            transcript.write_text("\n".join(json.dumps(record) for record in records))
+            command["transcript_sha256"] = hashlib.sha256(transcript.read_bytes()).hexdigest()
         path = self.root / "metadata.json"
         path.write_text(json.dumps(metadata))
         return binaries, path
@@ -209,7 +295,9 @@ class WindowsPerformanceTests(unittest.TestCase):
                 patch.object(self.runner, "WindowsCounters"), \
                 patch.object(self.runner, "run_process", side_effect=process):
             result = self.runner.capture(binaries, metadata, self.root / "result", 1)
-        self.assertEqual(result["schema_version"], 5)
+        self.assertEqual(result["schema_version"], 6)
+        self.assertEqual(result["metadata"]["configuration"], "split-native-deterministic-v1")
+        self.assertEqual(result["rows"][0]["configuration"], "native")
         self.assertRegex(result["metadata"]["cohort"]["id"], r"^[0-9a-f]{64}$")
         row = result["rows"][0]
         self.assertEqual(len(row["pairs"]["normal"]), 10)
@@ -227,9 +315,9 @@ class WindowsPerformanceTests(unittest.TestCase):
         self.assertEqual(receipt.read_bytes(), metadata.read_bytes())
         self.assertEqual(hashlib.sha256(receipt.read_bytes()).hexdigest(),
                          result["metadata"]["source_build_sha256"])
-        self.assertEqual(len(calls), 36)
-        self.assertEqual(calls[4][:2], ("reference_normal", ["query/multi", "10000"]))
-        self.assertEqual(calls[6][:2], ("candidate_normal", ["query/multi", "10000"]))
+        self.assertEqual(len(calls), 40)
+        self.assertEqual(calls[8][:2], ("reference_normal", ["query/multi", "10000"]))
+        self.assertEqual(calls[10][:2], ("candidate_normal", ["query/multi", "10000"]))
         self.assertEqual(sum("RCA_DHAT_FILE" in call[2] for call in calls), 12)
         with self.assertRaises(FileExistsError):
             self.runner.capture(binaries, metadata, self.root / "result", 1)
@@ -243,10 +331,241 @@ class WindowsPerformanceTests(unittest.TestCase):
         process.assert_not_called()
         self.assertFalse((self.root / "result/complete.json").exists())
 
+    def test_split_capture_runs_all_fifty_rows_with_their_exact_binary_roles(self):
+        binaries, metadata = self.capture_inputs()
+        scenarios = self.runner.load_scenarios()
+        native = [name for name in scenarios if not name.startswith("deterministic/")]
+        self.assertEqual(len(native), 44)
+        calls = []
+
+        def process(command, stem, env, *args):
+            key = Path(command[0]).name
+            calls.append((key, command[1:]))
+            if command[1:] == ["--list"]:
+                listed = scenarios if "_deterministic_" in key else native
+                stem.with_suffix(".stdout").write_text("\n".join(listed) + "\n")
+            else:
+                scenario, samples = command[1], int(command[2])
+                self.assertEqual("_deterministic_" in key, scenario.startswith("deterministic/"))
+                value = self.measurement(scenario, samples, samples * self.runner.operations_per_sample(scenario))
+                if "RCA_DHAT_FILE" in env:
+                    Path(env["RCA_DHAT_FILE"]).write_text('{"dhatFileVersion":2,"pps":[]}')
+                    value.update(allocations=2, allocated_bytes=32, peak_bytes=16)
+                stem.with_suffix(".stdout").write_text(json.dumps(value))
+            stem.with_suffix(".stderr").write_text("")
+            return self.counters()
+
+        with patch.object(self.runner, "host_metadata", return_value={"system": "Windows"}), \
+                patch.object(self.runner, "WindowsCounters"), \
+                patch.object(self.runner, "run_process", side_effect=process):
+            result = self.runner.capture(binaries, metadata, self.root / "split", 1)
+        self.assertEqual([row["scenario"] for row in result["rows"]], scenarios)
+        self.assertEqual([row["configuration"] for row in result["rows"]], ["native"] * 44 + ["deterministic"] * 6)
+        self.assertEqual(len(calls), 8 + 50 * 32)
+        for row in result["rows"]:
+            self.assertEqual(len(row["pairs"]["normal"]), 10)
+            self.assertEqual(len(row["pairs"]["allocation"]), 6)
+            for mode in ("normal", "allocation"):
+                for pair in row["pairs"][mode]:
+                    for role in ("candidate", "reference"):
+                        self.assertEqual(pair[role]["configuration"], row["configuration"])
+        complete = json.loads((self.root / "split/complete.json").read_text())
+        self.assertEqual(complete["rows"], 50)
+
+    def test_split_metadata_rejects_feature_and_source_role_confusion(self):
+        def command(value, key="candidate_normal"):
+            return next(item for item in value["commands"] if item["binary_role"] == key)
+
+        mutations = (
+            lambda value: value.pop("configuration"),
+            lambda value: value["binaries"].pop("reference_deterministic_allocation"),
+            lambda value: value["binaries"]["candidate_normal"].update(configuration="deterministic"),
+            lambda value: value["binaries"]["candidate_normal"].update(core_features=["default", "test-util"]),
+            lambda value: command(value)["core_artifact"].update(features=["default", "diagnostics"]),
+            lambda value: command(value)["core_artifact"]["profile"].update(test=True),
+            lambda value: command(value)["core_artifact"]["target"].update(src_path="/borrowed/rca-core/src/lib.rs"),
+            lambda value: command(value)["cargo_artifact"].update(manifest_path="/borrowed/rca-tokio/Cargo.toml"),
+            lambda value: command(value)["cargo_artifact"].update(features=["qualification-dhat"]),
+            lambda value: command(value).update(returncode=1),
+            lambda value: value["commands"].append(copy.deepcopy(value["commands"][0])),
+            lambda value: value["binaries"]["candidate_normal"].update(source_manifest_sha256="short"),
+            lambda value: value["binaries"]["candidate_allocation"].update(harness_sha256="e" * 64),
+            lambda value: value["binaries"]["candidate_deterministic_normal"].update(harness_sha256="e" * 64),
+            lambda value: value["candidate"].update(deterministic_core_features=["default"]),
+            lambda value: value["binaries"]["candidate_normal"]["transformation"]["files"].pop("Cargo.lock"),
+            lambda value: value["binaries"]["candidate_normal"]["transformation"]["files"]["Cargo.lock"].update(before_sha256="e" * 64),
+            lambda value: value["binaries"]["candidate_normal"]["transformation"]["files"].update({"rca-core/src/lib.rs": {}}),
+        )
+        self.runner.validate_metadata(self.metadata())
+        for index, mutate in enumerate(mutations):
+            value = self.metadata()
+            mutate(value)
+            with self.subTest(index=index), self.assertRaises(ValueError):
+                self.runner.validate_metadata(value)
+
+    def test_capture_rejects_build_artifact_not_present_in_bound_transcript(self):
+        binaries, metadata = self.capture_inputs()
+        value = json.loads(metadata.read_text())
+        command = value["commands"][0]
+        transcript = Path(command["transcript"])
+        transcript.write_text(json.dumps(command["cargo_artifact"]))
+        command["transcript_sha256"] = hashlib.sha256(transcript.read_bytes()).hexdigest()
+        metadata.write_text(json.dumps(value))
+        with patch.object(self.runner, "run_process") as process:
+            with self.assertRaisesRegex(ValueError, "artifact"):
+                self.runner.capture(binaries, metadata, self.root / "result", 1)
+        process.assert_not_called()
+
+    def test_capture_rejects_missing_deterministic_binary_before_any_process(self):
+        binaries, metadata = self.capture_inputs()
+        binaries.pop("reference_deterministic_normal")
+        with patch.object(self.runner, "run_process") as process:
+            with self.assertRaisesRegex(ValueError, "eight"):
+                self.runner.capture(binaries, metadata, self.root / "result", 1)
+        process.assert_not_called()
+
+    def test_build_transcript_requires_one_successful_terminal_record(self):
+        _, metadata = self.capture_inputs()
+        original = json.loads(metadata.read_text())
+        endings = ([], [{"reason": "build-finished", "success": False}],
+                   [{"reason": "build-finished", "success": True}] * 2,
+                   [{"reason": "build-finished", "success": True}, {"reason": "compiler-message"}])
+        for ending in endings:
+            value = copy.deepcopy(original)
+            command = value["commands"][0]
+            path = Path(command["transcript"])
+            records = [command["cargo_artifact"], command["core_artifact"], *ending]
+            path.write_text("\n".join(json.dumps(record) for record in records))
+            command["transcript_sha256"] = hashlib.sha256(path.read_bytes()).hexdigest()
+            with self.subTest(ending=ending), self.assertRaisesRegex(ValueError, "build-finished"):
+                self.runner.validate_build_transcripts(value)
+
+    def test_source_inventory_rejects_unrelated_native_change_and_extra_file(self):
+        _, metadata = self.capture_inputs()
+        source = json.loads(metadata.read_text())
+        native = source["binaries"]["candidate_normal"]
+        root, manifest = Path(native["source_root"]), Path(native["source_manifest"])
+        original = (root / "rca-core/src/lib.rs").read_bytes()
+        (root / "rca-core/src/lib.rs").write_text("unrelated changed production source")
+        inventory = json.loads(manifest.read_text())
+        inventory["rca-core/src/lib.rs"] = hashlib.sha256((root / "rca-core/src/lib.rs").read_bytes()).hexdigest()
+        manifest.write_text(json.dumps(inventory))
+        native["source_manifest_sha256"] = hashlib.sha256(manifest.read_bytes()).hexdigest()
+        with self.assertRaisesRegex(ValueError, "three-file"):
+            self.runner.validate_staged_sources(source)
+        (root / "rca-core/src/lib.rs").write_bytes(original)
+        inventory["rca-core/src/lib.rs"] = hashlib.sha256(original).hexdigest()
+        manifest.write_text(json.dumps(inventory))
+        native["source_manifest_sha256"] = hashlib.sha256(manifest.read_bytes()).hexdigest()
+        (root / "extra.rs").write_text("unlisted source")
+        with self.assertRaisesRegex(ValueError, "membership"):
+            self.runner.validate_staged_sources(source)
+
+    def test_native_staging_matches_reviewed_harness_and_removes_only_test_runtime_edges(self):
+        original = {relative: (SCRIPT.parents[1] / relative).read_bytes() for relative in
+                    ("rca-tokio/benches/qualification.rs", "rca-tokio/Cargo.toml", "Cargo.lock")}
+        native = self.runner.native_staged_files(original)
+        self.assertFalse(b'if scenario.starts_with("deterministic/")' in native["rca-tokio/benches/qualification.rs"],
+                         "the original scenario membership check already rejects unsupported rows")
+        self.assertEqual(hashlib.sha256(native["rca-tokio/benches/qualification.rs"]).hexdigest(),
+                         "85fff1f0fc6f66a04cb8a76e1793a750e90e2fb30375cd66b679a68e27f06c47")
+        self.assertEqual(native["rca-tokio/Cargo.toml"], original["rca-tokio/Cargo.toml"].replace(b"rca-test.workspace = true\n", b""))
+        self.assertEqual(native["Cargo.lock"].count(b' "rca-test",\n'), original["Cargo.lock"].count(b' "rca-test",\n') - 1)
+        for relative in original:
+            broken = dict(original)
+            broken[relative] = b"missing required staging input"
+            with self.subTest(relative=relative), self.assertRaises(ValueError):
+                self.runner.native_staged_files(broken)
+
+    def test_native_staging_rejects_other_edits_inside_an_allowed_file(self):
+        _, metadata = self.capture_inputs()
+        source = json.loads(metadata.read_text())
+        binary = source["binaries"]["candidate_normal"]
+        manifest = Path(binary["source_manifest"])
+        relative = "rca-tokio/benches/qualification.rs"
+        harness = Path(binary["source_root"]) / relative
+        harness.write_bytes(harness.read_bytes() + b"\n// an unreviewed staging edit\n")
+        digest = hashlib.sha256(harness.read_bytes()).hexdigest()
+        inventory = json.loads(manifest.read_text())
+        inventory[relative] = digest
+        manifest.write_text(json.dumps(inventory))
+        binary.update(source_manifest_sha256=hashlib.sha256(manifest.read_bytes()).hexdigest(), harness_sha256=digest)
+        binary["transformation"]["files"][relative]["after_sha256"] = digest
+        with self.assertRaisesRegex(ValueError, "fixed three-file transformation"):
+            self.runner.validate_staged_sources(source)
+
+    def test_build_transcript_hash_mismatch_rejects_before_any_process(self):
+        binaries, metadata = self.capture_inputs()
+        source = json.loads(metadata.read_text())
+        Path(source["commands"][0]["transcript"]).write_text("changed build transcript")
+        with patch.object(self.runner, "run_process") as process:
+            with self.assertRaisesRegex(ValueError, "transcript hash"):
+                self.runner.capture(binaries, metadata, self.root / "changed-log", 1)
+        process.assert_not_called()
+
+    def test_native_binary_cannot_list_the_mixed_feature_fifty_row_harness(self):
+        binaries, metadata = self.capture_inputs()
+
+        def mixed(command, stem, *args):
+            stem.with_suffix(".stdout").write_text("\n".join(self.runner.load_scenarios()) + "\n")
+            return self.counters()
+
+        with patch.object(self.runner, "host_metadata", return_value={"system": "Windows"}), \
+                patch.object(self.runner, "WindowsCounters"), \
+                patch.object(self.runner, "run_process", side_effect=mixed) as process:
+            with self.assertRaisesRegex(ValueError, "manifest mismatch: candidate_normal"):
+                self.runner.capture(binaries, metadata, self.root / "mixed", 1)
+        self.assertEqual(process.call_count, 1)
+        self.assertFalse((self.root / "mixed/complete.json").exists())
+
+    def test_deterministic_failure_cannot_publish_completed_native_rows_as_qualification(self):
+        binaries, metadata = self.capture_inputs()
+        scenarios = self.runner.load_scenarios()
+        native = [name for name in scenarios if not name.startswith("deterministic/")]
+        attempts = []
+
+        def process(command, stem, env, *args):
+            key = Path(command[0]).name
+            stem.with_suffix(".stderr").write_text("")
+            if command[1:] == ["--list"]:
+                listed = scenarios if "_deterministic_" in key else native
+                stem.with_suffix(".stdout").write_text("\n".join(listed) + "\n")
+            else:
+                scenario, samples = command[1], int(command[2])
+                attempts.append((key, scenario))
+                if scenario.startswith("deterministic/"):
+                    stem.with_suffix(".stderr").write_text("deterministic workload failed")
+                    raise subprocess.CalledProcessError(2, command)
+                value = self.measurement(scenario, samples, samples * self.runner.operations_per_sample(scenario))
+                if "RCA_DHAT_FILE" in env:
+                    Path(env["RCA_DHAT_FILE"]).write_text('{"dhatFileVersion":2,"pps":[]}')
+                    value.update(allocations=2, allocated_bytes=32, peak_bytes=16)
+                stem.with_suffix(".stdout").write_text(json.dumps(value))
+            return self.counters()
+
+        with patch.object(self.runner, "host_metadata", return_value={"system": "Windows"}), \
+                patch.object(self.runner, "WindowsCounters"), \
+                patch.object(self.runner, "run_process", side_effect=process):
+            with self.assertRaises(subprocess.CalledProcessError):
+                self.runner.capture(binaries, metadata, self.root / "partial", 1)
+        self.assertEqual(attempts[-1], ("reference_deterministic_normal", "deterministic/ready/1"))
+        self.assertEqual(len(attempts), 44 * 32 + 1)
+        failure = json.loads((self.root / "partial/failure.json").read_text())
+        self.assertEqual(failure["completed_rows"], 44)
+        self.assertFalse(failure["complete"])
+        self.assertEqual(len(list((self.root / "partial/raw").glob("completed-row-*.json"))), 44)
+        for name in ("complete.json", "candidate.json", "reference.json"):
+            self.assertFalse((self.root / "partial" / name).exists())
+
     def test_capture_rejects_wrong_common_harness_before_any_process(self):
         binaries, metadata = self.capture_inputs()
         value = json.loads(metadata.read_text())
         value["harness_sha256"] = "0" * 64
+        for binary in value["binaries"].values():
+            if binary["configuration"] == "native":
+                binary["transformation"]["files"]["rca-tokio/benches/qualification.rs"]["before_sha256"] = "0" * 64
+            else:
+                binary["harness_sha256"] = "0" * 64
         metadata.write_text(json.dumps(value))
         with patch.object(self.runner, "run_process") as process:
             with self.assertRaisesRegex(ValueError, "harness"):
@@ -292,7 +611,7 @@ class WindowsPerformanceTests(unittest.TestCase):
                 patch.object(self.runner, "run_process", side_effect=malformed):
             with self.assertRaisesRegex(ValueError, "samples"):
                 self.runner.capture(binaries, metadata, self.root / "failed", 1)
-        self.assertEqual(len(calls), 5)
+        self.assertEqual(len(calls), 9)
         self.assertTrue((self.root / "failed/raw/reference-normal-00-01.stdout").exists())
         self.assertFalse((self.root / "failed/complete.json").exists())
         self.assertFalse((self.root / "failed/candidate.json").exists())
@@ -321,6 +640,17 @@ class WindowsPerformanceTests(unittest.TestCase):
             mutate(value)
             with self.assertRaises(ValueError):
                 self.runner.validate_metadata(value)
+
+    def test_source_metadata_does_not_admit_a_runtime_cohort(self):
+        value = self.metadata()
+        for key in ("binaries", "commands", "configuration"):
+            del value[key]
+        for role in ("candidate", "reference"):
+            del value[role]["tokio_manifest_sha256"]
+            del value[role]["deterministic_core_features"]
+        self.runner.validate_source_metadata(value)
+        with self.assertRaises(ValueError):
+            self.runner.validate_metadata(value)
 
 
 if __name__ == "__main__":
