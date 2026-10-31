@@ -279,6 +279,7 @@ change implementation.
 | `core-fold-commands` | Shared and Local fold and recipe-command integration tests with the rich Core features |
 | `core-observation-operations` | Observation lifecycle, adapters and named-operation integration tests with the rich Core features |
 | `core-terminal` | Clock fixtures, actor lifecycle and terminal-unwind integration tests with the rich Core features |
+| `core-services` | Dependency defaults and preparation, issue reporting, diagnostics, presentation and fallible-effect integration tests with the rich Core features |
 | `macros` | Macro unit and integration tests, plus compiler-stage profiles from the proc-macro library |
 | `test-store` | TestStore controls, errors, snapshots, output and runtime-conformance integration tests with `local` |
 | `persistence-file` | Document, file backend and shared-session replacement integration tests with `file` |

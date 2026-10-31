@@ -119,6 +119,7 @@ jobs:
                     - core-fold-commands
                     - core-observation-operations
                     - core-terminal
+                    - core-services
                     - macros
                     - test-store
                     - persistence-file

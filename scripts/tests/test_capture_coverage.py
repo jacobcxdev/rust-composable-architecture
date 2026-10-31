@@ -253,6 +253,20 @@ class CaptureCoverageTests(unittest.TestCase):
                 self.assertEqual(self.capture.host_arguments("test-store", ["test"], executable),
                                  [str(executable)])
 
+    def test_services_group_selects_only_eight_rich_unfiltered_integration_hosts(self):
+        names = ("dependency_defaults", "dependency_preparation", "issue_operations", "issue_contexts",
+                 "diagnostics", "diagnostics_checkpoint", "presentation", "fallible_effect")
+        self.assertIn("core-services", self.capture.TARGETS)
+        self.assertEqual(self.capture.group_arguments("core-services"), [
+            "-p", "rca-core", "--features", "diagnostics,futures-stream,local,test-util",
+            *[item for name in names for item in ("--test", name)],
+        ])
+        for name in names:
+            executable = self.root / (name + "-123")
+            with self.subTest(host=name):
+                self.assertEqual(self.capture.host_arguments("core-services", ["test"], executable),
+                                 [str(executable)])
+
     def test_persistence_file_group_selects_only_three_unfiltered_integration_hosts(self):
         names = ("document", "file", "shared_document_session_replacement")
         self.assertIn("persistence-file", self.capture.TARGETS)
@@ -365,6 +379,9 @@ class CaptureCoverageTests(unittest.TestCase):
               "named_operation_races", "local_named_operations"]),
             ("core-terminal", "rca-core", "rca_core", ["default", "diagnostics", "futures-stream", "local", "test-util"],
              ["clock_fixtures", "store_actor", "terminal_unwind"]),
+            ("core-services", "rca-core", "rca_core", ["default", "diagnostics", "futures-stream", "local", "test-util"],
+             ["dependency_defaults", "dependency_preparation", "issue_operations", "issue_contexts",
+              "diagnostics", "diagnostics_checkpoint", "presentation", "fallible_effect"]),
             ("test-store", "rca-test", "rca_test", ["local"],
              ["controls", "error_contracts", "snapshot_contracts", "local_test_store",
               "output_delivery", "focused_outputs", "conformance_deterministic"]),
@@ -415,6 +432,12 @@ class CaptureCoverageTests(unittest.TestCase):
                 if library not in names:
                     with self.assertRaises(ValueError):
                         parse([*rows, self.artifact(library, features, group, package, library)])
+                if group == "core-services":
+                    for wrong_features in ([name for name in features if name != "diagnostics"],
+                                           [name for name in features if name != "test-util"],
+                                           [*features, "allocation-measurement"]):
+                        with self.subTest(group=group, features=wrong_features), self.assertRaises(ValueError):
+                            parse([dict(rows[0], features=wrong_features), *rows[1:]])
                 if group == "test-store":
                     for wrong_features in ([], ["default", "local"], ["local", "test-util"]):
                         with self.subTest(group=group, features=wrong_features), self.assertRaises(ValueError):
