@@ -263,11 +263,20 @@ dependency checks. Release qualification also requires applicable performance an
 
 ### Coverage evidence
 
-CI captures instrumented `rca-core` tests on isolated Linux runners. This keeps large
-compiler jobs off shared developer machines. The minimal group enables `local`
-without `test-util`; the rich group also enables diagnostics, streams and test
-support. Each group includes Core unit tests and selected integration tests.
-Their results remain separate because enabled features can change implementation.
+CI captures selected runtime tests on isolated Linux runners. This keeps large
+compiler jobs off shared developer machines. Each group selects one package and
+one feature configuration. Results remain separate because enabled features can
+change implementation.
+
+| Group | Selected tests |
+| --- | --- |
+| `core-minimal` | Core unit, actor and Local Store tests with `local`, without `test-util` |
+| `core-rich` | Core unit and integration tests with diagnostics, streams, Local and test support |
+| `core-removal` | Removed-child integration tests with the rich Core features |
+| `tokio` | Tokio unit tests and host lifecycle, clock and panic tests |
+| `listener-std` | Listener unit and integration tests with the standard-library backend |
+| `listener-critical-section` | Listener unit and integration tests with the critical-section backend, without `std` |
+| `strategy-std` | Listener strategy unit and integration tests with `std` |
 
 The capture uses Rust 1.99.0 and its matching LLVM tools. Dependency build outputs
 are cached separately for each group. CI rebuilds workspace crates. Each artefact
@@ -277,8 +286,12 @@ Download required evidence before its seven-day retention period ends.
 
 Capture requires Python 3.11 or later, the pinned `llvm-tools-preview` component
 and at least 12 GiB of free disk space. If a disk check finds less than two GiB
-free, capture stops the active command. Each test binary must report passing tests
-without a test-name filter. Existing ignored tests remain visible in the retained summary.
+free, capture stops the active command. Each parent test binary must report passing
+tests without a test-name filter. Listener tests also run exact-filtered child
+processes for isolation. Capture retains their summaries and checks them separately
+from the full parent run. Listener integration parents run one test at a time so
+child output does not overlap. Each test keeps its own concurrency checks.
+Existing ignored tests remain visible in the retained summary.
 
 A successful capture is not a 100% production-coverage result. Its raw data includes
 test code and dependencies, and the selected groups do not cover every RCA package
