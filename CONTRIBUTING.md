@@ -276,6 +276,8 @@ change implementation.
 | `core-timers-rich` | Core timer and transaction tests with the rich Core features |
 | `core-timers-minimal` | Core timer and transaction tests with `local` only |
 | `core-reactions` | Shared and Local changed-reaction tests with the rich Core features |
+| `core-fold-commands` | Shared and Local fold and recipe-command integration tests with the rich Core features |
+| `core-observation-operations` | Observation lifecycle, adapters and named-operation integration tests with the rich Core features |
 | `macros` | Macro unit and integration tests, plus compiler-stage profiles from the proc-macro library |
 | `tokio` | Tokio unit tests and host lifecycle, clock and panic tests |
 | `listener-std` | Listener unit and integration tests with the standard-library backend |
@@ -292,6 +294,8 @@ The `macros` group also retains the proc-macro dynamic library from Cargo's buil
 It exports compiler-stage profiles against that exact library, separately from test runtime profiles.
 The capture fails if any of the eight macro entry functions has no positive source-owned region.
 Passing macro unit tests alone do not prove that compiler-stage entry functions ran.
+Macro test hosts remove `RUSTC_BOOTSTRAP` and the unstable branch flag from their child compiler environment.
+This preserves stable compiler diagnostics. Their already-built parent binaries and the initial compiler-stage capture retain branch instrumentation.
 Some macro tests run child Cargo and trybuild commands. Their host profile directories can contain
 profiles from compilers with different flags; retain those inputs, but do not count them as
 same-configuration production coverage. The initial build-stage export is the macro-entry check.

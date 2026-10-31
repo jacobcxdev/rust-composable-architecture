@@ -168,6 +168,33 @@ class CaptureCoverageTests(unittest.TestCase):
                                             "typed_transactions") for item in ("--test", name)],
         ])
 
+    def test_fold_command_group_selects_only_eight_rich_in_process_hosts(self):
+        names = ("fold_local", "fold_gate", "fold_shape", "fold_terminal", "fold_selector_close",
+                 "recipe_commands", "recipe_commands_local", "recipe_command_failures")
+        self.assertEqual(self.capture.group_arguments("core-fold-commands"), [
+            "-p", "rca-core", "--features", "diagnostics,futures-stream,local,test-util",
+            *[item for name in names for item in ("--test", name)],
+        ])
+        for name in names:
+            executable = self.root / (name + "-123")
+            with self.subTest(host=name):
+                self.assertEqual(self.capture.host_arguments("core-fold-commands", ["test"], executable),
+                                 [str(executable)])
+
+    def test_observation_operation_group_selects_only_eight_rich_in_process_hosts(self):
+        names = ("observation", "observation_adapters", "observation_scope_lifecycle",
+                 "observation_waker_lifecycle", "observation_adapter_scopes", "named_operations",
+                 "named_operation_races", "local_named_operations")
+        self.assertEqual(self.capture.group_arguments("core-observation-operations"), [
+            "-p", "rca-core", "--features", "diagnostics,futures-stream,local,test-util",
+            *[item for name in names for item in ("--test", name)],
+        ])
+        for name in names:
+            executable = self.root / (name + "-123")
+            with self.subTest(host=name):
+                self.assertEqual(self.capture.host_arguments("core-observation-operations", ["test"], executable),
+                                 [str(executable)])
+
     def test_macro_parser_requires_its_unit_executable_and_one_owned_dynamic_object(self):
         group = "macros"
         target = self.root / "target/coverage/macros"
@@ -256,6 +283,13 @@ class CaptureCoverageTests(unittest.TestCase):
              ["removed_child", "local_removed_child"]),
             ("core-reactions", "rca-core", "rca_core", ["default", "diagnostics", "futures-stream", "local", "test-util"],
              ["changed_reactions"]),
+            ("core-fold-commands", "rca-core", "rca_core", ["default", "diagnostics", "futures-stream", "local", "test-util"],
+             ["fold_local", "fold_gate", "fold_shape", "fold_terminal", "fold_selector_close",
+              "recipe_commands", "recipe_commands_local", "recipe_command_failures"]),
+            ("core-observation-operations", "rca-core", "rca_core", ["default", "diagnostics", "futures-stream", "local", "test-util"],
+             ["observation", "observation_adapters", "observation_scope_lifecycle",
+              "observation_waker_lifecycle", "observation_adapter_scopes", "named_operations",
+              "named_operation_races", "local_named_operations"]),
             ("tokio", "rca-tokio", "rca_tokio", [],
              ["rca_tokio", "async_cleanup_host", "client_clock", "panic_subprocess", "synchronous_host", "thread_affine_host"]),
             ("listener-std", "dependencies/rca-event-listener", "event_listener", ["default", "parking", "std"],
@@ -289,6 +323,9 @@ class CaptureCoverageTests(unittest.TestCase):
                     parse([*rows, rows[0]])
                 with self.assertRaises(ValueError):
                     parse([*rows, self.artifact("unselected", features, group, package, library)])
+                if library not in names:
+                    with self.assertRaises(ValueError):
+                        parse([*rows, self.artifact(library, features, group, package, library)])
 
     def test_snapshot_requires_clean_tracked_files_and_lock_and_detects_changes(self):
         def git(*args):
@@ -698,7 +735,7 @@ elif name == "llvm-cov":
 
         return tools, fake_run, self.root / "target/coverage-evidence/macros"
 
-    def test_macro_capture_keeps_exact_object_and_separate_compiler_profiles(self):
+    def test_macro_capture_keeps_compiler_and_child_configurations_separate(self):
         tools, fake_run, output = self.macro_capture_fixture()
         with patch.object(self.capture, "discover_tools", return_value=tools), \
                 patch.object(self.capture, "run_command", side_effect=fake_run), \
@@ -711,8 +748,16 @@ elif name == "llvm-cov":
         self.assertEqual(len(json.loads((macro / "raw-sha256.json").read_text())), 1)
         self.assertEqual((output / "objects/librca_macros-123abc.so").read_bytes(), b"macro dynamic object")
         self.assertEqual(len(list((output / "hosts").iterdir())), 9)
+        build_environment = json.loads((output / "environment.json").read_text())
+        self.assertEqual(build_environment["RUSTC_BOOTSTRAP"], "1")
+        self.assertIn("-Z coverage-options=branch", build_environment["RUSTFLAGS"])
         for host in (output / "hosts").iterdir():
             self.assertEqual((host / "runtime.profdata").read_bytes(), b"merged runtime profile")
+            child_environment = json.loads((host / "environment.json").read_text())
+            self.assertNotIn("RUSTC_BOOTSTRAP", child_environment)
+            self.assertEqual(child_environment["RUSTFLAGS"],
+                             "-C opt-level=s -C debuginfo=0 -C debug-assertions=yes "
+                             "-C overflow-checks=yes -C panic=unwind -C instrument-coverage")
         self.assertEqual(len(json.loads(gzip.decompress((macro / "export.json.gz").read_bytes()))
                              ["data"][0]["functions"]), 8)
 

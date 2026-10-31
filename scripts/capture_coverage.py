@@ -76,6 +76,22 @@ TARGETS = {
         ("--features", "diagnostics,futures-stream,local,test-util"),
         ("changed_reactions",), include_library=False,
     ),
+    "core-fold-commands": CaptureGroup(
+        "rca-core", "rca-core", "rca_core",
+        frozenset({"default", "diagnostics", "futures-stream", "local", "test-util"}),
+        ("--features", "diagnostics,futures-stream,local,test-util"),
+        ("fold_local", "fold_gate", "fold_shape", "fold_terminal", "fold_selector_close",
+         "recipe_commands", "recipe_commands_local", "recipe_command_failures"),
+        include_library=False,
+    ),
+    "core-observation-operations": CaptureGroup(
+        "rca-core", "rca-core", "rca_core",
+        frozenset({"default", "diagnostics", "futures-stream", "local", "test-util"}),
+        ("--features", "diagnostics,futures-stream,local,test-util"),
+        ("observation", "observation_adapters", "observation_scope_lifecycle",
+         "observation_waker_lifecycle", "observation_adapter_scopes", "named_operations",
+         "named_operation_races", "local_named_operations"), include_library=False,
+    ),
     "macros": CaptureGroup(
         "rca-macros", "rca-macros", "rca_macros", frozenset(), (),
         ("action_paths", "aggregate_paths", "case_descriptors", "dependency_client",
@@ -492,6 +508,10 @@ def capture(root, group, output):
             host_env = dict(env, CARGO_MANIFEST_DIR=str(package),
                             LLVM_PROFILE_FILE=str(raw / "current-%p-%m.profraw"),
                             LD_LIBRARY_PATH=os.pathsep.join((str(tools["llvm-cov"].parent.parent / "lib"), str(tools["rustc"].parent.parent / "lib"))))
+            if group == "macros":
+                # Child compilers need stable diagnostics; parent counters are already built.
+                del host_env["RUSTC_BOOTSTRAP"]
+                host_env["RUSTFLAGS"] = RUSTFLAGS.removesuffix(" -Z coverage-options=branch")
             write_json(host / "environment.json", host_env)
             run_command(host_arguments(group, record["target"]["kind"], retained),
                         package, host_env, host / "run", 600)
