@@ -120,6 +120,8 @@ jobs:
                     - core-observation-operations
                     - core-terminal
                     - macros
+                    - test-store
+                    - persistence-file
                     - tokio
                     - listener-std
                     - listener-critical-section

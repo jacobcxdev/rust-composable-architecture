@@ -239,6 +239,33 @@ class CaptureCoverageTests(unittest.TestCase):
                 self.assertEqual(self.capture.host_arguments("core-terminal", ["test"], executable),
                                  [str(executable)])
 
+    def test_test_store_group_selects_only_seven_local_unfiltered_integration_hosts(self):
+        names = ("controls", "error_contracts", "snapshot_contracts", "local_test_store",
+                 "output_delivery", "focused_outputs", "conformance_deterministic")
+        self.assertIn("test-store", self.capture.TARGETS)
+        self.assertEqual(self.capture.group_arguments("test-store"), [
+            "-p", "rca-test", "--features", "local",
+            *[item for name in names for item in ("--test", name)],
+        ])
+        for name in names:
+            executable = self.root / (name + "-123")
+            with self.subTest(host=name):
+                self.assertEqual(self.capture.host_arguments("test-store", ["test"], executable),
+                                 [str(executable)])
+
+    def test_persistence_file_group_selects_only_three_unfiltered_integration_hosts(self):
+        names = ("document", "file", "shared_document_session_replacement")
+        self.assertIn("persistence-file", self.capture.TARGETS)
+        self.assertEqual(self.capture.group_arguments("persistence-file"), [
+            "-p", "rca-persistence", "--features", "file",
+            *[item for name in names for item in ("--test", name)],
+        ])
+        for name in names:
+            executable = self.root / (name + "-123")
+            with self.subTest(host=name):
+                self.assertEqual(self.capture.host_arguments("persistence-file", ["test"], executable),
+                                 [str(executable)])
+
     def test_macro_parser_requires_its_unit_executable_and_one_owned_dynamic_object(self):
         group = "macros"
         target = self.root / "target/coverage/macros"
@@ -338,6 +365,11 @@ class CaptureCoverageTests(unittest.TestCase):
               "named_operation_races", "local_named_operations"]),
             ("core-terminal", "rca-core", "rca_core", ["default", "diagnostics", "futures-stream", "local", "test-util"],
              ["clock_fixtures", "store_actor", "terminal_unwind"]),
+            ("test-store", "rca-test", "rca_test", ["local"],
+             ["controls", "error_contracts", "snapshot_contracts", "local_test_store",
+              "output_delivery", "focused_outputs", "conformance_deterministic"]),
+            ("persistence-file", "rca-persistence", "rca_persistence", ["default", "file"],
+             ["document", "file", "shared_document_session_replacement"]),
             ("tokio", "rca-tokio", "rca_tokio", [],
              ["rca_tokio", "async_cleanup_host", "client_clock", "panic_subprocess", "synchronous_host", "thread_affine_host"]),
             ("listener-std", "dependencies/rca-event-listener", "event_listener", ["default", "parking", "std"],
@@ -366,7 +398,8 @@ class CaptureCoverageTests(unittest.TestCase):
                     return self.capture.parse_artifacts("\n".join(map(json.dumps, records)), self.root, target, group)
 
                 self.assertEqual({row["target"]["name"] for row in parse(rows)}, set(names))
-                for change, value in (("manifest_path", str(self.root / "rca-test/Cargo.toml")),
+                foreign_package = "rca-core" if package == "rca-test" else "rca-test"
+                for change, value in (("manifest_path", str(self.root / foreign_package / "Cargo.toml")),
                                       ("features", ["default", "test-util"]),
                                       ("target", {"name": names[0], "kind": ["test" if names[0] == library else "lib"]})):
                     invalid = [dict(row) for row in rows]
@@ -382,6 +415,14 @@ class CaptureCoverageTests(unittest.TestCase):
                 if library not in names:
                     with self.assertRaises(ValueError):
                         parse([*rows, self.artifact(library, features, group, package, library)])
+                if group == "test-store":
+                    for wrong_features in ([], ["default", "local"], ["local", "test-util"]):
+                        with self.subTest(group=group, features=wrong_features), self.assertRaises(ValueError):
+                            parse([dict(rows[0], features=wrong_features), *rows[1:]])
+                if group == "persistence-file":
+                    for wrong_features in ([], ["default"], ["file"], ["default", "file", "local"]):
+                        with self.subTest(group=group, features=wrong_features), self.assertRaises(ValueError):
+                            parse([dict(rows[0], features=wrong_features), *rows[1:]])
                 if group in ("listener-spin", "listener-std-critical-section"):
                     for wrong_features in (["default", "parking", "std"], ["critical-section"],
                                            [*features, "loom"], [*features, "portable-atomic"]):
