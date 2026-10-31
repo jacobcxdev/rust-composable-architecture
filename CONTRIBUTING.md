@@ -261,6 +261,43 @@ affected integration boundaries. CI adds feature, platform, compiler-contract an
 dependency checks. Release qualification also requires applicable performance and
 100% executable-production coverage evidence. Test-only code has a separate audit scope.
 
+### Coverage evidence
+
+CI captures instrumented `rca-core` tests on isolated Linux runners. This keeps large
+compiler jobs off shared developer machines. The minimal group enables `local`
+without `test-util`; the rich group also enables diagnostics, streams and test
+support. Each group includes Core unit tests and selected integration tests.
+Their results remain separate because enabled features can change implementation.
+
+The capture uses Rust 1.99.0 and its matching LLVM tools. Dependency build outputs
+are cached separately for each group. CI rebuilds workspace crates. Each artefact
+records source and tool hashes, Cargo arguments, compiler configuration, test output,
+executable objects, raw profiles and the LLVM export. Failed captures retain their available evidence.
+Download required evidence before its seven-day retention period ends.
+
+Capture requires Python 3.11 or later, the pinned `llvm-tools-preview` component
+and at least 12 GiB of free disk space. If a disk check finds less than two GiB
+free, capture stops the active command. Each test binary must report passing tests
+without a test-name filter. Existing ignored tests remain visible in the retained summary.
+
+A successful capture is not a 100% production-coverage result. Its raw data includes
+test code and dependencies, and the selected groups do not cover every RCA package
+or configuration. Release review must relate counts to executable production code,
+retain uncovered and unmapped bodies, and audit test-only code separately. Do not
+combine incompatible configurations or replace missing counts with passing-test totals.
+
+On an isolated Linux host with the pinned tools installed:
+
+```sh
+python3 scripts/capture_coverage.py --group core-minimal --output target/coverage-evidence/core-minimal
+python3 scripts/capture_coverage.py --group core-rich --output target/coverage-evidence/core-rich
+```
+
+Use a clean checkout and a new output directory for each capture. The helper rejects
+macOS. It does not replace the local Cargo memory watchdog or limit a Linux host's
+aggregate memory. Use an isolated runner or an OS-limited job. Instrumentation is
+for coverage only, not native performance measurement.
+
 Run process-wide allocation measurements in a `harness = false` test target.
 Reuse the existing synchronous allocation runner. An isolated libtest subprocess
 still has a receiver thread, even with `--test-threads=1`. That thread can add
