@@ -27,7 +27,7 @@ fn first_poll_anchors_first_deadline() {
     let mut timer = ClockTimer::new(host.runtime().clock(), INTERVAL).unwrap();
     let next = timer.next();
     host.advance(Duration::from_millis(30)).unwrap();
-    assert!(host.pending_sleeps().is_empty());
+    assert_eq!(host.pending_sleeps(), [] as [rca_test::PendingSleep; 0]);
     drop(next);
     assert_eq!(poll_next(&mut timer), Poll::Pending);
     assert_eq!(host.pending_sleeps()[0].deadline(), instant(40));
@@ -35,7 +35,7 @@ fn first_poll_anchors_first_deadline() {
     assert_eq!(poll_next(&mut timer), Poll::Pending);
     host.advance(Duration::from_millis(1)).unwrap();
     assert_eq!(poll_next(&mut timer), Poll::Ready(Some(instant(40))));
-    assert!(host.pending_sleeps().is_empty());
+    assert_eq!(host.pending_sleeps(), [] as [rca_test::PendingSleep; 0]);
 }
 
 // Catches scheduled-deadline output and immediate catch-up storms after lag.
@@ -61,10 +61,10 @@ fn zero_demand_keeps_no_tick_queue_or_prearmed_sleep() {
     assert_eq!(poll_next(&mut timer), Poll::Pending);
     host.advance(INTERVAL).unwrap();
     assert_eq!(poll_next(&mut timer), Poll::Ready(Some(instant(10))));
-    assert!(host.pending_sleeps().is_empty());
+    assert_eq!(host.pending_sleeps(), [] as [rca_test::PendingSleep; 0]);
     let report = host.advance(Duration::from_secs(1)).unwrap();
     assert_eq!(report.polls(), 0);
-    assert!(host.pending_sleeps().is_empty());
+    assert_eq!(host.pending_sleeps(), [] as [rca_test::PendingSleep; 0]);
     assert_eq!(poll_next(&mut timer), Poll::Ready(Some(instant(1010))));
     assert_eq!(poll_next(&mut timer), Poll::Pending);
     assert_eq!(host.pending_sleeps()[0].deadline(), instant(1020));
@@ -129,11 +129,11 @@ fn explicit_cancel_retires_sleep_and_stays_terminal() {
     assert_eq!(host.pending_sleeps().len(), 1);
     timer.cancel();
     timer.cancel();
-    assert!(host.pending_sleeps().is_empty());
+    assert_eq!(host.pending_sleeps(), [] as [rca_test::PendingSleep; 0]);
     host.advance(Duration::from_secs(1)).unwrap();
     assert_eq!(poll_next(&mut timer), Poll::Ready(None));
     assert_eq!(poll_next(&mut timer), Poll::Ready(None));
-    assert!(host.pending_sleeps().is_empty());
+    assert_eq!(host.pending_sleeps(), [] as [rca_test::PendingSleep; 0]);
 }
 
 #[test]
@@ -143,7 +143,7 @@ fn dropping_timer_retires_registered_sleep() {
     assert_eq!(poll_next(&mut timer), Poll::Pending);
     assert_eq!(host.pending_sleeps().len(), 1);
     drop(timer);
-    assert!(host.pending_sleeps().is_empty());
+    assert_eq!(host.pending_sleeps(), [] as [rca_test::PendingSleep; 0]);
 }
 
 // Catches overflow or a permanently-ready loop at the representable time limit.
@@ -159,7 +159,7 @@ fn saturation_delivers_one_final_tick_then_terminates() {
         Poll::Ready(Some(MonotonicInstant::MAX))
     );
     assert_eq!(poll_next(&mut timer), Poll::Ready(None));
-    assert!(host.pending_sleeps().is_empty());
+    assert_eq!(host.pending_sleeps(), [] as [rca_test::PendingSleep; 0]);
 }
 
 #[test]
@@ -168,7 +168,7 @@ fn first_poll_at_maximum_terminates_without_a_wait() {
     let mut timer = ClockTimer::new(host.runtime().clock(), INTERVAL).unwrap();
     assert_eq!(poll_next(&mut timer), Poll::Ready(None));
     assert_eq!(poll_next(&mut timer), Poll::Ready(None));
-    assert!(host.pending_sleeps().is_empty());
+    assert_eq!(host.pending_sleeps(), [] as [rca_test::PendingSleep; 0]);
 }
 
 #[test]
@@ -451,7 +451,7 @@ mod forwarding {
                 .await;
             host.run_until_stalled().unwrap();
             task.finish().await;
-            assert!(host.pending_sleeps().is_empty());
+            assert_eq!(host.pending_sleeps(), [] as [rca_test::PendingSleep; 0]);
             store
                 .send(Action::Insert(family))
                 .await
@@ -473,7 +473,10 @@ mod forwarding {
                     .unwrap_err()
                     .is_scope_ended()
             );
-            assert!(fresh.read(Clone::clone).await.unwrap().is_empty());
+            assert_eq!(
+                fresh.read(Clone::clone).await.unwrap(),
+                [] as [MonotonicInstant; 0]
+            );
 
             let fresh_task = fresh.send(ChildAction::Start).await.unwrap();
             host.run_until_stalled().unwrap();
@@ -483,7 +486,7 @@ mod forwarding {
             // Shutdown issues aborts; the host must reap cooperative task wrappers.
             host.run_until_stalled().unwrap();
             fresh_task.finish().await;
-            assert!(host.pending_sleeps().is_empty());
+            assert_eq!(host.pending_sleeps(), [] as [rca_test::PendingSleep; 0]);
         }))
         .unwrap();
     }
@@ -525,7 +528,7 @@ mod forwarding {
             assert_eq!(store.read(Clone::clone).await.unwrap(), vec![instant(10)]);
             task.cancel();
             task.finish().await;
-            assert!(host.pending_sleeps().is_empty());
+            assert_eq!(host.pending_sleeps(), [] as [rca_test::PendingSleep; 0]);
             assert!(
                 stale
                     .send(ChildAction::Tick(timestamp))

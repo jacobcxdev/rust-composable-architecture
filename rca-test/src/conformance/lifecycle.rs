@@ -561,9 +561,12 @@ async fn output_before_removal(factory: impl RuntimeFactory) {
         .await
         .expect("output-first snapshot");
     assert_eq!(snapshot.commit_version, 3);
-    assert!(snapshot.live_task_ids.is_empty());
+    assert_eq!(snapshot.live_task_ids, [] as [u64; 0]);
     assert_eq!(snapshot.cancellation_count, 0);
-    assert!(snapshot.timer_deadlines.is_empty());
+    assert_eq!(
+        snapshot.timer_deadlines,
+        [] as [rca_core::MonotonicInstant; 0]
+    );
     assert_eq!(snapshot.observation_count, 1);
     store.shutdown().await.expect("output-first shutdown");
 }
@@ -641,9 +644,12 @@ async fn removal_before_output_release(factory: impl RuntimeFactory) {
         .await
         .expect("rejected output snapshot");
     assert_eq!(snapshot.commit_version, removed_version);
-    assert!(snapshot.live_task_ids.is_empty());
+    assert_eq!(snapshot.live_task_ids, [] as [u64; 0]);
     assert_eq!(snapshot.cancellation_count, 0);
-    assert!(snapshot.timer_deadlines.is_empty());
+    assert_eq!(
+        snapshot.timer_deadlines,
+        [] as [rca_core::MonotonicInstant; 0]
+    );
     assert_eq!(snapshot.observation_count, 1);
     let mut next = Box::pin(observation.next());
     assert!(poll_once(next.as_mut()).is_pending());
@@ -665,9 +671,12 @@ async fn removal_before_output_release(factory: impl RuntimeFactory) {
     );
     let snapshot = store.runtime_snapshot().await.expect("live Store snapshot");
     assert_eq!(snapshot.commit_version, 3);
-    assert!(snapshot.live_task_ids.is_empty());
+    assert_eq!(snapshot.live_task_ids, [] as [u64; 0]);
     assert_eq!(snapshot.cancellation_count, 0);
-    assert!(snapshot.timer_deadlines.is_empty());
+    assert_eq!(
+        snapshot.timer_deadlines,
+        [] as [rca_core::MonotonicInstant; 0]
+    );
     assert_eq!(snapshot.observation_count, 1);
     store.shutdown().await.expect("removal-first shutdown");
 }

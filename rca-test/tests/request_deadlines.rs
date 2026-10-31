@@ -236,7 +236,7 @@ fn shutdown_releases_request_and_deadline() {
         runtime.run_until_stalled().unwrap();
         assert!(responses[0].is_closed());
         assert!(root.is_finished());
-        assert!(runtime.pending_sleeps().is_empty());
+        assert_eq!(runtime.pending_sleeps(), [] as [rca_test::PendingSleep; 0]);
     });
 }
 

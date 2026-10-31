@@ -418,8 +418,11 @@ async fn stale_outputs_timers_and_observations(factory: impl RuntimeFactory) {
         .await
         .expect("keyed cancellation snapshot");
     assert_eq!(snapshot.commit_version, removed_version);
-    assert!(snapshot.live_task_ids.is_empty());
-    assert!(snapshot.timer_deadlines.is_empty());
+    assert_eq!(snapshot.live_task_ids, [] as [u64; 0]);
+    assert_eq!(
+        snapshot.timer_deadlines,
+        [] as [rca_core::MonotonicInstant; 0]
+    );
     assert_eq!(snapshot.observation_count, 1);
     let mut next = Box::pin(observation.next());
     assert!(poll_once(next.as_mut()).is_pending());
@@ -512,7 +515,7 @@ async fn queued_old_generation_output_is_rejected_before_reduction(factory: impl
         .await
         .expect("rejected old keyed output snapshot");
     assert_eq!(rejected_snapshot.commit_version, 3);
-    assert!(rejected_snapshot.live_task_ids.is_empty());
+    assert_eq!(rejected_snapshot.live_task_ids, [] as [u64; 0]);
 
     store
         .send(Action::Probe)
@@ -571,7 +574,7 @@ async fn deleting_action_discards_its_returned_effect(factory: impl RuntimeFacto
         .await
         .expect("cancelled standalone effect snapshot");
     assert_eq!(snapshot.commit_version, 1);
-    assert!(snapshot.live_task_ids.is_empty());
+    assert_eq!(snapshot.live_task_ids, [] as [u64; 0]);
     control
         .shutdown()
         .await
@@ -601,7 +604,7 @@ async fn deleting_action_discards_its_returned_effect(factory: impl RuntimeFacto
         .await
         .expect("deleted effect snapshot");
     assert_eq!(snapshot.commit_version, 1);
-    assert!(snapshot.live_task_ids.is_empty());
+    assert_eq!(snapshot.live_task_ids, [] as [u64; 0]);
     store
         .shutdown()
         .await
@@ -979,7 +982,7 @@ async fn replacements_cancel_old_entry_lifetimes(factory: impl RuntimeFactory) {
             .runtime_snapshot()
             .await
             .expect("live replacement task snapshot");
-        assert!(!snapshot.live_task_ids.is_empty());
+        assert_ne!(snapshot.live_task_ids, [] as [u64; 0]);
         assert!(!task.is_finished());
         assert!(!second.is_finished());
         store
@@ -1162,7 +1165,7 @@ async fn nested_optional_work_is_descendant_of_key(factory: impl RuntimeFactory)
         .runtime_snapshot()
         .await
         .expect("live nested keyed task snapshot");
-    assert!(!snapshot.live_task_ids.is_empty());
+    assert_ne!(snapshot.live_task_ids, [] as [u64; 0]);
     assert!(!task.is_finished());
     store
         .send(NestedAction::Remove)
@@ -1177,7 +1180,7 @@ async fn nested_optional_work_is_descendant_of_key(factory: impl RuntimeFactory)
         .runtime_snapshot()
         .await
         .expect("nested keyed snapshot");
-    assert!(snapshot.live_task_ids.is_empty());
+    assert_eq!(snapshot.live_task_ids, [] as [u64; 0]);
     store
         .shutdown()
         .await

@@ -391,14 +391,17 @@ class MinimalSizeRunnerTests(unittest.TestCase):
                       patch.object(runner, "read", side_effect=read),
                       patch.object(runner, "build_counter_binaries", side_effect=build),
                       patch.object(runner, "capture_minimal_sizes", side_effect=capture),
+                      patch.object(runner, "publish", side_effect=lambda staged, target: staged.rename(target)) as publish,
                       patch.object(runner, "HostMonitor") as monitor):
                     if mutation:
                         with self.assertRaises(ValueError):
                             runner.qualify_minimal_size(output, stage)
                         self.assertTrue((stage / "failure.json").exists())
                         self.assertFalse(output.exists())
+                        publish.assert_not_called()
                     else:
                         self.assertEqual(runner.qualify_minimal_size(output, stage), 0)
+                        publish.assert_called_once_with(stage, output)
                         complete = json.loads((output / "complete.json").read_text())
                         self.assertTrue(complete["size_capture_complete"])
                         self.assertFalse(complete["timing_qualified"])

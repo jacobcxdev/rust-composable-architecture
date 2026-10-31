@@ -241,7 +241,7 @@ fn writer_free_comparison_and_recording_share_name_reservations() {
         let failure = result.unwrap_err();
         if compare_first {
             assert!(matches!(failure.kind(), SnapshotFailureKind::Collision));
-            assert!(writer.writes.is_empty());
+            assert_eq!(writer.writes, [] as [(ArtifactKind, Vec<u8>); 0]);
         } else {
             assert!(matches!(
                 failure.kind(),
@@ -447,7 +447,7 @@ fn redaction_failure_and_private_error_debug_never_publish_payloads() {
         )
         .unwrap_err();
     assert!(!format!("{failure:?} {failure}").contains("secret-token"));
-    assert!(writer.writes.is_empty());
+    assert_eq!(writer.writes, [] as [(ArtifactKind, Vec<u8>); 0]);
     let SnapshotFailureKind::Redaction(cause) = failure.into_kind() else {
         panic!("cause")
     };
@@ -514,7 +514,7 @@ fn exact_bytes_do_not_trim_normalise_or_decode_and_safe_references_replay() {
 fn optional_issue_reporting_cannot_suppress_snapshot_mismatch() {
     let collector = rca_core::IssueCollector::new();
     let closed = collector.reporter();
-    assert!(collector.finish().is_empty());
+    assert_eq!(collector.finish(), [] as [rca_core::Issue; 0]);
     for reporter in [rca_core::IssueReporter::default(), closed] {
         let mut namespace = SnapshotNamespace::new("suite").unwrap();
         let failure = namespace
@@ -881,7 +881,7 @@ fn equal_references_need_no_writer_or_redaction_except_explicit_record_all() {
             )
             .unwrap_err();
         assert!(matches!(retry.kind(), SnapshotFailureKind::Collision));
-        assert!(writer.writes.is_empty());
+        assert_eq!(writer.writes, [] as [(ArtifactKind, Vec<u8>); 0]);
     }
 }
 

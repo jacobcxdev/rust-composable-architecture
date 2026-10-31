@@ -145,7 +145,7 @@ fn relative_wait_fixes_deadline_at_invocation_not_first_poll() {
     );
     host.advance(Duration::from_millis(1)).unwrap();
     assert_eq!(poll(&mut wait), Poll::Ready(()));
-    assert!(host.pending_sleeps().is_empty());
+    assert_eq!(host.pending_sleeps(), [] as [rca_test::PendingSleep; 0]);
 }
 
 #[test]
@@ -164,7 +164,7 @@ fn elapsed_and_zero_waits_are_ready_on_first_poll() {
             Poll::Ready(())
         );
     }
-    assert!(host.pending_sleeps().is_empty());
+    assert_eq!(host.pending_sleeps(), [] as [rca_test::PendingSleep; 0]);
 }
 
 #[test]
@@ -185,12 +185,12 @@ fn dropping_unpolled_and_registered_waits_releases_timers() {
     let host = DeterministicRuntime::new();
     let clock = host.runtime().clock();
     drop(clock.sleep(CLIENT_DELAY));
-    assert!(host.pending_sleeps().is_empty());
+    assert_eq!(host.pending_sleeps(), [] as [rca_test::PendingSleep; 0]);
     let mut wait = clock.sleep_until(MonotonicInstant::MAX);
     assert_eq!(poll(&mut wait), Poll::Pending);
     assert_eq!(host.pending_sleeps().len(), 1);
     drop(wait);
-    assert!(host.pending_sleeps().is_empty());
+    assert_eq!(host.pending_sleeps(), [] as [rca_test::PendingSleep; 0]);
 }
 
 #[test]
@@ -327,9 +327,12 @@ fn finish_reports_an_external_sleep_without_actor_owned_work() {
     let diagnostics = error.finish_diagnostics().unwrap();
     assert!(!diagnostics.has_pending_action());
     let runtime = diagnostics.runtime();
-    assert!(runtime.live_task_ids.is_empty());
+    assert_eq!(runtime.live_task_ids, [] as [u64; 0]);
     assert_eq!(runtime.cancellation_count, 0);
-    assert!(runtime.timer_deadlines.is_empty());
+    assert_eq!(
+        runtime.timer_deadlines,
+        [] as [rca_core::MonotonicInstant; 0]
+    );
     assert_eq!(runtime.observation_count, 0);
     assert_eq!(diagnostics.pending_sleeps().len(), 1);
     assert_eq!(
@@ -421,7 +424,7 @@ fn wrong_clock_negative_control_cannot_receive_and_cancels_without_hanging() {
         assert_eq!(wrong.now(), MonotonicInstant::ZERO);
         assert_eq!(Arc::strong_count(&capture), 3);
         task.cancel().await.unwrap();
-        assert!(wrong.pending_sleeps().is_empty());
+        assert_eq!(wrong.pending_sleeps(), [] as [rca_test::PendingSleep; 0]);
         assert_eq!(Arc::strong_count(&capture), 2);
         wrong.advance(Duration::from_secs(1)).unwrap();
         assert!(

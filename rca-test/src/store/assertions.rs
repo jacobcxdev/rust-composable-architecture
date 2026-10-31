@@ -1129,7 +1129,7 @@ mod interruption_tests {
         let mut store = paused_store(&pause, &commits);
         store.runtime.run_until_stalled().unwrap();
         let cached = store.gate.latest_diagnostics().unwrap();
-        assert!(cached.runtime().live_task_ids.is_empty());
+        assert_eq!(cached.runtime().live_task_ids, [] as [u64; 0]);
         pause.paused.store(true, Ordering::SeqCst);
         let _receipt = store.store.try_send(Action::Start).unwrap();
         // The actor cannot answer a new diagnostic request. finish must return

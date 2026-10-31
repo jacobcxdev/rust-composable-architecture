@@ -132,9 +132,12 @@ fn interval_factory_cancellation_rejects_its_action_and_does_not_reschedule() {
             .expect("ready actor answers the runtime snapshot")
             .unwrap()
             .unwrap();
-        assert!(snapshot.live_task_ids.is_empty());
-        assert!(snapshot.timer_deadlines.is_empty());
-        assert!(runtime.pending_sleeps().is_empty());
+        assert_eq!(snapshot.live_task_ids, [] as [u64; 0]);
+        assert_eq!(
+            snapshot.timer_deadlines,
+            [] as [rca_core::MonotonicInstant; 0]
+        );
+        assert_eq!(runtime.pending_sleeps(), [] as [rca_test::PendingSleep; 0]);
         assert!(capture_lifetime.upgrade().is_none());
         runtime
             .run(store.shutdown())
@@ -204,7 +207,7 @@ fn saturated_delay_stays_pending_without_sleep_and_can_be_cancelled() {
             .unwrap()
             .unwrap();
         runtime.run_until_stalled().unwrap();
-        assert!(runtime.pending_sleeps().is_empty());
+        assert_eq!(runtime.pending_sleeps(), [] as [rca_test::PendingSleep; 0]);
         assert!(!root.is_finished());
         root.cancel();
         runtime.run(root.finish()).await.unwrap();
@@ -1092,9 +1095,12 @@ fn cancelling_lineage_mid_timer_batch_rejects_siblings_and_new_timers() {
                 .await
                 .unwrap()
                 .unwrap();
-            assert!(snapshot.live_task_ids.is_empty());
-            assert!(snapshot.timer_deadlines.is_empty());
-            assert!(runtime.pending_sleeps().is_empty());
+            assert_eq!(snapshot.live_task_ids, [] as [u64; 0]);
+            assert_eq!(
+                snapshot.timer_deadlines,
+                [] as [rca_core::MonotonicInstant; 0]
+            );
+            assert_eq!(runtime.pending_sleeps(), [] as [rca_test::PendingSleep; 0]);
             runtime.run(store.shutdown()).await.unwrap().unwrap();
         });
     }
@@ -1163,9 +1169,12 @@ fn timer_release_rechecks_authority_after_state_assertion() {
                 .await
                 .unwrap()
                 .unwrap();
-            assert!(snapshot.live_task_ids.is_empty());
-            assert!(snapshot.timer_deadlines.is_empty());
-            assert!(runtime.pending_sleeps().is_empty());
+            assert_eq!(snapshot.live_task_ids, [] as [u64; 0]);
+            assert_eq!(
+                snapshot.timer_deadlines,
+                [] as [rca_core::MonotonicInstant; 0]
+            );
+            assert_eq!(runtime.pending_sleeps(), [] as [rca_test::PendingSleep; 0]);
             runtime.run(store.shutdown()).await.unwrap().unwrap();
         });
     }

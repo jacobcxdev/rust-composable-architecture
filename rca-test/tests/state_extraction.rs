@@ -451,7 +451,7 @@ fn cleanup_precedes_handoff_and_revokes_old_work() {
         .expect("poll cooperative aborted wrapper");
     assert_eq!(effect_drops.load(Ordering::SeqCst), 1);
     assert!(task.is_finished());
-    assert!(host.pending_sleeps().is_empty());
+    assert_eq!(host.pending_sleeps(), [] as [rca_test::PendingSleep; 0]);
     host.advance(std::time::Duration::from_secs(5))
         .expect("cancelled timer");
     assert_eq!(state.product.get(), 4);

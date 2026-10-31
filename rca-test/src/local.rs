@@ -595,7 +595,7 @@ mod tests {
             panic!("closed task is never polled");
         }));
         assert_eq!(drops.get(), 2);
-        assert!(driver.shared.snapshot().live_task_ids.is_empty());
+        assert_eq!(driver.shared.snapshot().live_task_ids, [] as [u64; 0]);
         drop(driver);
         assert!(
             weak.upgrade().is_some(),
@@ -640,7 +640,7 @@ mod tests {
             );
             assert_eq!(reentrant.now(), MonotonicInstant::ZERO);
             drop(sleep);
-            assert!(reentrant.pending_sleeps().is_empty());
+            assert_eq!(reentrant.pending_sleeps(), [] as [crate::PendingSleep; 0]);
             reentrant.spawn_task(Box::pin(async move {
                 output.set(1);
             }));
@@ -729,7 +729,7 @@ mod tests {
                 assert_eq!(owner, std::thread::current().id());
                 drop(data.wake.state.try_lock().expect("metadata unlocked"));
                 drop(data.tasks.try_lock().expect("payloads unlocked"));
-                assert!(data.snapshot().live_task_ids.is_empty());
+                assert_eq!(data.snapshot().live_task_ids, [] as [u64; 0]);
                 output.set(output.get() + 1);
                 assert_ne!(id, 0, "one destructor panic");
             })));
@@ -741,7 +741,7 @@ mod tests {
         assert!(catch_unwind(AssertUnwindSafe(|| drop(host))).is_err());
         assert_eq!(drops.get(), 3);
         assert!(driver.shared.tasks.lock().is_empty());
-        assert!(driver.shared.snapshot().live_task_ids.is_empty());
+        assert_eq!(driver.shared.snapshot().live_task_ids, [] as [u64; 0]);
         driver.drain_deadlines(10, 1, None).unwrap_err();
     }
 }

@@ -316,7 +316,7 @@ fn deterministic_overdue_budget_failure() {
     assert_eq!(error.polls(), BUDGET);
     assert_eq!(error.step_budget(), BUDGET);
     assert_eq!(error.ready_task_ids(), [0]);
-    assert!(error.pending_sleeps().is_empty());
+    assert_eq!(error.pending_sleeps(), [] as [crate::PendingSleep; 0]);
     assert_eq!(
         error.current_time(),
         MonotonicInstant::from_elapsed(Duration::from_millis(BUDGET as u64))
@@ -327,7 +327,7 @@ fn deterministic_overdue_budget_failure() {
         .advance(Duration::from_millis(1))
         .expect("remaining overdue work completes on the next drive");
     assert!(completed.load(Ordering::Acquire));
-    assert!(runtime.pending_sleeps().is_empty());
+    assert_eq!(runtime.pending_sleeps(), [] as [crate::PendingSleep; 0]);
     assert_eq!(
         runtime
             .run_until_stalled()

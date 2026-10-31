@@ -198,7 +198,7 @@ fn snapshot_outcome_diagnostics_are_distinct_and_keep_callback_causes_private() 
     let mut diagnostics = std::collections::BTreeSet::new();
     for failure in failures {
         let rendered = format!("{failure:?}");
-        assert!(!rendered.is_empty());
+        assert_ne!(rendered, "");
         if let SnapshotFailureKind::Redaction(cause) | SnapshotFailureKind::Write(cause) = failure {
             assert!(!rendered.contains(cause.0));
         }

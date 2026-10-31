@@ -246,19 +246,19 @@ fn maximum_deadline_has_no_sleep_and_root_cancel_drops_payload() {
             .unwrap()
             .unwrap();
         runtime.run_until_stalled().unwrap();
-        assert!(runtime.pending_sleeps().is_empty());
+        assert_eq!(runtime.pending_sleeps(), [] as [rca_test::PendingSleep; 0]);
         assert_dropped(&dropped, &[]);
         assert!(!root.is_finished());
         root.cancel();
         runtime.run(root.finish()).await.unwrap();
         assert_dropped(&dropped, &[1]);
-        assert!(
+        assert_eq!(
             runtime
                 .run(store.read(Clone::clone))
                 .await
                 .unwrap()
-                .unwrap()
-                .is_empty()
+                .unwrap(),
+            [] as [u8; 0]
         );
         runtime.run(store.shutdown()).await.unwrap().unwrap();
     });
@@ -333,7 +333,10 @@ fn cancellation_wrapper_registration_remains_deferred() {
             let mut store = TestStore::new(Vec::new(), OwnedFeature([effect].into()));
             let root = store.send_with(OwnedAction::Start, |_| {}).await.unwrap();
             let _ = store.send_with(OwnedAction::Cancel, |_| {}).await.unwrap();
-            store.assert_state(|s| assert!(s.is_empty())).await.unwrap();
+            store
+                .assert_state(|s| assert_eq!(s.as_slice(), []))
+                .await
+                .unwrap();
             assert_dropped(&dropped, if outer { &[1] } else { &[] });
             store.advance(Duration::from_millis(10)).await.unwrap();
             if !outer {

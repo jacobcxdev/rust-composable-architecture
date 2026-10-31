@@ -198,7 +198,7 @@ fn deadline_cohorts_have_explicit_costs_and_order() {
                 *events.lock().unwrap(),
                 (0..cohorts * count).collect::<Vec<_>>()
             );
-            assert!(host.pending_sleeps().is_empty());
+            assert_eq!(host.pending_sleeps(), [] as [rca_test::PendingSleep; 0]);
             for mut wait in waits {
                 assert!(
                     wait.as_mut()

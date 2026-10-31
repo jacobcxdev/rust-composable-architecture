@@ -785,7 +785,7 @@ fn unpolled_and_pending_drop_do_not_complete_a_check() {
 fn disabled_and_closed_reporting_cannot_hide_mismatch() {
     let collector = IssueCollector::new();
     let closed = collector.reporter();
-    assert!(collector.finish().is_empty());
+    assert_eq!(collector.finish(), [] as [rca_core::Issue; 0]);
     for reporter in [IssueReporter::default(), closed] {
         let failure = check_equal(
             || 1,

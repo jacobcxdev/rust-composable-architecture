@@ -269,7 +269,7 @@ fn check_clock_client(family: Family) {
             .await;
         host.run_until_stalled().unwrap();
         task.finish().await;
-        assert!(host.pending_sleeps().is_empty());
+        assert_eq!(host.pending_sleeps(), [] as [rca_test::PendingSleep; 0]);
         assert_eq!(Arc::strong_count(&capture), baseline);
 
         store
@@ -315,7 +315,7 @@ fn check_clock_client(family: Family) {
         fresh_task.finish().await;
         assert_eq!(current.next().await, Some(1));
         assert_eq!(fresh.read(|value| *value).await.unwrap(), 1);
-        assert!(host.pending_sleeps().is_empty());
+        assert_eq!(host.pending_sleeps(), [] as [rca_test::PendingSleep; 0]);
         assert_eq!(Arc::strong_count(&capture), baseline);
         store.shutdown().await.unwrap();
     }))

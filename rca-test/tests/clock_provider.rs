@@ -211,7 +211,7 @@ fn seeded_elapsed_wait_is_ready_and_drop_cancels_registered_wait() {
     assert_eq!(poll(&mut wait), Poll::Pending);
     assert_eq!(host.pending_sleeps().len(), 1);
     drop(wait);
-    assert!(host.pending_sleeps().is_empty());
+    assert_eq!(host.pending_sleeps(), [] as [rca_test::PendingSleep; 0]);
 }
 
 #[test]

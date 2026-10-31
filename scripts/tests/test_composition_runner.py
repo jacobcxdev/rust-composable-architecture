@@ -507,12 +507,31 @@ class RunnerTests(unittest.TestCase):
     @unittest.skipUnless(sys.platform == "darwin", "Darwin time flags")
     def test_guard_keeps_time_around_original_command_and_preserves_outputs(self):
         import guard_cargo_memory as guard
+        # This checks process nesting and output, not host hardware counters.
+        # Qualification still uses the strict parser, tested separately.
+        parsed_counters = {
+            "real_seconds": 0.5,
+            "user_seconds": 0.4,
+            "system_seconds": 0.1,
+            "maximum_resident_set_bytes": 1000,
+            "page_reclaims": 1,
+            "page_faults": 0,
+            "swaps": 0,
+            "block_input_operations": 0,
+            "block_output_operations": 0,
+            "voluntary_context_switches": 1,
+            "involuntary_context_switches": 0,
+            "instructions_retired": 1000,
+            "cycles_elapsed": 2000,
+            "peak_memory_footprint_bytes": 900,
+        }
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             monitor = runner.HostMonitor(root, {"quiescence": {"process_monitor_interval_seconds": 0.01}})
             destination = root / "timed.txt"
             command = [sys.executable, "-c", "import sys; print('out'); print('err', file=sys.stderr)"]
             with patch.object(monitor, "idle"), patch.object(monitor, "sample", return_value={}), \
+                    patch.object(evaluator, "parse_darwin_time", return_value=parsed_counters) as parse, \
                     patch.object(guard, "run_guarded", wraps=guard.run_guarded) as execute:
                 monitor.run(command, destination, root, dict(os.environ), counter_receipt=True)
             self.assertEqual(execute.call_args.args[0],
@@ -523,7 +542,12 @@ class RunnerTests(unittest.TestCase):
             self.assertEqual(receipt["memory_watchdog_sha256"], evaluator._sha256(Path(guard.__file__)))
             self.assertEqual(receipt["reason"], "command-exited")
             self.assertTrue(receipt["observer_complete"])
-            self.assertGreater(json.loads(destination.with_suffix(".resources.json").read_text())["instructions_retired"], 0)
+            timing = destination.with_suffix(".time.txt").read_text()
+            for label in ("real", "user", "sys"):
+                self.assertRegex(timing, rf"(?m)^{label} [0-9]+(?:\.[0-9]+)?$")
+            parse.assert_called_once_with(timing)
+            self.assertEqual(json.loads(destination.with_suffix(".resources.json").read_text()),
+                             parsed_counters)
 
     def test_counter_setup_failure_retains_receipts_without_launch(self):
         import guard_cargo_memory as guard
