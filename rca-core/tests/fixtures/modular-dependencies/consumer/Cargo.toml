@@ -1,0 +1,13 @@
+[package]
+name = "modular-consumer"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+modular-interface = { path = "../interface" }
+rca-core = { path = "../../../.." }
+
+[dev-dependencies]
+rca-test = { path = "../../../../../rca-test" }
+futures-executor = "0.3.34"

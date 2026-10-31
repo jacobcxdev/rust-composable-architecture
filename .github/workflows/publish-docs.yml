@@ -1,0 +1,137 @@
+name: Publish Documentation
+
+on:
+    push:
+        branches:
+            - main
+        tags:
+            - "v*"
+
+permissions:
+    contents: read
+
+concurrency:
+    group: publish-docs-${{ github.ref }}
+    cancel-in-progress: false
+
+jobs:
+    publish-docs:
+        runs-on: ubuntu-24.04
+        environment: documentation
+        env:
+            DOCS_SIGNING_FINGERPRINT: 7237B7C9DE669B33CF0B07A8F7E4F88469316E38
+            GIT_AUTHOR_NAME: RCA Documentation CI
+            GIT_AUTHOR_EMAIL: me@jacobcx.dev
+            GIT_COMMITTER_NAME: RCA Documentation CI
+            GIT_COMMITTER_EMAIL: me@jacobcx.dev
+        steps:
+            - name: Validate Publication Ref
+              env:
+                  DOCS_REF_NAME: ${{ github.ref_name }}
+              run: |
+                  # The pinned publisher passes this value to shell commands.
+                  if [[ ! "${DOCS_REF_NAME}" =~ ^[A-Za-z0-9._/-]+$ ]] || ! git check-ref-format "refs/heads/${DOCS_REF_NAME}"; then
+                      echo '::error::This ref contains characters that the documentation publisher cannot handle safely.'
+                      exit 1
+                  fi
+
+            - name: Checkout
+              uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+              with:
+                  persist-credentials: false
+
+            - name: Install Rust 1.99.0
+              uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772
+              with:
+                  toolchain: 1.99.0
+
+            - name: Restore Cargo cache
+              uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+
+            - name: Checkout Action Repository
+              uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+              with:
+                  repository: jacobcxdev/jacobcxdev.github.io
+                  ref: 2ddc31662cd1654a5e20ca02770fbe501e86fe41
+                  token: ${{ secrets.INDEX_REPO_TOKEN }}
+                  path: action-checkout
+                  persist-credentials: false
+
+            - name: Build Documentation
+              env:
+                  RUSTDOCFLAGS: -D warnings
+              run: |
+                  # Seed dependency docs so inherited and re-exported links resolve.
+                  # Build each prerequisite before the workspace documentation.
+                  cargo doc --locked -p futures-core --no-deps
+                  cargo doc --locked -p rca-event-listener --all-features --no-deps
+                  cargo doc --locked --workspace --all-features --no-deps
+
+            - name: Prepare Documentation Root
+              run: |
+                  test -f target/doc/rca/index.html
+                  cp LICENSE-APACHE.md LICENSE-MIT.md target/doc/rca/
+                  printf '%s\n' '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta http-equiv="refresh" content="0; url=rca/index.html"><title>Rust Composable Architecture</title></head><body><a href="rca/index.html">Open the API documentation</a></body></html>' > target/doc/index.html
+
+            - name: Require Signed Publication
+              id: signing
+              env:
+                  DOCS_SIGNING_PRIVATE_KEY: ${{ secrets.DOCS_SIGNING_PRIVATE_KEY }}
+                  DOCS_SIGNING_PASSPHRASE: ${{ secrets.DOCS_SIGNING_PASSPHRASE }}
+              run: |
+                  if [[ -z "${DOCS_SIGNING_PRIVATE_KEY}" || -z "${DOCS_SIGNING_PASSPHRASE}" ]]; then
+                      echo '::error::Documentation publication requires both dedicated signing secrets. No documentation was published.'
+                      exit 1
+                  fi
+                  umask 077
+                  GNUPGHOME=$(mktemp -d "${RUNNER_TEMP}/rca-docs-gnupg.XXXXXXXX")
+                  export GNUPGHOME
+                  printf 'GNUPGHOME=%s\n' "${GNUPGHOME}" >> "${GITHUB_ENV}"
+                  gpg --batch --import <<<"${DOCS_SIGNING_PRIVATE_KEY}"
+                  signing_key="${DOCS_SIGNING_FINGERPRINT}!"
+                  signing_program="${GITHUB_WORKSPACE}/scripts/docs-sign.sh"
+                  printf '%s\n' 'RCA documentation signing preflight' | "${signing_program}" --local-user "${signing_key}" --detach-sign --output "${GNUPGHOME}/preflight.sig"
+                  gpg --batch --status-fd 1 --verify "${GNUPGHOME}/preflight.sig" <(printf '%s\n' 'RCA documentation signing preflight') |
+                      awk -v fingerprint="${DOCS_SIGNING_FINGERPRINT}" '$2 == "VALIDSIG" && $3 == fingerprint { valid = 1 } END { exit !valid }'
+                  printf 'key=%s\n' "${signing_key}" >> "${GITHUB_OUTPUT}"
+                  printf 'program=%s\n' "${signing_program}" >> "${GITHUB_OUTPUT}"
+
+            - name: Publish to Index
+              uses: ./action-checkout/actions/publish-docs
+              env:
+                  # Keep credentials out of clone URLs and persistent Git configuration.
+                  INDEX_REPO_URL: https://github.com/jacobcxdev/jacobcxdev.github.io.git
+                  GIT_TERMINAL_PROMPT: "0"
+                  GIT_CONFIG_COUNT: "6"
+                  GIT_CONFIG_KEY_0: credential.helper
+                  GIT_CONFIG_VALUE_0: ""
+                  GIT_CONFIG_KEY_1: credential.https://github.com.helper
+                  GIT_CONFIG_VALUE_1: '!f() { if [ "$1" = get ]; then printf "%s\n" "username=x-access-token" "password=$GH_TOKEN"; fi; }; f'
+                  GIT_CONFIG_KEY_2: commit.gpgsign
+                  GIT_CONFIG_VALUE_2: "true"
+                  GIT_CONFIG_KEY_3: user.signingkey
+                  GIT_CONFIG_VALUE_3: ${{ steps.signing.outputs.key }}
+                  GIT_CONFIG_KEY_4: gpg.format
+                  GIT_CONFIG_VALUE_4: openpgp
+                  GIT_CONFIG_KEY_5: gpg.program
+                  GIT_CONFIG_VALUE_5: ${{ steps.signing.outputs.program }}
+                  DOCS_SIGNING_PASSPHRASE: ${{ secrets.DOCS_SIGNING_PASSPHRASE }}
+              with:
+                  token: ${{ secrets.INDEX_REPO_TOKEN }}
+                  # The qualified build and root preparation have already completed.
+                  build-command: "true"
+                  output-dir: target/doc
+                  stable-branch: main
+
+            - name: Remove Signing Material
+              if: always()
+              run: |
+                  if [[ -n "${GNUPGHOME:-}" ]]; then
+                      signing_basename=${GNUPGHOME##*/}
+                      if [[ "${GNUPGHOME}" != "${RUNNER_TEMP}/${signing_basename}" || ! "${signing_basename}" =~ ^rca-docs-gnupg\.[A-Za-z0-9]{8}$ ]]; then
+                          echo '::error::Refusing to remove an unexpected signing directory.'
+                          exit 1
+                      fi
+                      gpgconf --homedir "${GNUPGHOME}" --kill gpg-agent || true
+                      rm -rf -- "${GNUPGHOME}"
+                  fi

@@ -1,0 +1,40 @@
+error[E0277]: the trait bound `Rc<Cell<{integer}>>: Snapshot` is not satisfied
+  --> tests/ui/rc07_owned_snapshot_handle.rs:11:21
+   |
+11 |     let _ = capture(&Rc::new(Cell::new(3)));
+   |             ------- ^^^^^^^^^^^^^^^^^^^^^^ the trait `Snapshot` is not implemented for `Rc<Cell<{integer}>>`
+   |             |
+   |             required by a bound introduced by this call
+   |
+   = help: the following other types implement trait `Snapshot`:
+             ()
+             (A,)
+             (A, B)
+             (A, B, C)
+             (A, B, C, D)
+             Box<T>
+             Duration
+             KeyedState<Id, State>
+           and $N others
+note: required by a bound in `capture`
+  --> tests/ui/rc07_owned_snapshot_handle.rs:6:15
+   |
+ 6 | fn capture<T: Snapshot>(source: &T) -> T::Value {
+   |               ^^^^^^^^ required by this bound in `capture`
+
+error[E0277]: the trait bound `Rc<Cell<{integer}>>: Snapshot` is not satisfied
+  --> tests/ui/rc07_owned_snapshot_handle.rs:11:13
+   |
+11 |     let _ = capture(&Rc::new(Cell::new(3)));
+   |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ the trait `Snapshot` is not implemented for `Rc<Cell<{integer}>>`
+   |
+   = help: the following other types implement trait `Snapshot`:
+             ()
+             (A,)
+             (A, B)
+             (A, B, C)
+             (A, B, C, D)
+             Box<T>
+             Duration
+             KeyedState<Id, State>
+           and $N others

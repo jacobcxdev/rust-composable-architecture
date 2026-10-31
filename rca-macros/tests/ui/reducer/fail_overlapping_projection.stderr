@@ -1,0 +1,9 @@
+error[E0499]: cannot borrow `state` as mutable more than once at a time
+  --> tests/ui/reducer/fail_overlapping_projection.rs:13:31
+   |
+12 |     let first = path.get_mut(&mut state);
+   |                              ---------- first mutable borrow occurs here
+13 |     let second = path.get_mut(&mut state);
+   |                               ^^^^^^^^^^ second mutable borrow occurs here
+14 |     first.push_str(second);
+   |     ----- first borrow later used here

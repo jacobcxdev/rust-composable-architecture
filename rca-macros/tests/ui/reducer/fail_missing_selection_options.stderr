@@ -1,0 +1,41 @@
+error: unexpected end of input, missing explicit child reducer type
+  --> tests/ui/reducer/fail_missing_selection_options.rs:26:5
+   |
+26 |     ),
+   |     ^
+
+error: unexpected end of input, missing explicit child composition kind
+  --> tests/ui/reducer/fail_missing_selection_options.rs:40:5
+   |
+40 |     ),
+   |     ^
+
+error: unexpected end of input, missing explicit child state path
+  --> tests/ui/reducer/fail_missing_selection_options.rs:54:5
+   |
+54 |     ),
+   |     ^
+
+error: unexpected end of input, missing explicit child action path
+  --> tests/ui/reducer/fail_missing_selection_options.rs:68:5
+   |
+68 |     ),
+   |     ^
+
+error: unexpected end of input, missing explicit child bind signature
+  --> tests/ui/reducer/fail_missing_selection_options.rs:81:5
+   |
+81 |     ),
+   |     ^
+
+error: unexpected end of input, missing explicit case policy
+  --> tests/ui/reducer/fail_missing_selection_options.rs:91:30
+   |
+91 |     case(item, action = empty),
+   |                              ^
+
+error: unexpected end of input, missing explicit case action selection
+  --> tests/ui/reducer/fail_missing_selection_options.rs:98:32
+   |
+98 |     case(item, policy = ignored),
+   |                                ^

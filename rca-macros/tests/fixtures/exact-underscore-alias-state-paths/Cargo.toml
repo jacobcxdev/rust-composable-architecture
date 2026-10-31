@@ -1,0 +1,10 @@
+[package]
+name = "exact-underscore-alias-state-paths"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[workspace]
+
+[dependencies]
+rust_composable_architecture = { package = "rust-composable-architecture", path = "../../../../rca", features = ["macros"] }

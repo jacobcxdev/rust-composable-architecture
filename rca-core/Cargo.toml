@@ -1,0 +1,257 @@
+[package]
+name = "rca-core"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+description = "Runtime-neutral core for Rust Composable Architecture"
+exclude = ["/dhat-heap.json"]
+
+[package.metadata.cargo-udeps.ignore]
+# `loom` is loaded only when qualification sets `RUSTFLAGS=--cfg loom`.
+development = ["loom"]
+
+[features]
+default = []
+allocation-measurement = []
+diagnostics = []
+futures-stream = ["dep:futures-core"]
+local = []
+test-util = []
+
+[dependencies]
+async-channel.workspace = true
+crossbeam-utils = { version = "0.8.22", default-features = false }
+event-listener.workspace = true
+futures-channel.workspace = true
+futures-core = { workspace = true, optional = true }
+futures-util.workspace = true
+indexmap.workspace = true
+parking_lot = "0.12.5"
+pin-project-lite = "0.2.17"
+
+[dev-dependencies]
+rca-macros = { path = "../rca-macros", version = "=0.1.0" }
+divan.workspace = true
+concurrent-queue = { workspace = true, features = ["loom"] }
+dhat.workspace = true
+event-listener = { workspace = true, features = ["loom"] }
+futures-executor.workspace = true
+loom.workspace = true
+proptest.workspace = true
+trybuild.workspace = true
+ui_test.workspace = true
+
+[lints]
+workspace = true
+
+[[test]]
+name = "compiler_contracts"
+harness = false
+
+[[test]]
+name = "core_allocations"
+path = "src/allocation_main.rs"
+harness = false
+required-features = ["allocation-measurement"]
+
+# Allocation windows run without libtest's concurrent receiver thread.
+
+[[test]]
+name = "action_receipt_allocations"
+harness = false
+required-features = ["allocation-measurement"]
+
+[[test]]
+name = "action_reply_allocations"
+harness = false
+required-features = ["allocation-measurement"]
+
+[[test]]
+name = "clock_allocations"
+harness = false
+required-features = ["allocation-measurement", "local"]
+
+[[test]]
+name = "control_wait_allocations"
+harness = false
+required-features = ["allocation-measurement"]
+
+[[test]]
+name = "direct_send_allocations"
+harness = false
+required-features = ["allocation-measurement"]
+
+[[test]]
+name = "effect_dispatch_allocations"
+harness = false
+required-features = ["allocation-measurement"]
+
+[[test]]
+name = "effect_map"
+harness = false
+required-features = ["allocation-measurement"]
+
+[[test]]
+name = "effect_merge_allocations"
+harness = false
+required-features = ["allocation-measurement"]
+
+[[test]]
+name = "effect_send_allocations"
+harness = false
+required-features = ["allocation-measurement"]
+
+[[test]]
+name = "fallible_effect_allocations"
+harness = false
+required-features = ["allocation-measurement", "test-util"]
+
+[[test]]
+name = "fold_costs"
+harness = false
+required-features = ["allocation-measurement"]
+
+[[test]]
+name = "issue_allocations"
+harness = false
+required-features = ["allocation-measurement"]
+
+[[test]]
+name = "lifecycle_diagnostic_allocations"
+harness = false
+required-features = ["allocation-measurement"]
+
+[[test]]
+name = "mailbox_storage_allocations"
+harness = false
+required-features = ["allocation-measurement"]
+
+[[test]]
+name = "mailbox_wait_allocations"
+harness = false
+required-features = ["allocation-measurement"]
+
+[[test]]
+name = "mapped_send_allocations"
+harness = false
+required-features = ["allocation-measurement"]
+
+[[test]]
+name = "named_operation_allocations"
+harness = false
+required-features = ["allocation-measurement"]
+
+[[test]]
+name = "observation_registration_allocations"
+harness = false
+required-features = ["allocation-measurement"]
+
+[[test]]
+name = "observation_take_allocations"
+harness = false
+required-features = ["allocation-measurement"]
+
+[[test]]
+name = "observation_wait_allocations"
+harness = false
+required-features = ["allocation-measurement"]
+
+[[test]]
+name = "recipe_command_costs"
+harness = false
+required-features = ["allocation-measurement"]
+
+[[test]]
+name = "removal_costs"
+harness = false
+required-features = ["allocation-measurement", "test-util"]
+
+[[test]]
+name = "root_task_send_allocations"
+harness = false
+required-features = ["allocation-measurement"]
+
+[[test]]
+name = "scoped_action_allocations"
+harness = false
+required-features = ["allocation-measurement"]
+
+[[test]]
+name = "shared_update_allocations"
+harness = false
+required-features = ["allocation-measurement"]
+
+[[test]]
+name = "terminal_task_allocations"
+harness = false
+required-features = ["allocation-measurement"]
+
+[[test]]
+name = "unobserved_completion_allocations"
+harness = false
+required-features = ["allocation-measurement"]
+
+# Mixed fixtures retain their ordinary tests in the original libtest targets.
+
+[[test]]
+name = "changed_reaction_allocations"
+path = "tests/allocation_hosts/changed_reaction.rs"
+harness = false
+required-features = ["allocation-measurement"]
+
+[[test]]
+name = "command_port_allocations"
+path = "tests/allocation_hosts/command_port.rs"
+harness = false
+required-features = ["allocation-measurement"]
+
+[[test]]
+name = "local_output_delivery_allocations"
+path = "tests/allocation_hosts/local_output_delivery.rs"
+harness = false
+required-features = ["allocation-measurement", "local", "test-util"]
+
+[[test]]
+name = "local_removed_child_allocations"
+path = "tests/allocation_hosts/local_removed_child.rs"
+harness = false
+required-features = ["allocation-measurement", "local"]
+
+[[test]]
+name = "output_delivery_allocations"
+path = "tests/allocation_hosts/output_delivery.rs"
+harness = false
+required-features = ["allocation-measurement", "test-util"]
+
+[[test]]
+name = "removed_child_allocations"
+path = "tests/allocation_hosts/removed_child.rs"
+harness = false
+required-features = ["allocation-measurement"]
+
+[[test]]
+name = "structural_diagnostics_allocations"
+path = "tests/allocation_hosts/structural_diagnostics.rs"
+harness = false
+required-features = ["allocation-measurement", "diagnostics"]
+
+[[bench]]
+name = "composition"
+harness = false
+
+[[bench]]
+name = "store_actor"
+harness = false
+
+[[bench]]
+name = "effects"
+harness = false
+
+[[bench]]
+name = "observation"
+harness = false

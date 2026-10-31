@@ -1,0 +1,49 @@
+error[E0277]: `Rc<u64>` cannot be sent between threads safely
+  --> tests/ui/rc04_id_non_send.rs:12:29
+   |
+12 |     let _ = Reducer::reduce(&mut reducer, &mut state, &(), context);
+   |             --------------- ^^^^^^^^^^^^ `Rc<u64>` cannot be sent between threads safely
+   |             |
+   |             required by a bound introduced by this call
+   |
+   = help: the trait `Send` is not implemented for `Rc<u64>`
+help: the trait `Reducer` is conditionally implemented for `ScopeIdentified<ParentState, ParentAction, Parent, Child, StatePath<ParentState, ChildState, Get, GetMut>, ActionPath<ParentAction, ChildAction, Extract, Embed>, Identity, Id>`
+  --> src/composition/scope.rs
+   |
+   | / impl<
+   | |     ParentState,
+   | |     ParentAction,
+   | |     Parent,
+...  |
+   | |     Identity: for<'a> Fn(&'a ChildState) -> &'a Id,
+   | |     Id: Eq + core::hash::Hash + Clone + Send + Sync + 'static,
+   | |_________________________________________----___----__________^
+   |                                           |      |
+   |                                           |      unsatisfied requirement introduced here: `Rc<u64>: Sync`
+   |                                           unsatisfied requirement introduced here: `Rc<u64>: Send`
+   = note: required for `ScopeIdentified<Rc<u64>, (), Reduce<Rc<u64>, (), {closure@$DIR/tests/ui/rc04_id_non_send.rs:6:21: 6:58}>, Reduce<Rc<u64>, (), {closure@$DIR/tests/ui/rc04_id_non_send.rs:10:21: 10:58}>, StatePath<Rc<u64>, Rc<u64>, {closure@$DIR/tests/ui/rc04_id_non_send.rs:7:24: 7:46}, {closure@$DIR/tests/ui/rc04_id_non_send.rs:7:50: 7:76}>, ActionPath<(), (), {closure@$DIR/tests/ui/rc04_id_non_send.rs:8:25: 8:33}, {closure@$DIR/tests/ui/rc04_id_non_send.rs:8:43: 8:46}>, {closure@$DIR/tests/ui/rc04_id_non_send.rs:9:9: 9:31}, Rc<u64>>` to implement `Reducer`
+
+error[E0277]: `Rc<u64>` cannot be shared between threads safely
+  --> tests/ui/rc04_id_non_send.rs:12:29
+   |
+12 |     let _ = Reducer::reduce(&mut reducer, &mut state, &(), context);
+   |             --------------- ^^^^^^^^^^^^ `Rc<u64>` cannot be shared between threads safely
+   |             |
+   |             required by a bound introduced by this call
+   |
+   = help: the trait `Sync` is not implemented for `Rc<u64>`
+help: the trait `Reducer` is conditionally implemented for `ScopeIdentified<ParentState, ParentAction, Parent, Child, StatePath<ParentState, ChildState, Get, GetMut>, ActionPath<ParentAction, ChildAction, Extract, Embed>, Identity, Id>`
+  --> src/composition/scope.rs
+   |
+   | / impl<
+   | |     ParentState,
+   | |     ParentAction,
+   | |     Parent,
+...  |
+   | |     Identity: for<'a> Fn(&'a ChildState) -> &'a Id,
+   | |     Id: Eq + core::hash::Hash + Clone + Send + Sync + 'static,
+   | |_________________________________________----___----__________^
+   |                                           |      |
+   |                                           |      unsatisfied requirement introduced here: `Rc<u64>: Sync`
+   |                                           unsatisfied requirement introduced here: `Rc<u64>: Send`
+   = note: required for `ScopeIdentified<Rc<u64>, (), Reduce<Rc<u64>, (), {closure@$DIR/tests/ui/rc04_id_non_send.rs:6:21: 6:58}>, Reduce<Rc<u64>, (), {closure@$DIR/tests/ui/rc04_id_non_send.rs:10:21: 10:58}>, StatePath<Rc<u64>, Rc<u64>, {closure@$DIR/tests/ui/rc04_id_non_send.rs:7:24: 7:46}, {closure@$DIR/tests/ui/rc04_id_non_send.rs:7:50: 7:76}>, ActionPath<(), (), {closure@$DIR/tests/ui/rc04_id_non_send.rs:8:25: 8:33}, {closure@$DIR/tests/ui/rc04_id_non_send.rs:8:43: 8:46}>, {closure@$DIR/tests/ui/rc04_id_non_send.rs:9:9: 9:31}, Rc<u64>>` to implement `Reducer`

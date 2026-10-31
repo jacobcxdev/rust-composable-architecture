@@ -1,0 +1,5 @@
+error: StatePaths variants `Foo` and `r#foo` both produce path constructor `foo`
+  --> tests/ui/state_paths/fail_raw_method_collision.rs:12:5
+   |
+12 |     r#foo(u8),
+   |     ^^^^^

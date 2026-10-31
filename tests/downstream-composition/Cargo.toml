@@ -1,0 +1,17 @@
+[package]
+name = "rca-composition-downstream"
+version = "0.0.0"
+edition = "2024"
+rust-version = "1.99.0"
+publish = false
+
+[dependencies]
+architecture = { package = "rust-composable-architecture", version = "=0.1.0", registry = "rca-local", features = ["macros", "test-util", "tokio"] }
+tokio = { version = "1.53.3", features = ["macros", "rt", "test-util", "time"] }
+
+[dev-dependencies]
+ui_test = { version = "=0.30.6", default-features = false, features = ["rustc"] }
+
+[[test]]
+name = "compiler_contracts"
+harness = false

@@ -1,0 +1,5 @@
+error: duplicate rca option `skip`
+ --> tests/ui/action_paths/fail_duplicate_helper.rs:8:11
+  |
+8 |     #[rca(skip)]
+  |           ^^^^

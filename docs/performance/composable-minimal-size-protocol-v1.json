@@ -1,0 +1,56 @@
+{
+  "schema": "composable-minimal-size-protocol-v1",
+  "target": "aarch64-apple-darwin",
+  "rust_toolchain": "1.98.0",
+  "minimum_macos_major": 27,
+  "runner": "mac15-9-m3-max-16c-48gb-macos27plus-ac-high",
+  "strip_version": "LLVM version 22.1.8-rust-1.98.0-stable",
+  "repositories": {
+    "composable": "https://github.com/bwoods/Architecture.git"
+  },
+  "engines": [
+    "composable",
+    "rca"
+  ],
+  "builds": [
+    "a",
+    "b"
+  ],
+  "binary": "minimal-counter",
+  "features": [],
+  "profile": {
+    "CARGO_INCREMENTAL": "0",
+    "CARGO_BUILD_JOBS": "1",
+    "CARGO_PROFILE_RELEASE_OPT_LEVEL": "3",
+    "CARGO_PROFILE_RELEASE_DEBUG": "false",
+    "CARGO_PROFILE_RELEASE_DEBUG_ASSERTIONS": "false",
+    "CARGO_PROFILE_RELEASE_OVERFLOW_CHECKS": "false",
+    "CARGO_PROFILE_RELEASE_LTO": "false",
+    "CARGO_PROFILE_RELEASE_PANIC": "unwind",
+    "CARGO_PROFILE_RELEASE_CODEGEN_UNITS": "16",
+    "CARGO_PROFILE_RELEASE_RPATH": "false",
+    "CARGO_PROFILE_RELEASE_STRIP": "none",
+    "CARGO_PROFILE_RELEASE_INCREMENTAL": "false",
+    "CARGO_PROFILE_RELEASE_SPLIT_DEBUGINFO": "off"
+  },
+  "pins": {
+    "composable": "0b5baa80246a625c1bb886e6df20dae27fc97c97"
+  },
+  "inputs": [
+    3,
+    1,
+    7,
+    2,
+    9,
+    4,
+    16
+  ],
+  "expected_stdout": "42\n",
+  "process_timeout_seconds": 30,
+  "strip_arguments": [
+    "--strip-all"
+  ],
+  "format": "Mach-O 64-bit arm64 executable",
+  "timing_qualified": false,
+  "qualified_comparison": false
+}

@@ -1,0 +1,32 @@
+{
+  "schema": "composable-counter-lifecycle-cohorts-v2",
+  "status": "frozen-before-measurement",
+  "seed": "rca-counter-lifecycle-cohorts-v1-2026-09-30",
+  "order_algorithm": "sha256-sort-labelled-order-strata-v1",
+  "pairs": 24,
+  "pairs_per_order": 12,
+  "warmup": 0,
+  "operations": 1,
+  "metrics": ["elapsed_ns"],
+  "percentile_ranks": [],
+  "cohorts": [
+    {"name": "composable-aa", "control_engine": "composable", "subject_engine": "composable"},
+    {"name": "candidate-aa", "control_engine": "rca", "subject_engine": "rca"},
+    {"name": "candidate-composable", "control_engine": "composable", "subject_engine": "rca"}
+  ],
+  "estimator": "geometric-mean-of-order-stratum-medians",
+  "interval": "geometric-mean-of-order-stratum-minima-and-maxima",
+  "family_nominal_coverage_lower_bound": 0.9951171875,
+  "coverage_assumptions": "IID continuous positive ratios within each order stratum; unconditional model coverage, not conditional on diagnostic selection",
+  "aa_max_width": 1.10,
+  "max_order_factor": 1.05,
+  "max_drift_factor": 1.05,
+  "runner": "mac15-9-m3-max-16c-48gb-macos27plus-ac-high",
+  "minimum_macos_major": 27,
+  "rust_toolchain": "1.99.0",
+  "target": "aarch64-apple-darwin",
+  "cargo_jobs": 1,
+  "incremental": false,
+  "process_timeout_seconds": 60,
+  "retry_failed_measurements": false
+}

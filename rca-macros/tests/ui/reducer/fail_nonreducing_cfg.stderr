@@ -1,0 +1,11 @@
+error: expected cfg(predicate)
+ --> tests/ui/reducer/fail_nonreducing_cfg.rs:3:7
+  |
+3 |     #[cfg]
+  |       ^^^
+
+error: expected cfg_attr(predicate, attributes)
+  --> tests/ui/reducer/fail_nonreducing_cfg.rs:10:7
+   |
+10 |     #[cfg_attr]
+   |       ^^^^^^^^

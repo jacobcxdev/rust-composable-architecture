@@ -1,0 +1,54 @@
+measured_revision=b9eb6e732d2b0cf6ce3cd7255a5958781587af6c
+recorded_at=2026-09-04T05:30:36Z
+dirty_state=clean
+architecture=arm64
+machine_model=Mac15,9
+cpu_model=Apple M3 Max
+logical_cpus=16
+memory_bytes=51539607552
+os_version=26.6.2
+os_build=25G83
+power_source=Now drawing from 'AC Power'
+power_mode= powermode            2; powermode            2;
+cargo_version=cargo 1.98.0 (797e8a9bc 2026-08-05)
+cargo_path=<toolchain>/cargo
+rustc_path=<toolchain>/rustc
+rustdoc_path=<toolchain>/rustdoc
+rustc_wrapper=disabled
+rustc_workspace_wrapper=disabled
+rustc_verbose_begin
+rustc 1.98.0 (88d9e12ae 2026-08-18)
+binary: rustc
+commit-hash: 88d9e12ae178fab0fb5cc050a94da85685d449ea
+commit-date: 2026-08-18
+host: aarch64-apple-darwin
+release: 1.98.0
+LLVM version: 22.1.8
+rustc_verbose_end
+rustdoc_verbose_begin
+rustdoc 1.98.0 (88d9e12ae 2026-08-18)
+binary: rustdoc
+commit-hash: 88d9e12ae178fab0fb5cc050a94da85685d449ea
+commit-date: 2026-08-18
+host: aarch64-apple-darwin
+release: 1.98.0
+LLVM version: 22.1.8
+rustdoc_verbose_end
+cargo_bloat_version=0.12.1
+root_lock_sha256=1e7a857eabc52708f66a4cf33855928f92b48d0c092d5e25dbe4cd040a610cdd
+fixture_lock_sha256=64221665ad201029a2f906c877398f10d63adc7ef904e208f421184f31e628df
+benchmark_source_sha256=a8f6ab105eef82e859c1061264b2400844572af1a4ea2cea737c93278934099b
+scope_zero_test_source_sha256=eee8fbe280470d1c93ca9f589e33c6f4383a561379c9fd0e36dbd160d8230eb0
+combine_zero_test_source_sha256=b26ad9c48c17fa24b97a1cf2b28fc5723dcc010d02f6758623268ad5fb170f7c
+runner_source_sha256=5ad4c3093fabc4200e89c4b8742f0445b9d74e5e112349dc45dc8f6d4f42e755
+bench_profile_override=lto=false,debug=false,strip=true
+runtime_process_repetitions=10
+runtime_expected_timing_rows=153
+runtime_policy=ten independent full Divan processes from one clean committed executable
+zero_gate_profile=test,opt-level=1,debug=0; targeted fallback after default-profile linker SIGKILL
+compile_policy=one warm-up then five independent clean targets with one paired mtime-only incremental sample each
+fixture_binary_profile=release,opt-level=3,lto=fat,codegen-units=1,panic=abort,strip=symbols
+root_binary_profile=release,opt-level=3-default,lto=fat,codegen-units=1,panic=unwind-default,strip=true
+symbol_profile=release with strip=false only; cargo-bloat 0.12.1 crate attribution
+monomorphisation_counter=unavailable on stable toolchain
+completed_at=2026-09-04T05:39:13Z

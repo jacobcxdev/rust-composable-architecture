@@ -1,0 +1,16 @@
+error[E0592]: duplicate definitions with name `http`
+  --> tests/ui/reducer/fail_cfg_overlapping_action.rs:1:1
+   |
+ 1 | / #[rca_macros::reducer(
+ 2 | |     state(empty),
+ 3 | |     action(generated(enum Action {
+ 4 | |         #[cfg(any())]
+...  |
+ 9 | |     body(generated),
+10 | | )]
+   | |  ^
+   | |  |
+   | |__duplicate definitions for `http`
+   |    other definition for `http`
+   |
+   = note: this error originates in the attribute macro `rca_macros::reducer` (in Nightly builds, run with -Z macro-backtrace for more info)

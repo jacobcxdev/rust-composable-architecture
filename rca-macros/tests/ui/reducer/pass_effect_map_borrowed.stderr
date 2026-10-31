@@ -1,0 +1,15 @@
+error: lifetime may not live long enough
+ --> tests/ui/reducer/pass_effect_map_borrowed.rs:4:5
+  |
+3 | fn map_borrowed<'a>(effect: Effect<&'a usize>) -> Effect<&'a usize> {
+  |                 -- lifetime `'a` defined here
+4 |     effect.map(|value| value)
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^ returning this value requires that `'a` must outlive `'static`
+  |
+  = note: requirement occurs because of the type `Effect<&usize>`, which makes the generic argument `&usize` invariant
+  = note: the struct `Effect<Action>` is invariant over the parameter `Action`
+  = help: see <https://doc.rust-lang.org/nomicon/subtyping.html> for more information about variance
+help: consider adding 'move' keyword before the nested closure
+  |
+4 |     effect.map(move |value| value)
+  |                ++++

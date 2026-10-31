@@ -1,0 +1,8 @@
+error[E0599]: no variant, associated function, or constant named `Disabled` found for enum `EventCase` in the current scope
+  --> tests/ui/case_descriptors/fail_cfg_disabled.rs:11:24
+   |
+ 3 | #[derive(CaseDescriptors)]
+   |          --------------- variant, associated function, or constant `Disabled` not found for this enum
+...
+11 |     let _ = EventCase::Disabled;
+   |                        ^^^^^^^^ variant, associated function, or constant not found in `EventCase`

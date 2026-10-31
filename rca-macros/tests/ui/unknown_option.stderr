@@ -1,0 +1,5 @@
+error: unknown dependency option; expected `value`, `live` or `test`
+ --> tests/ui/unknown_option.rs:4:36
+  |
+4 | #[dependency(value = u8, live = 1, preview = 2)]
+  |                                    ^^^^^^^

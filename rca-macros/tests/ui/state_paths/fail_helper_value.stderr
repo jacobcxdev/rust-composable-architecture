@@ -1,0 +1,5 @@
+error: rca options do not take values
+ --> tests/ui/state_paths/fail_helper_value.rs:7:11
+  |
+7 |     #[rca(optional = true)]
+  |           ^^^^^^^^

@@ -1,0 +1,11 @@
+error: recursive snapshot capture requires a finite custom capture or manual implementation
+ --> tests/ui/snapshot/fail_raw_recursion.rs:5:15
+  |
+5 |     next: Box<r#Source>,
+  |               ^^^^^^^^
+
+error: recursive snapshot capture requires a finite custom capture or manual implementation
+  --> tests/ui/snapshot/fail_raw_recursion.rs:10:15
+   |
+10 |     next: Box<Mixed>,
+   |               ^^^^^

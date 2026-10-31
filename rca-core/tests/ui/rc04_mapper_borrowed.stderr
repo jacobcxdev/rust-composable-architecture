@@ -1,0 +1,17 @@
+error[E0373]: closure may outlive the current function, but it borrows `capture`, which is owned by the current function
+  --> tests/ui/rc04_mapper_borrowed.rs:10:13
+   |
+10 |             |a| {
+   |             ^^^ may outlive borrowed value `capture`
+11 |                 capture.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+   |                 ------- `capture` is borrowed here
+   |
+note: function requires argument type to outlive `'static`
+  --> tests/ui/rc04_mapper_borrowed.rs:18:13
+   |
+18 |     let _ = Reducer::reduce(&mut reducer, &mut 0, &(), context);
+   |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+help: to force the closure to take ownership of `capture` (and any other referenced variables), use the `move` keyword
+   |
+10 |             move |a| {
+   |             ++++

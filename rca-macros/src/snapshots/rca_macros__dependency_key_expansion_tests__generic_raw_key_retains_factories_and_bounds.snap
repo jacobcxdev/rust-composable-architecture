@@ -1,0 +1,5 @@
+---
+source: rca-macros/src/lib.rs
+expression: "super::expand_dependency_key(&input).unwrap().to_string()"
+---
+impl < const N : usize > :: rca :: DependencyKey for r#type < N > where [u8 ; N] : Sized { type Value = [u8 ; N] ; fn live_value () -> Self :: Value { [7 ; N] } fn test_value () -> Self :: Value { [3 ; N] } }

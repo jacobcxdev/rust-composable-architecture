@@ -1,0 +1,16 @@
+error[E0432]: unresolved imports `rca_core::Change`, `rca_core::Checkpoint`, `rca_core::CheckpointOutcome`, `rca_core::TraceChanges`, `rca_core::checkpoint`, `rca_core::checkpoint_disabled`
+ --> tests/ui/private_diagnostic_root_aliases.rs:2:5
+  |
+2 |     Change, Checkpoint, CheckpointOutcome, TraceChanges, checkpoint, checkpoint_disabled,
+  |     ^^^^^^  ^^^^^^^^^^  ^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^  ^^^^^^^^^^  ^^^^^^^^^^^^^^^^^^^ no `checkpoint_disabled` in the root
+  |     |       |           |                  |             |
+  |     |       |           |                  |             no `checkpoint` in the root
+  |     |       |           |                  no `TraceChanges` in the root
+  |     |       |           no `CheckpointOutcome` in the root
+  |     |       no `Checkpoint` in the root
+  |     no `Change` in the root
+  |
+help: a similar name exists in the module
+  |
+2 |     OnChange, Checkpoint, CheckpointOutcome, TraceChanges, checkpoint, checkpoint_disabled,
+  |     ++
