@@ -73,7 +73,7 @@ jobs:
               run: |
                   cargo fetch --locked --manifest-path rca-core/tests/fixtures/modular-dependencies/Cargo.toml
                   cargo fetch --locked --manifest-path rca-core/tests/fixtures/rc07-owned-snapshot/Cargo.toml
-                  cargo test --locked --workspace --all-features
+                  cargo test --locked --workspace --all-features --no-fail-fast
 
             - name: Verify compiler contracts without Local
               run: |
@@ -480,7 +480,7 @@ jobs:
         strategy:
             fail-fast: false
             matrix:
-                suite: [library, integration]
+                suite: [library, integration, composition]
         steps:
             - name: Checkout
               uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -503,18 +503,25 @@ jobs:
                   rustup run nightly-2026-08-23 cargo miri test --locked -p rca-core --doc
 
             - name: Run integration tests under Miri
-              if: matrix.suite == 'integration'
+              if: matrix.suite != 'library'
+              env:
+                  MIRI_SUITE: ${{ matrix.suite }}
               # Ask Cargo which targets the original default command selects.
               # A wildcard would select disabled feature-gated tests as well.
               run: |
                   graph=$(rustup run nightly-2026-08-23 cargo test --locked -Z unstable-options --unit-graph -p rca-core)
-                  targets=$(jq -er '
+                  targets=$(jq -er --arg suite "$MIRI_SUITE" '
                       . as $graph | [.roots[] | $graph.units[.]] |
                       if all(.[];
                           (.mode == "test" and (.target.kind == ["lib"] or .target.kind == ["test"])) or
                           (.mode == "doctest" and .target.kind == ["lib"]))
-                      then .[] | select(.target.kind == ["test"]) | .target.name
+                      then [.[] | select(.target.kind == ["test"]) | .target.name]
                       else error("Miri shards do not cover every default Cargo target") end
+                      | if ([.[] | select(. == "composition_fixtures")] | length) != 1
+                        then error("Expected one default composition fixture target")
+                        elif $suite == "composition" then .[] | select(. == "composition_fixtures")
+                        elif $suite == "integration" then .[] | select(. != "composition_fixtures")
+                        else error("Unknown Miri integration shard") end
                   ' <<< "$graph")
                   arguments=()
                   while IFS= read -r target; do

@@ -106,7 +106,7 @@
     "files": {
       "rca-core/benches/composition.rs": {
         "source": "rca-core/benches/composition.rs",
-        "sha256": "7b0984891aa94cf5607d2ee39eb67e60684f999b020c928d2e3970683b744006"
+        "sha256": "e6cd05a98824081fb020ed3e12b27bf6a3c46f3ebb4f004b0cad2b3403ffa214"
       },
       "benches/compile/direct/src/main.rs": {
         "source": "benches/compile/direct/src/main.rs",
@@ -150,7 +150,7 @@
       },
       "rca-core/benches/composition/fixtures.rs": {
         "source": "rca-core/benches/composition/fixtures.rs",
-        "sha256": "84cfaafa0af513c6f3b6d612d601e1c2472976dc4ceeec5d8b6c246e7b670bfe"
+        "sha256": "7845dfd6699c3ea9bd9125e3793a263bedcbe308a6e3a4586490ef85b992919f"
       }
     },
     "adapters": [
