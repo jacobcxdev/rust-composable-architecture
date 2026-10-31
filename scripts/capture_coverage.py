@@ -98,6 +98,14 @@ TARGETS = {
         ("--features", "diagnostics,futures-stream,local,test-util"),
         ("clock_fixtures", "store_actor", "terminal_unwind"), include_library=False,
     ),
+    "core-services": CaptureGroup(
+        "rca-core", "rca-core", "rca_core",
+        frozenset({"default", "diagnostics", "futures-stream", "local", "test-util"}),
+        ("--features", "diagnostics,futures-stream,local,test-util"),
+        ("dependency_defaults", "dependency_preparation", "issue_operations", "issue_contexts",
+         "diagnostics", "diagnostics_checkpoint", "presentation", "fallible_effect"),
+        include_library=False,
+    ),
     "macros": CaptureGroup(
         "rca-macros", "rca-macros", "rca_macros", frozenset(), (),
         ("action_paths", "aggregate_paths", "case_descriptors", "dependency_client",
