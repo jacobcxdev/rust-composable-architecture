@@ -468,6 +468,40 @@ fn shared_mismatch_keeps_semantic_inequality_and_expected_actual_labels() {
     );
 }
 
+#[test]
+fn shared_mismatch_bounds_common_prefix_and_suffix_context() {
+    let expected =
+        "prefix 1\nprefix 2\nprefix 3\nprefix 4\nold\nsuffix 1\nsuffix 2\nsuffix 3\nsuffix 4";
+    let actual =
+        "prefix 1\nprefix 2\nprefix 3\nprefix 4\nnew\nsuffix 1\nsuffix 2\nsuffix 3\nsuffix 4";
+    assert_eq!(
+        format_snapshot_mismatch(expected, actual),
+        concat!(
+            "expected:\n",
+            "  ... 1 preceding lines omitted ...\n",
+            "  2 | prefix 2\n",
+            "  3 | prefix 3\n",
+            "  4 | prefix 4\n",
+            "- 5 | old\n",
+            "  6 | suffix 1\n",
+            "  7 | suffix 2\n",
+            "  8 | suffix 3\n",
+            "  ... 1 following lines omitted ...\n",
+            "actual:\n",
+            "  ... 1 preceding lines omitted ...\n",
+            "  2 | prefix 2\n",
+            "  3 | prefix 3\n",
+            "  4 | prefix 4\n",
+            "+ 5 | new\n",
+            "  6 | suffix 1\n",
+            "  7 | suffix 2\n",
+            "  8 | suffix 3\n",
+            "  ... 1 following lines omitted ...\n",
+            "Later differences may be omitted.",
+        ),
+    );
+}
+
 /// Separates reducer entry from effect polling when a diagnostic callback panics.
 struct EffectReducer {
     reductions: Arc<AtomicUsize>,
