@@ -49,6 +49,11 @@ jobs:
                   PYTHONDONTWRITEBYTECODE: 1
               run: python3 -m unittest scripts.tests.test_documentation_lints
 
+            - name: Test coverage capture boundaries
+              env:
+                  PYTHONDONTWRITEBYTECODE: 1
+              run: python3 -m unittest scripts.tests.test_capture_coverage
+
             - name: Test performance evidence validation
               env:
                   PYTHONDONTWRITEBYTECODE: 1
@@ -96,6 +101,61 @@ jobs:
                   cargo doc --locked -p futures-core --no-deps
                   cargo doc --locked -p rca-event-listener --all-features --no-deps
                   cargo doc --locked --workspace --all-features --no-deps
+
+    coverage-evidence:
+        name: Coverage evidence (${{ matrix.group }})
+        runs-on: ubuntu-24.04
+        timeout-minutes: 90
+        strategy:
+            fail-fast: false
+            matrix:
+                group: [core-minimal, core-rich]
+        env:
+            CARGO_BUILD_JOBS: 1
+            CARGO_INCREMENTAL: 0
+            CARGO_PROFILE_DEV_OPT_LEVEL: 0
+            CARGO_PROFILE_TEST_OPT_LEVEL: 0
+            CARGO_PROFILE_DEV_DEBUG: 0
+            CARGO_PROFILE_TEST_DEBUG: 0
+            CARGO_PROFILE_DEV_DEBUG_ASSERTIONS: true
+            CARGO_PROFILE_TEST_DEBUG_ASSERTIONS: true
+            CARGO_PROFILE_DEV_OVERFLOW_CHECKS: true
+            CARGO_PROFILE_TEST_OVERFLOW_CHECKS: true
+            RUSTC_BOOTSTRAP: 1
+            RUSTFLAGS: -C opt-level=s -C debuginfo=0 -C debug-assertions=yes -C overflow-checks=yes -C panic=unwind -C instrument-coverage -Z coverage-options=branch
+            PYTHONDONTWRITEBYTECODE: 1
+        steps:
+            - name: Checkout
+              uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+            - name: Install pinned coverage tools
+              uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772
+              with:
+                  toolchain: 1.99.0
+                  components: llvm-tools-preview, rust-src
+
+            - name: Restore instrumented dependencies
+              uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+              with:
+                  key: coverage-${{ matrix.group }}
+                  workspaces: . -> target/coverage/${{ matrix.group }}
+
+            - name: Test capture boundaries
+              run: python3 -m unittest scripts.tests.test_capture_coverage
+
+            - name: Capture native coverage evidence
+              env:
+                  COVERAGE_GROUP: ${{ matrix.group }}
+              run: python3 scripts/capture_coverage.py --group "$COVERAGE_GROUP" --output "target/coverage-evidence/$COVERAGE_GROUP"
+
+            - name: Retain complete or failed capture evidence
+              if: always()
+              uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+              with:
+                  name: coverage-${{ matrix.group }}-${{ github.run_id }}-${{ github.run_attempt }}
+                  path: target/coverage-evidence/${{ matrix.group }}/
+                  if-no-files-found: error
+                  retention-days: 7
 
     comparison-correctness:
         name: Comparison correctness (${{ matrix.engine }})
