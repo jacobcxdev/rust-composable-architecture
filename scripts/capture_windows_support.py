@@ -236,7 +236,9 @@ def capture(args):
     output.mkdir(parents=False, exist_ok=False)
     protocol = {"process_timeout_seconds": 3600, "process_memory_limit_bytes": MEMORY_LIMIT,
                 "compiler_telemetry": tools["compiler_telemetry"]}
-    monitor = runner.WindowsMonitor(output, protocol, cargo=tools["cargo"]["path"], complete=True)
+    # The idle sampler and native function signatures must share ctypes classes.
+    monitor = runner.WindowsMonitor(output, protocol, cargo=tools["cargo"]["path"],
+                                    provider=provider_module.WindowsCounters(), complete=True)
     result = {"method": "windows-runtime-support-v1", "status": "incomplete", "host": host,
               "started_at": runner.now(), "toolchain": metadata["toolchain"],
               "candidate": metadata["candidate"], "source_build": file_record(args.metadata),
