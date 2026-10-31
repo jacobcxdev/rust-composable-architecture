@@ -281,8 +281,8 @@ change implementation.
 | `core-terminal` | Clock fixtures, Shared and Local Stores, effects and terminal-unwind integration tests with the rich Core features |
 | `core-services` | Dependency defaults and preparation, issue reporting, diagnostics, presentation and fallible-effect lifecycle tests with the rich Core features |
 | `macros` | Macro unit and integration tests, plus compiler-stage profiles from the proc-macro library |
-| `test-store` | TestStore controls, errors, snapshots, output and runtime-conformance integration tests with `local` |
-| `persistence-file` | Document, file backend and shared-session replacement integration tests with `file` |
+| `test-store` | TestStore controls, errors, semantic checks, issue expectations, snapshots, output and runtime-conformance integration tests with `local` |
+| `persistence-file` | Documents, file backends, key caches, subscriptions and shared-session replacement integration tests with `file` |
 | `tokio` | Tokio unit tests and host lifecycle, clock and panic tests |
 | `listener-std` | Listener unit and integration tests with the standard-library backend |
 | `listener-critical-section` | Listener unit and integration tests with the critical-section backend, without `std` |
