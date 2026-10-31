@@ -115,6 +115,7 @@ jobs:
                     - core-removal
                     - core-timers-rich
                     - core-timers-minimal
+                    - core-reactions
                     - macros
                     - tokio
                     - listener-std

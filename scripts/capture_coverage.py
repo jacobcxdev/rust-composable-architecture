@@ -70,6 +70,12 @@ TARGETS = {
         ("timers", "local_clock_timer", "named_operation_timers", "typed_transactions"),
         include_library=False,
     ),
+    "core-reactions": CaptureGroup(
+        "rca-core", "rca-core", "rca_core",
+        frozenset({"default", "diagnostics", "futures-stream", "local", "test-util"}),
+        ("--features", "diagnostics,futures-stream,local,test-util"),
+        ("changed_reactions",), include_library=False,
+    ),
     "macros": CaptureGroup(
         "rca-macros", "rca-macros", "rca_macros", frozenset(), (),
         ("action_paths", "aggregate_paths", "case_descriptors", "dependency_client",
