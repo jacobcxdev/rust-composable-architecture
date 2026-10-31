@@ -132,6 +132,14 @@ TARGETS = {
         "event_listener_strategy", frozenset({"default", "std"}), (),
         ("easy_wrapper", "public_contracts"),
     ),
+    "channel-overflow-std": CaptureGroup(
+        "rca-async-channel", "dependencies/rca-async-channel", "async_channel",
+        frozenset({"default", "std"}), (), (),
+    ),
+    "channel-overflow-nostd": CaptureGroup(
+        "rca-async-channel", "dependencies/rca-async-channel", "async_channel",
+        frozenset(), ("--no-default-features",), (),
+    ),
 }
 GIB = 1024 ** 3
 
@@ -155,6 +163,8 @@ def host_arguments(group, kind, executable):
         args.append("--test-threads=1")
     if group == "macros" and executable.name.startswith("reducer-"):
         args.append("--test-threads=1")
+    if group in ("channel-overflow-std", "channel-overflow-nostd") and kind == ["lib"]:
+        args.extend(("--nocapture", "--test-threads=1"))
     return args
 
 
@@ -318,6 +328,30 @@ def test_summary(text, allow_exact_children=False, macro_children=False):
     return summary
 
 
+def channel_overflow_outcomes(stdout, stderr, env, profiles):
+    """Admit five x86-64 boundary children with continuous per-process profiles."""
+    if (env.get("RUSTFLAGS") != RUSTFLAGS + " -C llvm-args=-runtime-counter-relocation"
+            or len(profiles) != 6 or len(set(profiles)) != 6
+            or any(not re.fullmatch(r"current-[1-9]\d*\.profraw", path.name) for path in profiles)
+            or any(str(path.parent / "current-%p%c.profraw") != env.get("LLVM_PROFILE_FILE")
+                   for path in profiles)):
+        raise ValueError("Channel overflow requires exact continuous flags and six per-process profiles")
+    if re.search(r"LLVM Profile (?:Error|Warning)", stdout + stderr):
+        raise ValueError("LLVM profiling diagnostics invalidate channel overflow evidence")
+    lines = re.findall(r"^previous=.*$", stderr, re.MULTILINE)
+    if len(lines) != 5 or "previous=" in stdout:
+        raise ValueError("Expected five channel overflow outcomes on stderr")
+    limit = (1 << 63) - 1
+    expected = ((0, False), (limit - 1, False), (limit, False), (limit + 1, True), ((1 << 64) - 1, True))
+    outcomes = []
+    for line, (previous, aborts) in zip(lines, expected):
+        status = r"signal: 6 \(SIGABRT\)(?: \(core dumped\))?" if aborts else "exit status: 0"
+        if not re.fullmatch(rf"previous={previous}: {status}; stderr=.*", line):
+            raise ValueError("Channel overflow outcome differs from its previous-count boundary")
+        outcomes.append(dict(previous=previous, **({"signal": 6} if aborts else {"exit_code": 0})))
+    return outcomes
+
+
 def run_command(argv, cwd, env, prefix, timeout, minimum_free=2 * GIB):
     """Retain process output/status, with bounded process-group and disk cleanup."""
     write_json(prefix.with_suffix(".argv.json"), list(map(str, argv)))
@@ -427,6 +461,7 @@ def capture(root, group, output):
     if sys.platform != "linux":
         raise ValueError("Coverage capture is restricted to isolated Linux runners")
     options = group_arguments(group)
+    channel_overflow = group in ("channel-overflow-std", "channel-overflow-nostd")
     root = root.resolve()
     output = output if output.is_absolute() else root / output
     target = root / "target/coverage" / group
@@ -454,10 +489,14 @@ def capture(root, group, output):
         if tomllib.loads((root / "rust-toolchain.toml").read_text())["toolchain"]["channel"] != TOOLCHAIN:
             raise ValueError("Repository toolchain differs from the coverage toolchain")
         tools = discover_tools(root, output)
+        if channel_overflow and "host: x86_64-unknown-linux-gnu" not in (output / "version-rustc.stdout").read_text().splitlines():
+            raise ValueError("Continuous channel overflow capture requires x86_64-unknown-linux-gnu")
         identities = {name: {"path": str(path), "resolved": str(path.resolve()), "sha256": digest(path)} for name, path in tools.items()}
         write_json(output / "tools-before.json", identities)
         target.mkdir(parents=True, exist_ok=True)
         env = capture_environment(os.environ, tools, target)
+        if channel_overflow:
+            env["RUSTFLAGS"] += " -C llvm-args=-runtime-counter-relocation"
         write_json(output / "environment.json", env)
         # Capture external Cargo configuration identities, never their contents.
         configs = {path for parent in (root, *root.parents) for path in (parent / ".cargo/config", parent / ".cargo/config.toml")}
@@ -518,7 +557,7 @@ def capture(root, group, output):
             write_json(host / "object.json", {"original": str(original), "retained": str(retained), "sha256": digest(retained)})
             package = Path(record["manifest_path"]).parent
             host_env = dict(env, CARGO_MANIFEST_DIR=str(package),
-                            LLVM_PROFILE_FILE=str(raw / "current-%p-%m.profraw"),
+                            LLVM_PROFILE_FILE=str(raw / ("current-%p%c.profraw" if channel_overflow else "current-%p-%m.profraw")),
                             LD_LIBRARY_PATH=os.pathsep.join((str(tools["llvm-cov"].parent.parent / "lib"), str(tools["rustc"].parent.parent / "lib"))))
             if group == "macros":
                 # Child compilers need stable diagnostics; parent counters are already built.
@@ -537,6 +576,10 @@ def capture(root, group, output):
             if not profiles or set(raw.iterdir()) != set(profiles) or any(path.is_symlink() for path in profiles):
                 raise ValueError("Missing or unexpected runtime profiles")
             write_json(host / "raw-sha256.json", {path.name: digest(path) for path in profiles})
+            if channel_overflow:
+                write_json(host / "overflow-outcomes.json",
+                           channel_overflow_outcomes((host / "run.stdout").read_text(),
+                                                     (host / "run.stderr").read_text(), host_env, profiles))
             run_command([str(tools["llvm-profdata"]), "merge", "-sparse", *map(str, profiles), "-o", str(host / "runtime.profdata")],
                         package, env, host / "merge", 120)
             run_command([str(tools["llvm-cov"]), "export", "-format=text", "-instr-profile=" + str(host / "runtime.profdata"), "-object", str(retained)],
@@ -554,6 +597,9 @@ def capture(root, group, output):
         if group == "macros":
             with gzip.open(macro / "export.json.gz", "rt") as stream:
                 validate_macro_entries(json.load(stream), root)
+        if channel_overflow and any(re.search(r"LLVM Profile (?:Error|Warning)", path.read_text())
+                                    for suffix in ("*.stdout", "*.stderr") for path in output.rglob(suffix)):
+            raise ValueError("LLVM profiling diagnostics invalidate channel overflow evidence")
         config_after = {str(path): digest(path) for path in configs if path.is_file()}
         write_json(output / "cargo-config-after.json", config_after)
         if config_before != config_after:

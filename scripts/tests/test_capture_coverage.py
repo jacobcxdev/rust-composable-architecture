@@ -195,6 +195,23 @@ class CaptureCoverageTests(unittest.TestCase):
                 self.assertEqual(self.capture.host_arguments("core-fold-commands", ["test"], executable),
                                  [str(executable)])
 
+    def test_channel_overflow_groups_select_only_unfiltered_library_hosts(self):
+        executable = self.root / "async_channel-fixture"
+        for group, options in (
+            ("channel-overflow-std", ["-p", "rca-async-channel", "--lib"]),
+            ("channel-overflow-nostd", ["-p", "rca-async-channel", "--no-default-features", "--lib"]),
+        ):
+            with self.subTest(group=group):
+                self.assertIn(group, self.capture.TARGETS)
+                self.assertEqual(self.capture.group_arguments(group), options)
+                self.assertEqual(self.capture.host_arguments(group, ["lib"], executable),
+                                 [str(executable), "--nocapture", "--test-threads=1"])
+                self.assertEqual(self.capture.host_arguments(group, ["test"], executable), [str(executable)])
+        self.assertEqual(self.capture.host_arguments("channel-overflow-other", ["lib"], executable),
+                         [str(executable)])
+        with self.assertRaises(ValueError):
+            self.capture.group_arguments("channel-overflow-other")
+
     def test_observation_operation_group_selects_only_eight_rich_in_process_hosts(self):
         names = ("observation", "observation_adapters", "observation_scope_lifecycle",
                  "observation_waker_lifecycle", "observation_adapter_scopes", "named_operations",
@@ -316,6 +333,9 @@ class CaptureCoverageTests(unittest.TestCase):
              ["backend_contention"]),
             ("listener-std-critical-section", "dependencies/rca-event-listener", "event_listener",
              ["critical-section", "default", "parking", "std"], ["public_surface"]),
+            ("channel-overflow-std", "dependencies/rca-async-channel", "async_channel", ["default", "std"],
+             ["async_channel"]),
+            ("channel-overflow-nostd", "dependencies/rca-async-channel", "async_channel", [], ["async_channel"]),
             ("strategy-std", "dependencies/rca-event-listener-strategy", "event_listener_strategy", ["default", "std"],
              ["event_listener_strategy", "easy_wrapper", "public_contracts"]),
         )
@@ -485,6 +505,14 @@ class CaptureCoverageTests(unittest.TestCase):
             else:
                 names, features = ["public_surface"], ["critical-section", "default", "parking", "std"]
                 options = ["-p", "rca-event-listener", "--features", "critical-section", "--test", "public_surface"]
+        if group in ("channel-overflow-std", "channel-overflow-nostd"):
+            package, package_name, library = "dependencies/rca-async-channel", "rca-async-channel", "async_channel"
+            names = ["async_channel"]
+            features = ["default", "std"] if group == "channel-overflow-std" else []
+            options = ["-p", "rca-async-channel"]
+            if group == "channel-overflow-nostd":
+                options.append("--no-default-features")
+            options.append("--lib")
         files = {".gitignore": "target/\n.tools/\n", "Cargo.lock": "version = 4\n",
                  "rust-toolchain.toml": '[toolchain]\nchannel = "1.99.0"\n',
                  "Cargo.toml": f'[workspace]\nmembers = ["{package}"]\n',
@@ -507,11 +535,21 @@ root = Path({str(self.root)!r})
 assert Path.cwd() == root / {package!r}
 assert os.environ["CARGO_MANIFEST_DIR"] == str(root / {package!r})
 assert "LD_LIBRARY_PATH" in os.environ
-raw = Path(os.environ["LLVM_PROFILE_FILE"].replace("%p", str(os.getpid())).replace("%m", "fixture"))
+raw = Path(os.environ["LLVM_PROFILE_FILE"].replace("%p", str(os.getpid())).replace("%m", "fixture").replace("%c", ""))
 raw.parent.mkdir(parents=True, exist_ok=True)
 raw.write_bytes(b"runtime profile")
 mode = (root / ".tools/mode").read_text()
 listener = {group!r} in ("listener-spin", "listener-std-critical-section")
+channel = {group!r} in ("channel-overflow-std", "channel-overflow-nostd")
+if channel:
+    assert sys.argv[1:] == ["--nocapture", "--test-threads=1"]
+    assert Path(os.environ["LLVM_PROFILE_FILE"]).name == "current-%p%c.profraw"
+    assert os.environ["RUSTFLAGS"] == {self.capture.RUSTFLAGS!r} + " -C llvm-args=-runtime-counter-relocation"
+    for index, previous in enumerate((0, 9223372036854775806, 9223372036854775807, 9223372036854775808, 18446744073709551615)):
+        if mode != "missing-abort-profile" or index != 4:
+            (raw.parent / f"current-{{os.getpid() + index + 1}}.profraw").write_bytes(b"runtime profile")
+        status = "exit status: 0" if index < 3 else "signal: 6 (SIGABRT)"
+        print(f"previous={{previous}}: {{status}}; stderr=", file=sys.stderr)
 if listener and not os.environ.get("CAPTURE_FIXTURE_CHILD"):
     assert sys.argv[1:] == ["--test-threads=1"]
     subprocess.run([sys.executable, __file__], env=dict(os.environ, CAPTURE_FIXTURE_CHILD="1"), check=True)
@@ -522,7 +560,7 @@ if mode == "tool-change":
         stream.write("\\n# changed\\n")
 if mode != "missing-summary":
     passed = 0 if mode == "zero-tests" else 1
-    ignored = 0 if listener else 1
+    ignored = 0 if listener or channel else 1
     print(f"test result: ok. {{passed}} passed; 0 failed; {{ignored}} ignored; 0 measured; 0 filtered out")
 '''
         tool_code = f'''#!{sys.executable}
@@ -532,6 +570,12 @@ root = Path({str(self.root)!r})
 name = Path(sys.argv[0]).name
 if name == "cargo":
     assert sys.argv[1:] == ["test", "--locked", "-j1", "--message-format=json-render-diagnostics", *{options!r}, "--no-run"]
+    expected_flags = {self.capture.RUSTFLAGS!r}
+    if {group!r} in ("channel-overflow-std", "channel-overflow-nostd"):
+        expected_flags += " -C llvm-args=-runtime-counter-relocation"
+    assert os.environ["RUSTFLAGS"] == expected_flags
+    if (root / ".tools/mode").read_text() == "profiling-warning":
+        print("LLVM Profile Warning: fixture build warning", file=sys.stderr)
     target = Path(os.environ["CARGO_TARGET_DIR"]) / "debug/deps"
     target.mkdir(parents=True, exist_ok=True)
     for host in {names!r}:
@@ -560,10 +604,64 @@ elif name == "llvm-cov":
             tools[name].chmod(0o755)
         return tools, self.root / "target/coverage-evidence" / group
 
-    def run_capture_fixture(self, tools, output, platform="linux", group="core-minimal"):
+    def run_capture_fixture(self, tools, output, platform="linux", group="core-minimal",
+                            rustc_host="x86_64-unknown-linux-gnu"):
         self.assertTrue(hasattr(self.capture, "capture"), "capture orchestration is missing")
-        with patch.object(self.capture, "discover_tools", return_value=tools, create=True), patch.object(self.capture.sys, "platform", platform), patch.object(self.capture.shutil, "disk_usage", return_value=SimpleNamespace(free=100 * 1024 ** 3)):
+        def discover_tools(_root, destination):
+            if group in ("channel-overflow-std", "channel-overflow-nostd"):
+                (destination / "version-rustc.stdout").write_text(f"rustc 1.99.0 (fixture)\nhost: {rustc_host}\n")
+            return tools
+        with patch.object(self.capture, "discover_tools", side_effect=discover_tools), patch.object(self.capture.sys, "platform", platform), patch.object(self.capture.shutil, "disk_usage", return_value=SimpleNamespace(free=100 * 1024 ** 3)):
             return self.capture.capture(self.root, group, output)
+
+    def test_channel_std_capture_retains_continuous_profiles_and_checked_outcomes(self):
+        self.check_channel_capture("channel-overflow-std")
+
+    def test_channel_nostd_capture_retains_continuous_profiles_and_checked_outcomes(self):
+        self.check_channel_capture("channel-overflow-nostd")
+
+    def check_channel_capture(self, group):
+        self.assertIn(group, self.capture.TARGETS)
+        tools, output = self.capture_fixture(group=group)
+        self.run_capture_fixture(tools, output, group=group)
+        host = output / "hosts/async_channel"
+        receipt = json.loads((output / "capture.json").read_text())
+        self.assertTrue(receipt["capture_complete"])
+        self.assertFalse(receipt["coverage_complete"])
+        self.assertEqual(len(json.loads((host / "raw-sha256.json").read_text())), 6)
+        self.assertEqual(len(json.loads((host / "overflow-outcomes.json").read_text())), 5)
+        self.assertNotIn("exact_children", json.loads((host / "test-summary.json").read_text()))
+        record = json.loads(gzip.decompress((host / "export.json.gz").read_bytes()))["data"][0]["functions"][0]
+        self.assertEqual(record["regions"][0][4], 0)
+        self.assertEqual(record["branches"][0][4:6], [0, 0])
+
+    def test_channel_capture_rejects_a_missing_aborted_child_profile(self):
+        group = "channel-overflow-nostd"
+        self.assertIn(group, self.capture.TARGETS)
+        tools, output = self.capture_fixture("missing-abort-profile", group)
+        with self.assertRaises(ValueError):
+            self.run_capture_fixture(tools, output, group=group)
+        self.assertFalse(json.loads((output / "capture.json").read_text())["capture_complete"])
+        self.assertFalse((output / "hosts/async_channel/runtime.profdata").exists())
+
+    def test_channel_capture_rejects_an_unqualified_host_before_building(self):
+        group = "channel-overflow-std"
+        self.assertIn(group, self.capture.TARGETS)
+        tools, output = self.capture_fixture(group=group)
+        with self.assertRaises(ValueError):
+            self.run_capture_fixture(tools, output, group=group, rustc_host="aarch64-unknown-linux-gnu")
+        self.assertFalse(json.loads((output / "capture.json").read_text())["capture_complete"])
+        self.assertFalse((output / "build.argv.json").exists())
+
+    def test_channel_capture_rejects_build_stage_profiling_diagnostics(self):
+        group = "channel-overflow-std"
+        tools, output = self.capture_fixture("profiling-warning", group)
+        with self.assertRaises(ValueError):
+            self.run_capture_fixture(tools, output, group=group)
+        receipt = json.loads((output / "capture.json").read_text())
+        self.assertFalse(receipt["capture_complete"])
+        self.assertIn("LLVM profiling diagnostics", receipt["error"])
+        self.assertTrue((output / "hosts/async_channel/export.json.gz").exists())
 
     def test_listener_spin_capture_retains_exact_child_and_parent_profiles(self):
         self.check_listener_capture("listener-spin", "backend_contention")
@@ -608,6 +706,41 @@ elif name == "llvm-cov":
             original = retained.read_bytes()
             (self.root / "target/coverage/core-minimal/debug/deps" / retained.name).write_bytes(b"cache changed")
             self.assertEqual(retained.read_bytes(), original)
+
+    def test_channel_outcomes_require_exact_continuous_flags_profiles_and_boundaries(self):
+        self.assertTrue(hasattr(self.capture, "channel_overflow_outcomes"))
+        profiles = [self.root / f"current-{pid}.profraw" for pid in range(1, 7)]
+        env = {"RUSTFLAGS": self.capture.RUSTFLAGS + " -C llvm-args=-runtime-counter-relocation",
+               "LLVM_PROFILE_FILE": str(self.root / "current-%p%c.profraw")}
+        rows = ["previous=0: exit status: 0; stderr=",
+                "previous=9223372036854775806: exit status: 0; stderr=",
+                "previous=9223372036854775807: exit status: 0; stderr=",
+                "previous=9223372036854775808: signal: 6 (SIGABRT); stderr=",
+                "previous=18446744073709551615: signal: 6 (SIGABRT) (core dumped); stderr=panic trace"]
+        stderr = "\n".join(rows) + "\nadditional panic trace\n"
+        expected = [{"previous": value, "exit_code": 0} for value in (0, 9223372036854775806, 9223372036854775807)]
+        expected += [{"previous": value, "signal": 6} for value in (9223372036854775808, 18446744073709551615)]
+        self.assertEqual(self.capture.channel_overflow_outcomes("", stderr, env, profiles), expected)
+        invalid = [
+            ("", stderr, dict(env, RUSTFLAGS=self.capture.RUSTFLAGS), profiles),
+            ("", stderr, dict(env, RUSTFLAGS=env["RUSTFLAGS"] + " --cfg loom"), profiles),
+            ("", stderr, dict(env, LLVM_PROFILE_FILE=str(self.root / "current-%p-%m.profraw")), profiles),
+            ("", stderr, env, profiles[:-1]), ("", stderr, env, [*profiles, self.root / "current-7.profraw"]),
+            ("", stderr, env, [*profiles[:-1], self.root / "current-6-fixture.profraw"]),
+            ("", stderr, env, [*profiles[:-1], profiles[0]]),
+            ("", "\n".join(rows[:-1]), env, profiles),
+            ("", stderr + rows[0] + "\n", env, profiles),
+            ("", stderr.replace("9223372036854775807", "9223372036854775805"), env, profiles),
+            ("", stderr.replace("signal: 6 (SIGABRT)", "exit status: 0"), env, profiles),
+            ("", stderr.replace("exit status: 0", "exit status: 1", 1), env, profiles),
+            ("", "\n".join(reversed(rows)), env, profiles),
+            (rows[0], stderr, env, profiles),
+            ("LLVM Profile Error: broken\n", stderr, env, profiles),
+            ("", stderr + "LLVM Profile Warning: broken\n", env, profiles),
+        ]
+        for stdout, err, environment, raw in invalid:
+            with self.subTest(stdout=stdout, stderr=err, env=environment, profiles=raw), self.assertRaises(ValueError):
+                self.capture.channel_overflow_outcomes(stdout, err, environment, raw)
 
     def test_capture_refuses_existing_evidence_and_non_linux_without_overwrite(self):
         tools, output = self.capture_fixture()

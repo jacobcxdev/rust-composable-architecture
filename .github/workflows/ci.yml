@@ -125,6 +125,8 @@ jobs:
                     - listener-spin
                     - listener-std-critical-section
                     - strategy-std
+                    - channel-overflow-std
+                    - channel-overflow-nostd
         env:
             CARGO_BUILD_JOBS: 1
             CARGO_INCREMENTAL: 0
