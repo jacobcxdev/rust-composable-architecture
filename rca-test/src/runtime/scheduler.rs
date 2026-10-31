@@ -183,8 +183,17 @@ impl<W: Future<Output = ()> + Unpin> Scheduler<W> {
     // End this stack frame before a future can poll or re-enter the scheduler.
     #[inline(never)]
     fn detach_ready_batch(&self, limit: usize) -> PollBatch<'_, W> {
-        let mut ids = [0; READY_BATCH_LIMIT];
         let mut state = lock(&self.wake.state);
+        if state.ready_tasks.is_empty() {
+            return PollBatch {
+                scheduler: self,
+                first: None,
+                remaining: Vec::new().into_iter(),
+                current_id: None,
+            };
+        }
+
+        let mut ids = [0; READY_BATCH_LIMIT];
         let mut tasks = lock(&self.tasks);
         let mut count = 0;
         for (slot, id) in ids.iter_mut().zip(
