@@ -34,7 +34,7 @@ class NativePerformanceComparisonTests(unittest.TestCase):
             "rca-tokio/benches/qualification.rs": b"harness\n",
             "scripts/qualify-performance.sh": b"Mac capture\n",
             "scripts/guard_cargo_memory.py": b"Mac memory watchdog\n",
-            "scripts/capture-windows-performance.py": b"Windows capture\n",
+            "scripts/capture-windows-performance.py": (ROOT / "scripts/capture-windows-performance.py").read_bytes(),
         }
         for relative, contents in inputs.items():
             path = self.root / relative
@@ -54,6 +54,7 @@ case "$1" in
   show)
     case "$2" in
       *:Cargo.toml) printf 'manifest\\n' ;;
+      *:rca-tokio/Cargo.toml) printf 'package manifest\\n' ;;
       *:rca-tokio/benches/qualification.rs) printf 'harness\\n' ;;
       *) exit 99 ;;
     esac ;;
@@ -105,20 +106,65 @@ esac
                      "target": "x86_64-pc-windows-msvc"}
             for target in (metadata, cohort):
                 target.update(compiler=tools["rustc"], cargo=tools["cargo"], rustc_commit=tools["rustc_commit"])
+            configuration = "split-native-deterministic-v1"
             source = {"harness_sha256": harness_hash, "scenario_manifest_sha256": scenario_hash,
-                      "toolchain": tools, "binaries": {}}
+                      "toolchain": tools, "binaries": {}, "commands": [],
+                      "configuration": configuration}
             metadata["binaries"] = {}
             for role, revision in (("candidate", CANDIDATE), ("reference", REFERENCE)):
+                deterministic_features = (["default", "diagnostics", "test-util"] if role == "candidate"
+                                          else ["default", "test-util"])
                 source[role] = {"revision": revision, "tree": cohort[f"{role}_source_tree"],
                                 "lock_sha256": cohort[f"{role}_lock_sha256"],
                                 "manifest_sha256": cohort[f"{role}_manifest_sha256"],
-                                "original_harness_sha256": harness_hash}
-                for mode in ("normal", "allocation"):
-                    key = f"{role}_{mode}"
-                    source["binaries"][key] = {"sha256": digest(key.encode())}
-                    metadata["binaries"][key] = {"path": f"C:/capture/{key}.exe", "sha256": digest(key.encode())}
+                                "original_harness_sha256": harness_hash,
+                                "tokio_manifest_sha256": digest(b"package manifest\n"),
+                                "deterministic_core_features": deterministic_features}
+                source[f"{role}_source_manifest_sha256"] = digest(f"{role} original inventory".encode())
+                for kind in ("native", "deterministic"):
+                    native = kind == "native"
+                    for mode in ("normal", "allocation"):
+                        key = f"{role}_{'deterministic_' if not native else ''}{mode}"
+                        source_root = f"C:/source/{role}-{kind}"
+                        binary = {"path": f"C:/capture/{key}.exe", "sha256": digest(key.encode()),
+                                  "configuration": kind, "core_features": ["default"] if native else deterministic_features,
+                                  "source_root": source_root, "source_manifest": f"{source_root}.json",
+                                  "source_manifest_sha256": (digest(f"{role} native inventory".encode()) if native
+                                                             else source[f"{role}_source_manifest_sha256"]),
+                                  "harness_sha256": digest(b"native harness\n") if native else harness_hash,
+                                  "manifest_sha256": (digest(b"native package manifest\n") if native
+                                                      else source[role]["tokio_manifest_sha256"]),
+                                  "lock_sha256": digest(f"{role} native lock".encode()) if native else source[role]["lock_sha256"]}
+                        if native:
+                            binary["transformation"] = {"files": {
+                                path: {"before_sha256": before, "after_sha256": binary[field]}
+                                for path, field, before in (
+                                    ("rca-tokio/benches/qualification.rs", "harness_sha256", harness_hash),
+                                    ("rca-tokio/Cargo.toml", "manifest_sha256", source[role]["tokio_manifest_sha256"]),
+                                    ("Cargo.lock", "lock_sha256", source[role]["lock_sha256"]))}}
+                        source["binaries"][key] = binary
+                        metadata["binaries"][key] = {field: binary[field] for field in ("path", "sha256")}
+                        artifacts = {}
+                        for field, name, package, kind_name, crate_type, src, features, test in (
+                                ("core_artifact", "rca_core", "rca-core", "lib", "lib", "src/lib.rs", binary["core_features"], False),
+                                ("cargo_artifact", "qualification", "rca-tokio", "bench", "bin", "benches/qualification.rs",
+                                 ["qualification-dhat"] if mode == "allocation" else [], True)):
+                            artifacts[field] = {"reason": "compiler-artifact", "manifest_path": f"{source_root}/{package}/Cargo.toml",
+                                                "target": {"name": name, "kind": [kind_name], "crate_types": [crate_type],
+                                                           "src_path": f"{source_root}/{package}/{src}"},
+                                                "profile": {"opt_level": "3", "debuginfo": 2, "test": test,
+                                                            "debug_assertions": False, "overflow_checks": False},
+                                                "features": features, "executable": binary["path"] if test else None,
+                                                "filenames": [binary["path"]] if test else ["C:/source/core.rlib"]}
+                        source["commands"].append({"binary_role": key, "returncode": 0,
+                                                   "binary": {"sha256": binary["sha256"]},
+                                                   "transcript_sha256": digest(key.encode()), **artifacts})
             metadata["source_build"] = source
             metadata["source_build_sha256"] = digest(json.dumps(source, sort_keys=True, indent=2).encode())
+            metadata["configuration"] = cohort["configuration"] = configuration
+            cohort["source_build_sha256"] = metadata["source_build_sha256"]
+            cohort["protocol_sha256"] = digest(
+                f"{harness_hash}\n{scenario_hash}\n{capture_hash}\n{metadata['source_build_sha256']}\n".encode())
         rows = []
         for scenario in (self.root / "docs/performance/scenarios.txt").read_text().splitlines():
             allocation_samples = 1000
@@ -135,7 +181,8 @@ esac
                 "task_wakes": 10000,
             }
             if windows:
-                normal.update(peak_working_set_bytes=1000, peak_commit_bytes=1000)
+                normal.update(peak_working_set_bytes=1000, peak_commit_bytes=1000,
+                              configuration="deterministic" if scenario.startswith("deterministic/") else "native")
             else:
                 normal.update(peak_resident_bytes=1000, peak_memory_footprint_bytes=1000)
             allocation = dict(normal, samples=allocation_samples, operations=allocation_samples,
@@ -153,7 +200,7 @@ esac
                              allocation_samples=allocation_samples, allocation_operations=allocation_samples,
                              normal_repetitions=10, allocation_repetitions=6,
                              pairs=pairs, rationale_id=None))
-        candidate = dict(schema_version=5 if windows else 4, suite="rca-performance-qualification",
+        candidate = dict(schema_version=6 if windows else 4, suite="rca-performance-qualification",
                          reference_kind="qualification", revision=CANDIDATE,
                          runner=cohort["runner"], recorded_at=cohort["recorded_at"],
                          metadata=metadata, accepted_regressions=[], rows=rows)
@@ -206,6 +253,74 @@ esac
     def test_windows_uses_explicit_memory_counters_without_fake_instructions(self):
         result = self.compare(*self.evidence(True))
         self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_windows_allows_hash_identical_copies_of_recorded_binaries(self):
+        reference, candidate = self.evidence(True)
+        for document in (reference, candidate):
+            for key, binary in document["metadata"]["binaries"].items():
+                binary["path"] = f"C:/retained/{key}.exe"
+        result = self.compare(reference, candidate)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def rebind_windows_source(self, reference, candidate, source):
+        """Keep receipt hashes consistent when testing a deeper invalid build field."""
+        for document in (reference, candidate):
+            metadata = document["metadata"]
+            metadata["source_build"] = copy.deepcopy(source)
+            receipt_hash = digest(json.dumps(source, sort_keys=True, indent=2).encode())
+            metadata["source_build_sha256"] = metadata["cohort"]["source_build_sha256"] = receipt_hash
+            cohort = metadata["cohort"]
+            cohort["protocol_sha256"] = digest((cohort["qualification_source_sha256"] + "\n"
+                                                + cohort["scenario_manifest_sha256"] + "\n"
+                                                + cohort["qualification_script_sha256"] + "\n"
+                                                + receipt_hash + "\n").encode())
+
+    def test_windows_rejects_wrong_features_roles_and_effective_sources(self):
+        for mutation in ("native-features", "core-artifact", "missing-role", "same-roots",
+                         "transformation", "normal-allocation", "root-manifest"):
+            with self.subTest(mutation=mutation):
+                reference, candidate = self.evidence(True)
+                source = candidate["metadata"]["source_build"]
+                binary = source["binaries"]["candidate_normal"]
+                if mutation == "native-features":
+                    binary["core_features"] = ["default", "test-util"]
+                elif mutation == "core-artifact":
+                    source["commands"][0]["core_artifact"]["features"] = ["default", "diagnostics"]
+                elif mutation == "missing-role":
+                    del source["binaries"]["reference_deterministic_normal"]
+                elif mutation == "same-roots":
+                    binary["source_root"] = source["binaries"]["reference_normal"]["source_root"]
+                elif mutation == "transformation":
+                    binary["transformation"]["files"]["rca-core/src/store/actor.rs"] = {
+                        "before_sha256": "a" * 64, "after_sha256": "b" * 64}
+                elif mutation == "normal-allocation":
+                    source["binaries"]["candidate_allocation"]["harness_sha256"] = "0" * 64
+                else:
+                    source["candidate"]["manifest_sha256"] = "0" * 64
+                self.rebind_windows_source(reference, candidate, source)
+                result = self.compare(reference, candidate)
+                self.assertNotEqual(result.returncode, 0, result.stdout)
+
+    def test_windows_requires_configuration_on_every_row_and_observation(self):
+        for mutation in ("row", "normal-candidate", "allocation-reference", "deterministic-row", "cohort", "schema"):
+            with self.subTest(mutation=mutation):
+                reference, candidate = self.evidence(True)
+                for document in (reference, candidate):
+                    row = document["rows"][0]
+                    if mutation == "row":
+                        row["configuration"] = "deterministic"
+                    elif mutation == "normal-candidate":
+                        row["pairs"]["normal"][0]["candidate"]["configuration"] = "deterministic"
+                    elif mutation == "allocation-reference":
+                        row["pairs"]["allocation"][0]["reference"]["configuration"] = "deterministic"
+                    elif mutation == "deterministic-row":
+                        next(row for row in document["rows"] if row["scenario"].startswith("deterministic/"))["configuration"] = "native"
+                    elif mutation == "cohort":
+                        document["metadata"]["cohort"]["configuration"] = "combined"
+                    else:
+                        document["schema_version"] = 5
+                result = self.compare(reference, candidate)
+                self.assertNotEqual(result.returncode, 0, result.stdout)
 
     def test_mac_rejects_missing_changed_or_historical_watchdog_provenance(self):
         for mutation in ("missing-candidate", "missing-reference", "changed-hash", "historical-tuple"):
@@ -286,6 +401,66 @@ esac
                 self.assertEqual(result.returncode, 1, result.stderr)
                 self.assertIn("unexplained performance regressions", result.stderr)
 
+    def test_reviewed_poll_tradeoff_does_not_accept_other_metrics(self):
+        for extra_metric, reviewed in ((None, False), ("cpu_cycles", False), ("p99", False), ("cpu_cycles", True)):
+            with self.subTest(extra_metric=extra_metric, reviewed=reviewed):
+                reference, candidate = self.evidence(True)
+                row = candidate["rows"][0]
+                row["rationale_id"] = "reviewed-polls"
+                candidate["accepted_regressions"] = [{
+                    "id": "reviewed-polls",
+                    "scenario": row["scenario"],
+                    "metrics": ["task_wakes_ratio"],
+                    "review": "Reviewed the additional polls against all other measured costs.",
+                }]
+                if reviewed:
+                    candidate["accepted_regressions"][0]["metrics"].append("cpu_cycles_ratio")
+                for pair in row["pairs"]["normal"]:
+                    pair["candidate"]["task_wakes"] *= 1.2
+                    if extra_metric == "p99":
+                        pair["candidate"]["latency_ns"]["p99"] *= 1.2
+                    elif extra_metric is not None:
+                        pair["candidate"][extra_metric] *= 1.2
+                reference["rows"][0]["pairs"] = copy.deepcopy(row["pairs"])
+                result = self.compare(reference, candidate)
+                self.assertEqual(result.returncode, int(extra_metric is not None and not reviewed), result.stderr)
+
+    def test_review_requires_exact_scenario_and_metric_scope(self):
+        for mutation in ("missing-metrics", "empty-metrics", "unknown-metric", "metrics-not-array",
+                         "wrong-scenario", "wrong-id", "blank-review", "review-not-string"):
+            with self.subTest(mutation=mutation):
+                reference, candidate = self.evidence(True)
+                row = candidate["rows"][0]
+                row["rationale_id"] = "reviewed-polls"
+                review = {
+                    "id": "reviewed-polls",
+                    "scenario": row["scenario"],
+                    "metrics": ["task_wakes_ratio"],
+                    "review": "Reviewed the additional polls against all other measured costs.",
+                }
+                if mutation == "missing-metrics":
+                    del review["metrics"]
+                elif mutation == "empty-metrics":
+                    review["metrics"] = []
+                elif mutation == "unknown-metric":
+                    review["metrics"].append("unknown_ratio")
+                elif mutation == "metrics-not-array":
+                    review["metrics"] = "task_wakes_ratio"
+                elif mutation == "wrong-scenario":
+                    review["scenario"] = candidate["rows"][1]["scenario"]
+                elif mutation == "wrong-id":
+                    review["id"] = "another-review"
+                elif mutation == "blank-review":
+                    review["review"] = " \t\n"
+                else:
+                    review["review"] = 42
+                candidate["accepted_regressions"] = [review]
+                for pair in row["pairs"]["normal"]:
+                    pair["candidate"]["task_wakes"] *= 1.2
+                reference["rows"][0]["pairs"] = copy.deepcopy(row["pairs"])
+                result = self.compare(reference, candidate)
+                self.assertEqual(result.returncode, 1, result.stderr)
+
     def test_wrong_provider_missing_counter_or_changed_capture_is_rejected(self):
         for mutation in ("provider", "counter", "instructions", "capture", "mixed"):
             with self.subTest(mutation=mutation):
@@ -337,7 +512,7 @@ esac
             metadata["source_build_sha256"] = digest(receipt)
         result = self.compare(reference, candidate)
         self.assertNotEqual(result.returncode, 0, result.stdout)
-        self.assertIn("Windows source/build receipt does not match measured identities", result.stderr)
+        self.assertIn("Windows capture requires pinned Rust 1.99.0", result.stderr)
 
 
 if __name__ == "__main__":

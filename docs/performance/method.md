@@ -143,15 +143,36 @@ It does not require an idle host or a Linux virtual machine.
 Its results never share a cohort with Mac results.
 It uses the same reference revision, common workload, dependency locks, fifty scenarios, samples, balanced pairs and `1.10` regression limit.
 
-`scripts/capture-windows-performance.py` consumes four prebuilt executables and their source/build receipt.
-The receipt binds each executable to its product source, dependency lock, common harness and exact Rust 1.99.0 toolchain.
+`scripts/capture-windows-performance.py` consumes eight prebuilt executables and their source/build receipt.
+Each product has normal and DHAT builds for two configurations:
+
+- The 44 native-runtime rows use `rca-core` with exactly its `default` feature.
+- The six `deterministic/` rows use the original test-runtime dependency graph, including `test-util` and any `diagnostics` feature that graph enables.
+
+Cargo merges features requested by development dependencies. Building the original
+combined harness would enable test-runtime code in the native rows, even though
+those rows do not use that runtime. Its results would not describe the default
+production configuration.
+
+The native source copy therefore removes only the `rca-test` development dependency
+from `rca-tokio/Cargo.toml` and its edge in `Cargo.lock`. The native harness omits the
+six deterministic rows and their test-runtime imports. Native workload bodies and
+all production source stay unchanged. Dependency versions and checksums stay unchanged.
+The deterministic copy retains the original manifests, lockfile and common harness.
+
+The receipt binds each executable to its complete effective source inventory,
+package manifest, dependency lock, harness and exact Rust 1.99.0 toolchain.
+It records before-and-after hashes for the three changed native files.
+Cargo's retained build transcripts must identify the exact Core features and
+optimised benchmark executable. Normal and DHAT builds must use the same source
+configuration, and both products must use the same native harness.
 The capture checks binary hashes before and after measurement.
 Both result files retain the exact `source-build.json` receipt beside them.
 The comparator checks its hash, embedded copy, executable roles and source/toolchain identities.
 It retains process output, raw counters, pairs and incomplete evidence after failure.
 It does not retry processes, remove outliers or choose successful subsets.
 
-After the four builds pass their source checks, run the capture on Windows:
+After all eight builds pass their source checks, run the capture on Windows:
 
 ```bash
 python scripts/capture-windows-performance.py \
@@ -159,6 +180,10 @@ python scripts/capture-windows-performance.py \
   --candidate-allocation C:/rca/candidate-allocation.exe \
   --reference-normal C:/rca/reference-normal.exe \
   --reference-allocation C:/rca/reference-allocation.exe \
+  --candidate-deterministic-normal C:/rca/candidate-deterministic-normal.exe \
+  --candidate-deterministic-allocation C:/rca/candidate-deterministic-allocation.exe \
+  --reference-deterministic-normal C:/rca/reference-deterministic-normal.exe \
+  --reference-deterministic-allocation C:/rca/reference-deterministic-allocation.exe \
   --metadata C:/rca/source-build.json \
   --output C:/rca/new-capture
 ```
@@ -168,8 +193,17 @@ The output directory must not exist.
 Keep the complete output directory together when transferring it to the review checkout.
 Then run `scripts/compare-performance.sh <capture>/reference.json <capture>/candidate.json`.
 
-Schema version 5 identifies the `win32-process-v1` provider.
-The existing comparator checks its source identities, protocol hash, sample counts, paired observations and numerical limits.
+Schema version 6 identifies the `win32-process-v1` provider and the
+`split-native-deterministic-v1` configuration.
+All fifty rows still belong to one complete cohort, with unchanged samples,
+balanced pairs and numerical limits. Each row and process observation identifies
+its native or deterministic configuration.
+The protocol hash includes the source/build receipt hash as well as the common
+harness, scenario manifest and capture script. The comparator validates the same
+build schema as the capture, then checks source identities, feature routing,
+protocol, sample counts, paired observations and numerical limits.
+Earlier combined-harness captures remain historical evidence. They cannot qualify
+the default production runtime or be relabelled as a schema 6 pass.
 The memory fields have explicit Windows definitions:
 
 | Field | Windows measurement | Acceptance |
@@ -272,10 +306,16 @@ The comparator rejects changed samples, operations, allocation samples and opera
 
 Comparator joins rows by scenario and rejects order-stratified paired ratios above `1.10` for median latency, p99 latency, inverted throughput, allocations, allocated bytes, both process-memory metrics, CPU cycles, or task wakes. Mac uses peak memory footprint and maximum resident memory. Windows uses peak commit charge and peak working set. Throughput is inverted so every ratio uses same direction: greater than one is worse. Comparison also reports DHAT peak-live-heap ratio without using it for release acceptance.
 
-A deliberate regression is accepted only when both conditions hold:
+A deliberate regression is accepted only when all conditions hold:
 
 1. candidate row has a non-null `rationale_id`; and
-2. candidate top-level `accepted_regressions` contains the same ID with a non-empty review record.
+2. candidate top-level `accepted_regressions` contains the same ID and exact scenario;
+3. that record contains a written review and a non-empty `metrics` array of gated ratio names; and
+4. every ratio above the limit appears in that array.
+
+For example, `metrics: ["task_wakes_ratio"]` accepts only the reviewed poll-count cost.
+It cannot accept a CPU, latency, allocation or memory regression in the same scenario.
+The comparison output lists all failed ratios in `regressed_metrics`.
 
 Comparison fails on missing scenarios, duplicate scenarios, zero metrics, schema mismatch, stale evidence, workload drift, lockfile drift, protocol drift, or cohort mismatch.
 
