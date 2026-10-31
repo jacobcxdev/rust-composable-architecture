@@ -116,6 +116,8 @@ jobs:
                     - core-timers-rich
                     - core-timers-minimal
                     - core-reactions
+                    - core-fold-commands
+                    - core-observation-operations
                     - macros
                     - tokio
                     - listener-std
