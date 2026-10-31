@@ -67,6 +67,14 @@ if [[ $# -ne 3 ]]; then
   exit 2
 fi
 
+# Direct invocation is disabled until an explicit memory-guarded route owns us.
+python3 "$(dirname -- "${BASH_SOURCE[0]}")/guard_cargo_memory.py" --check-owned-group
+memory_watchdog_receipt=${RCA_MAC_MEMORY_GUARD_RECEIPT:-}
+if [[ "${memory_watchdog_receipt}" != /* ]]; then
+  echo "canonical qualification requires the memory watchdog's fixed --qualify-performance route" >&2
+  exit 1
+fi
+
 requested_output=$1
 reference_input=$2
 reference_root=
@@ -174,8 +182,8 @@ if [[ "$(uname -m)" != "arm64" \
   exit 1
 fi
 
-cargo=$(rustup which --toolchain 1.98.0 cargo)
-rustc=$(rustup which --toolchain 1.98.0 rustc)
+cargo=$(rustup which --toolchain 1.99.0 cargo)
+rustc=$(rustup which --toolchain 1.99.0 rustc)
 toolchain_bin=$(dirname "${cargo}")
 toolchain_root=$(dirname "${toolchain_bin}")
 toolchain_library_path=${toolchain_root}/lib
@@ -188,8 +196,8 @@ export RUSTC="${rustc}"
 
 rustc_version=$("${rustc}" --version)
 cargo_version=$("${cargo}" --version)
-if [[ "${rustc_version}" != rustc\ 1.98.0* || "${cargo_version}" != cargo\ 1.98.0* ]]; then
-  echo "qualification requires exact Rust and Cargo 1.98.0" >&2
+if [[ "${rustc_version}" != rustc\ 1.99.0* || "${cargo_version}" != cargo\ 1.99.0* ]]; then
+  echo "qualification requires exact Rust and Cargo 1.99.0" >&2
   exit 1
 fi
 
@@ -256,8 +264,9 @@ reference_original_harness_sha256=$(git -C "${reference_repository}" \
 qualification_source_sha256=$(shasum -a 256 rca-tokio/benches/qualification.rs | awk '{print $1}')
 scenario_manifest_sha256=$(shasum -a 256 docs/performance/scenarios.txt | awk '{print $1}')
 qualification_script_sha256=$(shasum -a 256 scripts/qualify-performance.sh | awk '{print $1}')
+memory_watchdog_sha256=$(shasum -a 256 scripts/guard_cargo_memory.py | awk '{print $1}')
 protocol_sha256=$(printf '%s\n' "${qualification_source_sha256}" \
-  "${scenario_manifest_sha256}" "${qualification_script_sha256}" \
+  "${scenario_manifest_sha256}" "${qualification_script_sha256}" "${memory_watchdog_sha256}" \
   | shasum -a 256 | awk '{print $1}')
 recorded_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 rustc_commit=$("${rustc}" --version --verbose | awk '/^commit-hash:/ {print $2}')
@@ -895,6 +904,8 @@ jq -n \
   --arg protocol_sha256 "${protocol_sha256}" \
   --arg qualification_source_sha256 "${qualification_source_sha256}" \
   --arg qualification_script_sha256 "${qualification_script_sha256}" \
+  --arg memory_watchdog_sha256 "${memory_watchdog_sha256}" \
+  --arg memory_watchdog_receipt "${memory_watchdog_receipt}" \
   --arg scenario_manifest_sha256 "${scenario_manifest_sha256}" \
   --arg candidate_lock_sha256 "${candidate_lock_sha256}" \
   --arg reference_lock_sha256 "${reference_lock_sha256}" \
@@ -959,6 +970,8 @@ jq -n \
           protocol_sha256: $protocol_sha256,
           qualification_source_sha256: $qualification_source_sha256,
           qualification_script_sha256: $qualification_script_sha256,
+          memory_watchdog_sha256: $memory_watchdog_sha256,
+          memory_watchdog_receipt: $memory_watchdog_receipt,
           scenario_manifest_sha256: $scenario_manifest_sha256,
           candidate_lock_sha256: $candidate_lock_sha256,
           reference_lock_sha256: $reference_lock_sha256,

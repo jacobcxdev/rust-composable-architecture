@@ -62,8 +62,8 @@ check_windows_build_receipt() {
   if ! jq -e --slurpfile receipt "${receipt}" '
     .metadata as $m | $m.source_build as $s | $m.cohort as $c
     | $s == $receipt[0]
-    and ($m.compiler | type == "string" and test("^rustc 1\\.98\\.0 "))
-    and ($m.cargo | type == "string" and test("^cargo 1\\.98\\.0 "))
+    and ($m.compiler | type == "string" and test("^rustc 1\\.99\\.0 "))
+    and ($m.cargo | type == "string" and test("^cargo 1\\.99\\.0 "))
     and ($m.rustc_commit | type == "string" and test("^[0-9a-f]{40}$"))
     and $m.compiler == $c.compiler and $m.compiler == $s.toolchain.rustc
     and $m.cargo == $c.cargo and $m.cargo == $s.toolchain.cargo
@@ -143,9 +143,21 @@ expected_candidate_lock_sha256=$(shasum -a 256 "${candidate_lock}" | awk '{print
 qualification_source_sha256=$(shasum -a 256 "${protocol}" | awk '{print $1}')
 expected_qualification_script_sha256=$(shasum -a 256 "${qualification_script}" | awk '{print $1}')
 expected_scenario_manifest_sha256=$(shasum -a 256 "${scenario_manifest}" | awk '{print $1}')
-expected_protocol_sha256=$(printf '%s\n' "${qualification_source_sha256}" \
-  "${expected_scenario_manifest_sha256}" "${expected_qualification_script_sha256}" \
-  | shasum -a 256 | awk '{print $1}')
+protocol_inputs=("${qualification_source_sha256}" "${expected_scenario_manifest_sha256}"
+                 "${expected_qualification_script_sha256}")
+expected_memory_watchdog_sha256=
+if [[ "${windows}" == false ]]; then
+  memory_watchdog=${repo_root}/scripts/guard_cargo_memory.py
+  if [[ ! -f "${memory_watchdog}" ]]; then
+    echo "pinned memory watchdog is missing" >&2
+    exit 1
+  fi
+  expected_memory_watchdog_sha256=$(shasum -a 256 "${memory_watchdog}" | awk '{print $1}')
+  protocol_inputs+=("${expected_memory_watchdog_sha256}")
+fi
+# Windows retains its existing tuple. Old Mac captures remain historical
+# evidence; they cannot establish the current memory-guarded qualification.
+expected_protocol_sha256=$(printf '%s\n' "${protocol_inputs[@]}" | shasum -a 256 | awk '{print $1}')
 expected_scenarios=$(jq -R -s -c 'split("\n") | map(select(length > 0))' \
   "${scenario_manifest}")
 
@@ -297,6 +309,42 @@ for result in "${baseline}" "${candidate}"; do
   fi
 done
 
+if [[ "${windows}" == false ]]; then
+  memory_receipt=$(jq -er '.metadata.cohort.memory_watchdog_receipt | select(type == "string")' "${candidate}") || {
+    echo "Mac memory watchdog completion receipt is missing" >&2
+    exit 1
+  }
+  if [[ "${memory_receipt}" != /* || ! -f "${memory_receipt}" || -L "${memory_receipt}" ]] \
+    || [[ "$(jq -r '.metadata.cohort.memory_watchdog_receipt' "${baseline}")" != "${memory_receipt}" ]] \
+    || ! jq -e \
+      --arg candidate "${candidate}" --arg reference "${baseline}" \
+      --arg candidate_sha256 "$(shasum -a 256 "${candidate}" | awk '{print $1}')" \
+      --arg reference_sha256 "$(shasum -a 256 "${baseline}" | awk '{print $1}')" \
+      --arg watchdog_sha256 "${expected_memory_watchdog_sha256}" \
+      --arg script_sha256 "${expected_qualification_script_sha256}" '
+        .entrypoint == "qualify-performance" and .toolchain == "1.99.0"
+        and .protection == "polling-watchdog-not-kernel-memory-cap"
+        and .started == true and .reason == "command-exited"
+        and .returncode == 0 and .command_returncode == 0
+        and .cleanup_complete == true and .descendants_complete == true
+        and .forced_cleanup == false
+        and .memory_limit_bytes == 8589934592 and .host_reserve_bytes == 4294967296
+        and .sample_interval_seconds == 0.25
+        and (.peak_footprint_bytes | type == "number" and . >= 0 and . < 8589934592 and floor == .)
+        and (.peak_process_count | type == "number" and . >= 1 and floor == .)
+        and (.elapsed_seconds | type == "number" and . > 0)
+        and .memory_watchdog_sha256 == $watchdog_sha256
+        and .qualification_script_sha256 == $script_sha256
+        and .qualification_outputs == {
+          candidate: {path: $candidate, sha256: $candidate_sha256},
+          reference: {path: $reference, sha256: $reference_sha256}
+        }
+      ' "${memory_receipt}" >/dev/null; then
+    echo "Mac memory watchdog completion is missing, failed or does not match both outputs" >&2
+    exit 1
+  fi
+fi
+
 candidate_revision=$(jq -r '.revision' "${candidate}")
 if ! git cat-file -e "${candidate_revision}^{commit}" 2>/dev/null \
   || ! git merge-base --is-ancestor "${candidate_revision}" "${head_revision}"; then
@@ -313,6 +361,7 @@ if ! jq -e \
   --arg protocol_sha256 "${expected_protocol_sha256}" \
   --arg qualification_source_sha256 "${qualification_source_sha256}" \
   --arg qualification_script_sha256 "${expected_qualification_script_sha256}" \
+  --arg memory_watchdog_sha256 "${expected_memory_watchdog_sha256}" \
   --arg scenario_manifest_sha256 "${expected_scenario_manifest_sha256}" \
   --arg candidate_lock_sha256 "${expected_candidate_lock_sha256}" \
   --arg reference_lock_sha256 "${expected_reference_lock_sha256}" '
@@ -323,6 +372,7 @@ if ! jq -e \
     and .metadata.cohort.protocol_sha256 == $protocol_sha256
     and .metadata.cohort.qualification_source_sha256 == $qualification_source_sha256
     and .metadata.cohort.qualification_script_sha256 == $qualification_script_sha256
+    and ($memory_watchdog_sha256 == "" or .metadata.cohort.memory_watchdog_sha256 == $memory_watchdog_sha256)
     and .metadata.cohort.scenario_manifest_sha256 == $scenario_manifest_sha256
     and .metadata.cohort.candidate_lock_sha256 == $candidate_lock_sha256
     and .metadata.cohort.reference_lock_sha256 == $reference_lock_sha256
@@ -337,6 +387,7 @@ if ! jq -e \
   --arg protocol_sha256 "${expected_protocol_sha256}" \
   --arg qualification_source_sha256 "${qualification_source_sha256}" \
   --arg qualification_script_sha256 "${expected_qualification_script_sha256}" \
+  --arg memory_watchdog_sha256 "${expected_memory_watchdog_sha256}" \
   --arg scenario_manifest_sha256 "${expected_scenario_manifest_sha256}" \
   --arg candidate_lock_sha256 "${expected_candidate_lock_sha256}" \
   --arg reference_lock_sha256 "${expected_reference_lock_sha256}" '
@@ -347,6 +398,7 @@ if ! jq -e \
     and .metadata.cohort.protocol_sha256 == $protocol_sha256
     and .metadata.cohort.qualification_source_sha256 == $qualification_source_sha256
     and .metadata.cohort.qualification_script_sha256 == $qualification_script_sha256
+    and ($memory_watchdog_sha256 == "" or .metadata.cohort.memory_watchdog_sha256 == $memory_watchdog_sha256)
     and .metadata.cohort.scenario_manifest_sha256 == $scenario_manifest_sha256
     and .metadata.cohort.candidate_lock_sha256 == $candidate_lock_sha256
     and .metadata.cohort.reference_lock_sha256 == $reference_lock_sha256

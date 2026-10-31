@@ -17,7 +17,7 @@ class RustFormatTests(unittest.TestCase):
         self.root = pathlib.Path(self.directory.name)
         subprocess.run(["git", "init", "--quiet", str(self.root)], check=True)
         self.write("Cargo.toml", '[workspace]\n[workspace.package]\nedition = "2024"\n')
-        self.write("rust-toolchain.toml", '[toolchain]\nchannel = "1.98.0"\n')
+        self.write("rust-toolchain.toml", '[toolchain]\nchannel = "1.99.0"\n')
         self.write("rustfmt.toml", 'newline_style = "Unix"\n')
 
     def write(self, name, text):

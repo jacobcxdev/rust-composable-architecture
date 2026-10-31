@@ -28,14 +28,16 @@ a warning-free replacement; do not invent deprecations to demonstrate the harnes
 
 ## Run and record
 
-Use Rust 1.98.0, edition 2024, matching required CI. These harnesses need Cargo and
-rustc, not nightly or `rust-src`; quality CI installs the latter for other checks.
+Use Rust 1.99.0, edition 2024, and the pinned `rust-src` component, matching required CI.
+Some `trybuild` snapshots include standard-library source excerpts.
+Without `rust-src`, those excerpts disappear and the snapshot checks fail.
+Nightly Rust is not required.
 
 ```sh
-rustup run 1.98.0 cargo test --locked -p rca-core -p rca-test --all-features --test compiler_contracts -- --check
-rustup run 1.98.0 cargo test --locked -p rca-core -p rca-test --no-default-features --test compiler_contracts -- --check
-rustup run 1.98.0 cargo test --locked -p rca-core --no-default-features --test compile --test typed_compile --test removal_compile
-rustup run 1.98.0 cargo test --locked -p rca-macros --test snapshot_compile
+rustup run 1.99.0 cargo test --locked -p rca-core -p rca-test --all-features --test compiler_contracts -- --check
+rustup run 1.99.0 cargo test --locked -p rca-core -p rca-test --no-default-features --test compiler_contracts -- --check
+rustup run 1.99.0 cargo test --locked -p rca-core --no-default-features --test compile --test typed_compile --test removal_compile
+rustup run 1.99.0 cargo test --locked -p rca-macros --test snapshot_compile
 ```
 
 Append a filename substring after `--check` to select fixtures, for example
@@ -46,9 +48,9 @@ snapshots depend on which APIs are available.
 For an intentional diagnostic change, inspect the failure before recording:
 
 ```sh
-rustup run 1.98.0 cargo test --locked -p rca-core --all-features --test compiler_contracts -- --bless task_warning
+rustup run 1.99.0 cargo test --locked -p rca-core --all-features --test compiler_contracts -- --bless task_warning
 git diff -- rca-core/tests/compiler
-rustup run 1.98.0 cargo test --locked -p rca-core --all-features --test compiler_contracts -- --check task_warning
+rustup run 1.99.0 cargo test --locked -p rca-core --all-features --test compiler_contracts -- --check task_warning
 ```
 
 Review new files too: ordinary `git diff` omits untracked snapshots.
@@ -131,7 +133,7 @@ This repository fixture uses a disposable `rca-local` registry. Direct invocatio
 requires that registry. From the repository root, run the packaged-consumer check:
 
 ```sh
-rustup run 1.98.0 bash scripts/verify-packaged-downstream.sh
+rustup run 1.99.0 bash scripts/verify-packaged-downstream.sh
 ```
 
 The script stages package archives, verifies their source and runs the consumers.

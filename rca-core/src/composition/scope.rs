@@ -605,6 +605,31 @@ mod allocation_tests {
         }
     }
 
+    /// Projects the shared state without depending on the child reducer type.
+    fn level_state_path() -> StatePath<
+        State,
+        State,
+        impl for<'a> Fn(&'a State) -> &'a State + Copy,
+        impl for<'a> Fn(&'a mut State) -> &'a mut State + Copy,
+    > {
+        StatePath::new(|state: &State| state, |state: &mut State| state)
+    }
+
+    /// Filters actions without depending on the child reducer type.
+    fn level_action_path(
+        required_depth: usize,
+    ) -> ActionPath<
+        Action,
+        Action,
+        impl for<'a> Fn(&'a Action) -> Option<&'a Action> + Copy,
+        impl Fn(Action) -> Action + Copy,
+    > {
+        ActionPath::new(
+            move |action: &Action| (action.depth >= required_depth).then_some(action),
+            |action| action,
+        )
+    }
+
     fn level<Child>(
         required_depth: usize,
         child: Child,
@@ -612,14 +637,7 @@ mod allocation_tests {
     where
         Child: Reducer<State = State, Action = Action>,
     {
-        scope(
-            StatePath::new(|state: &State| state, |state: &mut State| state),
-            ActionPath::new(
-                move |action: &Action| (action.depth >= required_depth).then_some(action),
-                |action| action,
-            ),
-            child,
-        )
+        scope(level_state_path(), level_action_path(required_depth), child)
     }
 
     fn depth_1() -> impl Reducer<State = State, Action = Action> {
@@ -711,6 +729,15 @@ mod allocation_tests {
         let mut depth_1 = depth_1();
         let mut depth_4 = depth_4();
         let mut depth_16 = depth_16();
+
+        // Keep this compiler-shape check outside the allocation measurement.
+        let one_name_len = std::any::type_name_of_val(&depth_1).len();
+        let four_name_len = std::any::type_name_of_val(&depth_4).len();
+        assert!(
+            four_name_len <= 4 * one_name_len,
+            "scope callback types must grow linearly: {one_name_len} -> {four_name_len}"
+        );
+
         let mut state = State { calls: 0 };
         let mut dependencies = DependencyValues::new();
         let (_scopes_lifecycle, mut scopes) = ScopeRegistry::for_test();

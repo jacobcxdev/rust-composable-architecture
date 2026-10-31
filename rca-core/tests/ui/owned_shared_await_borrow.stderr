@@ -17,7 +17,7 @@ error: lifetime may not live long enough
 17 |           .read(|value| async move {
    |  ________________------_^
    | |                |    |
-   | |                |    return type of closure `{async block@$DIR/tests/ui/owned_shared_await_borrow.rs:17:23: 17:33}` contains a lifetime `'2`
+   | |                |    return type of closure `i32` contains a lifetime `'2`
    | |                has type `&'1 i32`
 18 | |             std::future::pending::<()>().await;
 19 | |             *value

@@ -12,9 +12,10 @@
 
 ## Fork changes
 
-- Renamed the package and changed its version, repository, description and supported Rust minimum to 1.98.0. Retained edition 2021 and library name `async_channel`.
+- Renamed the package and changed its version, repository, description and supported Rust minimum to 1.99.0. Retained edition 2021 and library name `async_channel`.
 - Redirected the existing `event-listener-strategy` dependency key to package `rca-event-listener-strategy`, exact version `=0.1.0`, with a workspace-local path for development. Feature forwarding is unchanged.
 - Consolidated four identical endpoint-count overflow checks into one private helper, preserving previous-count boundaries and atomic/Arc ordering. Added subprocess tests for both returning and aborting numeric boundaries; these do not fabricate channel state or claim public endpoint overflow.
+- Use Rust 1.99's `try_update` for weak-endpoint increments, with unchanged closures and memory ordering. The `portable-atomic` feature retains that dependency's equivalent `fetch_update` operation.
 - Added public channel ownership, weak-endpoint, closure and transport contract tests. Corrected upstream sender-count assertions that queried receiver counts.
 - Added fork/provenance notices. Examples remain byte-for-byte upstream.
 - Corrected `Sender::closed` documentation to include existing explicit-closure behaviour and documented internal endpoint ownership and retry state.

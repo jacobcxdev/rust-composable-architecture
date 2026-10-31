@@ -3,12 +3,17 @@
 import os
 from pathlib import Path
 import subprocess
+import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 QUALIFIER = REPO_ROOT / "scripts" / "qualify-performance.sh"
+sys.path[:0] = [str(REPO_ROOT / "scripts"), str(Path(__file__).resolve().parent)]
+import guard_cargo_memory as guard  # noqa: E402 -- standalone tooling
+from test_guard_cargo_memory import FakeProbe  # noqa: E402
 
 # Each replacement supplies one external preflight observation. The first
 # toolchain lookup stops execution, before any build or native capture can run.
@@ -69,17 +74,20 @@ class CanonicalPerformanceCohortTests(unittest.TestCase):
                 RCA_TEST_QUALIFIER=str(QUALIFIER),
                 RCA_TEST_OS_VERSION=version,
                 RCA_TEST_OS_BUILD=build,
+                RCA_MAC_MEMORY_GUARD_RECEIPT=str(Path(directory) / "memory.json"),
             )
             if runner is not None:
                 environment["RCA_PERF_RUNNER"] = runner
-            return subprocess.run(
-                ["bash", "-c", PREFLIGHT],
-                cwd=REPO_ROOT,
-                env=environment,
-                text=True,
-                capture_output=True,
-                check=False,
-            )
+            environment["PATH"] = str(Path(sys.executable).parent) + os.pathsep + environment["PATH"]
+            root = Path(directory)
+            with (root / "stdout").open("w+") as stdout, (root / "stderr").open("w+") as stderr, \
+                    patch.object(guard, "LOCK_PATH", root / "memory.lock"):
+                receipt = guard.run_guarded(["bash", "-c", PREFLIGHT], cwd=REPO_ROOT,
+                                            env=environment, probe=FakeProbe(), timeout=5,
+                                            stdout=stdout, stderr=stderr)
+                stdout.seek(0)
+                stderr.seek(0)
+                return subprocess.CompletedProcess([], receipt["returncode"], stdout.read(), stderr.read())
 
     def test_installed_macos27_cohort_reaches_the_pinned_toolchain_check(self):
         result = self.preflight("27.0", "26A428")

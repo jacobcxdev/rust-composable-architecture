@@ -1070,11 +1070,7 @@ impl<T> WeakSender<T> {
         if self.channel.queue.is_closed() {
             None
         } else {
-            match self.channel.sender_count.fetch_update(
-                Ordering::Relaxed,
-                Ordering::Relaxed,
-                |count| if count == 0 { None } else { Some(count + 1) },
-            ) {
+            match try_increment_count(&self.channel.sender_count) {
                 Err(_) => None,
                 Ok(previous) => {
                     abort_on_count_overflow(previous);
@@ -1116,11 +1112,7 @@ impl<T> WeakReceiver<T> {
         if self.channel.queue.is_closed() {
             None
         } else {
-            match self.channel.receiver_count.fetch_update(
-                Ordering::Relaxed,
-                Ordering::Relaxed,
-                |count| if count == 0 { None } else { Some(count + 1) },
-            ) {
+            match try_increment_count(&self.channel.receiver_count) {
                 Err(_) => None,
                 Ok(previous) => {
                     abort_on_count_overflow(previous);
@@ -1461,6 +1453,22 @@ impl<'a, T> EventListenerFuture for ClosedInner<'a, T> {
 
 #[cfg(feature = "std")]
 use std::process::abort;
+
+/// Increments a nonzero endpoint count and returns its previous value.
+#[inline]
+fn try_increment_count(counter: &AtomicUsize) -> Result<usize, usize> {
+    let update = |count| if count == 0 { None } else { Some(count + 1) };
+
+    #[cfg(not(feature = "portable-atomic"))]
+    {
+        counter.try_update(Ordering::Relaxed, Ordering::Relaxed, update)
+    }
+    #[cfg(feature = "portable-atomic")]
+    {
+        // portable-atomic retains the original name for this operation.
+        counter.fetch_update(Ordering::Relaxed, Ordering::Relaxed, update)
+    }
+}
 
 /// Aborts before endpoint-count increments can exhaust the counter's headroom.
 ///

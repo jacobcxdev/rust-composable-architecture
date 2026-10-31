@@ -12,7 +12,7 @@
 
 ## Fork changes
 
-- Renamed the package and changed its version, repository, description and supported Rust minimum to 1.98.0. Retained edition 2021 and library name `event_listener_strategy`.
+- Renamed the package and changed its version, repository, description and supported Rust minimum to 1.99.0. Retained edition 2021 and library name `event_listener_strategy`.
 - Redirected the existing `event-listener` dependency key to package `rca-event-listener`, exact version `=0.1.0`, with a workspace-local path for development. Feature forwarding is unchanged.
 - Added public contract tests for pinned projections, borrowed wrapper output, listener handoff and blocking/non-blocking polling, including the safe trait's unusual one-shot Pending fallback.
 - Fixed `easy_wrapper!` to keep generic defaults on the wrapper declaration, not its generated `impl` headers. A public consumer checks default and explicit type arguments with asynchronous and blocking execution.

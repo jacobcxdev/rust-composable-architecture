@@ -2875,7 +2875,7 @@ impl<Value: Clone + Send + 'static, Revision: Clone + Eq + Send + 'static>
             Ok(Saved::Committed(backend_revision)) => {
                 session
                     .saved_epoch
-                    .fetch_update(Ordering::AcqRel, Ordering::Acquire, |epoch| {
+                    .try_update(Ordering::AcqRel, Ordering::Acquire, |epoch| {
                         epoch.checked_add(1)
                     })
                     .expect("document save epoch exhausted");

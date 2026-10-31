@@ -37,7 +37,7 @@ This file records notable changes to RCA.
 - Added headless application examples and guides for ownership, cancellation, composition and persistence.
 - Added formatting, lint, feature, platform, package-consumer and concurrency checks.
 - Added workload-specific performance and executable-production coverage requirements.
-- Required Rust 1.98.0 and Rust Edition 2024.
+- Required Rust 1.99.0 and Rust Edition 2024.
 
 The [support policy](docs/support.md) defines compatibility and target requirements.
 The [qualification guide](docs/qualification.md) explains the scope of recorded evidence.

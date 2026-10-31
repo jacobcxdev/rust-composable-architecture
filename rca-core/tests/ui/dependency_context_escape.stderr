@@ -4,7 +4,7 @@ error: lifetime may not live long enough
 27 |           let _escaped = context.with_dependency_override::<ValueKey, _>(1, |context| async move {
    |  ____________________________________________________________________________--------_^
    | |                                                                            |      |
-   | |                                                                            |      return type of closure `{async block@$DIR/tests/ui/dependency_context_escape.rs:27:85: 27:95}` contains a lifetime `'2`
+   | |                                                                            |      return type of closure `()` contains a lifetime `'2`
    | |                                                                            has type `&'1 mut ReduceContext<'_>`
 28 | |             std::hint::black_box(context.dependency::<ValueKey>());
 29 | |         });
@@ -16,7 +16,7 @@ error: lifetime may not live long enough
 27 |           let _escaped = context.with_dependency_override::<ValueKey, _>(1, |context| async move {
    |  ____________________________________________________________________________--------_^
    | |                                                                            |      |
-   | |                                                                            |      return type of closure `{async block@$DIR/tests/ui/dependency_context_escape.rs:27:85: 27:95}` contains a lifetime `'4`
+   | |                                                                            |      return type of closure `()` contains a lifetime `'4`
    | |                                                                            has type `&mut ReduceContext<'3>`
 28 | |             std::hint::black_box(context.dependency::<ValueKey>());
 29 | |         });

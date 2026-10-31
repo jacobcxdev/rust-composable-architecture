@@ -223,8 +223,8 @@ def validate_metadata(value):
                 if not re.fullmatch("[0-9a-f]{64}", value["binaries"][f"{role}_{mode}"]["sha256"]):
                     raise ValueError("invalid build binary hash")
         tools = value["toolchain"]
-        if not tools["rustc"].startswith("rustc 1.98.0 ") or not tools["cargo"].startswith("cargo 1.98.0 "):
-            raise ValueError("Windows capture requires pinned Rust 1.98.0")
+        if not tools["rustc"].startswith("rustc 1.99.0 ") or not tools["cargo"].startswith("cargo 1.99.0 "):
+            raise ValueError("Windows capture requires pinned Rust 1.99.0")
         if tools["target"] != "x86_64-pc-windows-msvc" or not re.fullmatch("[0-9a-f]{40}", tools["rustc_commit"]):
             raise ValueError("invalid Windows toolchain identity")
         if value["candidate"]["revision"] == value["reference"]["revision"]:

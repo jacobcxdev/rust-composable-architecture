@@ -26,7 +26,8 @@ note: required for `ReadingSnapshot<f32>` to implement `Eq`
    |          in this derive macro expansion
  5 | struct Reading(f32);
    |        ^^^^^^^
-   = help: consider manually implementing `Eq` to avoid undesired bounds
+   = help: consider manually implementing `Eq` to avoid undesired bounds caused by "imperfect derives"
+   = note: to learn more, visit <https://github.com/rust-lang/rust/issues/26925>
 note: required by a bound in `require_eq`
   --> tests/ui/snapshot/fail_optional_eq_bound.rs:7:18
    |

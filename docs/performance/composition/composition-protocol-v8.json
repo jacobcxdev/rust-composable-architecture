@@ -1,0 +1,227 @@
+{
+  "schema_version": 1,
+  "method_version": "composition-paired-v8",
+  "status": "frozen-before-measurement",
+  "runner": "mac15-9-m3-max-16c-48gb-macos27plus-ac-high",
+  "minimum_macos_major": 27,
+  "baseline_runner": "mac15-9-m3-max-16c-48gb-macos26-ac-high",
+  "binary_baseline_runner": "mac15-9-m3-max-16c-48gb-macos27-binary-correction",
+  "reference_revision": "b9eb6e732d2b0cf6ce3cd7255a5958781587af6c",
+  "budget_sha256": "6f71abeab57bc421bd11a53d30699ad9981d7af097932ee0e01ef477e9a38d69",
+  "allocation_manifest_sha256": "95a9e2ee87deaa3046d4a51893efe164282d51aef6a3b3eec61e9f1ca0b3bf32",
+  "regression_limit": 1.1,
+  "randomisation": {
+    "seed": "rca-composition-protocol-v2-2026-09-04-14",
+    "algorithm": "sha256-sort-labelled-order-strata-v1",
+    "order_schedule": [
+      "subject-control",
+      "subject-control",
+      "control-subject",
+      "control-subject",
+      "subject-control",
+      "control-subject",
+      "subject-control",
+      "control-subject",
+      "subject-control",
+      "subject-control",
+      "control-subject",
+      "subject-control",
+      "control-subject",
+      "subject-control",
+      "control-subject",
+      "subject-control",
+      "control-subject",
+      "subject-control",
+      "control-subject",
+      "control-subject"
+    ]
+  },
+  "runtime": {
+    "pairs_per_order_stratum": 10,
+    "diagnostic_processes_per_binary": 1,
+    "diagnostic_timing_rows": 153,
+    "isolated_timing_rows": 1,
+    "divan_sample_policy": "sample_count, sample_size and max_time remain those in the hash-pinned workload; actual samples and iterations are retained in each transcript",
+    "divan_exact_prefix": "composition::",
+    "gated_scenarios": [
+      "direct/1",
+      "nonmatching_scope/16",
+      "combine_arity/4",
+      "keyed_matching_route/100000",
+      "effect_map_depth/16",
+      "descendant_cancellation/10000",
+      "scoped_concurrent_senders_32",
+      "matching_scope/16",
+      "combine_arity/12"
+    ]
+  },
+  "compile": {
+    "pairs_per_order_stratum": 10,
+    "cargo_jobs": 1,
+    "incremental": false,
+    "fixtures": [
+      "direct",
+      "composed-manual",
+      "composed-macro",
+      "scoped"
+    ]
+  },
+  "confidence": {
+    "target_one_sided": 0.95,
+    "estimator": "geometric-mean-of-order-stratum-sample-medians",
+    "upper_bound": "geometric-mean-of-order-stratum-second-largest-ratios",
+    "observations_per_stratum": 10,
+    "upper_order_statistic_rank": 9,
+    "per_stratum_coverage": 0.9892578125,
+    "multiplicity_correction": "bonferroni-two-strata",
+    "finite_sample_joint_coverage": 0.978515625,
+    "assumptions": "independent observations within each order stratum, identically distributed within each stratum; continuous positive ratio distributions; target is the geometric mean of the two population medians, not a mean or pooled median"
+  },
+  "quiescence": {
+    "admission": "recorded-background-load",
+    "consecutive_samples": 1,
+    "sustained_checks": "one sample initially and before each block; samples around each process and while active; no load-based rejection or selective retries",
+    "thermal_policy": "nsprocessinfo-nominal-and-pmset-no-recorded-warning",
+    "process_monitor_interval_seconds": 1,
+    "reported_process_basenames": [
+      "cargo",
+      "cargo-nextest",
+      "rustc",
+      "rustdoc",
+      "sccache",
+      "go",
+      "compile",
+      "link",
+      "swift",
+      "swiftc",
+      "swift-frontend",
+      "clang",
+      "clang++",
+      "cc",
+      "c++",
+      "gcc",
+      "g++",
+      "ld",
+      "ninja",
+      "make",
+      "xcodebuild"
+    ],
+    "reported_process_prefixes": [
+      "composition-",
+      "qualification-"
+    ],
+    "concurrent_measurement_policy": "reject other composition-* or qualification-* processes outside the capture process tree; retain the exclusive machine lock"
+  },
+  "resource_counters": {
+    "command": "/usr/bin/time -lp",
+    "required": [
+      "real_seconds",
+      "user_seconds",
+      "system_seconds",
+      "maximum_resident_set_bytes",
+      "page_reclaims",
+      "page_faults",
+      "swaps",
+      "block_input_operations",
+      "block_output_operations",
+      "voluntary_context_switches",
+      "involuntary_context_switches",
+      "instructions_retired",
+      "cycles_elapsed",
+      "peak_memory_footprint_bytes"
+    ]
+  },
+  "modes": [
+    "candidate-reference",
+    "reference-reference-aa"
+  ],
+  "absolute_compatibility": {
+    "method": "All timing gates use twenty v8 subject-arm observations. The current compiler and common workloads retain the unchanged historical absolute ceilings.",
+    "runtime_observations_per_scenario": 20,
+    "clean_compile_observations_per_fixture": 20,
+    "diagnostic_full_transcripts": 10,
+    "diagnostic_compile_samples_per_fixture": 5,
+    "compile_fixtures": 4,
+    "budget_rows": 33,
+    "reference_only_source": "b9eb6e732d2b0cf6ce3cd7255a5958781587af6c",
+    "reference_only_mode": "reference-reference-aa",
+    "budget_changes_permitted": false
+  },
+  "common_workloads": {
+    "policy": "controller-owned hash-pinned consumer sources on exact archived product revisions; no product implementation overlays",
+    "ancestry": "exact revision and tree identity; shared ancestry is not required after the approved clean-slate history",
+    "files": {
+      "rca-core/benches/composition.rs": {
+        "source": "rca-core/benches/composition.rs",
+        "sha256": "7b0984891aa94cf5607d2ee39eb67e60684f999b020c928d2e3970683b744006"
+      },
+      "benches/compile/direct/src/main.rs": {
+        "source": "benches/compile/direct/src/main.rs",
+        "sha256": "16913f71340f456c688505a61f6e66f3218abb742e2eff4c895d06cfa11a635a"
+      },
+      "benches/compile/composed-manual/src/main.rs": {
+        "source": "benches/compile/composed-manual/src/main.rs",
+        "sha256": "e1429345e698f432059eb51f10770831f2792968ae4263a979da2b2f74930136"
+      },
+      "benches/compile/composed-macro/src/main.rs": {
+        "source": "benches/compile/composed-macro/src/main.rs",
+        "sha256": "87574f12c3d1710bb63ec7fa3fbfbfa8a960cd711d8ff9fd6b4df7cdcc400af0"
+      },
+      "benches/compile/scoped/src/main.rs": {
+        "source": "benches/compile/scoped/src/main.rs",
+        "sha256": "6d209cdea7ecc14fbf50ef87b01d4bd6624a147cafe87d9720de744b012c2377"
+      },
+      "benches/compile/support/src/lib.rs": {
+        "source": "benches/compile/support/src/lib.rs",
+        "sha256": "63d1fc4e3d96e7795f23532f28987e71be0a12c58ada66a8e6daa24b49fff231"
+      },
+      "examples/composition-search/src/main.rs": {
+        "source": "examples/composition-search/src/main.rs",
+        "sha256": "4fb726a487d86e73eddf21a9dc30deb27f4dd879e5d52b8e5b76ed1fd61b091a"
+      },
+      "examples/composition-search/src/lib.rs": {
+        "source": "examples/composition-search/src/lib.rs",
+        "sha256": "7e2fc7c4c2b66950bf4e78f4b42d75cc4b124d1c779311da8a8a9919bf184cdb"
+      },
+      "examples/composition-search/tests/app.rs": {
+        "source": "scripts/fixtures/composition-app.rs",
+        "sha256": "e4ca1b1a2ebb7f95ad517541ad261595b8b980ed700b6f8f270c9ef6834690d1"
+      },
+      "rca-core/tests/composition_qualification/main.rs": {
+        "source": "scripts/fixtures/composition-zero.rs",
+        "sha256": "b6ccac719d31c8358d143663e0c44fd42c7034a6adbd96ce458717e54d72973c"
+      },
+      "rca-core/tests/composition_qualification/composition-zero-runner.rs": {
+        "source": "rca-core/src/allocation_test/runner.rs",
+        "sha256": "93b1373d2e9177085b0793e0a17592929cd61bab2818f68016ba55cd61ef9fb1"
+      },
+      "rca-core/benches/composition/fixtures.rs": {
+        "source": "rca-core/benches/composition/fixtures.rs",
+        "sha256": "84cfaafa0af513c6f3b6d612d601e1c2472976dc4ceeec5d8b6c246e7b670bfe"
+      }
+    },
+    "adapters": [
+      "external-zero-host-v1",
+      "unit-projection-constructor-v1"
+    ],
+    "candidate_app_sha256": "016ee8825e7a59b51e0b658a7a0d0c023e5f99eebbfda59dbc9d8ce75eb66a01",
+    "historical_budget_provenance": "unchanged v5 document retains original workload hashes; original and effective source hashes are recorded separately",
+    "compile_target_lifetime": "unique clean target per sample; delete completed check-only targets after transcript and resource capture",
+    "setup_boundary": "Each cancellation leaf signals its first poll. All signalling handles are dropped before cancellation timing starts."
+  },
+  "interleaving": {
+    "policy": "alternating-mode-first-within-block",
+    "blocks": 20,
+    "odd_block_modes": [
+      "reference-reference-aa",
+      "candidate-reference"
+    ],
+    "even_block_modes": [
+      "candidate-reference",
+      "reference-reference-aa"
+    ],
+    "acceptance": "both modes must pass in the same authenticated capture"
+  },
+  "toolchain": "rustc 1.99.0 (b940084d7 2026-09-28); cargo 1.99.0 (5f94df478 2026-08-27)",
+  "scope": "paired-and-macos-absolute"
+}

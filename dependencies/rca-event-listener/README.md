@@ -2,7 +2,7 @@
 
 This is the Rust Composable Architecture fork of `event-listener` 5.4.2, not an upstream smol-rs release. Original authors and licences are retained; upstream authorship does not imply maintenance or endorsement of this fork. See [UPSTREAM.md](UPSTREAM.md) for provenance and changes.
 
-The supported Rust minimum is 1.98.0; the edition remains 2021. Use the preserved library name through a dependency alias:
+The supported Rust minimum is 1.99.0; the edition remains 2021. Use the preserved library name through a dependency alias:
 
 ```toml
 event-listener = { package = "rca-event-listener", version = "=0.1.0" }

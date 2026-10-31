@@ -12,7 +12,7 @@
 
 ## Fork changes
 
-- Renamed the package and changed its version, repository, description and supported Rust minimum to 1.98.0. Retained edition 2021 and library name `event_listener`.
+- Renamed the package and changed its version, repository, description and supported Rust minimum to 1.99.0. Retained edition 2021 and library name `event_listener`.
 - Added `arrayvec` 0.7.8 for bounded inline deferred callback storage.
 - Changed `src/lib.rs` and `src/intrusive.rs` to defer relevant waker operations until after notifier-lock release, drain deferred wakes safely during panic, publish accurate notification-count snapshots, correct the empty-list sentinel, and simplify private helper/trait code. This is not a claim of arbitrary tagged-callback reentrancy.
 - Skipped list locking when a completed, discarded or expired listener is dropped. Occupied listeners retain cancellation handoff and callback ordering.

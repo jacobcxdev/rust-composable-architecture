@@ -4,7 +4,7 @@ error: lifetime may not live long enough
  7 |               |value| async move {
    |  ______________------_^
    | |              |    |
-   | |              |    return type of closure `{async block@$DIR/tests/ui/owned_shared_update_await_borrow.rs:7:21: 7:31}` contains a lifetime `'2`
+   | |              |    return type of closure `()` contains a lifetime `'2`
    | |              has type `&'1 mut Option<i32>`
  8 | |                 std::future::pending::<()>().await;
  9 | |                 *value = Some(1);
@@ -17,7 +17,7 @@ error: lifetime may not live long enough
 17 |               |value| async move {
    |  ______________------_^
    | |              |    |
-   | |              |    return type of closure `{async block@$DIR/tests/ui/owned_shared_update_await_borrow.rs:17:21: 17:31}` contains a lifetime `'2`
+   | |              |    return type of closure `()` contains a lifetime `'2`
    | |              has type `&'1 mut i32`
 18 | |                 std::future::pending::<()>().await;
 19 | |                 *value = 1;

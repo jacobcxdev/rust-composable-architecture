@@ -31,10 +31,10 @@ error[E0277]: the trait bound `Rc<usize>: Snapshot` is not satisfied
    |
    = help: the following other types implement trait `Snapshot`:
              ()
+             (A,)
              (A, B)
              (A, B, C)
              (A, B, C, D)
-             (A,)
              Box<T>
              Duration
              FunctionCustom
@@ -54,10 +54,10 @@ help: the trait `Snapshot` is not implemented for `CloneOnly`
    | ^^^^^^^^^^^^^^^^
    = help: the following other types implement trait `Snapshot`:
              ()
+             (A,)
              (A, B)
              (A, B, C)
              (A, B, C, D)
-             (A,)
              Box<T>
              Duration
              FunctionCustom
@@ -73,10 +73,10 @@ error[E0277]: the trait bound `Rc<usize>: Snapshot` is not satisfied
    |
    = help: the following other types implement trait `Snapshot`:
              ()
+             (A,)
              (A, B)
              (A, B, C)
              (A, B, C, D)
-             (A,)
              Box<T>
              Duration
              FunctionCustom
@@ -95,10 +95,10 @@ help: the trait `Snapshot` is not implemented for `CloneOnly`
    | ^^^^^^^^^^^^^^^^
    = help: the following other types implement trait `Snapshot`:
              ()
+             (A,)
              (A, B)
              (A, B, C)
              (A, B, C, D)
-             (A,)
              Box<T>
              Duration
              FunctionCustom
@@ -125,10 +125,10 @@ error[E0277]: the trait bound `Rc<usize>: Snapshot` is not satisfied
    |
    = help: the following other types implement trait `Snapshot`:
              ()
+             (A,)
              (A, B)
              (A, B, C)
              (A, B, C, D)
-             (A,)
              Box<T>
              Duration
              FunctionCustom

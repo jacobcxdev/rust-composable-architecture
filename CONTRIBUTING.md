@@ -57,17 +57,63 @@ its separate protected environment.
 
 ## Toolchain and formatting
 
-The repository pins Rust, rustfmt and Clippy through `rust-toolchain.toml`.
-The current toolchain is Rust 1.98.0. System installations of Cargo or rustc can
-bypass rustup and ignore this file. Put the pinned tools first in `PATH`, so
-nested compiler processes also use the correct version.
+The repository pins Rust, rustfmt, Clippy and `rust-src` through `rust-toolchain.toml`.
+Compiler snapshots need `rust-src` for standard-library source excerpts.
+The current toolchain is Rust 1.99.0. System installations of Cargo or rustc can
+bypass rustup and ignore this file. Put the pinned tools first in `PATH`.
+Select the compiler and documentation generator by absolute path, including when a compiler wrapper is active.
 
 ```sh
-export PATH="$(dirname "$(rustup which --toolchain 1.98.0 cargo)"):$PATH"
-rustup run 1.98.0 rustc --version
+export PATH="$(dirname "$(rustup which --toolchain 1.99.0 cargo)"):$PATH"
+export RUSTC="$(rustup which --toolchain 1.99.0 rustc)"
+export RUSTDOC="$(rustup which --toolchain 1.99.0 rustdoc)"
+rustup run 1.99.0 rustc --version
 python3 scripts/check_rust_format.py
-rustup run 1.98.0 cargo clippy --locked --workspace --all-targets --all-features -- -D warnings
 ```
+
+### Build memory safety
+
+For local macOS builds, run repository compilation through the Cargo memory watchdog.
+Use a new receipt path for each run:
+
+```sh
+mkdir -p target
+python3 scripts/guard_cargo_memory.py --receipt target/clippy-memory.json -- \
+  clippy --locked --workspace --all-targets --all-features -- -D warnings
+```
+
+The watchdog selects the pinned Cargo, rustc and rustdoc by absolute path.
+It uses one Cargo job and disables compiler wrappers that can launch work in a separate cache daemon.
+It permits only one guarded build per user at a time.
+
+Every 250 milliseconds, it measures the owned process group's physical footprint, including compressed memory.
+It stops that group at an observed eight GiB, on elevated memory pressure, or below four GiB of estimated host headroom.
+Startup requires headroom for both the build budget and the host reserve.
+Missing measurements also stop the build.
+
+This is a polling watchdog, not a kernel-enforced memory cap.
+Memory can grow between samples. File-backed pages in the headroom estimate are not necessarily immediately available.
+The guard does not contain deliberate daemonisation or survive its own forced termination.
+
+The composition controller uses the same watchdog for command groups, including child capture scripts.
+Its receipts distinguish natural completion from forced cleanup.
+Slow host telemetry does not delay memory checks.
+For canonical qualification, choose an explicit timeout. Use the fixed `--qualify-performance` route.
+The [performance commands](docs/performance/method.md#commands) show the full invocation.
+
+Do not run a controller that creates separate process groups locally until each compiler process has equivalent protection.
+Use an OS-limited remote job for large or unfamiliar builds.
+Windows Job Objects and Linux container memory limits can enforce aggregate limits independently of the controller.
+
+After a memory abort, inspect the receipt and reduce the build's memory demand.
+Do not bypass the guard, raise its limit or retry the same command without a supported correction.
+Keep measured benchmark profiles unchanged when adjusting correctness-only test profiles.
+The direct Cargo commands below describe commands inside a guarded or OS-limited job.
+
+These safeguards protect shared developer machines. GitHub-hosted CI uses disposable runners with separate memory allocations and job timeouts.
+CI runs Cargo directly. It also tests the watchdog on macOS, but does not use the local watchdog limits for compilation.
+
+### Style and lint checks
 
 Rustfmt follows the [Rust Style Guide](https://doc.rust-lang.org/style-guide/).
 Cargo supplies each package's edition for parsing and formatting. RCA packages
@@ -142,12 +188,12 @@ direct sentences. The release audit applies the Simple English guidance to publi
 and private documentation.
 
 Documentation presence needs both `missing_docs` and
-`clippy::missing_docs_in_private_items`. Rust 1.98 Clippy skips the private check
-for an entire test-harness build. Include a normal library build, not only tests.
+`clippy::missing_docs_in_private_items`. Include a normal library build, not only
+tests, so documentation checks cover the production library.
 For a focused all-features check, run:
 
 ```sh
-rustup run 1.98.0 cargo clippy --locked --workspace --all-features --lib -- -D warnings -D missing_docs -D clippy::missing_docs_in_private_items
+rustup run 1.99.0 cargo clippy --locked --workspace --all-features --lib -- -D warnings -D missing_docs -D clippy::missing_docs_in_private_items
 ```
 
 CI checks every combination of each library's features, using cargo-hack 0.6.45.
@@ -161,7 +207,7 @@ development dependencies. Keep `--locked`; do not add `--no-dev-deps`, which
 rewrites manifests and requires a different lockfile.
 
 ```sh
-rustup run 1.98.0 cargo hack clippy --locked --workspace --exclude rca-size-probe --feature-powerset --lib -- -D warnings -D missing_docs -D clippy::missing_docs_in_private_items
+rustup run 1.99.0 cargo hack clippy --locked --workspace --exclude rca-size-probe --feature-powerset --lib -- -D warnings -D missing_docs -D clippy::missing_docs_in_private_items
 ```
 
 These feature checks do not replace the platform, transport or Loom checks.
@@ -200,14 +246,14 @@ The independent consumer fixtures run Cargo offline with their own lockfiles.
 Before the workspace tests, download those dependencies:
 
 ```sh
-rustup run 1.98.0 cargo fetch --locked --manifest-path rca-core/tests/fixtures/modular-dependencies/Cargo.toml
-rustup run 1.98.0 cargo fetch --locked --manifest-path rca-core/tests/fixtures/rc07-owned-snapshot/Cargo.toml
-rustup run 1.98.0 cargo test --locked --workspace --all-features
-rustup run 1.98.0 cargo test --locked --workspace --all-features --doc
+rustup run 1.99.0 cargo fetch --locked --manifest-path rca-core/tests/fixtures/modular-dependencies/Cargo.toml
+rustup run 1.99.0 cargo fetch --locked --manifest-path rca-core/tests/fixtures/rc07-owned-snapshot/Cargo.toml
+rustup run 1.99.0 cargo test --locked --workspace --all-features
+rustup run 1.99.0 cargo test --locked --workspace --all-features --doc
 export RUSTDOCFLAGS='-D warnings'
-rustup run 1.98.0 cargo doc --locked -p futures-core --no-deps
-rustup run 1.98.0 cargo doc --locked -p rca-event-listener --all-features --no-deps
-rustup run 1.98.0 cargo doc --locked --workspace --all-features --no-deps
+rustup run 1.99.0 cargo doc --locked -p futures-core --no-deps
+rustup run 1.99.0 cargo doc --locked -p rca-event-listener --all-features --no-deps
+rustup run 1.99.0 cargo doc --locked --workspace --all-features --no-deps
 ```
 
 Start with focused checks during development. Before completion, run checks for the
@@ -227,7 +273,7 @@ It requires `cargo-bloat` 0.12.1 in the checkout's local tool directory.
 From the repository root, install that prerequisite before running the suite:
 
 ```sh
-rustup run 1.98.0 cargo install cargo-bloat --version 0.12.1 --locked --root target/task4-tools
+rustup run 1.99.0 cargo install cargo-bloat --version 0.12.1 --locked --root target/task4-tools
 PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s scripts/tests
 ```
 

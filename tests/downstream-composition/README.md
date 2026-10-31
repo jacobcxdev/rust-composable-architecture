@@ -15,7 +15,7 @@ successful default-severity causal-task warning, and warning-free task handling.
 The fixtures are compiled but never executed.
 
 Within a consumer checkout with its `rca-local` registry configured and lockfile
-resolved, run the narrow target with Rust 1.98.0:
+resolved, run the narrow target with Rust 1.99.0:
 
 ```sh
 cargo test --locked --test compiler_contracts -- --check

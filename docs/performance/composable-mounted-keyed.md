@@ -11,7 +11,7 @@ they are not current release evidence.
 
 ## Work and boundaries
 
-Build the candidate fixture with pinned Rust 1.98.0, locked dependencies and the
+Build the candidate fixture with pinned Rust 1.99.0, locked dependencies and the
 release profile. Its DHAT dependency is always enabled. Run each cardinality (0, 2, 10
 and 1,000) in a separate process. Keep the fixture's external process deadline.
 A failed trace, state or ownership check must not produce a successful ledger.

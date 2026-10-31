@@ -11,11 +11,30 @@ from unittest.mock import Mock, patch
 
 SCRIPTS = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(SCRIPTS))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 import composition_runner as runner  # noqa: E402 -- standalone scripts are not a package
 import composition_performance as evaluator  # noqa: E402
 
 
+def setup_guard_fixture(case):
+    """Keep tiny controller fixtures independent of real host memory and locks."""
+    if os.name == "posix":
+        import guard_cargo_memory as guard
+        from test_guard_cargo_memory import FakeProbe
+        temporary = tempfile.TemporaryDirectory()
+        case.addCleanup(temporary.cleanup)
+        lock = patch.object(guard, "LOCK_PATH", Path(temporary.name) / "guard.lock")
+        probe = patch.object(guard, "MacProbe", return_value=FakeProbe())
+        lock.start()
+        probe.start()
+        case.addCleanup(lock.stop)
+        case.addCleanup(probe.stop)
+
+
 class RunnerTests(unittest.TestCase):
+    def setUp(self):
+        setup_guard_fixture(self)
+
     def test_common_harness_keeps_product_bytes_and_records_both_inputs(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -133,22 +152,20 @@ class RunnerTests(unittest.TestCase):
                 with self.assertRaisesRegex(PermissionError, "denied"):
                     runner.stop_owned_process(process)
 
-    def test_verified_zombie_cleanup_preserves_original_command_timeout(self):
-        from types import SimpleNamespace
-        timeout = subprocess.TimeoutExpired(["fixture"], 1)
-        process = SimpleNamespace(pid=12345, returncode=0, poll=lambda: 0,
-                                  wait=Mock(side_effect=[timeout, 0, 0]))
-        snapshot = subprocess.CompletedProcess([], 0, f"12345 {os.getuid()} Z\n", "")
+    def test_counter_guard_timeout_keeps_original_command_exit_receipt(self):
+        import guard_cargo_memory as guard
+        receipt = dict(reason="timeout", returncode=125, command_returncode=0,
+                       cleanup_complete=True, memory_watchdog_sha256=guard.SOURCE_SHA256)
         with tempfile.TemporaryDirectory() as tmp, \
-             patch.object(runner.subprocess, "Popen", return_value=process), \
-             patch.object(runner.os, "killpg", side_effect=PermissionError("denied")), \
-             patch.object(runner.subprocess, "run", return_value=snapshot):
+             patch.object(guard, "run_guarded", return_value=receipt):
             destination = Path(tmp) / "command.txt"
             with self.assertRaises(subprocess.TimeoutExpired) as raised:
                 runner._counter_command(["fixture"], destination, {}, timeout=1)
-            self.assertIs(raised.exception, timeout)
+            self.assertEqual(raised.exception.cmd, ["fixture"])
+            self.assertEqual(raised.exception.timeout, 1)
             self.assertEqual(json.loads(destination.with_suffix(".exit.json").read_text()),
                              {"returncode": 0})
+            self.assertEqual(json.loads(destination.with_suffix(".memory.json").read_text()), receipt)
     @unittest.skipUnless(sys.platform == "darwin", "Darwin zombie-only group EPERM")
     def test_cleanup_handles_real_zombie_group_after_leader_is_reaped(self):
         import signal
@@ -260,7 +277,7 @@ class RunnerTests(unittest.TestCase):
     def test_monitor_preserves_failure_after_child_exits_before_cleanup(self):
         import time
         with tempfile.TemporaryDirectory() as tmp:
-            monitor = runner.HostMonitor(Path(tmp), {})
+            monitor = runner.HostMonitor(Path(tmp), {"quiescence": {"process_monitor_interval_seconds": 1}})
             destination = Path(tmp) / "exited.txt"
             owned = []
             popen = subprocess.Popen
@@ -470,6 +487,77 @@ class RunnerTests(unittest.TestCase):
         with patch.object(runner, "read", side_effect=["a" * 40, " M Cargo.lock"]):
             with self.assertRaisesRegex(ValueError, "clean checkout"):
                 runner.counter_source_identity(SCRIPTS.parent)
+
+    def test_telemetry_has_one_deadline_for_the_whole_sample(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            monitor = runner.HostMonitor(Path(tmp), {})
+            clock, timeouts = [100.0], []
+
+            def slow_probe(command, *, timeout):
+                timeouts.append(timeout)
+                clock[0] += 20
+                return "sample"
+
+            with patch.object(runner.time, "monotonic", side_effect=lambda: clock[0]), \
+                    patch.object(runner, "read", side_effect=slow_probe):
+                with self.assertRaises(subprocess.TimeoutExpired):
+                    monitor.sample("during", active=True)
+            self.assertEqual(timeouts, [30, 10])
+
+    @unittest.skipUnless(sys.platform == "darwin", "Darwin time flags")
+    def test_guard_keeps_time_around_original_command_and_preserves_outputs(self):
+        import guard_cargo_memory as guard
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            monitor = runner.HostMonitor(root, {"quiescence": {"process_monitor_interval_seconds": 0.01}})
+            destination = root / "timed.txt"
+            command = [sys.executable, "-c", "import sys; print('out'); print('err', file=sys.stderr)"]
+            with patch.object(monitor, "idle"), patch.object(monitor, "sample", return_value={}), \
+                    patch.object(guard, "run_guarded", wraps=guard.run_guarded) as execute:
+                monitor.run(command, destination, root, dict(os.environ), counter_receipt=True)
+            self.assertEqual(execute.call_args.args[0],
+                             ["/usr/bin/time", "-lp", "-o", str(destination.with_suffix(".time.txt")), *command])
+            self.assertEqual(sorted(destination.read_text().splitlines()), ["err", "out"])
+            self.assertEqual(json.loads(destination.with_suffix(".command.json").read_text())["command"], command)
+            receipt = json.loads(destination.with_suffix(".memory.json").read_text())
+            self.assertEqual(receipt["memory_watchdog_sha256"], evaluator._sha256(Path(guard.__file__)))
+            self.assertEqual(receipt["reason"], "command-exited")
+            self.assertTrue(receipt["observer_complete"])
+            self.assertGreater(json.loads(destination.with_suffix(".resources.json").read_text())["instructions_retired"], 0)
+
+    def test_counter_setup_failure_retains_receipts_without_launch(self):
+        import guard_cargo_memory as guard
+        with tempfile.TemporaryDirectory() as tmp, \
+                patch.object(guard, "MacProbe", side_effect=OSError("missing counters")), \
+                patch.object(guard.subprocess, "Popen") as start:
+            destination = Path(tmp) / "failed.txt"
+            with self.assertRaisesRegex(ValueError, "missing counters"):
+                runner._counter_command(["must-not-run"], destination, {})
+            start.assert_not_called()
+            receipt = json.loads(destination.with_suffix(".memory.json").read_text())
+            self.assertEqual(receipt["reason"], "setup-error")
+            self.assertIsNone(json.loads(destination.with_suffix(".exit.json").read_text())["returncode"])
+
+    def test_v8_blocks_seal_memory_receipts_without_changing_v7(self):
+        protocol = {"method_version": "composition-paired-v8",
+                    "runtime": {"gated_scenarios": []}, "compile": {"fixtures": ["direct"]}}
+        mode = "candidate-reference"
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            for role in ("subject", "control"):
+                transcript = root / mode / "paired" / role / "compile/direct/block-01.txt"
+                transcript.parent.mkdir(parents=True)
+                for path in (transcript, transcript.with_suffix(".resources.json"),
+                             transcript.with_suffix(".memory.json"), transcript.with_suffix(".exit.json")):
+                    path.write_text("{}")
+            hashes = runner.paired_block_hashes(root, protocol, 1, mode)
+            self.assertEqual(len(hashes), 8)
+            memory = root / mode / "paired/subject/compile/direct/block-01.memory.json"
+            memory.write_text('{"changed":true}')
+            self.assertNotEqual(hashes, runner.paired_block_hashes(root, protocol, 1, mode))
+            protocol["method_version"] = "composition-paired-v7"
+            memory.unlink()
+            self.assertEqual(len(runner.paired_block_hashes(root, protocol, 1, mode)), 4)
 
     def test_counter_rejects_changed_source_tool_lock_or_binary(self):
         self.assertTrue(callable(getattr(runner, "verify_counter_inputs", None)))
@@ -725,6 +813,65 @@ class RunnerTests(unittest.TestCase):
             evaluator._sha256(script),
         ])
 
+    def test_capture_environment_pins_the_parent_python_for_child_and_hashes(self):
+        versions = {
+            "cargo": "cargo 1.99.0 (5f94df478 2026-08-27)",
+            "rustc": "rustc 1.99.0 (b940084d7 2026-09-28)",
+            "rustdoc": "rustdoc 1.99.0 (b940084d7 2026-09-28)",
+        }
+
+        def tool(command, **_kwargs):
+            if command[0] == "rustup":
+                self.assertEqual(command[3], "1.99.0")
+                return f"/pinned/{command[-1]}"
+            return versions[Path(command[0]).name]
+
+        with (patch.dict(os.environ, {"PATH": "/system"}, clear=True),
+              patch.object(runner, "read", side_effect=tool),
+              patch.object(runner, "check_capture_tool")):
+            environment, tools = runner.tool_environment()
+        python = str(Path(sys.executable).resolve())
+        self.assertEqual(environment.get("RCA_COMPOSITION_PYTHON"), python)
+        self.assertEqual(tools.get("python"), python)
+
+    def test_capture_preflight_preserves_selected_python_and_rejects_old_default(self):
+        script = SCRIPTS / "capture-composition-performance.sh"
+        source = script.read_text()
+        prefix = source[:source.index("# Require the controller's live memory watchdog")]
+        commands = (
+            "awk cargo cat date dirname env file git grep jq mktemp rm rustup sed "
+            "shasum stat sw_vers sysctl tail touch tr uname"
+        ).split()
+        with tempfile.TemporaryDirectory() as tmp:
+            directory = Path(tmp)
+            for command in commands:
+                path = directory / command
+                path.write_text("#!/bin/sh\nexit 0\n")
+                path.chmod(0o755)
+            obsolete = directory / "python3"
+            obsolete.write_text("#!/bin/sh\nexit 1\n")
+            obsolete.chmod(0o755)
+            environment = {**os.environ, "PATH": str(directory)}
+            environment.pop("RCA_COMPOSITION_PYTHON", None)
+            old = subprocess.run(
+                ["/bin/bash", "-c", prefix, str(script), str(directory / "output")],
+                env=environment, text=True, capture_output=True,
+            )
+            self.assertNotEqual(old.returncode, 0)
+            self.assertIn("Python 3.11 or later", old.stderr)
+            self.assertFalse((directory / "output").exists())
+
+            python = str(Path(sys.executable).resolve())
+            selected = subprocess.run(
+                ["/bin/bash", "-c", prefix + '\n"${python_bin}" -c "import sys; print(sys.executable)"',
+                 str(script), str(directory / "output")],
+                env={**environment, "RCA_COMPOSITION_PYTHON": python},
+                text=True, capture_output=True,
+            )
+            self.assertEqual(selected.returncode, 0, selected.stderr)
+            self.assertEqual(selected.stdout.strip(), python)
+            self.assertFalse((directory / "output").exists())
+
     def test_absolute_capture_uses_controller_fix_on_reference_sources(self):
         source = Path(runner.__file__).read_text()
         start = source.index("    capture_env = {")
@@ -736,7 +883,7 @@ class RunnerTests(unittest.TestCase):
             "roots": {"subject": Path("/reference")},
             "targets": Path("/targets"),
             "staging": Path("/staging"),
-            "env": {},
+            "env": {"RCA_COMPOSITION_PYTHON": "/validated/python3"},
             "monitor": monitor,
             "evidence": evidence,
             "BUDGET": Path("/budgets"),
@@ -752,6 +899,8 @@ class RunnerTests(unittest.TestCase):
         self.assertEqual(monitor.run.call_args.args[0][0],
                          "/controller/scripts/capture-composition-performance.sh")
         self.assertEqual(monitor.run.call_args.args[2], Path("/reference"))
+        self.assertEqual(monitor.run.call_args.args[3]["RCA_COMPOSITION_PYTHON"],
+                         "/validated/python3")
         self.assertEqual(evidence.evaluate_absolute.call_args.args[3], "corrected")
 
     def test_candidate_cli_captures_its_own_contemporaneous_control(self):
@@ -1638,6 +1787,7 @@ class CounterAllocationRunnerTests(unittest.TestCase):
     ready_futures = False
 
     def setUp(self):
+        setup_guard_fixture(self)
         self.assertTrue(callable(getattr(runner, "capture_counter_allocation_programme", None)),
                         "allocation controller is missing")
         self.options = {"ready_futures": True} if self.ready_futures else {}
@@ -1897,6 +2047,7 @@ class ReadyFutureAllocationRunnerTests(CounterAllocationRunnerTests):
 
 class CommonOutcomeAllocationRunnerTests(CounterAllocationRunnerTests):
     def setUp(self):
+        setup_guard_fixture(self)
         from test_common_outcome_allocations import PROTOCOL
         allocations = runner.common_outcome_evidence
         self.options = {"common_outcome": True}

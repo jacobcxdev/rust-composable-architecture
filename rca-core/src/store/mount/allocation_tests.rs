@@ -261,7 +261,7 @@ pub(super) fn exercise<S, C, F, T>(
             .filter_map(|(index, mount)| mount.reaction_entry().map(|(scope, _)| (index, scope)))
             .collect::<Vec<_>>()
     });
-    assert!(empty_roster.is_empty());
+    assert_eq!(empty_roster, [] as [(usize, ScopeToken); 0]);
     eprintln!(
         "{label} blocks/requested bytes: registry={scope_new:?}; lifecycle Arc={lifecycle_new:?}; bind={binding:?}; empty declaration/node Vec={empty_mounts:?}/{empty_nodes:?}; first declaration Vec slot={first_mount_slot:?}; reconcile cold/warm={reconcile:?}/{warm_reconcile:?}"
     );

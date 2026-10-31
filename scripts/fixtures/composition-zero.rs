@@ -65,10 +65,8 @@ struct CapturedRuntime {
 }
 
 impl fmt::Debug for CapturedRuntime {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter
-            .debug_struct("CapturedRuntime")
-            .finish_non_exhaustive()
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("CapturedRuntime").finish_non_exhaustive()
     }
 }
 
@@ -199,19 +197,37 @@ impl Reducer for Leaf {
     }
 }
 
+/// Projects the shared state without depending on the child reducer type.
+fn level_state_path() -> StatePath<
+    State,
+    State,
+    impl for<'a> Fn(&'a State) -> &'a State + Copy,
+    impl for<'a> Fn(&'a mut State) -> &'a mut State + Copy,
+> {
+    StatePath::new(|state: &State| state, |state: &mut State| state)
+}
+
+/// Filters actions without depending on the child reducer type.
+fn level_action_path(
+    required_depth: usize,
+) -> ActionPath<
+    Action,
+    Action,
+    impl for<'a> Fn(&'a Action) -> Option<&'a Action> + Copy,
+    impl Fn(Action) -> Action + Copy,
+> {
+    ActionPath::new(
+        move |action: &Action| (action.depth >= required_depth).then_some(action),
+        |action| action,
+    )
+}
+
 /// Adds one borrowed state/action path without changing the leaf workload.
 fn level<Child>(required_depth: usize, child: Child) -> impl Reducer<State = State, Action = Action>
 where
     Child: Reducer<State = State, Action = Action>,
 {
-    scope(
-        StatePath::new(|state: &State| state, |state: &mut State| state),
-        ActionPath::new(
-            move |action: &Action| (action.depth >= required_depth).then_some(action),
-            |action| action,
-        ),
-        child,
-    )
+    scope(level_state_path(), level_action_path(required_depth), child)
 }
 
 /// Builds the original sixteen nested, borrowed scopes.
@@ -287,6 +303,15 @@ fn scope_none_paths_do_not_allocate_after_warm_up() {
         let mut depth_4 = level(1, level(2, level(3, level(4, Leaf))));
         let mut depth_16 = depth_16();
         let mut state = State { calls: 0 };
+
+        // Keep repeated child ancestry out of compiler-generated callback types.
+        // This compiler-specific check stays outside the allocation measurement.
+        let one_name_len = std::any::type_name_of_val(&depth_1).len();
+        let four_name_len = std::any::type_name_of_val(&depth_4).len();
+        assert!(
+            four_name_len <= 4 * one_name_len,
+            "scope callback types must grow linearly: {one_name_len} -> {four_name_len}"
+        );
 
         assert_none(&black_box(direct.reduce(
             &mut state,

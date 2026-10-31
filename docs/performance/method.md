@@ -12,35 +12,58 @@ The `mac15-9-m3-max-16c-48gb-macos27-ac-high` runner is:
 
 - `Mac15,9`, Apple M3 Max, 16 logical CPUs, and 48 GiB memory;
 - macOS 27 on AC power with high-power mode selected; and
-- exact Rust and Cargo 1.98.0.
+- exact Rust and Cargo 1.99.0.
 
 `scripts/qualify-performance.sh` validates this cohort, a clean checkout, release-profile settings, and absence of another RCA benchmark process. Results from a different runner are not comparable. New runner cohorts require a separately reviewed baseline instead of relabelling existing evidence.
 
 On 30 October 2026, the canonical runner changed to the installed macOS 27 host.
-The first host version is macOS 27.0, build `26A428`. Hardware and toolchain requirements remain unchanged.
+The first host version is macOS 27.0, build `26A428`. Hardware requirements remain unchanged.
+Rust 1.99.0 is required for both revisions. Earlier Rust 1.98 captures remain historical evidence and do not qualify the current toolchain.
 New qualification must capture both pinned revisions on this runner. The reference source revision, scenario list, sample counts and regression limits remain unchanged.
 Retain macOS 26 evidence under its original runner and protocol identities. It does not qualify a macOS 27 pair.
 The qualifier's new source hash gives this cohort a new protocol identity. The comparator rejects evidence with the previous protocol hash.
 
 ## Commands
 
+Local captures require [compiler memory protection](../../CONTRIBUTING.md#build-memory-safety).
+The fixed `--qualify-performance` route runs the canonical script in the watchdog's owned process group.
+It selects the pinned Rust tools. The route disables compiler wrappers.
+Cargo uses one build job. The shell rejects direct invocation of `qualify-performance.sh`.
+
+Choose a timeout before the run. The example allows 3600 seconds.
+The watchdog does not extend that timeout or retry a failed capture.
+This polling watchdog is not a kernel-enforced memory cap.
+Native Instruments services can start processes outside the owned group. The watchdog does not contain those processes.
+
 From a clean checkout:
 
 ```bash
-./scripts/qualify-performance.sh \
+mkdir -p target/qualification-evidence
+python3 scripts/guard_cargo_memory.py \
+  --receipt target/qualification-evidence/qualification-memory.json \
+  --timeout 3600 --qualify-performance -- \
   target/qualification-evidence/candidate.json \
   /tmp/rca-performance-reference \
   target/qualification-evidence/baseline.json
+```
+
+After the watchdog exits with status 0, run the comparison:
+
+```bash
 ./scripts/compare-performance.sh \
   target/qualification-evidence/baseline.json \
   target/qualification-evidence/candidate.json
 ```
 
-Retain the paired JSON, comparison, Divan log and profile report together as
-qualification artefacts outside the tracked source tree. Do not change measured
+The comparator requires the final watchdog receipt named in both JSON files.
+That receipt binds both files by path and hash, after successful process exit and cleanup.
+Missing receipts, forced descendant cleanup and changed output files fail comparison.
+
+Retain the watchdog receipt, paired JSON, comparison, Divan log and profile report together.
+Keep these qualification artefacts outside the tracked source tree. Do not change measured
 rows or cohort metadata. Qualification stages all four artefacts and refuses
-existing or aliased output paths. Failure removes only artefacts published by
-that invocation.
+existing or aliased output paths. If shell capture fails, it removes only artefacts published by that invocation.
+A later watchdog or output-binding failure preserves completed files as failed evidence.
 
 The reference argument accepts a clean worktree or the exact revision from `docs/performance/baseline-revision.txt`.
 For either argument, the controller repository must contain that archived Git object. This requirement lets the comparator check provenance without an external worktree.
@@ -56,7 +79,7 @@ Both results record the original product trees, manifest hashes and original har
 `qualification_source_sha256` identifies the common harness that actually ran.
 Build metadata records each temporary source directory and its normal and DHAT executables. These directories are removed after capture.
 The comparator checks original identities against the archived Git objects and checks the common harness against the current controller.
-Protocol identity includes this harness, the exact ordered scenario manifest and the qualification script.
+Protocol identity includes this harness, the exact ordered scenario manifest, the qualification script and the memory watchdog.
 Changes to measurement boundaries or capture policy require fresh paired evidence, not new labels on historical captures.
 
 The common harness retains the current mailbox admission and final-state checks.
@@ -121,7 +144,7 @@ Its results never share a cohort with Mac results.
 It uses the same reference revision, common workload, dependency locks, fifty scenarios, samples, balanced pairs and `1.10` regression limit.
 
 `scripts/capture-windows-performance.py` consumes four prebuilt executables and their source/build receipt.
-The receipt binds each executable to its product source, dependency lock, common harness and exact Rust 1.98.0 toolchain.
+The receipt binds each executable to its product source, dependency lock, common harness and exact Rust 1.99.0 toolchain.
 The capture checks binary hashes before and after measurement.
 Both result files retain the exact `source-build.json` receipt beside them.
 The comparator checks its hash, embedded copy, executable roles and source/toolchain identities.

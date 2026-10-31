@@ -15,6 +15,31 @@ assert SPEC is not None and SPEC.loader is not None
 composition_performance = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(composition_performance)
 
+WATCHDOG_SHA256 = "d" * 64
+
+
+def write_memory_receipt(transcript: pathlib.Path) -> dict:
+    receipt = {
+        "protection": "polling-watchdog-not-kernel-memory-cap",
+        "started": True,
+        "reason": "command-exited",
+        "returncode": 0,
+        "command_returncode": 0,
+        "cleanup_complete": True,
+        "observer_complete": True,
+        "descendants_complete": True,
+        "forced_cleanup": False,
+        "memory_limit_bytes": 8589934592,
+        "host_reserve_bytes": 4294967296,
+        "sample_interval_seconds": 0.25,
+        "memory_watchdog_sha256": WATCHDOG_SHA256,
+        "peak_footprint_bytes": 1024,
+        "peak_process_count": 2,
+    }
+    transcript.with_suffix(".memory.json").write_text(json.dumps(receipt))
+    transcript.with_suffix(".exit.json").write_text('{"returncode":0}')
+    return receipt
+
 
 class ComposableFiniteStreamTests(unittest.TestCase):
     def rows(self, engine="rca"):
@@ -664,6 +689,14 @@ class PairedComparisonTests(unittest.TestCase):
             for block in range(1, 21):
                 write_compile_observation(subject, fixture, block, 6.0)
                 write_compile_observation(control, fixture, block, 6.0)
+        if protocol["method_version"] == composition_performance.CURRENT_METHOD:
+            for role in ("subject", "control"):
+                for suffix in ("", "-list"):
+                    transcript = root / "builds" / f"{role}{suffix}.txt"
+                    transcript.parent.mkdir(exist_ok=True)
+                    transcript.write_text("successful preparation\n")
+            for transcript in root.rglob("*.txt"):
+                write_memory_receipt(transcript)
         plan = root / "measurement-plan.json"
         plan.write_text(
             json.dumps(composition_performance.measurement_plan(protocol, mode)),
@@ -1106,12 +1139,430 @@ class InterleavedProtocolTests(unittest.TestCase):
         self.assertEqual(reports[2]["method_version"], "composition-paired-v7")
 
 
+class CurrentMacProtocolTests(unittest.TestCase):
+    def test_v8_requires_the_combined_capture_and_exact_protocol_bytes(self):
+        from types import SimpleNamespace
+        path = REPO_ROOT / "docs/performance/composition/composition-protocol-v8.json"
+        with self.assertRaisesRegex(ValueError, "combined capture"):
+            composition_performance._command_evaluate_protocol(SimpleNamespace(protocol=path))
+        with tempfile.TemporaryDirectory() as directory:
+            changed = pathlib.Path(directory) / "changed.json"
+            changed.write_bytes(path.read_bytes() + b"\n")
+            with self.assertRaisesRegex(ValueError, "file hash"):
+                composition_performance.load_protocol(changed)
+
+    def test_v8_keeps_all_gates_and_historical_protocol_bytes(self):
+        directory = REPO_ROOT / "docs/performance/composition"
+        current = composition_performance.load_protocol(directory / "composition-protocol-v8.json")
+        previous = composition_performance.load_protocol(directory / "composition-protocol-v7.json")
+        for field in ("runner", "minimum_macos_major", "baseline_runner", "binary_baseline_runner",
+                      "reference_revision", "budget_sha256", "allocation_manifest_sha256", "regression_limit",
+                      "randomisation", "runtime", "compile", "confidence", "quiescence", "resource_counters",
+                      "modes", "interleaving"):
+            self.assertEqual(current[field], previous[field], field)
+        self.assertEqual(current["absolute_compatibility"]["budget_rows"], 33)
+        self.assertEqual(current["scope"], "paired-and-macos-absolute")
+        self.assertEqual(current["toolchain"], composition_performance.CURRENT_TOOLCHAIN)
+        self.assertEqual(composition_performance.expected_toolchain(previous), composition_performance.TOOLCHAIN)
+        self.assertEqual(composition_performance._sha256(directory / "composition-protocol-v7.json"),
+                         composition_performance.PROTOCOL_SHA256)
+        files = current["common_workloads"]["files"]
+        self.assertEqual(set(files) - set(previous["common_workloads"]["files"]),
+                         {"rca-core/benches/composition/fixtures.rs"})
+        for source in ("rca-core/benches/composition.rs", "rca-core/benches/composition/fixtures.rs"):
+            self.assertEqual(files[source]["sha256"], composition_performance._sha256(REPO_ROOT / source))
+
+    def test_current_mac_plan_and_gate_evaluation_keep_interleaving(self):
+        directory = REPO_ROOT / "docs/performance/composition"
+        protocol = composition_performance.load_protocol(directory / "composition-protocol-v8.json")
+        metadata = dict(mode="candidate-reference", subject_role="candidate", control_role="reference",
+                        subject_revision="1" * 40, control_revision=composition_performance.REFERENCE_REVISION,
+                        os_version="27.0", os_build="26A428", capture_sha256="a" * 64,
+                        memory_watchdog_sha256=WATCHDOG_SHA256)
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            subject, control, plan = PairedComparisonTests()._write_protocol_pair_fixture(
+                root, protocol, "candidate-reference")
+            stored = json.loads(plan.read_text())
+            self.assertEqual(stored["interleaving"], protocol["interleaving"])
+            self.assertEqual(stored["toolchain"], composition_performance.CURRENT_TOOLCHAIN)
+            reports = composition_performance.evaluate_protocol_paired(
+                REPO_ROOT / "docs/performance/composition/composition-budgets.json",
+                protocol, subject, control, plan, metadata)
+            self.assertTrue(reports[2]["passed"])
+            self.assertEqual(len(reports[2]["rows"]), 14)
+            self.assertEqual(reports[2]["toolchain"], composition_performance.CURRENT_TOOLCHAIN)
+            self.assertNotIn("qualification_scope", reports[2])
+            with self.assertRaisesRegex(ValueError, "capture"):
+                composition_performance.evaluate_protocol_paired(
+                    REPO_ROOT / "docs/performance/composition/composition-budgets.json",
+                    protocol, subject, control, plan, {**metadata, "capture_sha256": None})
+
+
+class MacWatchdogEvidenceTests(unittest.TestCase):
+    def test_accepts_successful_receipts_and_zero_peak_samples(self):
+        with tempfile.TemporaryDirectory() as directory:
+            transcript = pathlib.Path(directory) / "command.txt"
+            transcript.write_text("completed\n")
+            receipt = write_memory_receipt(transcript)
+            composition_performance.validate_memory_watchdog_receipt(transcript, WATCHDOG_SHA256)
+            receipt.update(peak_footprint_bytes=0, peak_process_count=0)
+            transcript.with_suffix(".memory.json").write_text(json.dumps(receipt))
+            composition_performance.validate_memory_watchdog_receipt(transcript, WATCHDOG_SHA256)
+
+    def test_rejects_missing_fields_failed_stops_and_changed_protection(self):
+        with tempfile.TemporaryDirectory() as directory:
+            transcript = pathlib.Path(directory) / "command.txt"
+            transcript.write_text("completed\n")
+            valid = write_memory_receipt(transcript)
+            invalid = [{key: value for key, value in valid.items() if key != missing}
+                       for missing in valid]
+            for field, value in (
+                ("protection", "kernel-memory-cap"), ("started", False), ("started", 1),
+                ("reason", "memory-limit"), ("reason", "measurement-error"),
+                ("reason", "timeout"), ("reason", "observer-error"),
+                ("returncode", 1), ("returncode", False), ("command_returncode", None),
+                ("command_returncode", False), ("cleanup_complete", False),
+                ("observer_complete", False), ("observer_complete", 1),
+                ("descendants_complete", False), ("descendants_complete", 1),
+                ("forced_cleanup", True), ("forced_cleanup", 0),
+                ("memory_limit_bytes", 8589934593), ("host_reserve_bytes", 0),
+                ("sample_interval_seconds", 1), ("memory_watchdog_sha256", "e" * 64),
+                ("peak_footprint_bytes", -1), ("peak_footprint_bytes", 8589934592),
+                ("peak_process_count", -1), ("peak_process_count", False),
+                ("peak_footprint_bytes", float("nan")),
+            ):
+                invalid.append({**valid, field: value})
+            for receipt in invalid:
+                with self.subTest(receipt=receipt):
+                    transcript.with_suffix(".memory.json").write_text(json.dumps(receipt))
+                    with self.assertRaisesRegex(ValueError, "watchdog"):
+                        composition_performance.validate_memory_watchdog_receipt(transcript, WATCHDOG_SHA256)
+
+    def test_rejects_missing_malformed_and_unsuccessful_sidecars(self):
+        with tempfile.TemporaryDirectory() as directory:
+            transcript = pathlib.Path(directory) / "command.txt"
+            transcript.write_text("completed\n")
+            for suffix in (".memory.json", ".exit.json"):
+                for content in (None, "{", "[]", '{"returncode":1}', '{"returncode":false}'):
+                    with self.subTest(suffix=suffix, content=content):
+                        write_memory_receipt(transcript)
+                        path = transcript.with_suffix(suffix)
+                        if content is None:
+                            path.unlink()
+                        else:
+                            path.write_text(content)
+                        with self.assertRaisesRegex(ValueError, "watchdog"):
+                            composition_performance.validate_memory_watchdog_receipt(transcript, WATCHDOG_SHA256)
+            write_memory_receipt(transcript)
+            transcript.unlink()
+            with self.assertRaisesRegex(ValueError, "transcript is missing"):
+                composition_performance.validate_memory_watchdog_receipt(transcript, WATCHDOG_SHA256)
+
+    def test_v8_diagnostics_require_matching_successful_receipts(self):
+        protocol = composition_performance.load_protocol(
+            REPO_ROOT / "docs/performance/composition/composition-protocol-v8.json")
+        original = REPO_ROOT / "scripts/tests/fixtures/composition-performance/raw/runtime-divan-01.txt"
+        roles = ("candidate", "reference")
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            diagnostics = root / "diagnostics"
+            diagnostics.mkdir()
+            write_compile_observation(root, "direct", 1, 6.0)
+            resources = (root / "compile/direct/block-01.resources.json").read_bytes()
+            for role in roles:
+                transcript = diagnostics / f"{role}.txt"
+                transcript.write_bytes(original.read_bytes())
+                transcript.with_suffix(".resources.json").write_bytes(resources)
+                write_memory_receipt(transcript)
+            composition_performance.validate_protocol_diagnostics(
+                diagnostics, roles, protocol, WATCHDOG_SHA256)
+            with self.assertRaisesRegex(ValueError, "watchdog"):
+                composition_performance.validate_protocol_diagnostics(diagnostics, roles, protocol)
+            transcript = diagnostics / "reference.txt"
+            for suffix in (".memory.json", ".exit.json"):
+                path = transcript.with_suffix(suffix)
+                saved = path.read_bytes()
+                path.unlink()
+                with self.subTest(suffix=suffix), self.assertRaisesRegex(ValueError, "incomplete"):
+                    composition_performance.validate_protocol_diagnostics(
+                        diagnostics, roles, protocol, WATCHDOG_SHA256)
+                path.write_bytes(saved)
+            receipt = write_memory_receipt(transcript)
+            receipt["descendants_complete"] = False
+            transcript.with_suffix(".memory.json").write_text(json.dumps(receipt))
+            with self.assertRaisesRegex(ValueError, "watchdog"):
+                composition_performance.validate_protocol_diagnostics(
+                    diagnostics, roles, protocol, WATCHDOG_SHA256)
+
+    def test_v8_pair_rejects_missing_preparation_runtime_and_compile_receipts(self):
+        protocol = composition_performance.load_protocol(
+            REPO_ROOT / "docs/performance/composition/composition-protocol-v8.json")
+        metadata = dict(mode="candidate-reference", subject_role="candidate", control_role="reference",
+                        subject_revision="1" * 40, control_revision=composition_performance.REFERENCE_REVISION,
+                        os_version="27.0", os_build="26A428", capture_sha256="a" * 64,
+                        memory_watchdog_sha256=WATCHDOG_SHA256)
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            subject, control, plan = PairedComparisonTests()._write_protocol_pair_fixture(
+                root, protocol, "candidate-reference")
+            paths = [root / "builds" / f"{role}{suffix}.txt"
+                     for role in ("subject", "control") for suffix in ("", "-list")]
+            paths.extend((subject / "runtime/direct__1/block-01.txt",
+                          control / "compile/direct/block-01.txt"))
+            for transcript in paths:
+                for suffix in (".memory.json", ".exit.json"):
+                    path = transcript.with_suffix(suffix)
+                    saved = path.read_bytes()
+                    path.unlink()
+                    with self.subTest(path=path), self.assertRaisesRegex(ValueError, "watchdog|incomplete"):
+                        composition_performance.evaluate_protocol_paired(
+                            REPO_ROOT / "docs/performance/composition/composition-budgets.json",
+                            protocol, subject, control, plan, metadata)
+                    path.write_bytes(saved)
+            for digest in (None, "bad", "e" * 64):
+                with self.subTest(digest=digest), self.assertRaisesRegex(ValueError, "watchdog"):
+                    composition_performance.evaluate_protocol_paired(
+                        REPO_ROOT / "docs/performance/composition/composition-budgets.json",
+                        protocol, subject, control, plan, {**metadata, "memory_watchdog_sha256": digest})
+
+
+class WindowsPairedProtocolTests(unittest.TestCase):
+    def protocol(self):
+        return composition_performance.load_protocol(
+            REPO_ROOT / "docs/performance/composition/composition-windows-paired-v1.json"
+        )
+
+    @staticmethod
+    def resources(real_seconds=0.5, *, compiler=False):
+        telemetry = composition_performance.WINDOWS_COMPILER_TELEMETRY
+        return {
+            "real_seconds": real_seconds,
+            "direct_process": {
+                "QueryProcessCycleTime": 2000,
+                "CreationTime100ns": 100,
+                "ExitTime100ns": 500,
+                "KernelTime100ns": 100,
+                "UserTime100ns": 200,
+                "PeakWorkingSetSize": 1000,
+                "PeakPagefileUsage": 900,
+                "PageFaultCount": 0,
+                "instructions_retired": None,
+            },
+            "process_receipt": {
+                "command_kind": "compile" if compiler else "runtime",
+                "returncode": 0,
+                "elapsed_seconds": real_seconds + 0.1 if compiler else real_seconds,
+                "leader_elapsed_seconds": real_seconds,
+                "descendants_exited": True,
+                "descendants_exited_naturally": True,
+                "compiler_telemetry_path": telemetry["path"] if compiler else None,
+                "compiler_telemetry_sha256": telemetry["sha256"] if compiler else None,
+                "terminated_telemetry": [],
+                "job_memory_limit_bytes": 2 * 1024**3,
+            },
+        }
+
+    def test_windows_compile_time_excludes_only_verified_telemetry_cleanup(self):
+        import copy
+        row = self.resources(1.0, compiler=True)
+        receipt = row["process_receipt"]
+        receipt["elapsed_seconds"] = 2.0
+        receipt["descendants_exited_naturally"] = False
+        receipt["terminated_telemetry"] = [{"pid": 42, "image_path": receipt["compiler_telemetry_path"].lower()}]
+        composition_performance.validate_windows_resource_counters(row, expected_kind="compile")
+        for field, value in (("returncode", True), ("returncode", 1),
+                             ("elapsed_seconds", 0.5), ("leader_elapsed_seconds", 0),
+                             ("leader_elapsed_seconds", float("nan")),
+                             ("job_memory_limit_bytes", 8 * 1024**3),
+                             ("descendants_exited", False), ("descendants_exited_naturally", True),
+                             ("compiler_telemetry_path", "C:/other/VCTIP.EXE"),
+                             ("compiler_telemetry_sha256", "0" * 64)):
+            bad = copy.deepcopy(row)
+            bad["process_receipt"][field] = value
+            with self.subTest(field=field), self.assertRaises(ValueError):
+                composition_performance.validate_windows_resource_counters(bad)
+        for terminated in ([{"pid": True, "image_path": receipt["compiler_telemetry_path"]}],
+                           [{"pid": 42, "image_path": "C:/other/VCTIP.EXE"}],
+                           receipt["terminated_telemetry"] * 2,
+                           [{"pid": 42, "image_path": receipt["compiler_telemetry_path"], "extra": True}]):
+            bad = copy.deepcopy(row)
+            bad["process_receipt"]["terminated_telemetry"] = terminated
+            with self.subTest(terminated=terminated), self.assertRaises(ValueError):
+                composition_performance.validate_windows_resource_counters(bad)
+        with self.assertRaises(ValueError):
+            composition_performance.validate_windows_resource_counters(row, expected_kind="runtime")
+        row["real_seconds"] = receipt["elapsed_seconds"]
+        with self.assertRaises(ValueError):
+            composition_performance.validate_windows_resource_counters(row)
+
+    def test_windows_runtime_requires_natural_exit_and_full_elapsed_time(self):
+        import copy
+        row = self.resources(2.0)
+        row["process_receipt"]["leader_elapsed_seconds"] = 1.0
+        composition_performance.validate_windows_resource_counters(row, expected_kind="runtime")
+        for field, value in (("descendants_exited_naturally", False),
+                             ("compiler_telemetry_path", composition_performance.WINDOWS_COMPILER_TELEMETRY["path"]),
+                             ("compiler_telemetry_sha256", composition_performance.WINDOWS_COMPILER_TELEMETRY["sha256"]),
+                             ("terminated_telemetry", [{"pid": 42, "image_path": "VCTIP.EXE"}]),
+                             ("command_kind", "other")):
+            bad = copy.deepcopy(row)
+            bad["process_receipt"][field] = value
+            with self.subTest(field=field), self.assertRaises(ValueError):
+                composition_performance.validate_windows_resource_counters(bad)
+        with self.assertRaises(ValueError):
+            composition_performance.validate_windows_resource_counters(row, expected_kind="compile")
+        row["real_seconds"] = 1.0
+        with self.assertRaises(ValueError):
+            composition_performance.validate_windows_resource_counters(row)
+
+    def test_preserves_sampling_confidence_and_gates_without_mac_absolute_claims(self):
+        protocol = self.protocol()
+        mac = composition_performance.load_protocol(
+            REPO_ROOT / "docs/performance/composition/composition-protocol-v7.json"
+        )
+        for key in ("randomisation", "runtime", "compile", "confidence", "interleaving",
+                    "regression_limit", "budget_sha256", "reference_revision"):
+            self.assertEqual(protocol[key], mac[key], key)
+        self.assertEqual(protocol["scope"], "paired-only")
+        self.assertFalse(protocol["absolute_compatibility"]["qualified"])
+        self.assertNotIn("minimum_macos_major", protocol)
+        self.assertNotIn("process_monitor_interval_seconds", protocol["quiescence"])
+        self.assertEqual(protocol["process_memory_limit_bytes"], 2 * 1024**3)
+        self.assertNotEqual(protocol["runner"], mac["runner"])
+        self.assertEqual(protocol["common_workloads"]["files"]["rca-core/benches/composition.rs"]["sha256"],
+                         composition_performance._sha256(REPO_ROOT / "rca-core/benches/composition.rs"))
+        for mode in ("candidate-reference", "reference-reference-aa"):
+            plan = composition_performance.measurement_plan(protocol, mode)
+            self.assertEqual(len(plan["runtime"]), 180)
+            self.assertEqual(len(plan["compile"]), 80)
+            self.assertEqual(plan["interleaving"], mac["interleaving"])
+
+    def test_windows_toolchain_is_separate_from_the_frozen_mac_protocol(self):
+        protocol = self.protocol()
+        mac = composition_performance.load_protocol(
+            REPO_ROOT / "docs/performance/composition/composition-protocol-v7.json"
+        )
+        self.assertTrue(protocol["toolchain"].startswith("rustc 1.99.0 "))
+        self.assertIn("; cargo 1.99.0 ", protocol["toolchain"])
+        self.assertEqual(composition_performance.expected_toolchain(protocol), protocol["toolchain"])
+        self.assertEqual(composition_performance.expected_toolchain(mac), composition_performance.TOOLCHAIN)
+        self.assertTrue(composition_performance.expected_toolchain(mac).startswith("rustc 1.98.0 "))
+        versions = composition_performance.expected_tool_versions(protocol)
+        self.assertEqual(versions, composition_performance.CURRENT_TOOL_VERSIONS)
+        versions["rustc"] = "mutated copy"
+        self.assertNotEqual(composition_performance.CURRENT_TOOL_VERSIONS["rustc"], "mutated copy")
+
+    def test_windows_counters_reject_malformed_or_invented_metrics(self):
+        import copy
+        valid = self.resources()
+        invalid = []
+        for key, value in (("real_seconds", 0), ("real_seconds", True),
+                           ("real_seconds", float("nan")), ("real_seconds", float("inf")),
+                           ("direct_process", None), ("process_receipt", None),
+                           ("process_receipt", {})):
+            invalid.append({**valid, key: value})
+        for key, value in (("instructions_retired", 1), ("QueryProcessCycleTime", 0),
+                           ("QueryProcessCycleTime", True), ("KernelTime100ns", -1),
+                           ("UserTime100ns", 1.5), ("ExitTime100ns", 99),
+                           ("PeakWorkingSetSize", 0), ("PeakPagefileUsage", 0)):
+            row = copy.deepcopy(valid)
+            row["direct_process"][key] = value
+            invalid.append(row)
+        missing = copy.deepcopy(valid)
+        del missing["direct_process"]["PageFaultCount"]
+        invalid.append(missing)
+        invalid.append({**valid, "user_seconds": 1.0})
+        extra = copy.deepcopy(valid)
+        extra["direct_process"]["child_cpu_seconds"] = 1.0
+        invalid.append(extra)
+        with tempfile.TemporaryDirectory() as directory:
+            path = pathlib.Path(directory) / "resources.json"
+            path.write_text(json.dumps(valid))
+            self.assertEqual(composition_performance._load_resource_counters(path, self.protocol()), valid)
+            for row in invalid:
+                with self.subTest(row=row):
+                    path.write_text(json.dumps(row))
+                    with self.assertRaises(ValueError):
+                        composition_performance._load_resource_counters(path, self.protocol())
+
+    def test_windows_and_mac_resource_records_cannot_be_interchanged(self):
+        windows = self.protocol()
+        mac = composition_performance.load_protocol(
+            REPO_ROOT / "docs/performance/composition/composition-protocol-v7.json"
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            write_compile_observation(root, "direct", 1, 6.0)
+            path = root / "compile/direct/block-01.resources.json"
+            with self.assertRaises(ValueError):
+                composition_performance._load_resource_counters(path, windows)
+            path.write_text(json.dumps(self.resources()))
+            with self.assertRaises(ValueError):
+                composition_performance._load_resource_counters(path, mac)
+
+    def test_windows_retains_all_fourteen_gates_and_rejects_mac_absolute_evaluation(self):
+        protocol = self.protocol()
+        budget = REPO_ROOT / "docs/performance/composition/composition-budgets.json"
+        metadata = dict(mode="candidate-reference", subject_role="candidate", control_role="reference",
+                        subject_revision="1" * 40, control_revision=composition_performance.REFERENCE_REVISION,
+                        platform="windows", target="x86_64-pc-windows-msvc", os_version="10.0.26200",
+                        os_build="26200", capture_sha256="a" * 64)
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            subject, control, plan = PairedComparisonTests()._write_protocol_pair_fixture(
+                root, protocol, "candidate-reference")
+            for path in root.rglob("*.resources.json"):
+                seconds = json.loads(path.read_text())["real_seconds"]
+                path.write_text(json.dumps(self.resources(seconds, compiler="compile" in path.parts)))
+            reports = composition_performance.evaluate_protocol_paired(
+                budget, protocol, subject, control, plan, metadata)
+            self.assertEqual(len(reports[2]["rows"]), 14)
+            self.assertTrue(reports[2]["passed"])
+            self.assertEqual(reports[2]["runner"], protocol["runner"])
+            self.assertEqual(reports[2]["toolchain"], protocol["toolchain"])
+            self.assertEqual(reports[2]["qualification_scope"], "paired-only")
+            for bad in ({**metadata, "platform": "macos"}, {**metadata, "target": "aarch64-apple-darwin"},
+                        {**metadata, "os_version": "27.0"}, {**metadata, "capture_sha256": None}):
+                with self.subTest(metadata=bad), self.assertRaises(ValueError):
+                    composition_performance.evaluate_protocol_paired(budget, protocol, subject, control, plan, bad)
+            with self.assertRaisesRegex(ValueError, "Windows paired evidence"):
+                composition_performance.evaluate_absolute(
+                    budget, root / "missing-absolute", "1" * 40, timing_report=reports[0])
+            # A valid runtime receipt cannot change the compile-time boundary.
+            transcript = subject / "compile/direct/block-01.resources.json"
+            original = transcript.read_bytes()
+            transcript.write_text(json.dumps(self.resources()))
+            with self.assertRaisesRegex(ValueError, "command kind differs"):
+                composition_performance.evaluate_protocol_paired(
+                    budget, protocol, subject, control, plan, metadata)
+            transcript.write_bytes(original)
+            # A genuine failed timing gate remains failed under the Windows method.
+            transcript = subject / "compile/direct/block-01.resources.json"
+            transcript.write_text(json.dumps(self.resources(600.0, compiler=True)))
+            transcript = subject / "compile/direct/block-02.resources.json"
+            transcript.write_text(json.dumps(self.resources(600.0, compiler=True)))
+            reports = composition_performance.evaluate_protocol_paired(
+                budget, protocol, subject, control, plan, metadata)
+            self.assertFalse(reports[2]["passed"])
+
+    def test_single_mode_cli_cannot_certify_windows_capture(self):
+        from types import SimpleNamespace
+        arguments = SimpleNamespace(protocol=REPO_ROOT /
+                                    "docs/performance/composition/composition-windows-paired-v1.json")
+        with self.assertRaisesRegex(ValueError, "combined capture"):
+            composition_performance._command_evaluate_protocol(arguments)
+
+
 class AbsoluteBudgetTests(unittest.TestCase):
     def test_current_absolute_uses_isolated_reference_arm_not_historical_timings(self):
         self.assert_current_absolute("v6")
 
     def test_v7_absolute_preserves_all_thirty_three_rows_and_twenty_observations(self):
         self.assert_current_absolute("v7")
+
+    def test_v8_absolute_keeps_thirty_three_gates_with_the_current_compiler(self):
+        self.assert_current_absolute("v8")
 
     def assert_current_absolute(self, version):
         budget = REPO_ROOT / "docs/performance/composition/composition-budgets.json"
@@ -1121,15 +1572,26 @@ class AbsoluteBudgetTests(unittest.TestCase):
             subject, control, plan = PairedComparisonTests()._write_protocol_pair_fixture(root, protocol, "reference-reference-aa")
             report, _, _ = composition_performance.evaluate_protocol_paired(
                 budget, protocol, subject, control, plan,
-                {"mode": "reference-reference-aa", "subject_role": "reference-b", "control_role": "reference-a", "subject_revision": composition_performance.REFERENCE_REVISION, "control_revision": composition_performance.REFERENCE_REVISION, "os_version": "27.0", "os_build": "26A428", "capture_sha256": "a" * 64},
+                {"mode": "reference-reference-aa", "subject_role": "reference-b", "control_role": "reference-a", "subject_revision": composition_performance.REFERENCE_REVISION, "control_revision": composition_performance.REFERENCE_REVISION, "os_version": "27.0", "os_build": "26A428", "capture_sha256": "a" * 64, "memory_watchdog_sha256": WATCHDOG_SHA256},
             )
             raw = root / "raw"
             raw.mkdir()
+            if version == "v8":
+                transcript = root / "absolute-capture.txt"
+                transcript.write_text("completed absolute capture\n")
+                write_memory_receipt(transcript)
             for path in (REPO_ROOT / "scripts/tests/fixtures/composition-performance/raw").iterdir():
                 if path.name != "environment.txt" and not path.name.startswith(("runtime-divan-", "compile-")):
                     (raw / path.name).symlink_to(path)
             environment = (REPO_ROOT / "scripts/tests/fixtures/composition-performance/raw/environment.txt").read_text()
             current_environment = environment.replace("os_version=26.6.2", "os_version=27.0").replace("os_build=25G83", "os_build=26A428")
+            if version == "v8":
+                versions = composition_performance.CURRENT_TOOL_VERSIONS
+                current_environment = current_environment.replace(
+                    "cargo_version=" + composition_performance.LEGACY_TOOL_VERSIONS["cargo"],
+                    "cargo_version=" + versions["cargo"])
+                current_environment += "rustc_version=" + versions["rustc"] + "\n"
+                current_environment += "rustdoc_version=" + versions["rustdoc"] + "\n"
             workload_hashes = {row["workload_source"]: row["workload_source_hash"]
                                for row in composition_performance.validate_budget_document(budget)["rows"]}
             report["metadata"]["workload_provenance"] = {"subject": {"effective": workload_hashes}}
@@ -1137,6 +1599,23 @@ class AbsoluteBudgetTests(unittest.TestCase):
             current_environment += "zero_host_sha256=" + "1" * 64 + "\n"
             (raw / "environment.txt").write_text(current_environment)
             absolute = composition_performance.evaluate_absolute(budget, raw, composition_performance.REFERENCE_REVISION, timing_report=report)
+            if version == "v8":
+                transcript = root / "absolute-capture.txt"
+                for suffix in (".memory.json", ".exit.json"):
+                    path = transcript.with_suffix(suffix)
+                    saved = path.read_bytes()
+                    path.unlink()
+                    with self.subTest(suffix=suffix), self.assertRaisesRegex(ValueError, "watchdog"):
+                        composition_performance.evaluate_absolute(
+                            budget, raw, composition_performance.REFERENCE_REVISION, timing_report=report)
+                    path.write_bytes(saved)
+                receipt = write_memory_receipt(transcript)
+                for field, value in (("reason", "memory-limit"), ("memory_watchdog_sha256", "e" * 64)):
+                    transcript.with_suffix(".memory.json").write_text(json.dumps({**receipt, field: value}))
+                    with self.subTest(field=field), self.assertRaisesRegex(ValueError, "watchdog"):
+                        composition_performance.evaluate_absolute(
+                            budget, raw, composition_performance.REFERENCE_REVISION, timing_report=report)
+                write_memory_receipt(transcript)
             timing = [row for row in absolute["rows"] if row["scenario"].startswith(("runtime/", "compile/"))]
             self.assertEqual(len(absolute["rows"]), 33)
             self.assertEqual(absolute["timing_method"], f"composition-paired-{version}-subject-arm")
@@ -1154,8 +1633,19 @@ class AbsoluteBudgetTests(unittest.TestCase):
             self.assertEqual(absolute["baseline_runner"], "mac15-9-m3-max-16c-48gb-macos26-ac-high")
             self.assertEqual(absolute["capture"]["os_version"], "27.0")
             self.assertEqual(absolute["capture"]["os_build"], "26A428")
+            if version == "v8":
+                self.assertEqual(absolute["toolchain"], composition_performance.CURRENT_TOOLCHAIN)
+                self.assertEqual(absolute["baseline_toolchain"], composition_performance.TOOLCHAIN)
+                for tool in ("cargo", "rustc", "rustdoc"):
+                    (raw / "environment.txt").write_text(current_environment.replace(
+                        tool + "_version=" + composition_performance.CURRENT_TOOL_VERSIONS[tool],
+                        tool + "_version=" + composition_performance.LEGACY_TOOL_VERSIONS[tool]))
+                    with self.subTest(tool=tool), self.assertRaisesRegex(ValueError, tool + "_version"):
+                        composition_performance.evaluate_absolute(
+                            budget, raw, composition_performance.REFERENCE_REVISION, timing_report=report)
+                (raw / "environment.txt").write_text(current_environment)
             for invalid in (
-                environment,
+                current_environment.replace("os_version=27.0", "os_version=26.6.2"),
                 current_environment.replace("os_version=27.0", "os_version=28.0"),
                 current_environment.replace("os_build=26A428", "os_build=26A429"),
             ):
@@ -1164,7 +1654,7 @@ class AbsoluteBudgetTests(unittest.TestCase):
                     with self.assertRaisesRegex(ValueError, "macOS|os_version|os_build"):
                         composition_performance.evaluate_absolute(budget, raw, composition_performance.REFERENCE_REVISION, timing_report=report)
             (raw / "environment.txt").write_text(current_environment)
-            with self.assertRaisesRegex(ValueError, "requires macOS 26"):
+            with self.assertRaisesRegex(ValueError, "cargo_version" if version == "v8" else "requires macOS 26"):
                 composition_performance.evaluate_absolute(budget, raw, composition_performance.REFERENCE_REVISION)
             with self.assertRaisesRegex(ValueError, "timing report protocol"):
                 composition_performance.evaluate_absolute(budget, raw, composition_performance.REFERENCE_REVISION, timing_report={**report, "protocol_sha256": "b5d0fddc975ca43883e2ee143f9794f5f21f1314a8cdd871ba4a49437470bf92"})

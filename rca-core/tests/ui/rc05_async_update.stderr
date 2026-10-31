@@ -4,7 +4,7 @@ error: lifetime may not live long enough
 3 |       let _ = context.update(|state| async move {
   |  _____________________________------_^
   | |                             |    |
-  | |                             |    return type of closure `{async block@$DIR/tests/ui/rc05_async_update.rs:3:36: 3:46}` contains a lifetime `'2`
+  | |                             |    return type of closure `()` contains a lifetime `'2`
   | |                             has type `&'1 mut usize`
 4 | |         *state += 1;
 5 | |     });
