@@ -1693,6 +1693,9 @@ fn dropped_state_assertion_receipt_skips_callback_without_releasing_action() {
     assert!(actor.as_mut().poll(&mut context).is_pending());
     let released = release.finish().now_or_never().unwrap().unwrap();
     assert!(effect.as_mut().poll(&mut context).is_ready());
+    // Runtime completion leaves causal work registered until the actor harvests it.
+    assert!(!task.is_finished());
+    assert!(actor.as_mut().poll(&mut context).is_pending());
     assert!(task.is_finished());
     assert!(released.is_finished());
     assert!(!gate.has_pending());
