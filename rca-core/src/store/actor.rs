@@ -2191,6 +2191,64 @@ ordinary_test_items! {
         }
 
 
+        /// Checks that a pre-listener decision cannot strand the pending effect action.
+        #[cfg(feature = "test-util")]
+        #[test]
+        fn skip_decided_before_gate_listener_runs_in_the_same_actor_poll() {
+            let gate = crate::testing::AssertionGate::new();
+            let reductions = Arc::new(AtomicUsize::new(0));
+            let tasks = Arc::new(std::sync::Mutex::new(Vec::new()));
+            let (mut actor, store) =
+                gate_boundary_actor(gate.clone(), Arc::clone(&reductions), Arc::clone(&tasks));
+            actor.before_gate_listen = Some(Box::new({
+                let gate = gate.clone();
+                move || {
+                    assert_eq!(gate.inspect_pending(|action| action.0), Some(2));
+                    assert!(gate.skip_pending());
+                }
+            }));
+            let payload = Arc::new(());
+            let receipt = store.try_send((1, Arc::clone(&payload))).unwrap();
+            let mut actor = Box::pin(actor.run());
+            let mut context = std::task::Context::from_waker(std::task::Waker::noop());
+            assert!(actor.as_mut().poll(&mut context).is_pending());
+            let task = receipt.finish().now_or_never().unwrap().unwrap();
+            let mut effect = {
+                let mut tasks = tasks.lock().unwrap();
+                assert_eq!(tasks.len(), 1);
+                tasks.pop().unwrap()
+            };
+            assert!(effect.as_mut().poll(&mut context).is_pending());
+            assert_eq!(Arc::strong_count(&payload), 2);
+
+            assert!(actor.as_mut().poll(&mut context).is_pending());
+
+            assert!(!gate.has_pending(), "the same poll consumes the decision");
+            assert!(gate.pending_snapshot().is_none());
+            assert!(!gate.release_pending());
+            assert_eq!(reductions.load(Ordering::SeqCst), 1);
+            assert_eq!(Arc::strong_count(&payload), 1);
+            assert!(!task.is_cancelled());
+            assert!(effect.as_mut().poll(&mut context).is_ready());
+            assert!(actor.as_mut().poll(&mut context).is_pending());
+            assert!(task.finish().now_or_never().is_some());
+            assert!(!task.is_cancelled());
+            let mut read = Box::pin(store.read(|state| *state));
+            assert!(read.as_mut().poll(&mut context).is_pending());
+            assert!(actor.as_mut().poll(&mut context).is_pending());
+            assert!(matches!(
+                read.as_mut().poll(&mut context),
+                std::task::Poll::Ready(Ok(1))
+            ));
+            drop(read);
+            assert_eq!(reductions.load(Ordering::SeqCst), 1);
+            assert!(tasks.lock().unwrap().is_empty());
+            let closed = store.closed();
+            drop(store);
+            assert!(actor.as_mut().poll(&mut context).is_ready());
+            assert!(closed.now_or_never().is_some());
+        }
+
         /// Records capture destruction order independently of whether its factory was called.
         struct Captured(usize, Arc<std::sync::Mutex<Vec<usize>>>);
 

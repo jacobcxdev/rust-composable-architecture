@@ -590,11 +590,13 @@ fn typed_send_reducer_panic_retains_entered_failure() {
     reason = "one mounted output schedule compares gated and ungated ownership and terminal phases"
 )]
 /// Tracks the original output allocation across preparation and handler failures.
-fn owned_output_unwind(preparation: bool) {
+fn owned_output_unwind(preparation: bool, gated: bool) {
     let driver = ClockPanicDriver::default();
     let calls = Arc::new(AtomicUsize::new(0));
     #[cfg(feature = "test-util")]
-    let gate = TransactionGate::new();
+    let gate = gated.then(TransactionGate::new);
+    #[cfg(not(feature = "test-util"))]
+    assert!(!gated, "transaction gates require test support");
     let root = Reduce::new(|_: &mut Option<()>, (): &(), _: &mut ReduceContext<'_>| Effect::none());
     let mount = OptionalMount::new(
         Option::as_ref,
@@ -610,7 +612,11 @@ fn owned_output_unwind(preparation: bool) {
     );
     let builder = RootMount::new(root).builder(Some(()), Runtime::new(driver.clone()));
     #[cfg(feature = "test-util")]
-    let builder = builder.transaction_gate(gate.clone());
+    let builder = if let Some(gate) = &gate {
+        builder.transaction_gate(gate.clone())
+    } else {
+        builder
+    };
     let (builder, site) = builder.mount_with_site(mount);
     let observed = Arc::clone(&calls);
     let (builder, output) = builder.output::<OwnedPayload>(&site, |handlers| {
@@ -625,15 +631,13 @@ fn owned_output_unwind(preparation: bool) {
     let mut cx = Context::from_waker(Waker::noop());
     assert!(actor.as_mut().poll(&mut cx).is_pending());
     #[cfg(feature = "test-util")]
-    let installation_poll = {
+    if let Some(gate) = &gate {
         let boundary = gate.boundary().unwrap();
         assert!(gate.release_pending());
         assert!(actor.as_mut().poll(&mut cx).is_pending());
         assert!(gate.acknowledge(boundary));
-        actor.as_mut().poll(&mut cx)
-    };
-    #[cfg(feature = "test-util")]
-    assert!(installation_poll.is_pending());
+        assert!(actor.as_mut().poll(&mut cx).is_pending());
+    }
     assert!(matches!(
         Box::pin(store.ready()).as_mut().poll(&mut cx),
         Poll::Ready(Ok(()))
@@ -644,6 +648,7 @@ fn owned_output_unwind(preparation: bool) {
     let Poll::Ready(Ok(Some(context))) = acquire.as_mut().poll(&mut cx) else {
         panic!("installed child context is acquired through its actual mount site");
     };
+    drop(acquire);
 
     let drops = Arc::new(AtomicUsize::new(0));
     let payload = OwnedPayload {
@@ -654,13 +659,13 @@ fn owned_output_unwind(preparation: bool) {
     let mut delivery = Box::pin(context.output(&output, payload));
     assert!(delivery.as_mut().poll(&mut cx).is_pending());
     #[cfg(feature = "test-util")]
-    let (boundary, boundary_id) = {
+    let terminal = gate.as_ref().map(|gate| {
         assert!(actor.as_mut().poll(&mut cx).is_pending());
         let boundary = gate.pending_boundary().unwrap();
         let boundary_id = gate.boundary().unwrap();
         assert!(gate.release_pending());
-        (boundary, boundary_id)
-    };
+        (gate, boundary, boundary_id)
+    });
     driver.panic_now.store(preparation, Ordering::SeqCst);
     catch_unwind(AssertUnwindSafe(|| actor.as_mut().poll(&mut cx)))
         .expect_err("admitted owned output must unwind");
@@ -694,7 +699,7 @@ fn owned_output_unwind(preparation: bool) {
         }
     );
     #[cfg(feature = "test-util")]
-    let final_boundary = {
+    if let Some((gate, boundary, boundary_id)) = terminal {
         assert!(
             !gate.acknowledge(boundary_id),
             "no output mutation committed"
@@ -705,19 +710,23 @@ fn owned_output_unwind(preparation: bool) {
             Some(true)
         );
         assert!(gate.acknowledge_terminal(&boundary));
-        gate.boundary()
-    };
-    #[cfg(feature = "test-util")]
-    assert!(final_boundary.is_none());
+        assert!(gate.boundary().is_none());
+    }
     assert!(driver.tasks.lock().unwrap().is_empty());
+    drop(delivery);
+    drop(context);
+    drop(store);
+    assert_eq!(drops.load(Ordering::SeqCst), 1);
 }
 
 #[test]
 fn owned_output_preparation_panic_returns_original_value() {
-    owned_output_unwind(true);
+    owned_output_unwind(true, false);
+    #[cfg(feature = "test-util")]
+    owned_output_unwind(true, true);
 }
 
 #[test]
 fn owned_output_handler_panic_retains_entered_failure() {
-    owned_output_unwind(false);
+    owned_output_unwind(false, cfg!(feature = "test-util"));
 }
