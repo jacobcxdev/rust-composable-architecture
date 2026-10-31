@@ -103,6 +103,19 @@ TARGETS = {
         ("action_paths", "aggregate_paths", "case_descriptors", "dependency_client",
          "derive_dependency_key", "reducer", "reducers", "snapshot_owned"),
     ),
+    "test-store": CaptureGroup(
+        "rca-test", "rca-test", "rca_test", frozenset({"local"}),
+        ("--features", "local"),
+        ("controls", "error_contracts", "snapshot_contracts", "local_test_store",
+         "output_delivery", "focused_outputs", "conformance_deterministic"),
+        include_library=False,
+    ),
+    "persistence-file": CaptureGroup(
+        "rca-persistence", "rca-persistence", "rca_persistence", frozenset({"default", "file"}),
+        ("--features", "file"),
+        ("document", "file", "shared_document_session_replacement"),
+        include_library=False,
+    ),
     "tokio": CaptureGroup(
         "rca-tokio", "rca-tokio", "rca_tokio", frozenset(), (),
         ("async_cleanup_host", "client_clock", "panic_subprocess",
