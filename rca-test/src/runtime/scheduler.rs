@@ -115,6 +115,8 @@ impl<W: Future<Output = ()> + Unpin> Scheduler<W> {
 
     /// Detaches an ID-ordered batch and polls each admitted payload at most once.
     ///
+    /// Internal calls with larger limits still detach at most `READY_BATCH_LIMIT`
+    /// tasks. Public drivers already apply this cap before calling.
     /// Re-entry skips reserved nodes. Pending work returns to its existing node;
     /// completed work loses wake authority before its destructor runs. Unwinding
     /// drops detached payloads but preserves unfinished IDs for diagnostics.
@@ -122,34 +124,9 @@ impl<W: Future<Output = ()> + Unpin> Scheduler<W> {
         if limit == 0 {
             return 0;
         }
-        let detached = {
-            let mut state = lock(&self.wake.state);
-            let mut tasks = lock(&self.tasks);
-            let ids: Vec<_> = state
-                .ready_tasks
-                .iter()
-                .filter(|id| tasks.get(id).is_some_and(Option::is_some))
-                .take(limit)
-                .copied()
-                .collect();
-            ids.into_iter()
-                .map(|id| {
-                    state.ready_tasks.remove(&id);
-                    let task = tasks
-                        .get_mut(&id)
-                        .and_then(Option::take)
-                        .expect("ready task must exist");
-                    (id, task)
-                })
-                .collect::<Vec<_>>()
-        };
+        let mut batch = self.detach_ready_batch(limit);
         let mut count = 0;
-        let mut batch = PollBatch {
-            scheduler: self,
-            remaining: detached.into_iter(),
-            current_id: None,
-        };
-        for (id, mut task) in batch.remaining.by_ref() {
+        while let Some((id, mut task)) = batch.first.take().or_else(|| batch.remaining.next()) {
             batch.current_id = Some(id);
             if self.wake.closed.load(Ordering::Acquire) {
                 {
@@ -200,6 +177,43 @@ impl<W: Future<Output = ()> + Unpin> Scheduler<W> {
             batch.current_id = None;
         }
         count
+    }
+
+    /// Detaches one bounded batch without keeping its ID buffer across user polls.
+    // End this stack frame before a future can poll or re-enter the scheduler.
+    #[inline(never)]
+    fn detach_ready_batch(&self, limit: usize) -> PollBatch<'_, W> {
+        let mut ids = [0; READY_BATCH_LIMIT];
+        let mut state = lock(&self.wake.state);
+        let mut tasks = lock(&self.tasks);
+        let mut count = 0;
+        for (slot, id) in ids.iter_mut().zip(
+            state
+                .ready_tasks
+                .iter()
+                .filter(|id| tasks.get(id).is_some_and(Option::is_some))
+                .take(limit),
+        ) {
+            *slot = *id;
+            count += 1;
+        }
+
+        let mut detached = ids[..count].iter().map(|&id| {
+            state.ready_tasks.remove(&id);
+            let task = tasks
+                .get_mut(&id)
+                .and_then(Option::take)
+                .expect("ready task must exist");
+            (id, task)
+        });
+        let first = detached.next();
+        let remaining = detached.collect::<Vec<_>>().into_iter();
+        PollBatch {
+            scheduler: self,
+            first,
+            remaining,
+            current_id: None,
+        }
     }
 
     /// Excludes reserved and abandoned diagnostic IDs from runnable work.
@@ -596,7 +610,9 @@ pub(crate) struct ScheduledTask<W> {
 struct PollBatch<'a, W> {
     /// Metadata and reserved task nodes, never held locked across user code.
     scheduler: &'a Scheduler<W>,
-    /// Unvisited tasks in the finite detached cohort.
+    /// First detached task, stored inline so singleton batches need no allocation.
+    first: Option<(TaskId, ScheduledTask<W>)>,
+    /// Unvisited tasks after the first in the finite detached cohort.
     remaining: std::vec::IntoIter<(TaskId, ScheduledTask<W>)>,
     /// Current reservation, set before polling or destroying its payload.
     current_id: Option<TaskId>,
@@ -604,7 +620,7 @@ struct PollBatch<'a, W> {
 
 impl<W> Drop for PollBatch<'_, W> {
     fn drop(&mut self) {
-        if self.current_id.is_none() {
+        if self.current_id.is_none() && self.first.is_none() && self.remaining.len() == 0 {
             return;
         }
         let state = lock(&self.scheduler.wake.state);
@@ -613,6 +629,7 @@ impl<W> Drop for PollBatch<'_, W> {
             .current_id
             .iter()
             .copied()
+            .chain(self.first.iter().map(|(id, _)| *id))
             .chain(self.remaining.as_slice().iter().map(|(id, _)| *id))
         {
             if tasks.get(&id).is_some_and(Option::is_none) {
@@ -962,6 +979,146 @@ mod tests {
         let count = Arc::new(CountWake::default());
         let waker = Waker::from(Arc::clone(&count));
         (count, waker)
+    }
+
+    #[test]
+    fn bounded_ready_batches_preserve_order_and_remaining_tasks() {
+        let expected_order: Vec<TaskId> = (0..258).collect();
+        for (limit, [first, second, third]) in [
+            (0, [0, 256, 2]),
+            (1, [1, 256, 1]),
+            (255, [255, 3, 0]),
+            (256, [256, 2, 0]),
+            (257, [256, 2, 0]),
+            (usize::MAX, [256, 2, 0]),
+        ] {
+            let scheduler = Host::new(MonotonicInstant::ZERO);
+            let observed = Arc::new(Mutex::new(Vec::new()));
+            for &id in &expected_order {
+                let output = Arc::clone(&observed);
+                scheduler.spawn(Box::pin(async move {
+                    output.lock().unwrap().push(id);
+                }));
+            }
+            assert!(observed.lock().unwrap().is_empty());
+
+            let mut completed = 0;
+            for (batch_limit, expected_polls) in [(limit, first), (256, second), (256, third)] {
+                assert_eq!(
+                    scheduler.poll_ready_batch(batch_limit),
+                    expected_polls,
+                    "first limit {limit}, current limit {batch_limit}"
+                );
+                completed += expected_polls;
+                assert_eq!(
+                    observed.lock().unwrap().as_slice(),
+                    &expected_order[..completed]
+                );
+                let snapshot = scheduler.snapshot();
+                assert_eq!(snapshot.ready_task_ids, expected_order[completed..]);
+                assert_eq!(snapshot.live_task_ids, expected_order[completed..]);
+            }
+
+            assert_eq!(scheduler.poll_ready_batch(usize::MAX), 0);
+            assert_eq!(*observed.lock().unwrap(), expected_order);
+            assert!(lock(&scheduler.tasks).is_empty());
+        }
+    }
+
+    #[test]
+    fn unconsumed_ready_batches_drop_unlocked_and_preserve_diagnostic_debt() {
+        struct DropOutsideLock {
+            scheduler: Arc<Host>,
+            drops: Arc<Mutex<Vec<usize>>>,
+            id: usize,
+            panic_id: Option<usize>,
+        }
+
+        impl Drop for DropOutsideLock {
+            fn drop(&mut self) {
+                drop(
+                    self.scheduler
+                        .wake
+                        .state
+                        .try_lock()
+                        .expect("metadata unlocked"),
+                );
+                assert!(
+                    self.scheduler
+                        .tasks
+                        .try_lock()
+                        .expect("payloads unlocked")
+                        .is_empty(),
+                    "all reservations must be removed before any payload is dropped"
+                );
+                assert_eq!(self.scheduler.poll_ready_batch(256), 0);
+                self.drops.lock().unwrap().push(self.id);
+                assert!(
+                    Some(self.id) != self.panic_id,
+                    "unconsumed batch destructor panic"
+                );
+            }
+        }
+
+        for (count, panic_id) in [
+            (0, None),
+            (1, None),
+            (2, None),
+            (256, None),
+            (3, Some(0)),
+            (3, Some(1)),
+        ] {
+            let scheduler = Arc::new(Host::new(MonotonicInstant::ZERO));
+            let drops = Arc::new(Mutex::new(Vec::new()));
+            let polls = Arc::new(AtomicUsize::new(0));
+            for id in 0..count {
+                let guard = DropOutsideLock {
+                    scheduler: Arc::clone(&scheduler),
+                    drops: Arc::clone(&drops),
+                    id,
+                    panic_id,
+                };
+                let polls = Arc::clone(&polls);
+                scheduler.spawn(Box::pin(async move {
+                    let _guard = guard;
+                    polls.fetch_add(1, SeqCst);
+                    std::future::pending::<()>().await;
+                }));
+            }
+
+            let expected_ids = (0..u64::try_from(count).unwrap()).collect::<Vec<_>>();
+            let batch = scheduler.detach_ready_batch(256);
+            assert!(drops.lock().unwrap().is_empty());
+            assert_eq!(polls.load(SeqCst), 0);
+            assert!(scheduler.snapshot().ready_task_ids.is_empty());
+            assert_eq!(scheduler.snapshot().live_task_ids, expected_ids);
+            {
+                let tasks = lock(&scheduler.tasks);
+                assert_eq!(tasks.len(), count);
+                assert!(tasks.values().all(Option::is_none));
+            }
+
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| drop(batch)));
+            if panic_id.is_some() {
+                let panic = result.expect_err("one destructor must panic");
+                assert_eq!(
+                    panic.downcast_ref::<&str>(),
+                    Some(&"unconsumed batch destructor panic")
+                );
+            } else {
+                result.expect("normal payload destruction must not panic");
+            }
+
+            assert_eq!(*drops.lock().unwrap(), (0..count).collect::<Vec<_>>());
+            assert_eq!(polls.load(SeqCst), 0);
+            assert!(lock(&scheduler.tasks).is_empty());
+            assert!(scheduler.snapshot().ready_task_ids.is_empty());
+            assert_eq!(scheduler.snapshot().live_task_ids, expected_ids);
+            assert_eq!(scheduler.poll_ready_batch(256), 0);
+            scheduler.close();
+            assert!(scheduler.snapshot().live_task_ids.is_empty());
+            assert_eq!(drops.lock().unwrap().len(), count);
+        }
     }
 
     #[test]
