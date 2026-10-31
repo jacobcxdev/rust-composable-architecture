@@ -55,13 +55,13 @@ PROTOCOL_SHA256 = (
 )
 WINDOWS_METHOD = "composition-windows-paired-v1"
 CURRENT_METHOD = "composition-paired-v8"
-CURRENT_PROTOCOL_SHA256 = "842cbe8715bd5e6d986005e47076e0d636552c3eefbc33bec1bb39d6fb079c2d"
+CURRENT_PROTOCOL_SHA256 = "e363f7b987ef9efbd6cd50035562c16bb299feebaa65b7c7d324271976676a8f"
 WINDOWS_RUNNER = "h1-ryzen9-3900x-windows-x86_64-msvc"
 WINDOWS_COMPILER_TELEMETRY = {
     "path": r"C:\RCA-Tools\MSVC-20261014-a098b7b1\VC\Tools\MSVC\14.51.36231\bin\Hostx64\x64\VCTIP.EXE",
     "sha256": "41fe46f8a0b41f6dd94c68c85fba20a10aacb662a9ef04784a632e37f3692371",
 }
-WINDOWS_PROTOCOL_SHA256 = "c46652f02db19bebb7ea9b87d701dd887f07adb86675adf20e6799fa1aaa5f1c"
+WINDOWS_PROTOCOL_SHA256 = "b36235ebef7862c177d4bbdc4845cc638e0fc1428b0bc3dab93b28e41f9cb579"
 _INTERLEAVING = {
     "policy": "alternating-mode-first-within-block",
     "blocks": 20,
