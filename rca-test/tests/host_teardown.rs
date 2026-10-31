@@ -136,9 +136,9 @@ fn host_closed_by_first_task_drops_unpolled_batch_siblings_outside_lock() {
     let error = futures_executor::block_on(drain).expect_err("last host closes during drain");
     assert!(error.is_host_closed());
     assert_eq!(error.polls(), 1);
-    assert!(error.live_task_ids().is_empty());
-    assert!(error.ready_task_ids().is_empty());
-    assert!(error.pending_sleeps().is_empty());
+    assert_eq!(error.live_task_ids(), [] as [u64; 0]);
+    assert_eq!(error.ready_task_ids(), [] as [u64; 0]);
+    assert_eq!(error.pending_sleeps(), [] as [rca_test::PendingSleep; 0]);
     assert_eq!(polls.load(Ordering::SeqCst), 0);
     assert_eq!(drops.load(Ordering::SeqCst), 1);
     drop(retained_runtime);

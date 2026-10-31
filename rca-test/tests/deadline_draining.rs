@@ -177,7 +177,7 @@ fn poll_budget_is_not_reset_between_future_deadlines() {
     assert_eq!(error.deadline_batches(), 3);
     assert_eq!(error.current_time(), instant(3));
     assert_eq!(error.ready_task_ids(), [0]);
-    assert!(error.pending_sleeps().is_empty());
+    assert_eq!(error.pending_sleeps(), [] as [rca_test::PendingSleep; 0]);
     assert_eq!(block_on(host.drain_deadlines(0)).unwrap().polls(), 1);
 }
 
@@ -200,7 +200,7 @@ fn blocked_gate_fails_immediately_and_remains_recoverable() {
     assert!(std::error::Error::source(&error).is_none());
     assert_eq!(error.live_task_ids(), [0]);
     assert_eq!(error.polls(), 1);
-    assert!(error.pending_sleeps().is_empty());
+    assert_eq!(error.pending_sleeps(), [] as [rca_test::PendingSleep; 0]);
     assert_eq!(finished.load(Ordering::Relaxed), 0);
     control.release().unwrap();
     block_on(host.drain_deadlines(0)).unwrap();
@@ -314,7 +314,7 @@ fn host_closure_during_drain_discards_detached_tasks_without_resurrection() {
     let error = block_on(drain).unwrap_err();
     assert!(error.is_host_closed());
     assert_eq!(error.polls(), 1);
-    assert!(error.live_task_ids().is_empty());
+    assert_eq!(error.live_task_ids(), [] as [u64; 0]);
     assert!(weak_resource.upgrade().is_none());
     assert_eq!(later_polls.load(Ordering::Relaxed), 0);
     drop(clock);
@@ -353,8 +353,8 @@ fn host_closure_after_deadline_progress_preserves_failure_accounting() {
     assert_eq!(error.deadline_batches(), 1);
     assert_eq!(error.current_time(), instant(1));
     assert!(weak_resource.upgrade().is_none());
-    assert!(error.live_task_ids().is_empty());
-    assert!(error.pending_sleeps().is_empty());
+    assert_eq!(error.live_task_ids(), [] as [u64; 0]);
+    assert_eq!(error.pending_sleeps(), [] as [rca_test::PendingSleep; 0]);
 }
 
 #[test]

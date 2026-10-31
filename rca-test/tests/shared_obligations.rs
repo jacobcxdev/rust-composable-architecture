@@ -668,7 +668,7 @@ fn capture_mismatch_and_debt_survive_failed_manual_reporting() {
     // caller-side reporting leaves the already returned mismatch and debt intact.
     let collector = IssueCollector::new();
     let closed = collector.reporter();
-    assert!(collector.finish().is_empty());
+    assert_eq!(collector.finish(), [] as [rca_core::Issue; 0]);
     for reporter in [IssueReporter::default(), closed] {
         let (mut store, _, _) = fixture(Exhaustivity::NonExhaustive);
         let failure = block_on(store.send_with_captures(

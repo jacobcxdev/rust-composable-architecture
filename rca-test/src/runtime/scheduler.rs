@@ -620,7 +620,9 @@ struct PollBatch<'a, W> {
 
 impl<W> Drop for PollBatch<'_, W> {
     fn drop(&mut self) {
-        if self.current_id.is_none() && self.first.is_none() && self.remaining.len() == 0 {
+        // At drop entry, unvisited work has either its first task or a current ID.
+        // Moving to the next task cannot panic, so no other state needs cleanup.
+        if self.current_id.is_none() && self.first.is_none() {
             return;
         }
         let state = lock(&self.scheduler.wake.state);
@@ -1090,7 +1092,7 @@ mod tests {
             let batch = scheduler.detach_ready_batch(256);
             assert!(drops.lock().unwrap().is_empty());
             assert_eq!(polls.load(SeqCst), 0);
-            assert!(scheduler.snapshot().ready_task_ids.is_empty());
+            assert_eq!(scheduler.snapshot().ready_task_ids, [] as [u64; 0]);
             assert_eq!(scheduler.snapshot().live_task_ids, expected_ids);
             {
                 let tasks = lock(&scheduler.tasks);
@@ -1112,11 +1114,11 @@ mod tests {
             assert_eq!(*drops.lock().unwrap(), (0..count).collect::<Vec<_>>());
             assert_eq!(polls.load(SeqCst), 0);
             assert!(lock(&scheduler.tasks).is_empty());
-            assert!(scheduler.snapshot().ready_task_ids.is_empty());
+            assert_eq!(scheduler.snapshot().ready_task_ids, [] as [u64; 0]);
             assert_eq!(scheduler.snapshot().live_task_ids, expected_ids);
             assert_eq!(scheduler.poll_ready_batch(256), 0);
             scheduler.close();
-            assert!(scheduler.snapshot().live_task_ids.is_empty());
+            assert_eq!(scheduler.snapshot().live_task_ids, [] as [u64; 0]);
             assert_eq!(drops.lock().unwrap().len(), count);
         }
     }
@@ -1144,13 +1146,13 @@ mod tests {
         assert!(panic.is_err());
         assert_eq!(drops.load(SeqCst), 1);
         assert!(lock(&scheduler.tasks).is_empty());
-        assert!(scheduler.snapshot().live_task_ids.is_empty());
+        assert_eq!(scheduler.snapshot().live_task_ids, [] as [u64; 0]);
         assert_eq!(lock(&scheduler.wake.state).next_task_id, TaskId::MAX);
 
         lock(&scheduler.wake.state).next_sleep_id = SleepId::MAX;
         let panic = std::panic::catch_unwind(|| scheduler.sleep_until(MonotonicInstant::MAX));
         assert!(panic.is_err());
-        assert!(scheduler.pending_sleeps().is_empty());
+        assert_eq!(scheduler.pending_sleeps(), [] as [crate::PendingSleep; 0]);
         assert_eq!(lock(&scheduler.wake.state).next_sleep_id, SleepId::MAX);
     }
 
@@ -1369,7 +1371,7 @@ mod tests {
             .join()
             .unwrap();
             assert_eq!(count.0.load(SeqCst), before);
-            assert!(scheduler.snapshot().ready_task_ids.is_empty());
+            assert_eq!(scheduler.snapshot().ready_task_ids, [] as [u64; 0]);
         }
     }
 
@@ -1438,7 +1440,7 @@ mod tests {
             Some(&"original destructor panic")
         );
         assert_eq!(count.0.load(SeqCst), 1);
-        assert!(scheduler.snapshot().live_task_ids.is_empty());
+        assert_eq!(scheduler.snapshot().live_task_ids, [] as [u64; 0]);
         assert!(scheduler.tasks.lock().is_empty());
     }
 

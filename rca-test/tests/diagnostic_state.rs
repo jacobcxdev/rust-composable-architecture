@@ -30,7 +30,7 @@ fn runtime_diagnostics_do_not_poll_ready_work_or_advance_pending_time() {
     assert!(ready.contains("ready_task_ids: [0]"));
     assert!(ready.contains("pending_sleeps: []"));
     assert_eq!(started.load(Ordering::SeqCst), 0);
-    assert!(runtime.pending_sleeps().is_empty());
+    assert_eq!(runtime.pending_sleeps(), [] as [rca_test::PendingSleep; 0]);
     assert_eq!(completed.load(Ordering::SeqCst), 0);
     assert_eq!(runtime.now(), MonotonicInstant::ZERO);
 

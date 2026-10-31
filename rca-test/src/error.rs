@@ -291,6 +291,7 @@ impl DriveError {
     }
 
     /// Returns the captured failure backtrace.
+    #[must_use]
     pub const fn backtrace(&self) -> &Backtrace {
         &self.inner.backtrace
     }
@@ -1428,7 +1429,7 @@ mod capture_storage_tests {
             assert_eq!(error.is_no_issue(), no_issue);
             assert!(!error.is_issue_mismatch());
             assert!(error.mismatched_issue().is_none());
-            assert!(error.unconsumed_issues().is_empty());
+            assert_eq!(error.unconsumed_issues(), []);
             assert!(!error.is_incomplete_assertion());
             assert!(!error.is_unreceived_action());
             assert!(!error.is_no_received_action());
@@ -1437,7 +1438,7 @@ mod capture_storage_tests {
             assert!(error.finish_diagnostics().is_none());
             assert!(error.drive_error().is_none());
             assert!(error.runtime_snapshot().is_none());
-            assert!(error.cancellation_identities().is_empty());
+            assert_eq!(error.cancellation_identities(), []);
             assert!(std::error::Error::source(&error).is_none());
         }
     }
@@ -1737,9 +1738,12 @@ mod diagnostic_storage_tests {
                 .await
                 .unwrap()
                 .unwrap();
-            assert!(!diagnostics.runtime().live_task_ids.is_empty());
-            assert!(!diagnostics.runtime().timer_deadlines.is_empty());
-            assert!(!diagnostics.cancellation_identities().is_empty());
+            assert_ne!(diagnostics.runtime().live_task_ids, [] as [u64; 0]);
+            assert_ne!(
+                diagnostics.runtime().timer_deadlines,
+                [] as [rca_core::MonotonicInstant; 0]
+            );
+            assert_ne!(diagnostics.cancellation_identities(), []);
             let original_tasks = diagnostics.runtime().live_task_ids.as_ptr();
             let original_timers = diagnostics.runtime().timer_deadlines.as_ptr();
             let expected = diagnostics.runtime().clone();

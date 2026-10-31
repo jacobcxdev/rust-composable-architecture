@@ -212,7 +212,7 @@ fn cancel_before_task_acquisition_does_not_retract_admitted_input() {
     let store = Store::new(Vec::new(), Feature, host.runtime());
     drop(store.send(Action::Start(0)));
     host.run_until_stalled().unwrap();
-    assert!(state(&host, &store).is_empty());
+    assert_eq!(state(&host, &store), [] as [Action; 0]);
 
     let receipt = store.try_send(Action::Start(1)).unwrap();
     let waiting = async move {

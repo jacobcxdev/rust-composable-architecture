@@ -611,7 +611,7 @@ mod completion_tests {
             host.now(),
             MonotonicInstant::from_elapsed(Duration::from_secs(1))
         );
-        assert!(host.pending_sleeps().is_empty());
+        assert_eq!(host.pending_sleeps(), [] as [crate::PendingSleep; 0]);
     }
 
     #[test]

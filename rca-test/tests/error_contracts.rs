@@ -308,8 +308,8 @@ fn closed_host_failure_is_not_reported_as_work_waiting_for_input() {
         "deterministic scheduler host closed",
     );
     assert_eq!(error.polls(), 0);
-    assert!(error.live_task_ids().is_empty());
-    assert!(error.pending_sleeps().is_empty());
+    assert_eq!(error.live_task_ids(), [] as [u64; 0]);
+    assert_eq!(error.pending_sleeps(), [] as [rca_test::PendingSleep; 0]);
 }
 
 struct Delayed;
@@ -435,7 +435,7 @@ fn blocked_task_has_no_drive_cause_and_retains_diagnostics_after_cancellation() 
             .expect_err("virtual time has not advanced");
         assert!(error.drive_error().is_none());
         assert!(error.source().is_none());
-        assert!(error.ready_task_ids().is_empty());
+        assert_eq!(error.ready_task_ids(), [] as [u64; 0]);
         assert_eq!(error.pending_sleeps().len(), 1);
         assert_eq!(error.pending_sleeps()[0].id(), 0);
         assert_eq!(error.cancellation_identities().len(), 1);
@@ -524,11 +524,11 @@ fn missing_issue_does_not_claim_runtime_failure_or_unfinished_work() {
         assert!(error.is_no_issue());
         assert!(!error.is_issue_mismatch());
         assert!(error.mismatched_issue().is_none());
-        assert!(error.unconsumed_issues().is_empty());
+        assert_eq!(error.unconsumed_issues(), []);
         assert!(error.finish_diagnostics().is_none());
         assert!(error.drive_error().is_none());
         assert!(error.runtime_snapshot().is_none());
-        assert!(error.cancellation_identities().is_empty());
+        assert_eq!(error.cancellation_identities(), []);
         assert!(error.source().is_none());
         assert!(error.to_string().starts_with("no issue awaits expectation"));
         assert!(format!("{error:?}").contains("NoIssue"));

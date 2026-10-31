@@ -164,7 +164,6 @@ impl DeterministicRuntime {
 
     /// Creates one virtual sleep for deterministic conformance and performance testing.
     #[doc(hidden)]
-    #[must_use]
     pub fn sleep_until(&self, deadline: MonotonicInstant) -> RuntimeFuture {
         self.driver.sleep_until(deadline)
     }
@@ -502,8 +501,8 @@ mod host_teardown_tests {
             assert_eq!(drops.load(Ordering::SeqCst), 2);
             assert_eq!(driver.shared.poll_ready_batch(2), 0);
             let snapshot = driver.shared.snapshot();
-            assert!(snapshot.live_task_ids.is_empty());
-            assert!(snapshot.ready_task_ids.is_empty());
+            assert_eq!(snapshot.live_task_ids, [] as [u64; 0]);
+            assert_eq!(snapshot.ready_task_ids, [] as [u64; 0]);
             assert!(super::scheduler::lock(&driver.shared.tasks).is_empty());
         });
     }
@@ -539,7 +538,7 @@ mod host_teardown_tests {
                 _ => panic!("only one deadline exists"),
             }
             assert_eq!(host.now(), report.current_time());
-            assert!(host.pending_sleeps().is_empty());
+            assert_eq!(host.pending_sleeps(), [] as [crate::PendingSleep; 0]);
 
             drop(drain);
             drop(host);
@@ -980,7 +979,7 @@ mod tests {
         assert_eq!(drops.load(Ordering::SeqCst), 1);
         assert_eq!(reentries.load(Ordering::SeqCst), 1);
         assert!(weak_owner.upgrade().is_none());
-        assert!(host.pending_sleeps().is_empty());
+        assert_eq!(host.pending_sleeps(), [] as [crate::PendingSleep; 0]);
     }
 
     #[test]
@@ -1016,7 +1015,7 @@ mod tests {
         assert!(weak_owner.upgrade().is_none());
         assert_eq!(host.pending_sleeps().len(), 1);
         drop(wait);
-        assert!(host.pending_sleeps().is_empty());
+        assert_eq!(host.pending_sleeps(), [] as [crate::PendingSleep; 0]);
     }
 
     #[test]
@@ -1284,7 +1283,7 @@ mod tests {
 
         drop(sleep);
 
-        assert!(runtime.pending_sleeps().is_empty());
+        assert_eq!(runtime.pending_sleeps(), [] as [crate::PendingSleep; 0]);
         runtime
             .advance(Duration::from_secs(1))
             .expect("empty advance");
@@ -1367,7 +1366,7 @@ mod tests {
         );
         assert!(report.current_time() >= last_observed);
         assert_eq!(host.now(), report.current_time());
-        assert!(host.pending_sleeps().is_empty());
+        assert_eq!(host.pending_sleeps(), [] as [crate::PendingSleep; 0]);
     }
 
     #[test]

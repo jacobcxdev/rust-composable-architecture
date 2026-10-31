@@ -136,7 +136,7 @@ pub(super) async fn non_interleaving_reducer(factory: impl RuntimeFactory) {
     let state = store.read(Clone::clone).await.expect("ordered read");
     assert_eq!(state.len(), 16);
     let (pairs, remainder) = state.as_chunks::<2>();
-    assert!(remainder.is_empty());
+    assert_eq!(remainder, []);
     for pair in pairs {
         assert!(matches!(pair, [Phase::Enter(left), Phase::Leave(right)] if left == right));
     }

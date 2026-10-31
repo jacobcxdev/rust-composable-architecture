@@ -485,7 +485,7 @@ fn check(family: Family, replace: bool) {
         for label in [1, 2, 3, 4, 5] {
             assert_eq!(drops[label].load(Ordering::SeqCst), 1);
         }
-        assert!(host.pending_sleeps().is_empty());
+        assert_eq!(host.pending_sleeps(), [] as [rca_test::PendingSleep; 0]);
         store.shutdown().await.unwrap();
     }))
     .unwrap();

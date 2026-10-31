@@ -247,13 +247,9 @@ fn non_exhaustive_skip_does_not_hide_unrelated_live_work() {
     let _task = block_on(store.send(true)).unwrap();
     block_on(store.skip_received()).unwrap();
     let error = block_on(store.finish()).unwrap_err();
-    assert!(
-        !error
-            .finish_diagnostics()
-            .unwrap()
-            .runtime()
-            .live_task_ids
-            .is_empty()
+    assert_ne!(
+        error.finish_diagnostics().unwrap().runtime().live_task_ids,
+        [] as [u64; 0]
     );
     assert!(!error.is_incomplete_assertion());
     let panic = catch_unwind(AssertUnwindSafe(|| drop(store))).unwrap_err();

@@ -154,13 +154,13 @@ pub(super) async fn timer_removal(factory: impl RuntimeFactory) {
         .finish()
         .await;
     removable.finish().await;
-    assert!(
+    assert_eq!(
         store
             .runtime_snapshot()
             .await
             .expect("cancelled timer snapshot")
-            .timer_deadlines
-            .is_empty()
+            .timer_deadlines,
+        [] as [MonotonicInstant; 0]
     );
     factory
         .advance(TIMER_DELAY)

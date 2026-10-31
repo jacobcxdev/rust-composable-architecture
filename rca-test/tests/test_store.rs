@@ -243,7 +243,10 @@ fn finish_reports_pending_action_and_actor_work_at_caller() {
         assert_eq!(diagnostics.runtime().commit_version, 1);
         assert_eq!(diagnostics.runtime().live_task_ids, [0]);
         assert_eq!(diagnostics.runtime().cancellation_count, 0);
-        assert!(diagnostics.runtime().timer_deadlines.is_empty());
+        assert_eq!(
+            diagnostics.runtime().timer_deadlines,
+            [] as [rca_core::MonotonicInstant; 0]
+        );
 
         let _response = store
             .receive_with(
@@ -271,8 +274,11 @@ fn finish_retains_pending_snapshot_after_cancellation_and_retry() {
     assert_eq!(snapshot.runtime().commit_version, 1);
     assert_eq!(snapshot.runtime().live_task_ids, [0]);
     assert_eq!(snapshot.runtime().cancellation_count, 0);
-    assert!(snapshot.runtime().timer_deadlines.is_empty());
-    assert!(snapshot.pending_sleeps().is_empty());
+    assert_eq!(
+        snapshot.runtime().timer_deadlines,
+        [] as [rca_core::MonotonicInstant; 0]
+    );
+    assert_eq!(snapshot.pending_sleeps(), [] as [rca_test::PendingSleep; 0]);
     assert_eq!(snapshot.current_time(), rca_core::MonotonicInstant::ZERO);
 
     finish_without_external_wake(task.cancel()).expect("cancel the gated response");
@@ -487,7 +493,7 @@ fn cancellation_before_gate_drive_resolves_receipts_without_inspecting_state() {
                 snapshot.commit_version, 2,
                 "only Start and External committed"
             );
-            assert!(snapshot.live_task_ids.is_empty());
+            assert_eq!(snapshot.live_task_ids, [] as [u64; 0]);
             assert_eq!(inspections.load(Ordering::SeqCst), 0);
             finish_without_external_wake(runtime.run(store.shutdown()))
                 .unwrap()
@@ -691,9 +697,12 @@ fn explicit_timer_skip_preserves_one_shot_and_interval_lifetimes() {
                 .await
                 .unwrap()
                 .unwrap();
-            assert!(snapshot.live_task_ids.is_empty());
-            assert!(snapshot.timer_deadlines.is_empty());
-            assert!(runtime.pending_sleeps().is_empty());
+            assert_eq!(snapshot.live_task_ids, [] as [u64; 0]);
+            assert_eq!(
+                snapshot.timer_deadlines,
+                [] as [rca_core::MonotonicInstant; 0]
+            );
+            assert_eq!(runtime.pending_sleeps(), [] as [rca_test::PendingSleep; 0]);
             runtime.run(store.shutdown()).await.unwrap().unwrap();
         });
     }
@@ -769,9 +778,12 @@ fn interval_tick_can_cancel_its_own_identity_without_rescheduling() {
             .await
             .unwrap()
             .unwrap();
-        assert!(snapshot.live_task_ids.is_empty());
-        assert!(snapshot.timer_deadlines.is_empty());
-        assert!(runtime.pending_sleeps().is_empty());
+        assert_eq!(snapshot.live_task_ids, [] as [u64; 0]);
+        assert_eq!(
+            snapshot.timer_deadlines,
+            [] as [rca_core::MonotonicInstant; 0]
+        );
+        assert_eq!(runtime.pending_sleeps(), [] as [rca_test::PendingSleep; 0]);
 
         runtime.advance(Duration::from_secs(3)).unwrap();
         assert_eq!(calls.load(Ordering::SeqCst), 1);
@@ -1060,7 +1072,7 @@ fn task_finish_budget_error_preserves_source_and_allows_finite_completion() {
         assert!(std::ptr::eq(source, drive));
         assert_eq!(error.ready_task_ids(), [1]);
         assert_eq!(error.ready_task_ids(), drive.ready_task_ids());
-        assert!(error.pending_sleeps().is_empty());
+        assert_eq!(error.pending_sleeps(), [] as [rca_test::PendingSleep; 0]);
         assert_eq!(error.pending_sleeps(), drive.pending_sleeps());
         assert_eq!(error.current_time(), rca_core::MonotonicInstant::ZERO);
         assert_eq!(error.current_time(), drive.current_time());
@@ -1069,7 +1081,7 @@ fn task_finish_budget_error_preserves_source_and_allows_finite_completion() {
             .expect("captured actor diagnostics");
         assert_eq!(runtime.commit_version, 1);
         assert_eq!(runtime.live_task_ids, [0]);
-        assert!(error.cancellation_identities().is_empty());
+        assert_eq!(error.cancellation_identities(), []);
         assert!(!task.is_finished());
 
         task.finish()
@@ -1127,8 +1139,8 @@ fn task_cancel_is_lazy_and_preserves_unrelated_work_after_budget_error() {
         assert!(error.is_step_budget_exhausted());
         assert_eq!(error.polls(), 7);
         assert_eq!(error.step_budget(), 7);
-        assert!(!error.ready_task_ids().is_empty());
-        assert!(error.pending_sleeps().is_empty());
+        assert_ne!(error.ready_task_ids(), [] as [u64; 0]);
+        assert_eq!(error.pending_sleeps(), [] as [rca_test::PendingSleep; 0]);
         assert_eq!(error.current_time(), rca_core::MonotonicInstant::ZERO);
         assert!(!unrelated.is_cancelled());
         assert!(!unrelated.is_finished());
@@ -1171,8 +1183,11 @@ fn test_store_budget_error_reports_exact_polls_and_caller() {
         let runtime = error.runtime_snapshot().expect("core runtime snapshot");
         assert_eq!(runtime.commit_version, 1);
         assert_eq!(runtime.live_task_ids, [0]);
-        assert!(runtime.timer_deadlines.is_empty());
-        assert!(error.cancellation_identities().is_empty());
+        assert_eq!(
+            runtime.timer_deadlines,
+            [] as [rca_core::MonotonicInstant; 0]
+        );
+        assert_eq!(error.cancellation_identities(), []);
         assert!(error.finish_diagnostics().is_none());
         let source = std::error::Error::source(&error)
             .and_then(|source| source.downcast_ref::<rca_test::DriveError>())

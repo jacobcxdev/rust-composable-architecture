@@ -387,7 +387,7 @@ macro_rules! mounted_frontier {
                 let update_boundary = store.pending_boundary().expect("the update is held");
                 let blocked = initial.finish().await.expect_err("the update needs an assertion");
                 assert!(blocked.drive_error().is_none());
-                assert!(blocked.pending_sleeps().is_empty());
+                assert_eq!(blocked.pending_sleeps(), [] as [rca_test::PendingSleep; 0]);
                 assert_eq!(blocked.current_time(), rca_core::MonotonicInstant::from_elapsed(delay));
                 assert_eq!(store.now(), rca_core::MonotonicInstant::from_elapsed(delay));
                 // The opaque token exposes its generation and kind through Debug, not Eq.

@@ -139,7 +139,7 @@ fn local_task_owns_causal_work_and_captures_real_gate_diagnostics() {
             .runtime_snapshot()
             .expect("real actor diagnostics");
         assert_eq!(snapshot.commit_version, 1);
-        assert!(snapshot.live_task_ids.is_empty());
+        assert_eq!(snapshot.live_task_ids, [] as [u64; 0]);
         assert!(std::ptr::eq(drive_error.origin(), origin));
         assert!(block_on(cloned.cancel()).is_err());
         stop.set(true);

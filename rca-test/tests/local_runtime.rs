@@ -338,9 +338,9 @@ fn local_deadline_order_cancellation_timer_and_saturation_share_policy() {
     );
     assert_eq!(host.pending_sleeps().len(), 1);
     drop(wait);
-    assert!(host.pending_sleeps().is_empty());
+    assert_eq!(host.pending_sleeps(), [] as [rca_test::PendingSleep; 0]);
     drop(clock.sleep(Duration::from_secs(1)));
-    assert!(host.pending_sleeps().is_empty());
+    assert_eq!(host.pending_sleeps(), [] as [rca_test::PendingSleep; 0]);
     let mut timer =
         rca_core::local::ClockTimer::new(clock.clone(), Duration::from_secs(1)).unwrap();
     assert!(
@@ -350,7 +350,7 @@ fn local_deadline_order_cancellation_timer_and_saturation_share_policy() {
             .is_pending()
     );
     timer.cancel();
-    assert!(host.pending_sleeps().is_empty());
+    assert_eq!(host.pending_sleeps(), [] as [rca_test::PendingSleep; 0]);
     host.advance_to(MonotonicInstant::MAX).unwrap();
     assert_eq!(host.now(), MonotonicInstant::MAX);
     assert!(

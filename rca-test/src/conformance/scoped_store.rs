@@ -698,7 +698,7 @@ async fn composed_paths_and_scoped_handles_interoperate(factory: impl RuntimeFac
         .await
         .expect("completed scopes snapshot");
     assert_eq!(snapshot.commit_version, 8);
-    assert!(snapshot.live_task_ids.is_empty());
+    assert_eq!(snapshot.live_task_ids, [] as [u64; 0]);
     store.shutdown().await.expect("composed Store shuts down");
 }
 
@@ -801,9 +801,9 @@ mod tests {
             .expect_err("the real host destructor closed the scheduler");
         assert!(stopped.is_host_closed());
         assert_eq!(stopped.polls(), 0);
-        assert!(stopped.live_task_ids().is_empty());
-        assert!(stopped.ready_task_ids().is_empty());
-        assert!(stopped.pending_sleeps().is_empty());
+        assert_eq!(stopped.live_task_ids(), [] as [u64; 0]);
+        assert_eq!(stopped.ready_task_ids(), [] as [u64; 0]);
+        assert_eq!(stopped.pending_sleeps(), [] as [crate::PendingSleep; 0]);
         assert_eq!(
             futures_executor::block_on(factory.advance(Duration::ZERO)),
             Err(ConformanceError::new("external host has stopped"))

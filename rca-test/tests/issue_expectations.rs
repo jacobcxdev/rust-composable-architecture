@@ -139,7 +139,7 @@ fn completed_async_scope_releases_captures_before_future_is_dropped() {
             .is_closed()
     );
     assert_eq!(outcome.body_result, Ok(7));
-    assert!(outcome.expectation.unwrap().is_empty());
+    assert_eq!(outcome.expectation.unwrap(), [] as [rca_core::Issue; 0]);
     // Use the completed future again without polling it; it still owns its storage.
     std::hint::black_box(future.as_mut());
     assert_eq!(&*dropped.borrow(), &["body", "matcher"]);
@@ -362,7 +362,7 @@ fn strict_requires_matches_and_checks_every_unexpected_issue_even_after_failure(
     assert_eq!(missing.body_result, Ok(None));
     let missing = missing.expectation.unwrap_err();
     assert!(missing.is_missing());
-    assert!(missing.unexpected_issues().is_empty());
+    assert_eq!(missing.unexpected_issues(), []);
 
     let unexpected = expect_issues(
         IssueCollector::new(),
@@ -400,7 +400,7 @@ fn intermittent_and_disabled_have_explicit_zero_policy_and_always_run_body() {
             },
         );
         assert_eq!(outcome.body_result, Ok(41));
-        assert!(outcome.expectation.unwrap().is_empty());
+        assert_eq!(outcome.expectation.unwrap(), [] as [rca_core::Issue; 0]);
         assert_eq!(runs.get(), 1);
     }
 
@@ -678,7 +678,7 @@ fn independent_futures_do_not_cross_route_or_inherit_other_collectors() {
     assert_eq!(missing.body_result, Ok(2));
     let missing = missing.expectation.unwrap_err();
     assert!(missing.is_missing());
-    assert!(missing.unexpected_issues().is_empty());
+    assert_eq!(missing.unexpected_issues(), []);
     let Poll::Ready(present) = left_future.as_mut().poll(&mut context) else {
         panic!("ready")
     };
@@ -716,7 +716,7 @@ fn disabled_external_reporting_does_not_satisfy_strict_or_skip_body() {
     assert_eq!(outcome.body_result, Ok(()));
     let error = outcome.expectation.unwrap_err();
     assert!(error.is_missing());
-    assert!(error.unexpected_issues().is_empty());
+    assert_eq!(error.unexpected_issues(), []);
 }
 
 /// Preserves a borrowed body error and recovers reports rejected after completion.

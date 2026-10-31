@@ -463,7 +463,7 @@ fn shutdown_releases_active_batch_calls() {
         assert!(controls[&(1, 1)].is_closed());
         assert_active(&client, 0);
         assert_eq!(client.inspect(|activity| activity.starts.len()), 2);
-        assert!(runtime.pending_sleeps().is_empty());
+        assert_eq!(runtime.pending_sleeps(), [] as [rca_test::PendingSleep; 0]);
     });
 }
 
