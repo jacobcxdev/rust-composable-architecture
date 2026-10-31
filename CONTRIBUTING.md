@@ -285,12 +285,26 @@ change implementation.
 | `listener-spin` | Listener backend-contention integration test without default features or `critical-section` |
 | `listener-std-critical-section` | Listener public-surface integration tests with default features and `critical-section` |
 | `strategy-std` | Listener strategy unit and integration tests with `std` |
+| `channel-overflow-std` | Channel library unit tests with default features, including overflow subprocesses |
+| `channel-overflow-nostd` | Channel library unit tests without default features, including overflow subprocesses |
 
 The `listener-spin` group captures the fallback only for regression evidence.
 It does not expand supported production configurations.
 The listener recommends `std` or `critical-section` for production use.
 Its contention window does not prove that a particular compare-and-swap retry or spin branch ran.
 Those paths need positive native counters.
+
+The two channel-overflow groups require `x86_64-unknown-linux-gnu`. They run the
+full library test host with `--nocapture --test-threads=1`. Only these
+groups add `-C llvm-args=-runtime-counter-relocation` and use the runtime profile
+pattern `current-%p%c.profraw` for continuous counters across intentional aborts.
+Capture requires six profiles: one parent and five boundary children. It checks
+three successful exits and two `SIGABRT` outcomes, and rejects LLVM profiling
+errors or warnings. Expected panic diagnostics remain in the retained output.
+These are separate compiler configurations, not benchmark configurations.
+Successful capture alone does not establish positive overflow-branch counters
+or execution of the no-std abort and drop bodies.
+Release review must check those source-bound records and retain any zeros or missing mappings.
 
 The capture uses Rust 1.99.0 and its matching LLVM tools. Dependency build outputs
 are cached separately for each group. CI rebuilds workspace crates. Each artefact
