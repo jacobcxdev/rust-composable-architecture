@@ -118,6 +118,7 @@ jobs:
                     - core-reactions
                     - core-fold-commands
                     - core-observation-operations
+                    - core-terminal
                     - macros
                     - tokio
                     - listener-std

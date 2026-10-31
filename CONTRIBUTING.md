@@ -278,6 +278,7 @@ change implementation.
 | `core-reactions` | Shared and Local changed-reaction tests with the rich Core features |
 | `core-fold-commands` | Shared and Local fold and recipe-command integration tests with the rich Core features |
 | `core-observation-operations` | Observation lifecycle, adapters and named-operation integration tests with the rich Core features |
+| `core-terminal` | Clock fixtures, actor lifecycle and terminal-unwind integration tests with the rich Core features |
 | `macros` | Macro unit and integration tests, plus compiler-stage profiles from the proc-macro library |
 | `tokio` | Tokio unit tests and host lifecycle, clock and panic tests |
 | `listener-std` | Listener unit and integration tests with the standard-library backend |

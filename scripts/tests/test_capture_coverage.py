@@ -226,6 +226,19 @@ class CaptureCoverageTests(unittest.TestCase):
                 self.assertEqual(self.capture.host_arguments("core-observation-operations", ["test"], executable),
                                  [str(executable)])
 
+    def test_terminal_group_selects_only_three_rich_unfiltered_integration_hosts(self):
+        names = ("clock_fixtures", "store_actor", "terminal_unwind")
+        self.assertIn("core-terminal", self.capture.TARGETS)
+        self.assertEqual(self.capture.group_arguments("core-terminal"), [
+            "-p", "rca-core", "--features", "diagnostics,futures-stream,local,test-util",
+            *[item for name in names for item in ("--test", name)],
+        ])
+        for name in names:
+            executable = self.root / (name + "-123")
+            with self.subTest(host=name):
+                self.assertEqual(self.capture.host_arguments("core-terminal", ["test"], executable),
+                                 [str(executable)])
+
     def test_macro_parser_requires_its_unit_executable_and_one_owned_dynamic_object(self):
         group = "macros"
         target = self.root / "target/coverage/macros"
@@ -286,7 +299,8 @@ class CaptureCoverageTests(unittest.TestCase):
                 self.capture.validate_macro_entries({"data": [{"functions": bad}]}, self.root)
 
     def test_macro_reducer_requires_its_five_successful_nested_consumers(self):
-        child_counts = (3, 3, 14, 1, 1)
+        # Each first-three consumer includes the five shared thread-runtime tests.
+        child_counts = (8, 8, 19, 1, 1)
         child = lambda passed: f"test result: ok. {passed} passed; 0 failed; 0 ignored; 0 measured; 0 filtered out\n"
         parent = child(9)
         output = "".join(child(passed) for passed in child_counts) + parent
@@ -298,10 +312,11 @@ class CaptureCoverageTests(unittest.TestCase):
         self.assertEqual(self.capture.host_arguments("macros", ["test"], Path("/tmp/action_paths-abc")),
                          ["/tmp/action_paths-abc"])
         for invalid in (
+            "".join(child(passed) for passed in (3, 3, 14, 1, 1)) + parent,
             "".join(child(passed) for passed in child_counts[:-1]) + parent,
             "".join(child(passed) for passed in (*child_counts[:-1], 2)) + parent,
             "".join(child(passed) for passed in (*child_counts, 1)) + parent,
-            output.replace("3 passed; 0 failed", "3 passed; 1 failed", 1),
+            output.replace("8 passed; 0 failed", "8 passed; 1 failed", 1),
             "".join(child(passed) for passed in child_counts) + child(0),
             "".join(child(passed) for passed in child_counts) + child(8),
         ):
@@ -321,6 +336,8 @@ class CaptureCoverageTests(unittest.TestCase):
              ["observation", "observation_adapters", "observation_scope_lifecycle",
               "observation_waker_lifecycle", "observation_adapter_scopes", "named_operations",
               "named_operation_races", "local_named_operations"]),
+            ("core-terminal", "rca-core", "rca_core", ["default", "diagnostics", "futures-stream", "local", "test-util"],
+             ["clock_fixtures", "store_actor", "terminal_unwind"]),
             ("tokio", "rca-tokio", "rca_tokio", [],
              ["rca_tokio", "async_cleanup_host", "client_clock", "panic_subprocess", "synchronous_host", "thread_affine_host"]),
             ("listener-std", "dependencies/rca-event-listener", "event_listener", ["default", "parking", "std"],
@@ -917,7 +934,7 @@ elif name == "llvm-cov":
                 if prefix.parent.name == "reducer":
                     output = b"".join(
                         f"test result: ok. {count} passed; 0 failed; 0 ignored; 0 measured; 0 filtered out\n".encode()
-                        for count in (3, 3, 14, 1, 1, 9)
+                        for count in (8, 8, 19, 1, 1, 9)
                     )
                 else:
                     output = b"test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out\n"
