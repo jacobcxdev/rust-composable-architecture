@@ -275,6 +275,7 @@ change implementation.
 | `core-removal` | Removed-child integration tests with the rich Core features |
 | `core-timers-rich` | Core timer and transaction tests with the rich Core features |
 | `core-timers-minimal` | Core timer and transaction tests with `local` only |
+| `core-reactions` | Shared and Local changed-reaction tests with the rich Core features |
 | `macros` | Macro unit and integration tests, plus compiler-stage profiles from the proc-macro library |
 | `tokio` | Tokio unit tests and host lifecycle, clock and panic tests |
 | `listener-std` | Listener unit and integration tests with the standard-library backend |

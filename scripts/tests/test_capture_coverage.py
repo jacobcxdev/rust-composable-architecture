@@ -146,6 +146,10 @@ class CaptureCoverageTests(unittest.TestCase):
                 self.assertNotIn("loom", options)
 
     def test_macro_and_timer_groups_select_fixed_existing_hosts(self):
+        self.assertEqual(self.capture.group_arguments("core-reactions"), [
+            "-p", "rca-core", "--features", "diagnostics,futures-stream,local,test-util",
+            "--test", "changed_reactions",
+        ])
         self.assertEqual(self.capture.group_arguments("macros"), [
             "-p", "rca-macros", "--lib",
             *[item for name in ("action_paths", "aggregate_paths", "case_descriptors",
@@ -250,6 +254,8 @@ class CaptureCoverageTests(unittest.TestCase):
         cases = (
             ("core-removal", "rca-core", "rca_core", ["default", "diagnostics", "futures-stream", "local", "test-util"],
              ["removed_child", "local_removed_child"]),
+            ("core-reactions", "rca-core", "rca_core", ["default", "diagnostics", "futures-stream", "local", "test-util"],
+             ["changed_reactions"]),
             ("tokio", "rca-tokio", "rca_tokio", [],
              ["rca_tokio", "async_cleanup_host", "client_clock", "panic_subprocess", "synchronous_host", "thread_affine_host"]),
             ("listener-std", "dependencies/rca-event-listener", "event_listener", ["default", "parking", "std"],
