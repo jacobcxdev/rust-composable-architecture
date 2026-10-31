@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""Retain unfiltered Core coverage evidence on an isolated Linux runner.
+"""Retain selected native coverage evidence on an isolated Linux runner.
 
 This captures native inputs, not a coverage percentage or production-source audit.
 """
 
 import argparse
+from dataclasses import dataclass
 import gzip
 import hashlib
 import json
@@ -21,25 +22,86 @@ import tomllib
 
 TOOLCHAIN = "1.99.0"
 RUSTFLAGS = "-C opt-level=s -C debuginfo=0 -C debug-assertions=yes -C overflow-checks=yes -C panic=unwind -C instrument-coverage -Z coverage-options=branch"
+
+
+@dataclass(frozen=True)
+class CaptureGroup:
+    """Bind one Cargo package, feature set and list of ordinary libtest hosts."""
+
+    package: str
+    directory: str
+    library: str
+    features: frozenset[str]
+    cargo_options: tuple[str, ...]
+    tests: tuple[str, ...]
+    include_library: bool = True
+
+
 TARGETS = {
-    "core-minimal": ("store_actor", "local_store"),
-    "core-rich": ("structural_diagnostics", "mount_acquisition", "local_mount",
-                  "output_delivery", "local_output_delivery", "scoped_store",
-                  "keyed_operations", "shared_key_cache"),
+    "core-minimal": CaptureGroup(
+        "rca-core", "rca-core", "rca_core", frozenset({"local"}),
+        ("--no-default-features", "--features", "local"),
+        ("store_actor", "local_store"),
+    ),
+    "core-rich": CaptureGroup(
+        "rca-core", "rca-core", "rca_core",
+        frozenset({"default", "diagnostics", "futures-stream", "local", "test-util"}),
+        ("--features", "diagnostics,futures-stream,local,test-util"),
+        ("structural_diagnostics", "mount_acquisition", "local_mount",
+         "output_delivery", "local_output_delivery", "scoped_store",
+         "keyed_operations", "shared_key_cache"),
+    ),
+    "core-removal": CaptureGroup(
+        "rca-core", "rca-core", "rca_core",
+        frozenset({"default", "diagnostics", "futures-stream", "local", "test-util"}),
+        ("--features", "diagnostics,futures-stream,local,test-util"),
+        ("removed_child", "local_removed_child"), include_library=False,
+    ),
+    "tokio": CaptureGroup(
+        "rca-tokio", "rca-tokio", "rca_tokio", frozenset(), (),
+        ("async_cleanup_host", "client_clock", "panic_subprocess",
+         "synchronous_host", "thread_affine_host"),
+    ),
+    "listener-std": CaptureGroup(
+        "rca-event-listener", "dependencies/rca-event-listener", "event_listener",
+        frozenset({"default", "parking", "std"}), (),
+        ("notify", "public_surface", "callback_contracts", "first_use",
+         "backend_contention", "notification_policy", "panic_contracts",
+         "blocking", "generic_contracts"),
+    ),
+    "listener-critical-section": CaptureGroup(
+        "rca-event-listener", "dependencies/rca-event-listener", "event_listener",
+        frozenset({"critical-section"}),
+        ("--no-default-features", "--features", "critical-section"),
+        ("notify", "public_surface", "callback_contracts", "first_use",
+         "backend_contention", "notification_policy", "panic_contracts"),
+    ),
+    "strategy-std": CaptureGroup(
+        "rca-event-listener-strategy", "dependencies/rca-event-listener-strategy",
+        "event_listener_strategy", frozenset({"default", "std"}), (),
+        ("easy_wrapper", "public_contracts"),
+    ),
 }
 GIB = 1024 ** 3
 
 
 def group_arguments(group):
-    """Keep the two configurations separate, including their unit-test hosts."""
+    """Select the fixed package, feature set and ordinary test hosts."""
     if group not in TARGETS:
         raise ValueError(f"Unsupported coverage group: {group}")
-    options = ["-p", "rca-core"]
-    if group == "core-minimal":
-        options += ["--no-default-features", "--features", "local"]
-    else:
-        options += ["--features", "diagnostics,futures-stream,local,test-util"]
-    return options + ["--lib"] + [item for name in TARGETS[group] for item in ("--test", name)]
+    selected = TARGETS[group]
+    options = ["-p", selected.package, *selected.cargo_options]
+    if selected.include_library:
+        options.append("--lib")
+    return options + [item for name in selected.tests for item in ("--test", name)]
+
+
+def host_arguments(group, kind, executable):
+    """Serialize listener integration parents without filtering their tests."""
+    args = [str(executable)]
+    if group in ("listener-std", "listener-critical-section") and kind == ["test"]:
+        args.append("--test-threads=1")
+    return args
 
 
 def digest(path):
@@ -90,8 +152,10 @@ def source_snapshot(root):
 
 def parse_artifacts(text, root, target, group):
     """Reject feature unification, foreign packages and unexpected test hosts."""
-    expected = {"rca_core", *TARGETS[group]}
-    features = {"local"} if group == "core-minimal" else {"default", "diagnostics", "futures-stream", "local", "test-util"}
+    selected = TARGETS[group]
+    expected = set(selected.tests)
+    if selected.include_library:
+        expected.add(selected.library)
     hosts = {}
     for line in text.splitlines():
         record = json.loads(line)
@@ -99,30 +163,42 @@ def parse_artifacts(text, root, target, group):
             continue
         name = record["target"]["name"]
         executable = Path(record["executable"])
-        if (record["manifest_path"] != str(root / "rca-core/Cargo.toml")
-                or set(record["features"]) != features or not record["profile"]["test"]
-                or record["target"]["kind"] != (["lib"] if name == "rca_core" else ["test"])
+        if (record["manifest_path"] != str(root / selected.directory / "Cargo.toml")
+                or set(record["features"]) != selected.features or not record["profile"]["test"]
+                or record["target"]["kind"] != (["lib"] if name == selected.library else ["test"])
                 or executable.parent != target / "debug/deps" or not executable.is_file()
                 or any(part.is_symlink() for part in (executable, *executable.parents))
                 or name not in expected or name in hosts
                 or str(executable) not in record["filenames"]):
-            raise ValueError("Cargo artifact does not match the selected Core configuration")
+            raise ValueError("Cargo artifact does not match the selected configuration")
         hosts[name] = record
     if set(hosts) != expected:
-        raise ValueError("Missing selected Core test executables")
+        raise ValueError("Missing selected test executables")
     return [hosts[name] for name in sorted(hosts)]
 
 
-def test_summary(text):
-    """Require an unfiltered successful libtest run; keep ignored probes visible."""
+def test_summary(text, allow_exact_children=False):
+    """Require a successful parent run; accept exact-filtered listener children only."""
     matches = re.findall(
         r"^test result: ok\. (\d+) passed; (\d+) failed; (\d+) ignored; "
         r"(\d+) measured; (\d+) filtered out(?:; finished in [^\n]+)?$", text, re.MULTILINE)
-    if len(matches) != 1:
+    if not matches or (not allow_exact_children and len(matches) != 1):
         raise ValueError("Expected one successful libtest summary")
-    summary = dict(zip(("passed", "failed", "ignored", "measured", "filtered_out"), map(int, matches[0])))
+    summaries = [dict(zip(("passed", "failed", "ignored", "measured", "filtered_out"), map(int, match)))
+                 for match in matches]
+    summary = summaries[-1]
     if summary["passed"] == 0 or summary["failed"] != 0 or summary["filtered_out"] != 0:
         raise ValueError("Selected host did not run its positive, unfiltered test cohort")
+    if allow_exact_children:
+        summary_lines = re.findall(r"^test result: [^\n]+$", text, re.MULTILINE)
+        total_tests = summary["passed"] + summary["ignored"] + summary["measured"]
+        children = summaries[:-1]
+        if (len(summary_lines) != len(summaries) or len(children) > summary["passed"]
+                or any(child["passed"] != 1 or child["failed"] != 0
+                       or child["ignored"] != 0 or child["measured"] != 0
+                       or child["filtered_out"] != total_tests - 1 for child in children)):
+            raise ValueError("Listener child did not finish one exact-filtered test")
+        return dict(summary, exact_children=children)
     return summary
 
 
@@ -231,7 +307,7 @@ def discover_tools(root, output):
 
 
 def capture(root, group, output):
-    """Capture only the fixed Core cohorts; leave partial evidence on failure."""
+    """Capture a fixed cohort; leave partial evidence on failure."""
     if sys.platform != "linux":
         raise ValueError("Coverage capture is restricted to isolated Linux runners")
     options = group_arguments(group)
@@ -297,8 +373,11 @@ def capture(root, group, output):
                             LLVM_PROFILE_FILE=str(raw / "current-%p-%m.profraw"),
                             LD_LIBRARY_PATH=os.pathsep.join((str(tools["llvm-cov"].parent.parent / "lib"), str(tools["rustc"].parent.parent / "lib"))))
             write_json(host / "environment.json", host_env)
-            run_command([str(retained)], package, host_env, host / "run", 600)
-            write_json(host / "test-summary.json", test_summary((host / "run.stdout").read_text()))
+            run_command(host_arguments(group, record["target"]["kind"], retained),
+                        package, host_env, host / "run", 600)
+            listener_child = (group in ("listener-std", "listener-critical-section")
+                              and record["target"]["kind"] == ["test"])
+            write_json(host / "test-summary.json", test_summary((host / "run.stdout").read_text(), listener_child))
             profiles = sorted(raw.glob("*.profraw"))
             if not profiles or set(raw.iterdir()) != set(profiles) or any(path.is_symlink() for path in profiles):
                 raise ValueError("Missing or unexpected runtime profiles")

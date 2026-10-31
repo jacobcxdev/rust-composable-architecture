@@ -60,14 +60,14 @@ class CaptureCoverageTests(unittest.TestCase):
         for key in ("CARGO_PROFILE_RELEASE_LTO", "CARGO_ENCODED_RUSTFLAGS", "LD_PRELOAD", "GITHUB_TOKEN"):
             self.assertNotIn(key, env)
 
-    def artifact(self, name, features=None):
-        executable = self.root / "target/coverage/core-minimal/debug/deps" / (name + "-123")
+    def artifact(self, name, features=None, group="core-minimal", package="rca-core", library="rca_core"):
+        executable = self.root / "target/coverage" / group / "debug/deps" / (name + "-123")
         executable.parent.mkdir(parents=True, exist_ok=True)
         executable.write_text("object")
-        return {"reason": "compiler-artifact", "package_id": "path+file://repo/rca-core#0.1.0",
-                "manifest_path": str(self.root / "rca-core/Cargo.toml"),
-                "target": {"name": name, "kind": ["lib" if name == "rca_core" else "test"]},
-                "profile": {"test": True}, "features": features or ["local"],
+        return {"reason": "compiler-artifact", "package_id": f"path+file://repo/{package}#0.1.0",
+                "manifest_path": str(self.root / package / "Cargo.toml"),
+                "target": {"name": name, "kind": ["lib" if name == library else "test"]},
+                "profile": {"test": True}, "features": ["local"] if features is None else features,
                 "filenames": [str(executable)], "executable": str(executable)}
 
     def records(self):
@@ -105,6 +105,82 @@ class CaptureCoverageTests(unittest.TestCase):
         directory.symlink_to(moved, target_is_directory=True)
         with self.assertRaises(ValueError):
             self.parse(rows)
+
+    def test_added_groups_select_only_fixed_package_features_and_ordinary_hosts(self):
+        expected = {
+            "core-removal": (
+                ["-p", "rca-core", "--features", "diagnostics,futures-stream,local,test-util"],
+                ["removed_child", "local_removed_child"],
+            ),
+            "tokio": (
+                ["-p", "rca-tokio"],
+                ["rca_tokio", "async_cleanup_host", "client_clock", "panic_subprocess",
+                 "synchronous_host", "thread_affine_host"],
+            ),
+            "listener-std": (
+                ["-p", "rca-event-listener"],
+                ["event_listener", "notify", "public_surface", "callback_contracts",
+                 "first_use", "backend_contention", "notification_policy",
+                 "panic_contracts", "blocking", "generic_contracts"],
+            ),
+            "listener-critical-section": (
+                ["-p", "rca-event-listener", "--no-default-features", "--features", "critical-section"],
+                ["event_listener", "notify", "public_surface", "callback_contracts",
+                 "first_use", "backend_contention", "notification_policy", "panic_contracts"],
+            ),
+            "strategy-std": (
+                ["-p", "rca-event-listener-strategy"],
+                ["event_listener_strategy", "easy_wrapper", "public_contracts"],
+            ),
+        }
+        for group, (prefix, names) in expected.items():
+            with self.subTest(group=group):
+                options = self.capture.group_arguments(group)
+                self.assertEqual(options[:len(prefix)], prefix)
+                suffix = options[len(prefix):]
+                if group == "core-removal":
+                    self.assertEqual(suffix, [item for name in names for item in ("--test", name)])
+                else:
+                    self.assertEqual(suffix, ["--lib", *[item for name in names[1:] for item in ("--test", name)]])
+                self.assertNotIn("loom", options)
+
+    def test_added_group_artifacts_reject_foreign_package_features_and_hosts(self):
+        cases = (
+            ("core-removal", "rca-core", "rca_core", ["default", "diagnostics", "futures-stream", "local", "test-util"],
+             ["removed_child", "local_removed_child"]),
+            ("tokio", "rca-tokio", "rca_tokio", [],
+             ["rca_tokio", "async_cleanup_host", "client_clock", "panic_subprocess", "synchronous_host", "thread_affine_host"]),
+            ("listener-std", "dependencies/rca-event-listener", "event_listener", ["default", "parking", "std"],
+             ["event_listener", "notify", "public_surface", "callback_contracts", "first_use", "backend_contention",
+              "notification_policy", "panic_contracts", "blocking", "generic_contracts"]),
+            ("listener-critical-section", "dependencies/rca-event-listener", "event_listener", ["critical-section"],
+             ["event_listener", "notify", "public_surface", "callback_contracts", "first_use", "backend_contention",
+              "notification_policy", "panic_contracts"]),
+            ("strategy-std", "dependencies/rca-event-listener-strategy", "event_listener_strategy", ["default", "std"],
+             ["event_listener_strategy", "easy_wrapper", "public_contracts"]),
+        )
+        for group, package, library, features, names in cases:
+            with self.subTest(group=group):
+                rows = [self.artifact(name, features, group, package, library) for name in names]
+                target = self.root / "target/coverage" / group
+
+                def parse(records):
+                    return self.capture.parse_artifacts("\n".join(map(json.dumps, records)), self.root, target, group)
+
+                self.assertEqual({row["target"]["name"] for row in parse(rows)}, set(names))
+                for change, value in (("manifest_path", str(self.root / "rca-test/Cargo.toml")),
+                                      ("features", ["default", "test-util"]),
+                                      ("target", {"name": names[0], "kind": ["test" if names[0] == library else "lib"]})):
+                    invalid = [dict(row) for row in rows]
+                    invalid[0][change] = value
+                    with self.subTest(group=group, change=change), self.assertRaises(ValueError):
+                        parse(invalid)
+                with self.assertRaises(ValueError):
+                    parse(rows[:-1])
+                with self.assertRaises(ValueError):
+                    parse([*rows, rows[0]])
+                with self.assertRaises(ValueError):
+                    parse([*rows, self.artifact("unselected", features, group, package, library)])
 
     def test_snapshot_requires_clean_tracked_files_and_lock_and_detects_changes(self):
         def git(*args):
@@ -344,6 +420,44 @@ elif name == "llvm-cov":
                     good.replace("0 filtered out", "1 filtered out"), good + good):
             with self.subTest(summary=bad), self.assertRaises(ValueError):
                 self.capture.test_summary(bad)
+
+    def test_listener_summary_accepts_only_successful_exact_children_before_parent(self):
+        child = "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 9 filtered out\n"
+        parent = "test result: ok. 9 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out\n"
+        with self.assertRaises(ValueError):
+            self.capture.test_summary(child + parent)
+        self.assertEqual(self.capture.test_summary(child + child + parent, allow_exact_children=True),
+                         {"passed": 9, "failed": 0, "ignored": 1, "measured": 0,
+                          "filtered_out": 0, "exact_children": [{"passed": 1, "failed": 0,
+                          "ignored": 0, "measured": 0, "filtered_out": 9}] * 2})
+        single = "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out\n"
+        self.assertEqual(self.capture.test_summary(single + single, allow_exact_children=True)["exact_children"],
+                         [{"passed": 1, "failed": 0, "ignored": 0, "measured": 0, "filtered_out": 0}])
+        for bad in (
+            parent + parent,
+            child,
+            child.replace("1 passed", "0 passed") + parent,
+            child.replace("9 filtered out", "8 filtered out") + parent,
+            child.replace("0 ignored", "1 ignored") + parent,
+            child.replace("test result: ok", "test result: FAILED") + parent,
+            child + parent.replace("0 filtered out", "1 filtered out"),
+            single * 3,
+        ):
+            with self.subTest(summary=bad), self.assertRaises(ValueError):
+                self.capture.test_summary(bad, allow_exact_children=True)
+
+    def test_only_listener_integration_parents_run_serial_libtest_threads(self):
+        executable = self.root / "listener-fixture"
+        for group in ("listener-std", "listener-critical-section"):
+            with self.subTest(group=group):
+                self.assertEqual(self.capture.host_arguments(group, ["test"], executable),
+                                 [str(executable), "--test-threads=1"])
+                self.assertEqual(self.capture.host_arguments(group, ["lib"], executable),
+                                 [str(executable)])
+        for group in ("core-minimal", "core-rich", "core-removal", "tokio", "strategy-std"):
+            with self.subTest(group=group):
+                self.assertEqual(self.capture.host_arguments(group, ["test"], executable),
+                                 [str(executable)])
 
     def test_capture_detects_tool_change_after_host_execution(self):
         tools, output = self.capture_fixture("tool-change")

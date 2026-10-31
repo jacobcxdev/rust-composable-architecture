@@ -109,7 +109,14 @@ jobs:
         strategy:
             fail-fast: false
             matrix:
-                group: [core-minimal, core-rich]
+                group:
+                    - core-minimal
+                    - core-rich
+                    - core-removal
+                    - tokio
+                    - listener-std
+                    - listener-critical-section
+                    - strategy-std
         env:
             CARGO_BUILD_JOBS: 1
             CARGO_INCREMENTAL: 0
