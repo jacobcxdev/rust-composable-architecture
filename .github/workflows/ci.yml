@@ -113,6 +113,9 @@ jobs:
                     - core-minimal
                     - core-rich
                     - core-removal
+                    - core-timers-rich
+                    - core-timers-minimal
+                    - macros
                     - tokio
                     - listener-std
                     - listener-critical-section

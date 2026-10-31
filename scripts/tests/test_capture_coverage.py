@@ -5,6 +5,7 @@ import gzip
 import json
 import os
 from pathlib import Path
+import signal
 import subprocess
 import sys
 import tempfile
@@ -144,6 +145,107 @@ class CaptureCoverageTests(unittest.TestCase):
                     self.assertEqual(suffix, ["--lib", *[item for name in names[1:] for item in ("--test", name)]])
                 self.assertNotIn("loom", options)
 
+    def test_macro_and_timer_groups_select_fixed_existing_hosts(self):
+        self.assertEqual(self.capture.group_arguments("macros"), [
+            "-p", "rca-macros", "--lib",
+            *[item for name in ("action_paths", "aggregate_paths", "case_descriptors",
+                               "dependency_client", "derive_dependency_key", "reducer",
+                               "reducers", "snapshot_owned") for item in ("--test", name)],
+        ])
+        rich = ["-p", "rca-core", "--features", "diagnostics,futures-stream,local,test-util"]
+        minimal = ["-p", "rca-core", "--no-default-features", "--features", "local"]
+        self.assertEqual(self.capture.group_arguments("core-timers-rich"), [
+            *rich, *[item for name in ("timers", "local_clock_timer", "named_operation_timers",
+                                         "typed_transactions", "assertion_gate", "lifecycle_diagnostics")
+                    for item in ("--test", name)],
+        ])
+        self.assertEqual(self.capture.group_arguments("core-timers-minimal"), [
+            *minimal, *[item for name in ("timers", "local_clock_timer", "named_operation_timers",
+                                            "typed_transactions") for item in ("--test", name)],
+        ])
+
+    def test_macro_parser_requires_its_unit_executable_and_one_owned_dynamic_object(self):
+        group = "macros"
+        target = self.root / "target/coverage/macros"
+        unit = self.artifact("rca_macros", [], group, "rca-macros", "rca_macros")
+        unit["target"]["kind"] = ["proc-macro"]
+        unit["package_id"] = f"path+file://{self.root / 'rca-macros'}#0.1.0"
+        client_names = ("action_paths", "aggregate_paths", "case_descriptors",
+                        "dependency_client", "derive_dependency_key", "reducer",
+                        "reducers", "snapshot_owned")
+        clients = [self.artifact(name, [], group, "rca-macros", "rca_macros")
+                   for name in client_names]
+        for client in clients:
+            client["package_id"] = unit["package_id"]
+        dynamic = target / "debug/deps/librca_macros-123abc.so"
+        dynamic.write_bytes(b"instrumented macro object")
+        macro = dict(unit, executable=None, filenames=[str(dynamic)],
+                     profile={"test": False}, fresh=False,
+                     target={"name": "rca_macros", "kind": ["proc-macro"],
+                             "crate_types": ["proc-macro"]})
+
+        def parse(rows):
+            stream = "\n".join(map(json.dumps, rows))
+            return (self.capture.parse_artifacts(stream, self.root, target, group),
+                    self.capture.parse_macro_object(stream, self.root, target))
+
+        hosts, owned = parse([unit, *clients, macro])
+        self.assertEqual({row["target"]["name"] for row in hosts},
+                         {"rca_macros", *client_names})
+        self.assertEqual(owned["filenames"], [str(dynamic)])
+        for bad in (
+            [unit, *clients], [unit, *clients, macro, macro],
+            [unit, *clients, dict(macro, manifest_path=str(self.root / "rca-test/Cargo.toml"))],
+            [unit, *clients, dict(macro, features=["test-util"])],
+            [unit, *clients, dict(macro, package_id="path+file:///foreign/rca-macros#0.1.0")],
+            [unit, *clients, dict(macro, filenames=[str(dynamic.with_suffix(".rlib"))])],
+            [unit, *clients, dict(macro, profile={"test": True})],
+            [unit, *clients, dict(macro, fresh=True)],
+            [unit, *clients, {key: value for key, value in macro.items() if key != "fresh"}],
+        ):
+            with self.subTest(records=bad), self.assertRaises(ValueError):
+                parse(bad)
+
+    def test_macro_entry_validation_requires_each_owned_positive_body(self):
+        source = str(self.root / "rca-macros/src/lib.rs")
+        entries = ("derive_snapshot", "reducer", "derive_case_descriptors",
+                   "derive_dependency_key", "derive_dependency_client", "derive_state_paths",
+                   "derive_action_paths", "reducers")
+        functions = [{"name": f"_RNvCfixture_10rca_macros{len(name)}{name}",
+                      "filenames": [source], "count": 0,
+                      "regions": [[1, 1, 2, 1, 1, 0, 0, 0]]} for name in entries]
+        data = {"data": [{"functions": functions}]}
+        self.capture.validate_macro_entries(data, self.root)
+        for bad in (functions[:-1],
+                    [*functions[:-1], dict(functions[-1], regions=[[1, 1, 2, 1, 0, 0, 0, 0]])],
+                    [*functions[:-1], dict(functions[-1], filenames=[str(self.root / "foreign/lib.rs")])],
+                    [*functions, functions[0]]):
+            with self.subTest(functions=bad), self.assertRaises(ValueError):
+                self.capture.validate_macro_entries({"data": [{"functions": bad}]}, self.root)
+
+    def test_macro_reducer_requires_its_five_successful_nested_consumers(self):
+        child_counts = (3, 3, 14, 1, 1)
+        child = lambda passed: f"test result: ok. {passed} passed; 0 failed; 0 ignored; 0 measured; 0 filtered out\n"
+        parent = child(9)
+        output = "".join(child(passed) for passed in child_counts) + parent
+        self.assertEqual(self.capture.test_summary(output, macro_children=True)["macro_children"],
+                         [dict(passed=passed, failed=0, ignored=0, measured=0, filtered_out=0)
+                          for passed in child_counts])
+        self.assertEqual(self.capture.host_arguments("macros", ["test"], Path("/tmp/reducer-abc")),
+                         ["/tmp/reducer-abc", "--test-threads=1"])
+        self.assertEqual(self.capture.host_arguments("macros", ["test"], Path("/tmp/action_paths-abc")),
+                         ["/tmp/action_paths-abc"])
+        for invalid in (
+            "".join(child(passed) for passed in child_counts[:-1]) + parent,
+            "".join(child(passed) for passed in (*child_counts[:-1], 2)) + parent,
+            "".join(child(passed) for passed in (*child_counts, 1)) + parent,
+            output.replace("3 passed; 0 failed", "3 passed; 1 failed", 1),
+            "".join(child(passed) for passed in child_counts) + child(0),
+            "".join(child(passed) for passed in child_counts) + child(8),
+        ):
+            with self.subTest(invalid=invalid), self.assertRaises(ValueError):
+                self.capture.test_summary(invalid, macro_children=True)
+
     def test_added_group_artifacts_reject_foreign_package_features_and_hosts(self):
         cases = (
             ("core-removal", "rca-core", "rca_core", ["default", "diagnostics", "futures-stream", "local", "test-util"],
@@ -242,17 +344,47 @@ class CaptureCoverageTests(unittest.TestCase):
 
     def test_command_rejects_successful_parent_with_live_descendant(self):
         marker = self.root / "late-profile"
-        child = ("import signal,time; from pathlib import Path; "
-                 "signal.signal(signal.SIGTERM, signal.SIG_IGN); time.sleep(0.5); "
-                 f"Path({str(marker)!r}).write_text('late')")
-        parent = "import subprocess,sys; " + f"subprocess.Popen([sys.executable, '-c', {child!r}])"
+        ready = self.root / "child-ready"
+        release = self.root / "release-child"
+        child = ("import signal,time; from pathlib import Path\n"
+                 "signal.signal(signal.SIGTERM, signal.SIG_IGN)\n"
+                 f"Path({str(ready)!r}).write_text('ready')\n"
+                 f"release=Path({str(release)!r})\n"
+                 "deadline=time.monotonic()+5\n"
+                 "while time.monotonic()<deadline:\n"
+                 " if release.exists():\n"
+                 f"  Path({str(marker)!r}).write_text('late')\n"
+                 "  break\n"
+                 " time.sleep(0.01)\n")
+        parent = ("import subprocess,sys,time; from pathlib import Path; "
+                  f"subprocess.Popen([sys.executable, '-c', {child!r}])\n"
+                  f"ready=Path({str(ready)!r})\n"
+                  "for _ in range(500):\n"
+                  " if ready.exists(): break\n"
+                  " time.sleep(0.01)\n"
+                  "else: raise RuntimeError('descendant did not become ready')\n")
         prefix = self.root / "residue"
         with self.assertRaises(ValueError):
             self.capture.run_command([sys.executable, "-c", parent], self.root,
                                      dict(os.environ), prefix, 10, minimum_free=0)
+        self.assertTrue(ready.exists(), "child must ignore TERM before parent exits")
         self.assertEqual(json.loads(prefix.with_suffix(".status.json").read_text())["stop_reason"], "remaining descendants")
+        release.write_text("release")
         time.sleep(0.6)
         self.assertFalse(marker.exists())
+
+    def test_descendant_cleanup_oracle_rejects_an_escaped_child(self):
+        real_killpg = os.killpg
+
+        def leave_descendant_alive(group, sig):
+            if sig in (signal.SIGTERM, signal.SIGKILL):
+                return None
+            return real_killpg(group, sig)
+
+        with patch.object(self.capture.os, "killpg", side_effect=leave_descendant_alive):
+            with self.assertRaises(AssertionError):
+                self.test_command_rejects_successful_parent_with_live_descendant()
+        self.assertTrue((self.root / "late-profile").exists())
 
     def test_tool_versions_reject_mixed_compiler_host_and_llvm_inputs(self):
         versions = {
@@ -472,6 +604,135 @@ elif name == "llvm-cov":
             self.run_capture_fixture(tools, output)
         self.assertFalse(json.loads((output / "capture.json").read_text())["capture_complete"])
         self.assertNotEqual((self.root / "rca-core/src/lib.rs").read_text(), "pub fn fixture() {}\n")
+
+    def macro_capture_fixture(self, positive=True, warning=False):
+        """Supply Cargo records and separate fake compiler and runtime profiles."""
+        tools, _ = self.capture_fixture()
+        macro_source = self.root / "rca-macros/src/lib.rs"
+        macro_source.parent.mkdir(parents=True)
+        macro_source.write_text("pub fn fixture() {}\n")
+        (self.root / "rca-macros/Cargo.toml").write_text(
+            '[package]\nname = "rca-macros"\nversion = "0.1.0"\n')
+        env = dict(os.environ, GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL=os.devnull)
+        subprocess.run(["git", "add", "rca-macros"], cwd=self.root, env=env, check=True)
+        subprocess.run(["git", "-c", "user.name=Capture test", "-c", "user.email=test@example.invalid",
+                        "-c", "commit.gpgsign=false", "commit", "-qm", "macro fixture"],
+                       cwd=self.root, env=env, check=True)
+
+        def fake_run(argv, cwd, command_env, prefix, _timeout, minimum_free=0):
+            self.capture.write_json(prefix.with_suffix(".argv.json"), list(map(str, argv)))
+            name = prefix.name
+            output = b""
+            stderr = b""
+            if name == "build":
+                self.assertEqual(argv[1:-1], ["test", "--locked", "-j1",
+                                                "--message-format=json-render-diagnostics",
+                                                *self.capture.group_arguments("macros")])
+                target = Path(command_env["CARGO_TARGET_DIR"]) / "debug/deps"
+                target.mkdir(parents=True)
+                names = ("rca_macros", *self.capture.TARGETS["macros"].tests)
+                records = []
+                for selected in names:
+                    executable = target / (selected + "-123abc")
+                    executable.write_bytes(b"libtest object")
+                    records.append({"reason": "compiler-artifact",
+                                    "package_id": f"path+file://{self.root / 'rca-macros'}#0.1.0",
+                                    "manifest_path": str(self.root / "rca-macros/Cargo.toml"),
+                                    "target": {"name": selected, "kind": ["proc-macro" if selected == "rca_macros" else "test"]},
+                                    "profile": {"test": True}, "features": [],
+                                    "filenames": [str(executable)], "executable": str(executable)})
+                library = target / "librca_macros-123abc.so"
+                library.write_bytes(b"macro dynamic object")
+                records.append({"reason": "compiler-artifact",
+                                "package_id": f"path+file://{self.root / 'rca-macros'}#0.1.0",
+                                "manifest_path": str(self.root / "rca-macros/Cargo.toml"),
+                                "target": {"name": "rca_macros", "kind": ["proc-macro"],
+                                           "crate_types": ["proc-macro"]},
+                                "profile": {"test": False}, "features": [], "fresh": False,
+                                "filenames": [str(library)], "executable": None})
+                output = "\n".join(map(json.dumps, records)).encode()
+                raw = Path(command_env["LLVM_PROFILE_FILE"].replace("%p", "1").replace("%m", "build"))
+                raw.write_bytes(b"compiler profile")
+            elif name == "merge":
+                profiles = [Path(item) for item in argv[3:argv.index("-o")]]
+                expected = b"compiler profile" if prefix.parent.name == "macro-object" else b"runtime profile"
+                self.assertTrue(profiles)
+                self.assertTrue(all(item.read_bytes() == expected for item in profiles))
+                Path(argv[-1]).write_bytes(b"merged " + expected)
+            elif name == "export":
+                if prefix.parent.name == "macro-object":
+                    self.assertTrue(argv[-1].endswith(".so"))
+                    self.assertEqual(Path(argv[-1]).read_bytes(), b"macro dynamic object")
+                    functions = [{"name": f"_RNvCfixture_10rca_macros{len(entry)}{entry}",
+                                  "filenames": [str(macro_source)], "count": 0,
+                                  "regions": [[1, 1, 2, 1, int(positive or entry != "reducers"), 0, 0, 0]]}
+                                 for entry in self.capture.MACRO_ENTRIES]
+                    stderr = b"warning: profile mismatch\n" if warning else b""
+                else:
+                    self.assertFalse(argv[-1].endswith(".so"))
+                    functions = [{"name": "runtime", "filenames": [str(macro_source)],
+                                  "count": 0, "regions": [[1, 1, 2, 1, 0, 0, 0, 0]]}]
+                output = json.dumps({"data": [{"functions": functions}]}).encode()
+            elif name == "run":
+                raw = Path(command_env["LLVM_PROFILE_FILE"].replace("%p", "2").replace("%m", "runtime"))
+                raw.write_bytes(b"runtime profile")
+                if prefix.parent.name == "reducer":
+                    output = b"".join(
+                        f"test result: ok. {count} passed; 0 failed; 0 ignored; 0 measured; 0 filtered out\n".encode()
+                        for count in (3, 3, 14, 1, 1, 9)
+                    )
+                else:
+                    output = b"test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out\n"
+            else:
+                self.fail(f"Unexpected capture command: {prefix}")
+            prefix.with_suffix(".stdout").write_bytes(output)
+            prefix.with_suffix(".stderr").write_bytes(stderr)
+            self.capture.write_json(prefix.with_suffix(".status.json"),
+                                    {"returncode": 0, "stop_reason": None})
+
+        return tools, fake_run, self.root / "target/coverage-evidence/macros"
+
+    def test_macro_capture_keeps_exact_object_and_separate_compiler_profiles(self):
+        tools, fake_run, output = self.macro_capture_fixture()
+        with patch.object(self.capture, "discover_tools", return_value=tools), \
+                patch.object(self.capture, "run_command", side_effect=fake_run), \
+                patch.object(self.capture.sys, "platform", "linux"), \
+                patch.object(self.capture.shutil, "disk_usage", return_value=SimpleNamespace(free=100 * 1024 ** 3)):
+            self.capture.capture(self.root, "macros", output)
+        self.assertTrue(json.loads((output / "capture.json").read_text())["capture_complete"])
+        macro = output / "macro-object"
+        self.assertEqual((macro / "build.profdata").read_bytes(), b"merged compiler profile")
+        self.assertEqual(len(json.loads((macro / "raw-sha256.json").read_text())), 1)
+        self.assertEqual((output / "objects/librca_macros-123abc.so").read_bytes(), b"macro dynamic object")
+        self.assertEqual(len(list((output / "hosts").iterdir())), 9)
+        for host in (output / "hosts").iterdir():
+            self.assertEqual((host / "runtime.profdata").read_bytes(), b"merged runtime profile")
+        self.assertEqual(len(json.loads(gzip.decompress((macro / "export.json.gz").read_bytes()))
+                             ["data"][0]["functions"]), 8)
+
+    def test_macro_capture_retains_zero_entry_failure(self):
+        tools, fake_run, output = self.macro_capture_fixture(positive=False)
+        with patch.object(self.capture, "discover_tools", return_value=tools), \
+                patch.object(self.capture, "run_command", side_effect=fake_run), \
+                patch.object(self.capture.sys, "platform", "linux"), \
+                patch.object(self.capture.shutil, "disk_usage", return_value=SimpleNamespace(free=100 * 1024 ** 3)):
+            with self.assertRaises(ValueError):
+                self.capture.capture(self.root, "macros", output)
+        self.assertFalse(json.loads((output / "capture.json").read_text())["capture_complete"])
+        self.assertTrue((output / "macro-object/export.status.json").exists())
+        self.assertTrue((output / "macro-object/export.json.gz").exists())
+
+    def test_macro_capture_rejects_llvm_warning(self):
+        tools, fake_run, output = self.macro_capture_fixture(warning=True)
+        with patch.object(self.capture, "discover_tools", return_value=tools), \
+                patch.object(self.capture, "run_command", side_effect=fake_run), \
+                patch.object(self.capture.sys, "platform", "linux"), \
+                patch.object(self.capture.shutil, "disk_usage", return_value=SimpleNamespace(free=100 * 1024 ** 3)):
+            with self.assertRaises(ValueError):
+                self.capture.capture(self.root, "macros", output)
+        self.assertFalse(json.loads((output / "capture.json").read_text())["capture_complete"])
+        self.assertTrue((output / "macro-object/export.status.json").exists())
+        self.assertIn("warning", (output / "macro-object/export.stderr").read_text())
 
 
 if __name__ == "__main__":

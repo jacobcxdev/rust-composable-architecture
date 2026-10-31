@@ -57,6 +57,24 @@ TARGETS = {
         ("--features", "diagnostics,futures-stream,local,test-util"),
         ("removed_child", "local_removed_child"), include_library=False,
     ),
+    "core-timers-rich": CaptureGroup(
+        "rca-core", "rca-core", "rca_core",
+        frozenset({"default", "diagnostics", "futures-stream", "local", "test-util"}),
+        ("--features", "diagnostics,futures-stream,local,test-util"),
+        ("timers", "local_clock_timer", "named_operation_timers", "typed_transactions",
+         "assertion_gate", "lifecycle_diagnostics"), include_library=False,
+    ),
+    "core-timers-minimal": CaptureGroup(
+        "rca-core", "rca-core", "rca_core", frozenset({"local"}),
+        ("--no-default-features", "--features", "local"),
+        ("timers", "local_clock_timer", "named_operation_timers", "typed_transactions"),
+        include_library=False,
+    ),
+    "macros": CaptureGroup(
+        "rca-macros", "rca-macros", "rca_macros", frozenset(), (),
+        ("action_paths", "aggregate_paths", "case_descriptors", "dependency_client",
+         "derive_dependency_key", "reducer", "reducers", "snapshot_owned"),
+    ),
     "tokio": CaptureGroup(
         "rca-tokio", "rca-tokio", "rca_tokio", frozenset(), (),
         ("async_cleanup_host", "client_clock", "panic_subprocess",
@@ -97,9 +115,11 @@ def group_arguments(group):
 
 
 def host_arguments(group, kind, executable):
-    """Serialize listener integration parents without filtering their tests."""
+    """Serialize parents that inherit child output without filtering tests."""
     args = [str(executable)]
     if group in ("listener-std", "listener-critical-section") and kind == ["test"]:
+        args.append("--test-threads=1")
+    if group == "macros" and executable.name.startswith("reducer-"):
         args.append("--test-threads=1")
     return args
 
@@ -163,9 +183,12 @@ def parse_artifacts(text, root, target, group):
             continue
         name = record["target"]["name"]
         executable = Path(record["executable"])
+        library_kind = ["proc-macro"] if group == "macros" else ["lib"]
         if (record["manifest_path"] != str(root / selected.directory / "Cargo.toml")
                 or set(record["features"]) != selected.features or not record["profile"]["test"]
-                or record["target"]["kind"] != (["lib"] if name == selected.library else ["test"])
+                or record["target"]["kind"] != (library_kind if name == selected.library else ["test"])
+                or (group == "macros" and not record["package_id"].startswith(
+                    f"path+file://{root / selected.directory}#"))
                 or executable.parent != target / "debug/deps" or not executable.is_file()
                 or any(part.is_symlink() for part in (executable, *executable.parents))
                 or name not in expected or name in hosts
@@ -177,18 +200,77 @@ def parse_artifacts(text, root, target, group):
     return [hosts[name] for name in sorted(hosts)]
 
 
-def test_summary(text, allow_exact_children=False):
-    """Require a successful parent run; accept exact-filtered listener children only."""
+def parse_macro_object(text, root, target):
+    """Select the proc-macro dynamic object, not its libtest executable."""
+    records = [json.loads(line) for line in text.splitlines()]
+    candidates = [record for record in records
+                  if record.get("reason") == "compiler-artifact"
+                  and record.get("target", {}).get("name") == "rca_macros"
+                  and record.get("executable") is None]
+    if len(candidates) != 1:
+        raise ValueError("Expected one owned proc-macro dynamic object")
+    record = candidates[0]
+    filenames = record.get("filenames", [])
+    if len(filenames) != 1:
+        raise ValueError("Expected one proc-macro dynamic object path")
+    path = Path(filenames[0])
+    if (record.get("manifest_path") != str(root / "rca-macros/Cargo.toml")
+            or not record.get("package_id", "").startswith(f"path+file://{root / 'rca-macros'}#")
+            or record.get("features") != [] or record.get("fresh") is not False
+            or record.get("profile", {}).get("test") is not False
+            or record.get("target", {}).get("kind") != ["proc-macro"]
+            or record["target"].get("crate_types") != ["proc-macro"]
+            or path.parent != target / "debug/deps"
+            or re.fullmatch(r"librca_macros-[0-9a-f]+\.so", path.name) is None
+            or not path.is_file() or any(part.is_symlink() for part in (path, *path.parents))):
+        raise ValueError("Proc-macro object does not match the selected package and features")
+    return record
+
+
+MACRO_ENTRIES = ("derive_snapshot", "reducer", "derive_case_descriptors",
+                 "derive_dependency_key", "derive_dependency_client", "derive_state_paths",
+                 "derive_action_paths", "reducers")
+
+
+def validate_macro_entries(data, root):
+    """Require a positive owned region in each compiler-stage macro entry body."""
+    source = str(root / "rca-macros/src/lib.rs")
+    functions = [function for group in data.get("data", []) for function in group.get("functions", [])]
+    for entry in MACRO_ENTRIES:
+        suffix = f"_10rca_macros{len(entry)}{entry}"
+        matches = [function for function in functions if function.get("name", "").endswith(suffix)]
+        if len(matches) != 1:
+            raise ValueError(f"Missing or duplicate proc-macro entry: {entry}")
+        function = matches[0]
+        filenames = function.get("filenames", [])
+        if not any(len(region) >= 8 and region[4] > 0 and region[7] == 0
+                   and isinstance(region[5], int) and 0 <= region[5] < len(filenames)
+                   and filenames[region[5]] == source for region in function.get("regions", [])):
+            raise ValueError(f"Proc-macro entry has no positive owned region: {entry}")
+
+
+def test_summary(text, allow_exact_children=False, macro_children=False):
+    """Require an unfiltered parent and only known, successful child runs."""
     matches = re.findall(
         r"^test result: ok\. (\d+) passed; (\d+) failed; (\d+) ignored; "
         r"(\d+) measured; (\d+) filtered out(?:; finished in [^\n]+)?$", text, re.MULTILINE)
-    if not matches or (not allow_exact_children and len(matches) != 1):
+    if not matches or (not allow_exact_children and not macro_children and len(matches) != 1):
         raise ValueError("Expected one successful libtest summary")
     summaries = [dict(zip(("passed", "failed", "ignored", "measured", "filtered_out"), map(int, match)))
                  for match in matches]
     summary = summaries[-1]
     if summary["passed"] == 0 or summary["failed"] != 0 or summary["filtered_out"] != 0:
         raise ValueError("Selected host did not run its positive, unfiltered test cohort")
+    if macro_children:
+        counts = (3, 3, 14, 1, 1)
+        children = summaries[:-1]
+        summary_lines = re.findall(r"^test result: [^\n]+$", text, re.MULTILINE)
+        if (summary != dict(passed=9, failed=0, ignored=0, measured=0, filtered_out=0)
+                or len(summary_lines) != len(summaries) or len(children) != len(counts)
+                or any(child != dict(passed=passed, failed=0, ignored=0, measured=0,
+                                     filtered_out=0) for child, passed in zip(children, counts))):
+            raise ValueError("Macro reducer nested consumers did not finish their exact tests")
+        return dict(summary, macro_children=children)
     if allow_exact_children:
         summary_lines = re.findall(r"^test result: [^\n]+$", text, re.MULTILINE)
         total_tests = summary["passed"] + summary["ignored"] + summary["measured"]
@@ -354,10 +436,42 @@ def capture(root, group, output):
         env["LLVM_PROFILE_FILE"] = str(build_raw / "current-%p-%m.profraw")
         run_command([str(tools["cargo"]), "test", "--locked", "-j1", "--message-format=json-render-diagnostics",
                      *options, "--no-run"], root, env, output / "build", 1800)
-        hosts = parse_artifacts((output / "build.stdout").read_text(), root, target, group)
+        build_output = (output / "build.stdout").read_text()
+        hosts = parse_artifacts(build_output, root, target, group)
         write_json(output / "compiler-artifacts.json", hosts)
         objects = output / "objects"
         objects.mkdir()
+        if group == "macros":
+            macro_record = parse_macro_object(build_output, root, target)
+            macro = output / "macro-object"
+            macro.mkdir()
+            original = Path(macro_record["filenames"][0])
+            retained = objects / original.name
+            shutil.copy2(original, retained)
+            if digest(original) != digest(retained):
+                raise ValueError("Retained proc-macro object differs from Cargo artifact")
+            write_json(macro / "object.json", {"artifact": macro_record, "original": str(original),
+                                                "retained": str(retained), "sha256": digest(retained)})
+            profiles = sorted(build_raw.glob("*.profraw"))
+            if not profiles or set(build_raw.iterdir()) != set(profiles) or any(path.is_symlink() for path in profiles):
+                raise ValueError("Missing or unexpected compiler-stage profiles")
+            write_json(macro / "raw-sha256.json", {path.name: digest(path) for path in profiles})
+            package = root / "rca-macros"
+            run_command([str(tools["llvm-profdata"]), "merge", "-sparse", *map(str, profiles),
+                         "-o", str(macro / "build.profdata")], package, env, macro / "merge", 120)
+            run_command([str(tools["llvm-cov"]), "export", "-format=text",
+                         "-instr-profile=" + str(macro / "build.profdata"), "-object", str(retained)],
+                        package, env, macro / "export", 120)
+            if (macro / "merge.stderr").stat().st_size or (macro / "export.stderr").stat().st_size:
+                raise ValueError("LLVM emitted proc-macro diagnostics; native evidence is not admitted")
+            with (macro / "export.stdout").open("rb") as stream:
+                data = json.load(stream)
+                if not isinstance(data.get("data"), list) or not data["data"]:
+                    raise ValueError("LLVM proc-macro export has no coverage data")
+            with (macro / "export.stdout").open("rb") as stream, (macro / "export.json.gz").open("wb") as destination:
+                with gzip.GzipFile(filename="", mode="wb", fileobj=destination, mtime=0) as compressed:
+                    shutil.copyfileobj(stream, compressed)
+            (macro / "export.stdout").unlink()
         for record in hosts:
             host = output / "hosts" / record["target"]["name"]
             raw = host / "raw"
@@ -377,7 +491,9 @@ def capture(root, group, output):
                         package, host_env, host / "run", 600)
             listener_child = (group in ("listener-std", "listener-critical-section")
                               and record["target"]["kind"] == ["test"])
-            write_json(host / "test-summary.json", test_summary((host / "run.stdout").read_text(), listener_child))
+            macro_child = group == "macros" and record["target"]["name"] == "reducer"
+            write_json(host / "test-summary.json",
+                       test_summary((host / "run.stdout").read_text(), listener_child, macro_child))
             profiles = sorted(raw.glob("*.profraw"))
             if not profiles or set(raw.iterdir()) != set(profiles) or any(path.is_symlink() for path in profiles):
                 raise ValueError("Missing or unexpected runtime profiles")
@@ -396,6 +512,9 @@ def capture(root, group, output):
                 with gzip.GzipFile(filename="", mode="wb", fileobj=destination, mtime=0) as compressed:
                     shutil.copyfileobj(stream, compressed)
             (host / "export.stdout").unlink()  # Full bytes remain in export.json.gz.
+        if group == "macros":
+            with gzip.open(macro / "export.json.gz", "rt") as stream:
+                validate_macro_entries(json.load(stream), root)
         config_after = {str(path): digest(path) for path in configs if path.is_file()}
         write_json(output / "cargo-config-after.json", config_after)
         if config_before != config_after:
