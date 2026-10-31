@@ -180,10 +180,8 @@ impl<W: Future<Output = ()> + Unpin> Scheduler<W> {
     }
 
     /// Detaches one bounded batch without keeping its ID buffer across user polls.
-    // End this stack frame before a future can poll or re-enter the scheduler.
-    #[inline(never)]
     fn detach_ready_batch(&self, limit: usize) -> PollBatch<'_, W> {
-        let mut state = lock(&self.wake.state);
+        let state = lock(&self.wake.state);
         if state.ready_tasks.is_empty() {
             return PollBatch {
                 scheduler: self,
@@ -193,6 +191,17 @@ impl<W: Future<Output = ()> + Unpin> Scheduler<W> {
             };
         }
 
+        self.detach_nonempty_ready_batch(limit, state)
+    }
+
+    /// Detaches nonempty readiness while retaining the caller's wake lock.
+    // End this stack frame before a future can poll or re-enter the scheduler.
+    #[inline(never)]
+    fn detach_nonempty_ready_batch(
+        &self,
+        limit: usize,
+        mut state: MutexGuard<'_, SchedulerState>,
+    ) -> PollBatch<'_, W> {
         let mut ids = [0; READY_BATCH_LIMIT];
         let mut tasks = lock(&self.tasks);
         let mut count = 0;

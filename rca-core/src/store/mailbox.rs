@@ -215,13 +215,15 @@ impl<T> Channel<T> {
     fn close(&self, on_closed: impl FnOnce()) -> bool {
         /// Wakes capacity waiters even if the actor's closure callback unwinds.
         struct NotifySenders<'a>(
-            /// Borrowed event remains live for this closure transition.
-            &'a Event,
+            /// Present only when a sender could have suspended before closure.
+            Option<&'a Event>,
         );
 
         impl Drop for NotifySenders<'_> {
             fn drop(&mut self) {
-                self.0.notify(usize::MAX);
+                if let Some(event) = self.0 {
+                    event.notify(usize::MAX);
+                }
             }
         }
 
@@ -233,7 +235,13 @@ impl<T> Channel<T> {
             // Both notifications happen after unlocking. If the actor waker
             // panics, unwinding still releases blocked producers; if a producer
             // waker panics, the actor's closure wake is already published.
-            let _notify_senders = NotifySenders(&self.send_ops);
+            // Pending senders published interest before their locked retry.
+            // Later registrants must observe closure in that retry.
+            let event = self
+                .capacity_interest
+                .load(Ordering::Acquire)
+                .then_some(&self.send_ops);
+            let _notify_senders = NotifySenders(event);
             on_closed();
         }
         !was_closed
@@ -252,7 +260,7 @@ impl<T> Drop for Receiver<T> {
     }
 }
 
-/// Checks that unsaturated round trips need no capacity-notification allocation.
+/// Checks that unsaturated round trips and closure need no notification allocation.
 #[cfg(all(test, not(loom), feature = "allocation-measurement"))]
 pub(crate) fn unsaturated_round_trips_do_not_allocate() {
     const NAME: &str = "store::mailbox::tests::unsaturated_round_trips_do_not_allocate";
@@ -267,6 +275,8 @@ pub(crate) fn unsaturated_round_trips_do_not_allocate() {
         sender.try_send(value).unwrap();
         assert_eq!(receiver.try_recv(), Ok(value));
     }
+    drop(sender);
+    drop(receiver);
     let after = dhat::HeapStats::get();
     drop(profiler);
 
