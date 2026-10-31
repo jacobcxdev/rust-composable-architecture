@@ -375,7 +375,7 @@ fn finish_task(task: &ActionTask) {
     futures_executor::block_on(task.finish());
 }
 
-/// Measures committed actions and checks exact leaf work after the timed loop.
+/// Creates a Store before the shared measurement loop.
 fn bench_store(
     bencher: divan::Bencher<'_, '_>,
     reducer: impl Reducer<State = State, Action = Action> + Send + 'static,
@@ -383,6 +383,18 @@ fn bench_store(
     calls_per_action: usize,
 ) {
     let fixture = Fixture::new(State { calls: 0 }, reducer);
+    bench_store_fixture(bencher, fixture, action_depth, calls_per_action);
+}
+
+/// Measures committed actions and checks exact leaf work after the timed loop.
+///
+/// The loop has no reducer type parameter, so all reducer types share its benchmark closures.
+fn bench_store_fixture(
+    bencher: divan::Bencher<'_, '_>,
+    fixture: Fixture<State, Action>,
+    action_depth: usize,
+    calls_per_action: usize,
+) {
     finish_task(&fixture.commit(Action {
         depth: action_depth,
     }));
