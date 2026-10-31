@@ -62,6 +62,7 @@ jobs:
                   python3 -m unittest scripts.tests.test_windows_performance scripts.tests.test_native_performance_comparison
                   python3 -m unittest scripts.tests.test_composition_performance.ProtocolEvidenceTests scripts.tests.test_composition_performance.AbsoluteBudgetTests scripts.tests.test_composition_performance.InterleavedProtocolTests
                   python3 -m unittest scripts.tests.test_composition_performance.CurrentMacProtocolTests scripts.tests.test_composition_performance.MacWatchdogEvidenceTests scripts.tests.test_composition_performance.WindowsPairedProtocolTests scripts.tests.test_composition_windows_runner
+                  python3 -m unittest scripts.tests.test_composition_windows_absolute scripts.tests.test_composition_windows_complete scripts.tests.test_composition_windows_complete_runner scripts.tests.test_windows_support
                   PYTHONPATH=scripts/tests python3 -m unittest test_counter_cohorts test_minimal_size test_minimal_compile
                   python3 -m unittest scripts.tests.test_composition_runner.RunnerTests -k interleaved -k recorded_load -k busy_monitor -k prepared_modes -k candidate_cli -k absolute_capture
 
