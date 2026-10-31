@@ -5,7 +5,7 @@ use std::collections::{BTreeMap, HashMap};
 use std::fmt;
 use std::future::pending;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, Barrier, Mutex, OnceLock};
+use std::sync::{Arc, Barrier, Mutex, Weak};
 use std::task::Poll;
 use std::time::Instant;
 
@@ -1101,6 +1101,17 @@ mod cleanup_tests {
     }
 
     #[test]
+    fn paused_drivers_share_one_pool_while_alive() {
+        let first = super::PausedDriver::new();
+        let second = super::PausedDriver::new();
+
+        assert!(
+            super::Arc::ptr_eq(&first.pool, &second.pool),
+            "live paused fixtures must share their worker pool"
+        );
+    }
+
+    #[test]
     #[should_panic(expected = "paused runtime does not support finite future deadlines")]
     fn paused_driver_rejects_unsupported_finite_future_deadlines() {
         use rca_core::RuntimeDriver;
@@ -1837,21 +1848,31 @@ impl Drop for ConcurrentSendFixture {
 struct PausedDriver {
     /// Holds the actor unpolled while the bounded mailbox is filled.
     tasks: Arc<Mutex<Vec<RuntimeFuture>>>,
-    /// Executes retained tasks only after explicit release.
-    pool: ThreadPool,
+    /// Shares the executor with other live fixtures, without a static owner.
+    pool: Arc<ThreadPool>,
     /// Supplies the runtime facade's common time origin.
     origin: Instant,
 }
 
 impl PausedDriver {
-    /// Creates the pool but retains submitted tasks instead of polling them.
+    /// Shares a live pool but retains submitted tasks instead of polling them.
     fn new() -> Self {
-        static POOL: OnceLock<ThreadPool> = OnceLock::new();
+        // The cache shares workers without retaining them after fixture cleanup.
+        static POOL: Mutex<Weak<ThreadPool>> = Mutex::new(Weak::new());
+        let pool = {
+            let mut cached = POOL
+                .lock()
+                .expect("paused benchmark pool cache lock remains available");
+            cached.upgrade().unwrap_or_else(|| {
+                let pool = Arc::new(ThreadPool::new().expect("paused benchmark thread pool"));
+                *cached = Arc::downgrade(&pool);
+                pool
+            })
+        };
+
         Self {
             tasks: Arc::new(Mutex::new(Vec::new())),
-            pool: POOL
-                .get_or_init(|| ThreadPool::new().expect("paused benchmark thread pool"))
-                .clone(),
+            pool,
             origin: Instant::now(),
         }
     }

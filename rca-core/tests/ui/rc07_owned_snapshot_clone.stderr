@@ -13,10 +13,10 @@ help: the trait `Snapshot` is not implemented for `MerelyClone`
    | ^^^^^^^^^^^^^^^^^^
    = help: the following other types implement trait `Snapshot`:
              ()
+             (A,)
              (A, B)
              (A, B, C)
              (A, B, C, D)
-             (A,)
              Box<T>
              Duration
              KeyedState<Id, State>
@@ -40,10 +40,10 @@ help: the trait `Snapshot` is not implemented for `MerelyClone`
    | ^^^^^^^^^^^^^^^^^^
    = help: the following other types implement trait `Snapshot`:
              ()
+             (A,)
              (A, B)
              (A, B, C)
              (A, B, C, D)
-             (A,)
              Box<T>
              Duration
              KeyedState<Id, State>

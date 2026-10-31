@@ -514,6 +514,9 @@ fn scoped_try_send_full(bencher: divan::Bencher<'_, '_>) {
     items_count = 1_u64
 )]
 fn scoped_try_send_recovery(bencher: divan::Bencher<'_, '_>) {
+    // Keep one pool alive across input batches, outside the measured operation.
+    let _pool_owner = PausedDriver::new();
+
     bencher
         .with_inputs(full_mailbox_fixture)
         .bench_local_values(|mut fixture| {

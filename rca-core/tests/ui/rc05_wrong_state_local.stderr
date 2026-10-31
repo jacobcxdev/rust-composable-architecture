@@ -6,8 +6,8 @@ error[E0308]: mismatched types
   |             |
   |             arguments to this method are incorrect
   |
-  = note: expected struct `rca_core::Task<usize, ()>`
-             found struct `rca_core::Task<String, ()>`
+  = note: expected struct `Task<usize, ()>`
+             found struct `Task<String, ()>`
 note: method defined here
  --> src/feature.rs
   |
