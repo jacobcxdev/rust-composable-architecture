@@ -187,27 +187,31 @@ class WindowsSupportTests(unittest.TestCase):
                 self.capture.stripped_pe_size(path)
 
     def test_live_memory_uses_current_working_set_never_peak(self):
-        provider = Mock()
+        memory_type = self.capture.provider_module.ProcessMemoryCounters
+        memory_reader = ctypes.CFUNCTYPE(ctypes.c_int32, ctypes.c_void_p,
+                                        ctypes.POINTER(memory_type), ctypes.c_uint32)
+        calls = []
 
         def read_memory(handle, pointer, size):
-            memory = ctypes.cast(pointer, ctypes.POINTER(self.capture.provider_module.ProcessMemoryCounters)).contents
+            memory = pointer.contents
+            calls.append((handle, size, memory.cb))
             memory.WorkingSetSize = 4096
             memory.PeakWorkingSetSize = 65536
             return 1
 
-        provider.psapi.GetProcessMemoryInfo.side_effect = read_memory
+        provider = SimpleNamespace(psapi=SimpleNamespace(GetProcessMemoryInfo=memory_reader(read_memory)))
         self.assertEqual(self.capture.live_working_set(provider, 7), 4096)
+        self.assertEqual(calls, [(7, ctypes.sizeof(memory_type), ctypes.sizeof(memory_type))])
 
         def peak_only(handle, pointer, size):
-            memory = ctypes.cast(pointer, ctypes.POINTER(self.capture.provider_module.ProcessMemoryCounters)).contents
+            memory = pointer.contents
             memory.PeakWorkingSetSize = 65536
             return 1
 
-        provider.psapi.GetProcessMemoryInfo.side_effect = peak_only
+        provider.psapi.GetProcessMemoryInfo = memory_reader(peak_only)
         with self.assertRaisesRegex(ValueError, "live working set"):
             self.capture.live_working_set(provider, 7)
-        provider.psapi.GetProcessMemoryInfo.side_effect = None
-        provider.psapi.GetProcessMemoryInfo.return_value = 0
+        provider.psapi.GetProcessMemoryInfo = memory_reader(lambda *args: 0)
         with self.assertRaises(OSError):
             self.capture.live_working_set(provider, 7)
 
@@ -325,9 +329,11 @@ class WindowsSupportTests(unittest.TestCase):
                 patch.object(self.capture.runner, "windows_host", return_value={"identity": {"platform": "windows"}}), \
                 patch.object(self.capture.runner, "check_host_unchanged"), \
                 patch.object(self.capture.runner, "WindowsMonitor", return_value=monitor) as factory, \
+                patch.object(self.capture.provider_module, "WindowsCounters") as counters, \
                 patch.object(self.capture, "capture_idle", return_value={"WorkingSetSize": 4096}):
             result = self.capture.capture(args)
             self.assertTrue(factory.call_args.kwargs["complete"])
+            self.assertIs(factory.call_args.kwargs["provider"], counters.return_value)
             return result
 
     def test_full_support_workload_preserves_commands_and_missing_profiles_stay_incomplete(self):
