@@ -1920,8 +1920,8 @@ ordinary_test_items! {
                 assert!(matches!(
                     wait.as_mut().poll(&mut context),
                     std::task::Poll::Ready(WaitOutcome::Closed)
-                ));
-            }
+                ))
+            };
             assert_eq!(turns, 0, "the earlier pending poll resets the budget");
             assert_eq!(actor.commit_version, 0);
             assert!(actor.receiver.is_closed());
@@ -1947,8 +1947,8 @@ ordinary_test_items! {
                 assert!(matches!(
                     wait.as_mut().poll(&mut context),
                     std::task::Poll::Ready(WaitOutcome::Continue)
-                ));
-            }
+                ))
+            };
             let task = receive
                 .now_or_never()
                 .expect("the resumed wait acknowledges the command")
@@ -1985,8 +1985,8 @@ ordinary_test_items! {
                 assert!(matches!(
                     wait.as_mut().poll(&mut context),
                     std::task::Poll::Ready(WaitOutcome::Continue)
-                ));
-            }
+                ))
+            };
             assert_eq!(actor.commit_version, 0);
             assert!(matches!(receive.try_recv(), Ok(None)));
             assert!(!task.is_finished(), "control must harvest the cancelled node");
@@ -2022,8 +2022,8 @@ ordinary_test_items! {
                 assert!(matches!(
                     wait.as_mut().poll(&mut context),
                     std::task::Poll::Ready(WaitOutcome::Continue)
-                ));
-            }
+                ))
+            };
             assert_eq!(actor.commit_version, 0);
             assert_eq!(control.epoch(), 0);
             let mut wait = Box::pin(actor.wait_without_timers(&mut turns));

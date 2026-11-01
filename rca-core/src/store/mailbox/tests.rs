@@ -117,7 +117,7 @@ fn ingress_admission_preserves_epoch_and_wakes_registered_consumer() {
         assert_eq!(control.epoch(), 0);
         assert_eq!(receiver.try_recv(), Ok(11));
         assert_eq!(receiver.try_recv(), Err(TryRecvError::Empty));
-        let (waker, wakes) = counted_waker();
+        let (waker, notifications) = counted_waker();
         assert!(poll(Pin::new(&mut listener), &waker).is_pending());
 
         // Keep ingress alive here so producer completion cannot publish closure.
@@ -135,7 +135,7 @@ fn ingress_admission_preserves_epoch_and_wakes_registered_consumer() {
             assert_eq!(receiver.try_recv(), Ok(22));
         }
         producer.join().expect("ingress admission completes");
-        assert_eq!(wakes.load(Ordering::SeqCst), 1);
+        assert_eq!(notifications.load(Ordering::SeqCst), 1);
         assert_eq!(control.epoch(), 0, "admission is not lifecycle maintenance");
         if !ready {
             assert!(
