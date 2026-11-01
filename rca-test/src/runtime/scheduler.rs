@@ -202,34 +202,39 @@ impl<W: Future<Output = ()> + Unpin> Scheduler<W> {
         limit: usize,
         mut state: MutexGuard<'_, SchedulerState>,
     ) -> PollBatch<'_, W> {
-        let mut ids = [0; READY_BATCH_LIMIT];
         let mut tasks = lock(&self.tasks);
-        let mut count = 0;
-        for (slot, id) in ids.iter_mut().zip(
-            state
-                .ready_tasks
-                .iter()
-                .filter(|id| tasks.get(id).is_some_and(Option::is_some))
-                .take(limit),
-        ) {
-            *slot = *id;
-            count += 1;
-        }
+        let count = state
+            .ready_tasks
+            .iter()
+            .filter(|id| tasks.get(id).is_some_and(Option::is_some))
+            .take(limit.min(READY_BATCH_LIMIT))
+            .count();
 
-        let mut detached = ids[..count].iter().map(|&id| {
-            state.ready_tasks.remove(&id);
-            let task = tasks
-                .get_mut(&id)
-                .and_then(Option::take)
-                .expect("ready task must exist");
-            (id, task)
-        });
-        let first = detached.next();
-        let remaining = detached.collect::<Vec<_>>().into_iter();
+        let mut first = None;
+        let mut remaining = Vec::new();
+        for _ in state
+            .ready_tasks
+            .extract_if(.., |id| {
+                let Some(task) = tasks.get_mut(id).and_then(Option::take) else {
+                    return false;
+                };
+                if first.is_none() {
+                    first = Some((*id, task));
+                } else {
+                    if remaining.is_empty() {
+                        // Allocate after the first ready ID leaves the set.
+                        remaining.reserve_exact(count - 1);
+                    }
+                    remaining.push((*id, task));
+                }
+                true
+            })
+            .take(count)
+        {}
         PollBatch {
             scheduler: self,
             first,
-            remaining,
+            remaining: remaining.into_iter(),
             current_id: None,
         }
     }
@@ -1391,6 +1396,85 @@ mod tests {
             assert_eq!(count.0.load(SeqCst), before);
             assert_eq!(scheduler.snapshot().ready_task_ids, [] as [u64; 0]);
         }
+    }
+
+    #[test]
+    fn bounded_batch_skips_mixed_reserved_and_abandoned_ready_ids() {
+        struct DropOutsideLock {
+            scheduler: Weak<Host>,
+            drops: Arc<Mutex<Vec<usize>>>,
+            id: usize,
+        }
+
+        impl Drop for DropOutsideLock {
+            fn drop(&mut self) {
+                let scheduler = self.scheduler.upgrade().expect("test owns scheduler");
+                drop(scheduler.wake.state.try_lock().expect("metadata unlocked"));
+                drop(scheduler.tasks.try_lock().expect("payloads unlocked"));
+                self.drops.lock().unwrap().push(self.id);
+            }
+        }
+
+        let scheduler = Arc::new(Host::new(MonotonicInstant::ZERO));
+        let recorded = Arc::new(Mutex::new(None));
+        let polls = Arc::new(Mutex::new(Vec::new()));
+        let drops = Arc::new(Mutex::new(Vec::new()));
+        for id in 0..4 {
+            let guard = DropOutsideLock {
+                scheduler: Arc::downgrade(&scheduler),
+                drops: Arc::clone(&drops),
+                id,
+            };
+            let observed = Arc::clone(&polls);
+            let captured = Arc::clone(&recorded);
+            scheduler.spawn(Box::pin(std::future::poll_fn(move |cx| -> Poll<()> {
+                let _ = &guard;
+                observed.lock().unwrap().push(id);
+                if id == 0 {
+                    *captured.lock().unwrap() = Some(cx.waker().clone());
+                    panic!("original mixed-gap task panic");
+                }
+                Poll::Ready(())
+            })));
+        }
+
+        let panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            scheduler.poll_ready_batch(1)
+        }))
+        .unwrap_err();
+        assert_eq!(
+            panic.downcast_ref::<&str>(),
+            Some(&"original mixed-gap task panic")
+        );
+        recorded.lock().unwrap().take().unwrap().wake();
+        let reserved = scheduler.detach_ready_batch(1);
+        assert_eq!(reserved.first.as_ref().map(|(id, _)| *id), Some(1));
+        // A wake can arrive while this payload is reserved by another drive.
+        scheduler.wake.mark_ready(1);
+        assert_eq!(scheduler.snapshot().ready_task_ids, [0, 1, 2, 3]);
+        assert_eq!(scheduler.snapshot().live_task_ids, [0, 1, 2, 3]);
+
+        // Neither gap consumes the one-poll limit or loses its diagnostic ID.
+        assert_eq!(scheduler.poll_ready_batch(1), 1);
+        assert_eq!(*polls.lock().unwrap(), [0, 2]);
+        assert_eq!(*drops.lock().unwrap(), [0, 2]);
+        assert_eq!(scheduler.snapshot().ready_task_ids, [0, 1, 3]);
+        assert_eq!(scheduler.snapshot().live_task_ids, [0, 1, 3]);
+
+        drop(reserved);
+        assert_eq!(*drops.lock().unwrap(), [0, 2, 1]);
+        assert_eq!(scheduler.poll_ready_batch(usize::MAX), 1);
+        assert_eq!(*polls.lock().unwrap(), [0, 2, 3]);
+        assert_eq!(*drops.lock().unwrap(), [0, 2, 1, 3]);
+        assert_eq!(scheduler.poll_ready_batch(1), 0);
+        assert_eq!(scheduler.snapshot().ready_task_ids, [0, 1]);
+        assert_eq!(scheduler.snapshot().live_task_ids, [0, 1]);
+        assert!(lock(&scheduler.tasks).is_empty());
+
+        scheduler.close();
+        assert_eq!(scheduler.snapshot().ready_task_ids, [] as [u64; 0]);
+        assert_eq!(scheduler.snapshot().live_task_ids, [] as [u64; 0]);
+        assert_eq!(*drops.lock().unwrap(), [0, 2, 1, 3]);
     }
 
     #[test]
