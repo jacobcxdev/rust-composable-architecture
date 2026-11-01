@@ -233,7 +233,8 @@ impl LineageState {
             // registered waiter sees terminal, so skipping notify cannot strand it.
             fence(Ordering::SeqCst);
             if self.finish_interest.load(Ordering::Acquire) {
-                self.changed.notify(usize::MAX);
+                // The paired fence above already orders this notification.
+                self.changed.notify_relaxed(usize::MAX);
             }
         }
     }
