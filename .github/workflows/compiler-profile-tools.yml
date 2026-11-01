@@ -1,0 +1,58 @@
+name: Compiler profile tools
+
+on:
+    push:
+        branches: ["jacobcxdev/compiler-profile-tools"]
+
+permissions:
+    contents: read
+
+defaults:
+    run:
+        shell: bash
+
+jobs:
+    tools:
+        name: Build pinned Windows profile readers
+        runs-on: windows-2025
+        timeout-minutes: 20
+        env:
+            CARGO_BUILD_JOBS: 2
+            CARGO_INCREMENTAL: 0
+            CARGO_PROFILE_RELEASE_DEBUG: 0
+        steps:
+            - name: Checkout the compatible upstream tools
+              uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+              with:
+                  repository: rust-lang/measureme
+                  ref: 5ac839c602b59eee9c908b3b35b6d6c0cd1c42f7
+            - name: Install pinned Rust
+              uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772
+              with:
+                  toolchain: 1.99.0
+            - name: Restore tool dependencies
+              uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6
+              with:
+                  key: compiler-profile-tools-windows-12.0.3
+                  cache-on-failure: true
+            - name: Build and identify profile readers
+              run: |
+                  git rev-parse HEAD 'HEAD^{tree}'
+                  rustc --version --verbose
+                  cargo generate-lockfile
+                  cargo build --release --locked -j 2 -p summarize -p crox
+                  target/release/summarize.exe --help
+                  target/release/crox.exe --help
+                  sha256sum Cargo.lock target/release/summarize.exe target/release/crox.exe > SHA256SUMS
+                  sha256sum --check SHA256SUMS
+            - name: Retain readers and resolved dependency lock
+              uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+              with:
+                  name: compiler-profile-tools-windows-12.0.3
+                  retention-days: 3
+                  if-no-files-found: error
+                  path: |
+                      Cargo.lock
+                      SHA256SUMS
+                      target/release/summarize.exe
+                      target/release/crox.exe
