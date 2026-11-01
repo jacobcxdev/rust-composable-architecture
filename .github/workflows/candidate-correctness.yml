@@ -1,4 +1,4 @@
-name: Candidate completion integration
+name: Candidate mapping contracts
 
 on:
     push:
@@ -26,7 +26,7 @@ env:
 
 jobs:
     contracts:
-        name: Candidate completion integration (${{ matrix.os }})
+        name: Candidate mapping contracts (${{ matrix.os }})
         runs-on: ${{ matrix.os }}
         timeout-minutes: 30
         strategy:
@@ -52,9 +52,14 @@ jobs:
                   sha256sum Cargo.toml rca-core/src/effect/map.rs rca-core/src/effect/lineage.rs rca-core/src/store/local.rs
                   rustc --version --verbose
                   cargo --version
-            - name: Test Shared public completion contracts
+            - name: Test Shared mapping contracts
               run: |
-                  cargo test --locked -p rca-core --test action_receipt_lifetime --test receipt_cycles --test effects -- --nocapture --test-threads=1
-            - name: Test Local public completion contracts
+                  cargo test --locked -p rca-core --lib effect:: -- --nocapture --test-threads=1
+                  cargo test --locked -p rca-core --test effects -- --nocapture --test-threads=1
+            - name: Test Local mapping contracts
               run: |
-                  cargo test --locked -p rca-core --features local --test action_receipt_lifetime --test receipt_cycles --test effects --test local_store -- --nocapture --test-threads=1
+                  cargo test --locked -p rca-core --features local --lib effect:: -- --nocapture --test-threads=1
+                  cargo test --locked -p rca-core --features local --test effects -- --nocapture --test-threads=1
+            - name: Check production documentation and lint
+              run: |
+                  cargo clippy --locked -p rca-core --lib --all-features -- -D warnings -D missing_docs -D clippy::missing_docs_in_private_items

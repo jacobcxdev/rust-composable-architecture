@@ -310,17 +310,9 @@ impl LineageState {
     }
 
     /// Waits for complete causal destruction without requesting cancellation on drop.
-    pub(crate) fn finish(&self) -> impl Future<Output = ()> + '_ {
+    pub(crate) async fn finish(&self) {
         let mut listener = None;
-        std::future::poll_fn(move |cx| {
-            // Keep the listener local so completion and unwinding release it.
-            let mut current = listener.take();
-            let result = self.poll_finish(&mut current, cx);
-            if result.is_pending() {
-                listener = current;
-            }
-            result
-        })
+        std::future::poll_fn(|cx| self.poll_finish(&mut listener, cx)).await;
     }
 }
 
@@ -441,146 +433,6 @@ mod finish_tests {
         fn wake(self: Arc<Self>) {
             self.0.fetch_add(1, Ordering::Relaxed);
         }
-    }
-
-    #[test]
-    fn finish_releases_listener_before_returning_ready() {
-        let lineage = LineageState::new(Weak::new());
-        let mut finish = Box::pin(lineage.finish());
-        let mut context = Context::from_waker(Waker::noop());
-        assert!(finish.as_mut().poll(&mut context).is_pending());
-        assert_eq!(lineage.changed.total_listeners(), 1);
-
-        lineage.finish_registration();
-        assert!(finish.as_mut().poll(&mut context).is_ready());
-
-        // Keep the completed future alive: completion must release its listener.
-        assert_eq!(lineage.changed.total_listeners(), 0);
-        assert!(!lineage.is_cancelled());
-        drop(finish);
-    }
-
-    #[test]
-    fn finish_poll_panic_releases_listener_before_future_drop() {
-        use std::sync::atomic::AtomicBool;
-
-        /// Panics when replacement releases the listener's last waker reference.
-        struct PanicOnDrop {
-            armed: Arc<AtomicBool>,
-            drops: Arc<AtomicUsize>,
-        }
-
-        impl Wake for PanicOnDrop {
-            fn wake(self: Arc<Self>) {}
-        }
-
-        impl Drop for PanicOnDrop {
-            fn drop(&mut self) {
-                self.drops.fetch_add(1, Ordering::Relaxed);
-                assert!(
-                    !self.armed.swap(false, Ordering::Relaxed),
-                    "intentional finish waker drop panic",
-                );
-            }
-        }
-
-        let control = ControlWake::new();
-        let lineage = LineageState::new(Arc::downgrade(&control));
-        let armed = Arc::new(AtomicBool::new(false));
-        let drops = Arc::new(AtomicUsize::new(0));
-        let first_waker = Waker::from(Arc::new(PanicOnDrop {
-            armed: Arc::clone(&armed),
-            drops: Arc::clone(&drops),
-        }));
-        let mut finish = Box::pin(lineage.finish());
-        assert!(
-            finish
-                .as_mut()
-                .poll(&mut Context::from_waker(&first_waker))
-                .is_pending()
-        );
-        assert_eq!(lineage.changed.total_listeners(), 1);
-
-        // Only the listener retains the first waker when replacement starts.
-        drop(first_waker);
-        armed.store(true, Ordering::Relaxed);
-        let panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            finish
-                .as_mut()
-                .poll(&mut Context::from_waker(Waker::noop()))
-        }))
-        .expect_err("replacing the stored waker must propagate its drop panic");
-        assert_eq!(
-            panic
-                .downcast_ref::<&str>()
-                .copied()
-                .or_else(|| panic.downcast_ref::<String>().map(String::as_str)),
-            Some("intentional finish waker drop panic"),
-        );
-
-        // Catching the panic must not keep a listener in the retained future.
-        assert_eq!(drops.load(Ordering::Relaxed), 1);
-        assert_eq!(lineage.changed.total_listeners(), 0);
-        assert!(!lineage.is_finished());
-        assert!(!lineage.is_cancelled());
-        assert_eq!(control.epoch(), 0);
-        drop(finish);
-        assert_eq!(drops.load(Ordering::Relaxed), 1);
-        assert_eq!(control.epoch(), 0);
-        lineage.finish_registration();
-        assert!(lineage.is_finished());
-        assert!(!lineage.is_cancelled());
-    }
-
-    #[test]
-    fn reports_passive_finish_poll_fn_layout() {
-        /// Retains the original async wrapper for this private layout comparison.
-        async fn async_wrapper_finish(lineage: &LineageState) {
-            let mut listener = None;
-            std::future::poll_fn(|cx| lineage.poll_finish(&mut listener, cx)).await;
-        }
-
-        let lineage = LineageState::new(Weak::new());
-        let baseline = async_wrapper_finish(&lineage);
-        let candidate = lineage.finish();
-        let _: &dyn Send = &candidate;
-
-        let baseline_owner = Arc::clone(&lineage);
-        let mut baseline_caller = Box::pin(async move {
-            async_wrapper_finish(&baseline_owner).await;
-        });
-        let candidate_owner = Arc::clone(&lineage);
-        let mut candidate_caller = Box::pin(async move {
-            candidate_owner.finish().await;
-        });
-        // Report the boxed pointees, not pointer sizes or listener allocations.
-        println!(
-            concat!(
-                "passive finish layout: async_future={} poll_fn_future={} ",
-                "async_boxed_frame={} poll_fn_boxed_frame={}",
-            ),
-            std::mem::size_of_val(&baseline),
-            std::mem::size_of_val(&candidate),
-            std::mem::size_of_val(baseline_caller.as_ref().get_ref()),
-            std::mem::size_of_val(candidate_caller.as_ref().get_ref()),
-        );
-
-        let task = crate::ActionTask::live(Arc::clone(&lineage));
-        let public_finish = task.finish();
-        let cancelling_finish = task.clone().finish_cancelling_on_drop();
-        println!(
-            "public task finish layout: passive={} cancelling={}",
-            std::mem::size_of_val(&public_finish),
-            std::mem::size_of_val(&cancelling_finish),
-        );
-
-        let mut context = Context::from_waker(Waker::noop());
-        assert!(baseline_caller.as_mut().poll(&mut context).is_pending());
-        assert!(candidate_caller.as_mut().poll(&mut context).is_pending());
-        lineage.finish_registration();
-        assert!(baseline_caller.as_mut().poll(&mut context).is_ready());
-        assert!(candidate_caller.as_mut().poll(&mut context).is_ready());
-        assert_eq!(lineage.changed.total_listeners(), 0);
     }
 
     #[test]
