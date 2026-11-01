@@ -5,10 +5,9 @@
 //! Completion becomes permanent when the last hold ends. Cancellation requests
 //! revoke authority separately and do not release those holds.
 //!
-//! Finish listeners share a permanent interest flag. Each waiter registers before
-//! joining the work counter's release sequence, so the last release cannot miss it.
-//! Actor control notifications use a lifecycle epoch so the actor can detect changes
-//! before it sleeps.
+//! Finish listeners share a permanent interest flag. The work counter orders
+//! listener registration with the last release. Actor control notifications use
+//! a lifecycle epoch so the actor can detect changes before it sleeps.
 
 use std::fmt;
 use std::pin::Pin;
@@ -152,10 +151,11 @@ mod control_wake_tests {
 /// completion pending. Callers release each lease after its concrete payload.
 pub(crate) struct LineageState {
     /// One initial registration hold plus one count for each live work lease.
-    /// Zero publishes permanent completion and never admits another lease.
     pending: AtomicUsize,
     /// Records the first cancellation request accepted before observed completion.
     cancelled: AtomicBool,
+    /// Publishes the final release before any completion listener can wake.
+    terminal: AtomicBool,
     /// Remains true after any finish listener registers, even if that waiter leaves.
     finish_interest: AtomicBool,
     /// Notifies finish waiters only after terminal completion is published.
@@ -172,6 +172,7 @@ impl LineageState {
         Arc::new(Self {
             pending: AtomicUsize::new(1),
             cancelled: AtomicBool::new(false),
+            terminal: AtomicBool::new(false),
             finish_interest: AtomicBool::new(false),
             changed: Event::new(),
             control,
@@ -227,9 +228,10 @@ impl LineageState {
     /// so a panicking waker cannot leave the lineage nonterminal.
     fn complete_work(&self) {
         if self.pending.fetch_sub(1, Ordering::AcqRel) == 1 {
-            // Every unfinished waiter publishes interest before joining this
-            // counter's release sequence. This acquire sees that publication;
-            // a waiter joining after the final decrement observes zero instead.
+            self.terminal.store(true, Ordering::Release);
+            // Each registered waiter publishes interest before a counter RMW.
+            // The final decrement acquires that publication through the release
+            // sequence. A later waiter observes zero instead.
             if self.finish_interest.load(Ordering::Acquire) {
                 self.changed.notify(usize::MAX);
             }
@@ -241,7 +243,7 @@ impl LineageState {
     /// This does not release work. A request concurrent with completion can win;
     /// a request that observes terminal completion has no effect.
     pub(crate) fn cancel(&self) {
-        if !self.is_finished()
+        if !self.terminal.load(Ordering::Acquire)
             && !self.cancelled.swap(true, Ordering::AcqRel)
             && let Some(control) = self.control.upgrade()
         {
@@ -256,7 +258,7 @@ impl LineageState {
 
     /// Reads permanent completion after the final registration or work hold ended.
     pub(crate) fn is_finished(&self) -> bool {
-        self.pending.load(Ordering::Acquire) == 0
+        self.terminal.load(Ordering::Acquire)
     }
 
     /// Requests named-generation retirement after its final work release completes.
@@ -288,9 +290,11 @@ impl LineageState {
             *listener = Some(self.changed.listen());
             // Interest is permanent: dropping one waiter must not hide another.
             self.finish_interest.store(true, Ordering::Release);
-            // Join the counter's release sequence after registering and publishing
-            // interest. A later final decrement acquires it; an earlier one leaves zero.
+            // A later final decrement acquires this publication. An earlier
+            // decrement leaves zero, which this acquire observes instead.
             if self.pending.fetch_add(0, Ordering::AcqRel) == 0 {
+                // Publish before Ready if the final releaser paused before its store.
+                self.terminal.store(true, Ordering::Release);
                 return Poll::Ready(());
             }
         }
@@ -318,7 +322,7 @@ impl fmt::Debug for LineageState {
         f.debug_struct("LineageState")
             .field("pending", &self.pending)
             .field("cancelled", &self.cancelled)
-            .field("terminal", &self.is_finished())
+            .field("terminal", &self.terminal)
             .finish_non_exhaustive()
     }
 }
@@ -415,6 +419,7 @@ mod finish_loom_tests {
                 .is_pending();
             if !pending {
                 // Check before joining, which would also publish the payloads.
+                assert!(lineage.is_finished(), "Ready must publish completion");
                 assert!(released_work.load(Ordering::Relaxed));
                 assert!(released_registration.load(Ordering::Relaxed));
             }
@@ -429,6 +434,26 @@ mod finish_loom_tests {
             }
             assert!(lineage.is_finished());
             assert!(lineage.try_add_work().is_none());
+        });
+
+        loom::model(|| {
+            let lineage = LineageState::new(Weak::new());
+            // Fix the exact cut point after the final decrement and before its
+            // terminal store. The real waiter must publish completion itself.
+            assert_eq!(lineage.pending.fetch_sub(1, Ordering::AcqRel), 1);
+            assert!(!lineage.is_finished());
+            let mut listener = None;
+            assert!(
+                lineage
+                    .poll_finish(&mut listener, &mut Context::from_waker(Waker::noop()))
+                    .is_ready()
+            );
+            assert!(lineage.is_finished(), "Ready must publish completion");
+            assert!(lineage.try_add_work().is_none());
+            assert!(
+                listener.is_some(),
+                "the waiter must register before its zero check"
+            );
         });
     }
 

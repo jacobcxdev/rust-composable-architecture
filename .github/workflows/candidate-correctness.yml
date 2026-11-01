@@ -49,6 +49,7 @@ jobs:
             - name: Record source and compiler identities
               run: |
                   git rev-parse HEAD 'HEAD^{tree}'
+                  printf '%s\n' '1394bfc3607057742e97f4c61ccb6e4d1ffb80ff957d39a71f6cff2b7f858efd  rca-core/src/effect/lineage.rs' | sha256sum --check --strict
                   sha256sum Cargo.toml rca-core/src/effect/map.rs rca-core/src/effect/lineage.rs rca-core/src/store/local.rs
                   rustc --version --verbose
                   cargo --version
@@ -84,5 +85,6 @@ jobs:
                   cache-on-failure: true
             - name: Test completion and cancel-on-drop models
               run: |
+                  printf '%s\n' '1394bfc3607057742e97f4c61ccb6e4d1ffb80ff957d39a71f6cff2b7f858efd  rca-core/src/effect/lineage.rs' | sha256sum --check --strict
                   cargo test --locked -p rca-core --lib finish_loom_tests -- --nocapture --test-threads=1
                   cargo test --locked -p rca-core --lib cancel_guard_loom_tests -- --nocapture --test-threads=1
