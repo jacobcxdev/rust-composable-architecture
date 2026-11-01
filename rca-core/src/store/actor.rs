@@ -1912,16 +1912,14 @@ ordinary_test_items! {
             }));
             let mut turns = 17;
             let mut context = std::task::Context::from_waker(std::task::Waker::noop());
-            {
+            let outcome = {
                 let mut wait = Box::pin(actor.wait_without_timers(&mut turns));
                 assert!(wait.as_mut().poll(&mut context).is_pending());
                 // A delayed producer notification may arrive after its command was consumed.
                 control.notify_admission();
-                assert!(matches!(
-                    wait.as_mut().poll(&mut context),
-                    std::task::Poll::Ready(WaitOutcome::Closed)
-                ))
+                wait.as_mut().poll(&mut context)
             };
+            assert!(matches!(outcome, std::task::Poll::Ready(WaitOutcome::Closed)));
             assert_eq!(turns, 0, "the earlier pending poll resets the budget");
             assert_eq!(actor.commit_version, 0);
             assert!(actor.receiver.is_closed());
@@ -1938,17 +1936,15 @@ ordinary_test_items! {
             let (reply, receive) = crate::store::command::commit_channel();
             let mut turns = 17;
             let mut context = std::task::Context::from_waker(std::task::Waker::noop());
-            {
+            let outcome = {
                 let mut wait = Box::pin(actor.wait_without_timers(&mut turns));
                 assert!(wait.as_mut().poll(&mut context).is_pending());
                 ingress
                     .try_send(Command::Action(ActionCommand::external((), reply)))
                     .unwrap();
-                assert!(matches!(
-                    wait.as_mut().poll(&mut context),
-                    std::task::Poll::Ready(WaitOutcome::Continue)
-                ))
+                wait.as_mut().poll(&mut context)
             };
+            assert!(matches!(outcome, std::task::Poll::Ready(WaitOutcome::Continue)));
             let task = receive
                 .now_or_never()
                 .expect("the resumed wait acknowledges the command")
@@ -1975,18 +1971,16 @@ ordinary_test_items! {
             let (reply, mut receive) = crate::store::command::commit_channel();
             let mut turns = 17;
             let mut context = std::task::Context::from_waker(std::task::Waker::noop());
-            {
+            let outcome = {
                 let mut wait = Box::pin(actor.wait_without_timers(&mut turns));
                 assert!(wait.as_mut().poll(&mut context).is_pending());
                 ingress
                     .try_send(Command::Action(ActionCommand::external((), reply)))
                     .unwrap();
                 task.cancel();
-                assert!(matches!(
-                    wait.as_mut().poll(&mut context),
-                    std::task::Poll::Ready(WaitOutcome::Continue)
-                ))
+                wait.as_mut().poll(&mut context)
             };
+            assert!(matches!(outcome, std::task::Poll::Ready(WaitOutcome::Continue)));
             assert_eq!(actor.commit_version, 0);
             assert!(matches!(receive.try_recv(), Ok(None)));
             assert!(!task.is_finished(), "control must harvest the cancelled node");
@@ -2014,16 +2008,14 @@ ordinary_test_items! {
             let control = Arc::clone(&actor.control);
             let mut turns = 17;
             let mut context = std::task::Context::from_waker(std::task::Waker::noop());
-            {
+            let outcome = {
                 let mut wait = Box::pin(actor.wait_without_timers(&mut turns));
                 assert!(wait.as_mut().poll(&mut context).is_pending());
                 // The queue can be empty before a producer finishes its admission notification.
                 control.event().notify(usize::MAX);
-                assert!(matches!(
-                    wait.as_mut().poll(&mut context),
-                    std::task::Poll::Ready(WaitOutcome::Continue)
-                ))
+                wait.as_mut().poll(&mut context)
             };
+            assert!(matches!(outcome, std::task::Poll::Ready(WaitOutcome::Continue)));
             assert_eq!(actor.commit_version, 0);
             assert_eq!(control.epoch(), 0);
             let mut wait = Box::pin(actor.wait_without_timers(&mut turns));
