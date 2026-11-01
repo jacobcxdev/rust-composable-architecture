@@ -1,0 +1,85 @@
+name: Candidate correctness
+
+on:
+    push:
+        branches: ["jacobcxdev/performance-pilot"]
+
+permissions:
+    contents: read
+
+defaults:
+    run:
+        shell: bash
+
+concurrency:
+    group: candidate-correctness-${{ github.ref }}
+    cancel-in-progress: true
+
+env:
+    CARGO_BUILD_JOBS: 1
+    CARGO_INCREMENTAL: 0
+    CARGO_PROFILE_DEV_DEBUG: 0
+    CARGO_PROFILE_TEST_DEBUG: 0
+    CARGO_PROFILE_DEV_CODEGEN_UNITS: 256
+    CARGO_PROFILE_TEST_CODEGEN_UNITS: 256
+    RUST_BACKTRACE: 1
+
+jobs:
+    contracts:
+        name: Candidate contracts (${{ matrix.os }})
+        runs-on: ${{ matrix.os }}
+        timeout-minutes: 30
+        strategy:
+            fail-fast: false
+            matrix:
+                os: [ubuntu-24.04, windows-2025]
+        steps:
+            - name: Checkout reviewed candidates
+              uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+            - name: Install pinned Rust
+              uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772
+              with:
+                  toolchain: 1.99.0
+                  components: clippy
+            - name: Restore dependencies
+              uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6
+              with:
+                  key: candidate-contracts-${{ runner.os }}
+            - name: Record source and compiler identities
+              run: |
+                  git rev-parse HEAD 'HEAD^{tree}'
+                  sha256sum rca-core/src/effect/map.rs rca-core/src/effect/lineage.rs rca-core/src/store/local.rs
+                  rustc --version --verbose
+                  cargo --version
+            - name: Test Shared effects and public completion handles
+              run: |
+                  cargo test --locked -p rca-core --lib effect:: -- --nocapture --test-threads=1
+                  cargo test --locked -p rca-core --lib store::receipt:: -- --nocapture --test-threads=1
+            - name: Test Local effects and public completion handles
+              run: |
+                  cargo test --locked -p rca-core --features local --lib effect:: -- --nocapture --test-threads=1
+                  cargo test --locked -p rca-core --features local --lib store::receipt:: -- --nocapture --test-threads=1
+            - name: Lint production library
+              run: cargo clippy --locked -p rca-core --features local --lib -- -D warnings -D missing_docs -D clippy::missing_docs_in_private_items
+
+    completion-model:
+        name: Candidate completion models
+        runs-on: ubuntu-24.04
+        timeout-minutes: 30
+        env:
+            RUSTFLAGS: --cfg loom
+        steps:
+            - name: Checkout reviewed candidates
+              uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+            - name: Install pinned Rust
+              uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772
+              with:
+                  toolchain: 1.99.0
+            - name: Restore dependencies
+              uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6
+              with:
+                  key: candidate-completion-models
+            - name: Test completion and cancel-on-drop models
+              run: |
+                  cargo test --locked -p rca-core --lib finish_loom_tests -- --nocapture --test-threads=1
+                  cargo test --locked -p rca-core --lib cancel_guard_loom_tests -- --nocapture --test-threads=1
