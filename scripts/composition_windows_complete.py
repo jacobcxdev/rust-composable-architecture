@@ -9,7 +9,7 @@ import statistics
 import composition_performance as evidence
 
 
-POLICY_SHA256 = "23f7fef0e20dc4d6c5f5bf93a74443a0b6f0588f117626f6daf99ae3fd2c6cab"
+POLICY_SHA256 = "886837fc03ff637696bf688b78e3da4199e989c48ff51ec971ac9a2968915526"
 METHOD = "composition-windows-complete-v1"
 
 
