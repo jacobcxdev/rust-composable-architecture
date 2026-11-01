@@ -8,11 +8,13 @@ publish = false
 
 [dependencies]
 rca = { package = "rust-composable-architecture", path = "../../rca", version = "=0.1.0", features = ["macros", "tokio"] }
-tokio = { workspace = true, features = ["macros", "rt", "sync", "time"] }
+tokio = { workspace = true, features = ["macros", "rt", "time"] }
 
 [dev-dependencies]
 rca = { package = "rust-composable-architecture", path = "../../rca", version = "=0.1.0", features = ["macros", "test-util"] }
 futures-executor.workspace = true
+# Request/reply examples need sync; the main application does not.
+tokio = { workspace = true, features = ["sync"] }
 
 [lints]
 workspace = true
