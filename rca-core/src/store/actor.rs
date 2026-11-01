@@ -605,21 +605,6 @@ impl<State: 'static, Action: 'static, C: Execution<State, Action> + 'static>
                     prefer = ReadySource::Timers;
                 }
                 TimedWake::Command(Err(_closed)) => return,
-                TimedWake::Control if self.control.epoch() == self.control_epoch => {
-                    // Admission alone needs no control scan. Retain the same
-                    // batch bound and timer preference as the ready queue path.
-                    let (processed, stopped) = self.process_command_batch().await;
-                    if stopped {
-                        drop(active_timer.take());
-                        return;
-                    }
-                    if processed != 0 {
-                        prefer = ReadySource::Timers;
-                        if processed == COMMAND_BATCH_LIMIT {
-                            C::yield_now(&self.runtime).await;
-                        }
-                    }
-                }
                 TimedWake::Control => {}
                 TimedWake::Timer => {
                     // Keep the completed sleep alive until timer actions finish processing.
@@ -1728,7 +1713,7 @@ enum WaitOutcome {
 enum TimedWake<State, Action, C: Carriers<State, Action>> {
     /// An admitted FIFO command, or transport closure.
     Command(Result<Command<State, Action, C>, async_channel::RecvError>),
-    /// Admission or lifecycle work notified the actor.
+    /// Cancellation, completion or admission needs another control pass.
     Control,
     /// The retained sleep completed; due payloads still need validation.
     Timer,

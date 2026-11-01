@@ -202,39 +202,34 @@ impl<W: Future<Output = ()> + Unpin> Scheduler<W> {
         limit: usize,
         mut state: MutexGuard<'_, SchedulerState>,
     ) -> PollBatch<'_, W> {
+        let mut ids = [0; READY_BATCH_LIMIT];
         let mut tasks = lock(&self.tasks);
-        let count = state
-            .ready_tasks
-            .iter()
-            .filter(|id| tasks.get(id).is_some_and(Option::is_some))
-            .take(limit.min(READY_BATCH_LIMIT))
-            .count();
+        let mut count = 0;
+        for (slot, id) in ids.iter_mut().zip(
+            state
+                .ready_tasks
+                .iter()
+                .filter(|id| tasks.get(id).is_some_and(Option::is_some))
+                .take(limit),
+        ) {
+            *slot = *id;
+            count += 1;
+        }
 
-        let mut first = None;
-        let mut remaining = Vec::new();
-        for _ in state
-            .ready_tasks
-            .extract_if(.., |id| {
-                let Some(task) = tasks.get_mut(id).and_then(Option::take) else {
-                    return false;
-                };
-                if first.is_none() {
-                    first = Some((*id, task));
-                } else {
-                    if remaining.is_empty() {
-                        // Allocate after the first ready ID leaves the set.
-                        remaining.reserve_exact(count - 1);
-                    }
-                    remaining.push((*id, task));
-                }
-                true
-            })
-            .take(count)
-        {}
+        let mut detached = ids[..count].iter().map(|&id| {
+            state.ready_tasks.remove(&id);
+            let task = tasks
+                .get_mut(&id)
+                .and_then(Option::take)
+                .expect("ready task must exist");
+            (id, task)
+        });
+        let first = detached.next();
+        let remaining = detached.collect::<Vec<_>>().into_iter();
         PollBatch {
             scheduler: self,
             first,
-            remaining: remaining.into_iter(),
+            remaining,
             current_id: None,
         }
     }
