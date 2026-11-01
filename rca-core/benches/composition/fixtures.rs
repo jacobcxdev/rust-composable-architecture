@@ -280,8 +280,17 @@ impl JoinedSender {
 impl JoinedPool {
     /// Starts the requested workers using LocalPool scheduling on each thread.
     fn new(worker_count: usize) -> Self {
+        Self::with_worker_start(worker_count, || {})
+    }
+
+    /// Runs a nonblocking callback on each worker before its LocalPool starts.
+    fn with_worker_start(
+        worker_count: usize,
+        worker_start: impl Fn() + Send + Sync + 'static,
+    ) -> Self {
         use futures_util::task::LocalSpawnExt as _;
 
+        let worker_start = Arc::new(worker_start);
         let (sender, incoming) = async_channel::unbounded();
         // Own each successful spawn before starting the next one. Unwind closes
         // admission and joins prior workers if a later spawn fails.
@@ -291,7 +300,9 @@ impl JoinedPool {
         };
         for _ in 0..worker_count {
             let incoming = incoming.clone();
+            let worker_start = Arc::clone(&worker_start);
             owner.workers.push(std::thread::spawn(move || {
+                worker_start();
                 let mut pool = futures_executor::LocalPool::new();
                 let spawner = pool.spawner();
                 pool.run_until(async move {
@@ -1132,10 +1143,10 @@ mod cleanup_tests {
     #[test]
     fn joined_pool_waits_for_thread_local_destruction_on_drop_and_unwind() {
         use std::cell::RefCell;
+        use std::sync::Arc;
         use std::sync::atomic::{AtomicUsize, Ordering};
-        use std::sync::{Arc, Barrier};
 
-        /// Marks actual worker teardown, after its submitted future completed.
+        /// Marks actual worker teardown after the executor stops.
         struct Exited(Arc<AtomicUsize>);
 
         impl Drop for Exited {
@@ -1150,29 +1161,29 @@ mod cleanup_tests {
 
         for (owner_unwind, worker_unwind) in [(false, false), (true, false), (false, true)] {
             let exited = Arc::new(AtomicUsize::new(0));
-            let pool = super::JoinedPool::new(4);
-            let retained = pool.sender();
-            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe({
+            let (worker_started, workers_ready) = std::sync::mpsc::channel();
+            // Install one probe per worker without blocking submitted futures.
+            let pool = super::JoinedPool::with_worker_start(4, {
                 let exited = Arc::clone(&exited);
                 move || {
-                    let release = Arc::new(Barrier::new(5));
-                    for index in 0..4 {
-                        let (started, ready) = futures_channel::oneshot::channel();
-                        let worker_exited = Arc::clone(&exited);
-                        let worker_release = Arc::clone(&release);
-                        pool.sender().spawn_ok(Box::pin(async move {
-                            EXITED.with(|slot| *slot.borrow_mut() = Some(Exited(worker_exited)));
-                            started.send(()).expect("owner awaits worker setup");
-                            // Hold this worker so the next task must use another.
-                            worker_release.wait();
-                            assert!(!(worker_unwind && index == 0), "injected worker unwind");
-                        }));
-                        futures_executor::block_on(ready).expect("worker installed exit probe");
-                    }
-                    assert_eq!(exited.load(Ordering::Acquire), 0);
-                    release.wait();
-                    assert!(!owner_unwind, "injected owner unwind");
+                    EXITED.with(|slot| *slot.borrow_mut() = Some(Exited(Arc::clone(&exited))));
+                    worker_started.send(()).expect("owner awaits worker setup");
                 }
+            });
+            for _ in 0..4 {
+                workers_ready.recv().expect("worker installed exit probe");
+            }
+            assert_eq!(exited.load(Ordering::Acquire), 0);
+
+            let retained = pool.sender();
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || {
+                let (started, ready) = futures_channel::oneshot::channel();
+                pool.sender().spawn_ok(Box::pin(async move {
+                    started.send(()).expect("owner awaits submitted task");
+                    assert!(!worker_unwind, "injected worker unwind");
+                }));
+                futures_executor::block_on(ready).expect("submitted task started");
+                assert!(!owner_unwind, "injected owner unwind");
             }));
             if owner_unwind || worker_unwind {
                 assert_eq!(

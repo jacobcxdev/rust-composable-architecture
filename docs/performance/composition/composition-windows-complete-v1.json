@@ -2,7 +2,7 @@
   "schema_version": 1,
   "method_version": "composition-windows-complete-v1",
   "status": "frozen-before-measurement",
-  "paired_protocol_sha256": "9aa497ea69e3aff207e9577282fafd3b7e57396f3030e6c3606409b6b0c811de",
+  "paired_protocol_sha256": "e4245432869697ec72871b45ea3d305419dc813923fdbf572258505f1e58882a",
   "budget_sha256": "6f71abeab57bc421bd11a53d30699ad9981d7af097932ee0e01ef477e9a38d69",
   "allocation_manifest_sha256": "95a9e2ee87deaa3046d4a51893efe164282d51aef6a3b3eec61e9f1ca0b3bf32",
   "reference_revision": "b9eb6e732d2b0cf6ce3cd7255a5958781587af6c",
