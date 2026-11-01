@@ -5,9 +5,10 @@
 //! Completion becomes permanent when the last hold ends. Cancellation requests
 //! revoke authority separately and do not release those holds.
 //!
-//! Finish listeners share a permanent interest flag. Paired fences prevent the
-//! last release from missing a concurrent listener. Actor control notifications
-//! use a lifecycle epoch so the actor can detect changes before it sleeps.
+//! Finish listeners and final completion share permanent bits in one atomic value.
+//! Their updates prevent the final release from missing a concurrent listener.
+//! Actor control notifications use a lifecycle epoch so the actor can detect changes
+//! before it sleeps.
 
 use std::fmt;
 use std::pin::Pin;
@@ -17,12 +18,17 @@ use std::sync::atomic::Ordering;
 use std::task::{Context, Poll};
 
 #[cfg(all(test, loom))]
-use loom::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, fence};
+use loom::sync::atomic::{AtomicBool, AtomicU8, AtomicU64, AtomicUsize};
 #[cfg(not(all(test, loom)))]
-use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, fence};
+use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU64, AtomicUsize};
 
 use event_listener::Event;
 use event_listener::EventListener;
+
+/// The final hold ended and completion is permanently visible.
+const TERMINAL: u8 = 1;
+/// A finish listener registered; interest remains after that listener leaves.
+const INTEREST: u8 = 2;
 
 /// Wakes the actor for admitted commands and lifecycle work.
 #[derive(Debug)]
@@ -154,10 +160,8 @@ pub(crate) struct LineageState {
     pending: AtomicUsize,
     /// Records the first cancellation request accepted before observed completion.
     cancelled: AtomicBool,
-    /// Publishes the final release before any completion listener can wake.
-    terminal: AtomicBool,
-    /// Remains true after any finish listener registers, even if that waiter leaves.
-    finish_interest: AtomicBool,
+    /// Stores permanent terminal and finish-interest bits for completion publication.
+    completion: AtomicU8,
     /// Notifies finish waiters only after terminal completion is published.
     changed: Event,
     /// Requests actor control without keeping the actor's signal alive.
@@ -172,8 +176,7 @@ impl LineageState {
         Arc::new(Self {
             pending: AtomicUsize::new(1),
             cancelled: AtomicBool::new(false),
-            terminal: AtomicBool::new(false),
-            finish_interest: AtomicBool::new(false),
+            completion: AtomicU8::new(0),
             changed: Event::new(),
             control,
         })
@@ -228,11 +231,10 @@ impl LineageState {
     /// so a panicking waker cannot leave the lineage nonterminal.
     fn complete_work(&self) {
         if self.pending.fetch_sub(1, Ordering::AcqRel) == 1 {
-            self.terminal.store(true, Ordering::Release);
-            // Pair with finish's fence: either completion sees interest or the
-            // registered waiter sees terminal, so skipping notify cannot strand it.
-            fence(Ordering::SeqCst);
-            if self.finish_interest.load(Ordering::Acquire) {
+            // Both updates share one modification order: either this sees interest
+            // or the registered waiter sees terminal in its own update.
+            let previous = self.completion.fetch_or(TERMINAL, Ordering::AcqRel);
+            if previous & INTEREST != 0 {
                 self.changed.notify(usize::MAX);
             }
         }
@@ -243,7 +245,7 @@ impl LineageState {
     /// This does not release work. A request concurrent with completion can win;
     /// a request that observes terminal completion has no effect.
     pub(crate) fn cancel(&self) {
-        if !self.terminal.load(Ordering::Acquire)
+        if !self.is_finished()
             && !self.cancelled.swap(true, Ordering::AcqRel)
             && let Some(control) = self.control.upgrade()
         {
@@ -258,7 +260,7 @@ impl LineageState {
 
     /// Reads permanent completion after the final registration or work hold ended.
     pub(crate) fn is_finished(&self) -> bool {
-        self.terminal.load(Ordering::Acquire)
+        self.completion.load(Ordering::Acquire) & TERMINAL != 0
     }
 
     /// Requests named-generation retirement after its final work release completes.
@@ -287,13 +289,12 @@ impl LineageState {
             return Poll::Ready(());
         }
         if listener.is_none() {
-            // Interest is permanent: dropping one waiter must not hide another.
-            self.finish_interest.store(true, Ordering::Release);
             *listener = Some(self.changed.listen());
-            // Register before the paired fence and terminal recheck. Do not rely
-            // on the event implementation to supply this cross-atomic ordering.
-            fence(Ordering::SeqCst);
-            if self.is_finished() {
+            // Interest is permanent: dropping one waiter must not hide another.
+            // Register before this update. Either it sees terminal or the final
+            // release sees interest and notifies the registered listener.
+            let previous = self.completion.fetch_or(INTEREST, Ordering::AcqRel);
+            if previous & TERMINAL != 0 {
                 return Poll::Ready(());
             }
         }
@@ -321,7 +322,7 @@ impl fmt::Debug for LineageState {
         f.debug_struct("LineageState")
             .field("pending", &self.pending)
             .field("cancelled", &self.cancelled)
-            .field("terminal", &self.terminal)
+            .field("terminal", &self.is_finished())
             .finish_non_exhaustive()
     }
 }
@@ -391,6 +392,98 @@ mod finish_loom_tests {
                 );
             }
             assert!(lineage.is_finished());
+        });
+    }
+
+    #[test]
+    fn ready_finish_publishes_all_released_work() {
+        loom::model(|| {
+            let lineage = LineageState::new(Weak::new());
+            let work = lineage.add_work();
+            let released_work = Arc::new(AtomicBool::new(false));
+            let released_registration = Arc::new(AtomicBool::new(false));
+            let work_payload = Arc::clone(&released_work);
+            let worker = loom::thread::spawn(move || {
+                work_payload.store(true, Ordering::Relaxed);
+                drop(work);
+            });
+            let registration_payload = Arc::clone(&released_registration);
+            let owner = Arc::clone(&lineage);
+            let registration = loom::thread::spawn(move || {
+                registration_payload.store(true, Ordering::Relaxed);
+                owner.finish_registration();
+            });
+            let mut finish = std::pin::pin!(lineage.finish());
+            let pending = finish
+                .as_mut()
+                .poll(&mut Context::from_waker(Waker::noop()))
+                .is_pending();
+            if !pending {
+                // Check before joining, which would also publish the payloads.
+                assert!(released_work.load(Ordering::Relaxed));
+                assert!(released_registration.load(Ordering::Relaxed));
+            }
+            worker.join().expect("work released");
+            registration.join().expect("registration released");
+            if pending {
+                assert!(
+                    finish
+                        .as_mut()
+                        .poll(&mut Context::from_waker(Waker::noop()))
+                        .is_ready()
+                );
+            }
+        });
+    }
+
+    #[test]
+    fn abandoned_interest_cannot_strand_remaining_finish_waiters() {
+        loom::model(|| {
+            let lineage = LineageState::new(Weak::new());
+            let mut abandoned = None;
+            assert!(
+                lineage
+                    .poll_finish(&mut abandoned, &mut Context::from_waker(Waker::noop()))
+                    .is_pending()
+            );
+            let owner = Arc::clone(&lineage);
+            let producer = loom::thread::spawn(move || owner.finish_registration());
+            let first_probe = Arc::new(WakeProbe(AtomicBool::new(false)));
+            let second_probe = Arc::new(WakeProbe(AtomicBool::new(false)));
+            let first_waker = Waker::from(Arc::clone(&first_probe));
+            let second_waker = Waker::from(Arc::clone(&second_probe));
+            let mut first = std::pin::pin!(lineage.finish());
+            let mut second = std::pin::pin!(lineage.finish());
+            let first_pending = first
+                .as_mut()
+                .poll(&mut Context::from_waker(&first_waker))
+                .is_pending();
+            drop(abandoned);
+            let second_pending = second
+                .as_mut()
+                .poll(&mut Context::from_waker(&second_waker))
+                .is_pending();
+            producer.join().expect("lineage completes");
+            if first_pending {
+                assert!(first_probe.0.load(Ordering::Acquire));
+                assert!(
+                    first
+                        .as_mut()
+                        .poll(&mut Context::from_waker(&first_waker))
+                        .is_ready()
+                );
+            }
+            if second_pending {
+                assert!(second_probe.0.load(Ordering::Acquire));
+                assert!(
+                    second
+                        .as_mut()
+                        .poll(&mut Context::from_waker(&second_waker))
+                        .is_ready()
+                );
+            }
+            assert!(lineage.is_finished());
+            assert!(lineage.try_add_work().is_none());
         });
     }
 
