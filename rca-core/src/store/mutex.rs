@@ -1,7 +1,7 @@
 //! Keeps private metadata locks usable during unwind cleanup.
 //!
 //! Windows uses the inline standard-library mutex to avoid another native lock
-//! dependency. Other platforms retain parking_lot, including its allocation-free
+//! dependency. Other platforms retain `parking_lot`, including its allocation-free
 //! first lock on macOS. Callers still release guards before invoking callbacks
 //! or destroying user payloads. Recovering a poisoned guard does not repair data.
 
