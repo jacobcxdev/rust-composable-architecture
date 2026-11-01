@@ -100,6 +100,54 @@ fn poll<F: Future>(future: Pin<&mut F>, waker: &Waker) -> Poll<F::Output> {
     future.poll(&mut Context::from_waker(waker))
 }
 
+/// Uses real ingress admission without a lifecycle epoch change or a lost wake.
+#[test]
+fn ingress_admission_preserves_epoch_and_wakes_registered_consumer() {
+    model(|| {
+        let (sender, receiver) = bounded(NonZeroUsize::new(1).unwrap());
+        let control = crate::effect::lineage::ControlWake::new();
+        let ingress = WakerArc::new(crate::store::ingress::CommandIngress::new(
+            sender,
+            WakerArc::clone(&control),
+        ));
+
+        // Admission before the first listener must remain visible in the queue.
+        ingress.try_send(11).unwrap();
+        event_listener::listener!(control.event() => listener);
+        assert_eq!(control.epoch(), 0);
+        assert_eq!(receiver.try_recv(), Ok(11));
+        assert_eq!(receiver.try_recv(), Err(TryRecvError::Empty));
+        let (waker, wakes) = counted_waker();
+        assert!(poll(Pin::new(&mut listener), &waker).is_pending());
+
+        // Keep ingress alive here so producer completion cannot publish closure.
+        let producer_ingress = WakerArc::clone(&ingress);
+        let producer = thread::spawn(move || {
+            let mut sending = std::pin::pin!(producer_ingress.send(22));
+            assert!(matches!(
+                poll(sending.as_mut(), Waker::noop()),
+                Poll::Ready(Ok(()))
+            ));
+        });
+        let ready = poll(Pin::new(&mut listener), &waker).is_ready();
+        if ready {
+            // A ready listener must expose admission before joining the producer.
+            assert_eq!(receiver.try_recv(), Ok(22));
+        }
+        producer.join().expect("ingress admission completes");
+        assert_eq!(wakes.load(Ordering::SeqCst), 1);
+        assert_eq!(control.epoch(), 0, "admission is not lifecycle maintenance");
+        if !ready {
+            assert!(
+                poll(Pin::new(&mut listener), &waker).is_ready(),
+                "the pending consumer must retain its admission notification"
+            );
+            assert_eq!(receiver.try_recv(), Ok(22));
+        }
+        assert_eq!(receiver.try_recv(), Err(TryRecvError::Empty));
+    });
+}
+
 // Catches over-admission, eager rejection destruction and a LIFO queue mutation.
 #[test]
 fn capacity_mapping_preserves_rejected_ownership_and_fifo() {

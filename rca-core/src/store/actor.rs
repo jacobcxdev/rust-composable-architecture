@@ -270,6 +270,9 @@ pub(crate) struct Actor<State, Action, C: Carriers<State, Action> = Shared> {
     /// Inserts test admission or closure after the final timer-free epoch check.
     #[cfg(test)]
     before_untimed_recheck: Option<Box<dyn FnOnce() + Send + Sync>>,
+    /// Inserts test closure after a resumed wait validates the lifecycle epoch.
+    #[cfg(test)]
+    before_untimed_resume_dequeue: Option<Box<dyn FnOnce() + Send + Sync>>,
     /// Legacy effect gate, dropped after user-owned fields that may rebind it.
     #[cfg(feature = "test-util")]
     assertion_gate: Option<crate::testing::AssertionGateBinding<Action>>,
@@ -384,6 +387,8 @@ impl<State: 'static, Action: 'static, C: Execution<State, Action> + 'static>
             before_untimed_listener: None,
             #[cfg(test)]
             before_untimed_recheck: None,
+            #[cfg(test)]
+            before_untimed_resume_dequeue: None,
         }
     }
 
@@ -568,8 +573,8 @@ impl<State: 'static, Action: 'static, C: Execution<State, Action> + 'static>
                     });
                 }
 
-                // The epoch may already include an admission whose command
-                // remains queued. Inspect the queue after registration too.
+                // Admission can precede registration without a lifecycle change.
+                // Inspect the queue after registration too.
                 match self.receiver.try_recv() {
                     Ok(command) => TimedWake::Command(Ok(command)),
                     Err(async_channel::TryRecvError::Closed) => {
@@ -725,6 +730,19 @@ impl<State: 'static, Action: 'static, C: Execution<State, Action> + 'static>
         match command {
             Some(Ok(command)) => self.process_untimed_command(command).await,
             Some(Err(_closed)) => WaitOutcome::Closed,
+            // The listener and its waker are dropped before this lifecycle check.
+            // Admission alone needs no extra control pass before dequeuing.
+            None if self.control.epoch() == self.control_epoch => {
+                #[cfg(test)]
+                if let Some(before_dequeue) = self.before_untimed_resume_dequeue.take() {
+                    before_dequeue();
+                }
+                match self.receiver.try_recv() {
+                    Ok(command) => self.process_untimed_command(command).await,
+                    Err(async_channel::TryRecvError::Closed) => WaitOutcome::Closed,
+                    Err(async_channel::TryRecvError::Empty) => WaitOutcome::Continue,
+                }
+            }
             None => WaitOutcome::Continue,
         }
     }
@@ -1881,6 +1899,136 @@ ordinary_test_items! {
         use crate::store::observation::new_registration;
         use crate::store::scope::{ScopeIdentity, ScopeSlot, ScopeTransitionBatch};
         use crate::{ActionTask, MonotonicInstant, Reducer, RuntimeDriver};
+
+        /// Observes closure that races with the resumed wait's final dequeue.
+        #[test]
+        fn untimed_resumed_wait_observes_closure_after_the_epoch_check() {
+            let (mut actor, ingress) = launch_actor(Effect::none(), Runtime::new(TestDriver));
+            let control = Arc::clone(&actor.control);
+            let closing_control = Arc::clone(&control);
+            actor.before_untimed_resume_dequeue = Some(Box::new(move || {
+                assert_eq!(closing_control.epoch(), 0);
+                assert!(ingress.close(), "the hook closes live admission");
+            }));
+            let mut turns = 17;
+            let mut context = std::task::Context::from_waker(std::task::Waker::noop());
+            {
+                let mut wait = Box::pin(actor.wait_without_timers(&mut turns));
+                assert!(wait.as_mut().poll(&mut context).is_pending());
+                // A delayed producer notification may arrive after its command was consumed.
+                control.notify_admission();
+                assert!(matches!(
+                    wait.as_mut().poll(&mut context),
+                    std::task::Poll::Ready(WaitOutcome::Closed)
+                ));
+            }
+            assert_eq!(turns, 0, "the earlier pending poll resets the budget");
+            assert_eq!(actor.commit_version, 0);
+            assert!(actor.receiver.is_closed());
+            assert_eq!(control.epoch(), 1, "closure still publishes lifecycle work");
+            assert_eq!(actor.control_epoch, 0);
+            assert!(actor.before_untimed_resume_dequeue.is_none());
+        }
+
+        /// Checks direct dispatch after admission wakes an already-pending untimed wait.
+        #[test]
+        fn untimed_pending_admission_commits_without_another_control_pass() {
+            let (mut actor, ingress) = launch_actor(Effect::none(), Runtime::new(TestDriver));
+            let control = Arc::clone(&actor.control);
+            let (reply, receive) = crate::store::command::commit_channel();
+            let mut turns = 17;
+            let mut context = std::task::Context::from_waker(std::task::Waker::noop());
+            {
+                let mut wait = Box::pin(actor.wait_without_timers(&mut turns));
+                assert!(wait.as_mut().poll(&mut context).is_pending());
+                ingress
+                    .try_send(Command::Action(ActionCommand::external((), reply)))
+                    .unwrap();
+                assert!(matches!(
+                    wait.as_mut().poll(&mut context),
+                    std::task::Poll::Ready(WaitOutcome::Continue)
+                ));
+            }
+            let task = receive
+                .now_or_never()
+                .expect("the resumed wait acknowledges the command")
+                .expect("the actor retains the reply")
+                .expect("the command commits");
+            assert!(task.is_finished());
+            assert!(!task.is_cancelled());
+            assert_eq!(actor.commit_version, 1);
+            assert_eq!(control.epoch(), 0, "admission does not publish lifecycle work");
+            assert_eq!(turns, 0, "the pending poll resets the cooperative budget");
+        }
+
+        /// Keeps notified cancellation ahead of an admitted command after a pending wait.
+        #[test]
+        fn untimed_pending_admission_preserves_lifecycle_control_priority() {
+            let (mut actor, ingress) = launch_actor(Effect::none(), Runtime::new(TestDriver));
+            let lineage = LineageState::new(Arc::downgrade(&actor.control));
+            let prepared = actor
+                .registry
+                .prepare(actor.scopes.root(), Arc::clone(&lineage), &[]);
+            actor.registry.register_actor(prepared);
+            lineage.finish_registration();
+            let task = ActionTask::live(lineage);
+            let (reply, mut receive) = crate::store::command::commit_channel();
+            let mut turns = 17;
+            let mut context = std::task::Context::from_waker(std::task::Waker::noop());
+            {
+                let mut wait = Box::pin(actor.wait_without_timers(&mut turns));
+                assert!(wait.as_mut().poll(&mut context).is_pending());
+                ingress
+                    .try_send(Command::Action(ActionCommand::external((), reply)))
+                    .unwrap();
+                task.cancel();
+                assert!(matches!(
+                    wait.as_mut().poll(&mut context),
+                    std::task::Poll::Ready(WaitOutcome::Continue)
+                ));
+            }
+            assert_eq!(actor.commit_version, 0);
+            assert!(matches!(receive.try_recv(), Ok(None)));
+            assert!(!task.is_finished(), "control must harvest the cancelled node");
+
+            let turn = actor.process_control();
+            assert!(actor.launch(turn));
+            assert!(task.is_finished());
+            assert!(task.is_cancelled());
+            // Terminal harvest publishes another control notification.
+            let turn = actor.process_control();
+            assert!(actor.launch(turn));
+            assert!(matches!(
+                actor.wait_without_timers(&mut turns).now_or_never(),
+                Some(WaitOutcome::Continue)
+            ));
+            let committed = receive.now_or_never().unwrap().unwrap().unwrap();
+            assert!(committed.is_finished());
+            assert_eq!(actor.commit_version, 1);
+        }
+
+        /// A delayed admission notification must not invent a command or keep the actor ready.
+        #[test]
+        fn untimed_pending_wait_rearms_after_a_stale_admission_event() {
+            let (mut actor, _ingress) = launch_actor(Effect::none(), Runtime::new(TestDriver));
+            let control = Arc::clone(&actor.control);
+            let mut turns = 17;
+            let mut context = std::task::Context::from_waker(std::task::Waker::noop());
+            {
+                let mut wait = Box::pin(actor.wait_without_timers(&mut turns));
+                assert!(wait.as_mut().poll(&mut context).is_pending());
+                // The queue can be empty before a producer finishes its admission notification.
+                control.event().notify(usize::MAX);
+                assert!(matches!(
+                    wait.as_mut().poll(&mut context),
+                    std::task::Poll::Ready(WaitOutcome::Continue)
+                ));
+            }
+            assert_eq!(actor.commit_version, 0);
+            assert_eq!(control.epoch(), 0);
+            let mut wait = Box::pin(actor.wait_without_timers(&mut turns));
+            assert!(wait.as_mut().poll(&mut context).is_pending());
+        }
 
         /// Checks a control notification that precedes listener registration and cannot wake that listener.
         #[test]

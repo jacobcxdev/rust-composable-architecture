@@ -1,8 +1,8 @@
 //! Couples mailbox admission and closure with the actor's control wake.
 //!
-//! A command is visible in the queue before its control notification. Rejected
-//! submissions do not advance the wake epoch. The final ingress owner closes
-//! admission before waking the actor, so it cannot mistake owner loss for idleness.
+//! A command is visible in the queue before its admission notification.
+//! Admission wakes the actor without advancing the lifecycle epoch. The final
+//! ingress owner closes admission and advances that epoch before waking the actor.
 
 use std::sync::Arc;
 
@@ -37,7 +37,8 @@ impl<C> CommandIngress<C> {
         &self,
         command: C,
     ) -> impl Future<Output = Result<(), async_channel::SendError<C>>> {
-        self.sender.send(command, || self.control.notify())
+        self.sender
+            .send(command, || self.control.notify_admission())
     }
 
     /// Waits with typed ownership, converting only when a queue slot is available.
@@ -49,13 +50,14 @@ impl<C> CommandIngress<C> {
         input: T,
         make: fn(T) -> C,
     ) -> impl Future<Output = Result<(), async_channel::SendError<T>>> {
-        self.sender.send_map(input, make, || self.control.notify())
+        self.sender
+            .send_map(input, make, || self.control.notify_admission())
     }
 
     /// Tries immediate admission and notifies only when the queue accepted ownership.
     pub(super) fn try_send(&self, command: C) -> Result<(), async_channel::TrySendError<C>> {
         self.sender.try_send(command)?;
-        self.control.notify();
+        self.control.notify_admission();
         Ok(())
     }
 
@@ -69,7 +71,7 @@ impl<C> CommandIngress<C> {
         make: fn(T) -> C,
     ) -> Result<(), async_channel::TrySendError<T>> {
         self.sender.try_send_map(input, make)?;
-        self.control.notify();
+        self.control.notify_admission();
         Ok(())
     }
 

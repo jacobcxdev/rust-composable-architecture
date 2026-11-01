@@ -7,7 +7,7 @@
 //!
 //! Finish listeners share a permanent interest flag. Paired fences prevent the
 //! last release from missing a concurrent listener. Actor control notifications
-//! use a separate epoch so the actor can detect changes before it sleeps.
+//! use a lifecycle epoch so the actor can detect changes before it sleeps.
 
 use std::fmt;
 use std::pin::Pin;
@@ -24,17 +24,17 @@ use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, fence};
 use event_listener::Event;
 use event_listener::EventListener;
 
-/// Wakes the actor when control work changes, independently of causal completion.
+/// Wakes the actor for admitted commands and lifecycle work.
 #[derive(Debug)]
 pub(crate) struct ControlWake {
-    /// Wrapping change sequence, published before the corresponding event notification.
+    /// Wrapping lifecycle sequence, published before the corresponding event notification.
     epoch: AtomicU64,
     /// Broadcast event for actors that registered before checking their processed epoch.
     changed: Event,
 }
 
 impl ControlWake {
-    /// Creates the actor's shared change signal with no recorded notifications.
+    /// Creates an actor signal with no recorded lifecycle changes.
     pub(crate) fn new() -> Arc<Self> {
         Arc::new(Self {
             epoch: AtomicU64::new(0),
@@ -50,17 +50,26 @@ impl ControlWake {
         self.changed.notify(usize::MAX);
     }
 
-    /// Reads the change sequence for comparison with the actor's last processed epoch.
+    /// Wakes the actor for admission without requesting lifecycle maintenance.
+    ///
+    /// The queue lock publishes the command. Listener registration and a queue
+    /// recheck prevent lost admission wakes, including the first Event use.
+    pub(crate) fn notify_admission(&self) {
+        self.changed.notify(usize::MAX);
+    }
+
+    /// Reads the lifecycle sequence for comparison with the actor's last processed epoch.
     ///
     /// Equality cannot distinguish a complete wrap between observations. The actor
-    /// protocol assumes fewer than 2^64 notifications between checks.
+    /// protocol assumes fewer than 2^64 lifecycle notifications between checks.
     pub(crate) fn epoch(&self) -> u64 {
         self.epoch.load(Ordering::Acquire)
     }
 
     /// Borrows the event for stack-based listener registration in the actor loop.
     ///
-    /// Before waiting, register and compare epochs again so a notification cannot be lost.
+    /// Before waiting, register, compare lifecycle epochs and recheck the command
+    /// queue. Admission does not change the lifecycle epoch.
     pub(crate) fn event(&self) -> &Event {
         &self.changed
     }
