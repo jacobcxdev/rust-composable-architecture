@@ -2250,6 +2250,69 @@ ordinary_test_items! {
             assert!(closed.now_or_never().is_some());
         }
 
+        /// Cancellation between the liveness check and listener registration must not park the actor.
+        #[cfg(feature = "test-util")]
+        #[test]
+        fn cancelled_gate_before_listener_rechecks_pending_lineage() {
+            let gate = crate::testing::AssertionGate::new();
+            let reductions = Arc::new(AtomicUsize::new(0));
+            let tasks = Arc::new(std::sync::Mutex::new(Vec::new()));
+            let (mut actor, store) =
+                gate_boundary_actor(gate.clone(), Arc::clone(&reductions), Arc::clone(&tasks));
+            let pending_task = Arc::new(std::sync::Mutex::new(None::<crate::store::ActionTask>));
+            actor.before_gate_listen = Some(Box::new({
+                let gate = gate.clone();
+                let pending_task = Arc::clone(&pending_task);
+                move || {
+                    assert_eq!(gate.inspect_pending(|action| action.0), Some(2));
+                    pending_task
+                        .lock()
+                        .unwrap()
+                        .as_ref()
+                        .expect("the initiating task is available before the gate listener")
+                        .cancel();
+                }
+            }));
+            let payload = Arc::new(());
+            let receipt = store.try_send((1, Arc::clone(&payload))).unwrap();
+            let mut actor = Box::pin(actor.run());
+            let mut context = std::task::Context::from_waker(std::task::Waker::noop());
+            assert!(actor.as_mut().poll(&mut context).is_pending());
+            let task = receipt.finish().now_or_never().unwrap().unwrap();
+            let mut effect = {
+                let mut tasks = tasks.lock().unwrap();
+                assert_eq!(tasks.len(), 1);
+                tasks.pop().unwrap()
+            };
+            assert!(effect.as_mut().poll(&mut context).is_pending());
+            *pending_task.lock().unwrap() = Some(task.clone());
+
+            assert!(actor.as_mut().poll(&mut context).is_pending());
+            assert!(task.is_cancelled());
+            assert!(!gate.has_pending(), "the same poll skips the cancelled action");
+            assert!(gate.pending_snapshot().is_none());
+            assert!(!gate.release_pending());
+            assert_eq!(Arc::strong_count(&payload), 1);
+            assert!(effect.as_mut().poll(&mut context).is_ready());
+            assert!(actor.as_mut().poll(&mut context).is_pending());
+            assert!(task.finish().now_or_never().is_some());
+            assert_eq!(reductions.load(Ordering::SeqCst), 1);
+
+            let mut read = Box::pin(store.read(|state| *state));
+            assert!(read.as_mut().poll(&mut context).is_pending());
+            assert!(actor.as_mut().poll(&mut context).is_pending());
+            assert!(matches!(
+                read.as_mut().poll(&mut context),
+                std::task::Poll::Ready(Ok(1))
+            ));
+            drop(read);
+            assert!(tasks.lock().unwrap().is_empty());
+            let closed = store.closed();
+            drop(store);
+            assert!(actor.as_mut().poll(&mut context).is_ready());
+            assert!(closed.now_or_never().is_some());
+        }
+
         #[cfg(feature = "test-util")]
         #[test]
         fn cancelled_gate_cleans_up_while_pending_command_is_inspected() {
