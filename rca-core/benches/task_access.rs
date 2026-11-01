@@ -1,6 +1,7 @@
-//! Measures successful root task access through a manually polled actor.
+//! Measures root task access and completed tasks through a manually polled actor.
 //!
-//! Each sample includes request creation, admission, actor work and the reply.
+//! Each access sample includes request creation, admission, actor work and the reply.
+//! The lifecycle row also declares, registers, polls and collects a completed task.
 //! Setup, origin cancellation/join and exact final-state checks are outside
 //! timing. The originating task stays pending throughout all samples, so every
 //! request uses real, live causal authority. This measures neither contention
@@ -22,6 +23,11 @@ use std::task::{Context, Poll, Waker};
 
 use rca_core::{ActionTask, Feature, FeatureContext, RuntimeFuture, Store, Task, TaskContext};
 
+/// Counts allocations separately from uninstrumented timing runs.
+#[cfg(feature = "allocation-measurement")]
+#[global_allocator]
+static ALLOCATOR: divan::AllocProfiler = divan::AllocProfiler::system();
+
 /// Distinguishes an actual state read from a default-valued reply.
 const INITIAL_STATE: u64 = 7;
 
@@ -29,10 +35,11 @@ fn main() {
     divan::main();
 }
 
-/// Starts the origin task or commits one increment.
+/// Starts the origin, completes one child task or commits an increment.
 #[derive(Debug)]
 enum Action {
     Start,
+    CompleteTask,
     Add(u64),
 }
 
@@ -57,6 +64,9 @@ impl Feature for Capture {
                     std::future::pending::<()>().await;
                 }));
             }
+            Action::CompleteTask => context.task(Task::run(|context| async move {
+                divan::black_box(context);
+            })),
             Action::Add(value) => *state += value,
         }
     }
@@ -139,7 +149,7 @@ impl Fixture {
     }
 
     /// Joins the cancelled origin and checks every mutation outside timing.
-    fn finish(mut self, expected: u64) {
+    fn finish(mut self, expected: u64, completed_tasks: usize) {
         let mut cx = Context::from_waker(Waker::noop());
         self.task.cancel();
         assert!(self.actor.as_mut().poll(&mut cx).is_pending());
@@ -163,7 +173,11 @@ impl Fixture {
         };
         assert_eq!(state, expected);
 
-        assert_eq!(self.runtime.spawn_count(), 2, "only actor and origin");
+        assert_eq!(
+            self.runtime.spawn_count(),
+            completed_tasks + 2,
+            "only actor, origin and measured completed tasks"
+        );
         assert!(self.runtime.take_queued_tasks().is_empty());
     }
 }
@@ -177,7 +191,7 @@ fn root_read(bencher: divan::Bencher) {
         assert_eq!(value, INITIAL_STATE);
         divan::black_box(value)
     });
-    fixture.finish(INITIAL_STATE);
+    fixture.finish(INITIAL_STATE, 0);
 }
 
 #[divan::bench(sample_count = 50, max_time = 0.5)]
@@ -203,7 +217,7 @@ fn root_update(bencher: divan::Bencher) {
         );
         drop(divan::black_box(committed));
     });
-    fixture.finish(expected);
+    fixture.finish(expected, 0);
 }
 
 #[divan::bench(sample_count = 50, max_time = 0.5)]
@@ -217,5 +231,28 @@ fn root_send(bencher: divan::Bencher) {
         assert!(!task.is_finished(), "receipt includes the live origin");
         drop(divan::black_box(task));
     });
-    fixture.finish(expected);
+    fixture.finish(expected, 0);
+}
+
+#[divan::bench(sample_count = 50, max_time = 0.5)]
+fn root_task_lifecycle(bencher: divan::Bencher) {
+    let mut fixture = Fixture::new();
+    let mut completed = 0;
+    bencher.bench_local(|| {
+        let request = fixture.context.send(Action::CompleteTask);
+        let task = fixture.complete(request).expect("live task declaration");
+        let mut cx = Context::from_waker(Waker::noop());
+        let mut work = fixture.runtime.take_only_queued_task();
+        assert!(work.as_mut().poll(&mut cx).is_ready());
+        drop(work);
+
+        assert!(fixture.actor.as_mut().poll(&mut cx).is_pending());
+        assert!(
+            !task.is_finished(),
+            "origin remains live after child completion"
+        );
+        completed += 1;
+        drop(divan::black_box(task));
+    });
+    fixture.finish(INITIAL_STATE, completed);
 }

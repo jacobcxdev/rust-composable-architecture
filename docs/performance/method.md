@@ -286,13 +286,16 @@ not a paired-only capture.
 - The support capture collects the five Divan suites named by its protocol. Each uses 50 samples and a 0.5-second maximum measurement time.
 
 The separate `task_access` Divan target measures successful root task reads,
-updates and sends through a manually polled actor. It checks actual results,
-committed revisions and final state while the originating task remains live.
+updates and sends through a manually polled actor. Its lifecycle row also
+declares, registers, polls and collects a completed task. It checks actual
+results, committed revisions and final state while the originating task remains live.
 Setup, cancellation and shutdown stay outside timing. It does not measure
 contention or executor scheduling. Use paired results from this target when
 changing typed task admission; they supplement, not replace, the native gates.
 Pass `--sample-size 256` to both binaries in a paired run. A fixed batch size
 limits timer rounding and keeps automatic batch choices out of the comparison.
+Enable `allocation-measurement` for separate allocation counts through Divan's
+profiler. Do not use those instrumented timings as normal timing evidence.
 
 Normal samples are 10,000. Earlier 1,000-sample cohorts left only ten observations at or beyond p99 and produced unrelated scheduler-tail reversals across repeated cohorts; 10,000-sample targeted checks cleared every flagged scenario in both execution-order strata. DHAT samples default to 1,000. High-fan-out, high-timer-count, mailbox, and shutdown cases use 200 or 500 DHAT samples, while deterministic budget exhaustion uses five. Qualification and comparison validate these exact counts.
 
