@@ -111,7 +111,7 @@ class WindowsCompleteRunnerTests(unittest.TestCase):
                     runner.finish_windows_complete(capture, {}, {}, None, {}, {}, {}, {}, baseline)
 
     def test_complete_receipts_add_windows_report_without_changing_paired_roster(self):
-        protocol = {"method_version": "composition-windows-paired-v1"}
+        protocol = {"method_version": "composition-windows-paired-v2"}
         paired = runner.receipt_files(protocol)
         complete = runner.receipt_files(protocol, windows_complete=True)
         self.assertNotIn("absolute.json", complete)

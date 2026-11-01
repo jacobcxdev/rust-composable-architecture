@@ -13,7 +13,7 @@ import composition_windows_absolute as absolute
 
 ROOT = Path(__file__).resolve().parents[2]
 BUDGET = ROOT / "docs/performance/composition/composition-budgets.json"
-POLICY = ROOT / "docs/performance/composition/composition-windows-complete-v1.json"
+POLICY = ROOT / "docs/performance/composition/composition-windows-complete-v2.json"
 HASH = "a" * 64
 
 

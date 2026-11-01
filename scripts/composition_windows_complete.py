@@ -9,8 +9,8 @@ import statistics
 import composition_performance as evidence
 
 
-POLICY_SHA256 = "886837fc03ff637696bf688b78e3da4199e989c48ff51ec971ac9a2968915526"
-METHOD = "composition-windows-complete-v1"
+POLICY_SHA256 = "9fa4576d8324fd2aa6720f66cb56baba3717cd5f4523bcc1538e8a5ecb3df381"
+METHOD = "composition-windows-complete-v2"
 
 
 def _digest(value):
@@ -26,7 +26,7 @@ def load_policy(path):
 
 
 def _validate_policy(policy):
-    path = Path(__file__).resolve().parents[1] / "docs/performance/composition/composition-windows-complete-v1.json"
+    path = Path(__file__).resolve().parents[1] / "docs/performance/composition/composition-windows-complete-v2.json"
     if policy != load_policy(path):
         raise ValueError("Windows complete policy differs from the frozen rules")
 

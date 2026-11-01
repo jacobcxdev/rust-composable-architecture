@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "method_version": "composition-windows-paired-v1",
+  "method_version": "composition-windows-paired-v2",
   "status": "frozen-before-measurement",
   "runner": "h1-ryzen9-3900x-windows-x86_64-msvc",
   "reference_revision": "b9eb6e732d2b0cf6ce3cd7255a5958781587af6c",
@@ -38,7 +38,8 @@
     "diagnostic_processes_per_binary": 1,
     "diagnostic_timing_rows": 153,
     "isolated_timing_rows": 1,
-    "divan_sample_policy": "sample_count, sample_size and max_time remain those in the hash-pinned workload; actual samples and iterations are retained in each transcript",
+    "divan_sample_policy": "Isolated Windows cells collect until the 0.5-second floor and cap. Collection can exceed the workload sample_count. Workload sample_size and per-operation work stay unchanged. Diagnostics retain workload defaults. Each transcript retains actual samples and iterations.",
+    "isolated_divan_arguments": ["--min-time", "0.5", "--max-time", "0.5"],
     "divan_exact_prefix": "composition::",
     "gated_scenarios": [
       "direct/1",

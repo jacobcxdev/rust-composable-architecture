@@ -17,6 +17,47 @@ import composition_performance as evidence
 
 
 class WindowsRunnerTests(unittest.TestCase):
+    def test_isolated_runtime_adds_time_floor_without_changing_cold_compile(self):
+        protocol = evidence.load_protocol(runner.WINDOWS_PROTOCOL)
+        protocol["runtime"]["gated_scenarios"] = ["direct/1"]
+        protocol["compile"]["fixtures"] = ["direct"]
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            monitor = Mock()
+            roots = {role: root / role for role in ("subject", "control")}
+            executables = {role: roots[role] / "bench.exe" for role in roots}
+            with patch.object(evidence, "validate_isolated_transcript"):
+                runner.execute_pairs(protocol, roots, executables, root / "targets",
+                                     root / "paired", "cargo", {}, monitor,
+                                     blocks=[(1, "subject-control")])
+            calls = monitor.run.call_args_list
+            self.assertEqual(len(calls), 4)
+            for call, role in zip(calls[:2], ("subject", "control")):
+                self.assertEqual(call.args[0], [
+                    str(executables[role]), "--bench", "--exact", "composition::direct::1",
+                    "--min-time", "0.5", "--max-time", "0.5"])
+            for call, role in zip(calls[2:], ("subject", "control")):
+                self.assertEqual(call.args[0], [
+                    "cargo", "check", "--manifest-path", str(roots[role] / "benches/compile/Cargo.toml"),
+                    "-p", "rca-compile-direct", "--locked", "-j", "1"])
+                self.assertEqual(call.args[3]["CARGO_INCREMENTAL"], "0")
+                self.assertEqual(call.args[3]["CARGO_TARGET_DIR"],
+                                 str(root / "targets" / f"compile-direct-01-{role}"))
+
+    def test_isolated_runtime_receipt_keeps_actual_divan_arguments(self):
+        arguments = ["--bench", "--exact", "composition::direct::1",
+                     "--min-time", "0.5", "--max-time", "0.5"]
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            execute = Mock(return_value=self.process_result())
+            monitor = runner.WindowsMonitor(root / "telemetry",
+                                            evidence.load_protocol(runner.WINDOWS_PROTOCOL),
+                                            provider=object(), run_process=execute)
+            destination = root / "runtime.txt"
+            monitor.run(["C:/bench.exe", *arguments], destination, root, {})
+            resource = json.loads(destination.with_suffix(".resources.json").read_text())
+            self.assertEqual(resource["process_receipt"].get("divan_arguments"), arguments)
+
     @staticmethod
     def process_result(*, compiler=False, terminated=False):
         return {
@@ -292,7 +333,7 @@ class WindowsRunnerTests(unittest.TestCase):
             self.assertIn("error", events[-1])
 
     def test_windows_finish_does_not_run_or_claim_mac_absolute_gates(self):
-        protocol = {"method_version": "composition-windows-paired-v1"}
+        protocol = {"method_version": "composition-windows-paired-v2"}
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             sources = root / "sources"

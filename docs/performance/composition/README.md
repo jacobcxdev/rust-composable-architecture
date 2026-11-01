@@ -127,12 +127,20 @@ These deletions occur outside measured intervals.
 
 ## Windows paired measurements
 
-The [Windows protocol](composition-windows-paired-v1.json) runs the same 14
+The [Windows protocol](composition-windows-paired-v2.json) runs the same 14
 relative gates on H1 with Rust 1.99.0. It uses the same 20 paired blocks, fixed
 orders, confidence rule and 1.10 limit. Every block contains both comparison
 modes; their first mode alternates. All measurements and their hashes remain in the
 capture, including failures. Windows results do not qualify any of the 33 macOS
 absolute gates.
+
+Version 2 sets both Divan's minimum and maximum sampling time to 0.5 seconds
+for each isolated runtime cell. Collection continues past the workload's sample
+count if needed to reach that duration. The final sample can cross the time
+limit; this is not a process deadline. Sample size and per-operation work stay
+unchanged. Full-benchmark diagnostics retain their workload defaults. Receipts
+record the actual arguments, sample counts and iteration counts. Earlier
+captures keep their original policies. No result is relabelled.
 
 From a clean Windows checkout with the exact reference available, run:
 
@@ -164,7 +172,7 @@ diagnostics, not treated as compiler-child totals or instruction counts.
 
 ## Complete Windows qualification
 
-The [complete Windows policy](composition-windows-complete-v1.json) adds native
+The [complete Windows policy](composition-windows-complete-v2.json) adds native
 absolute measurements to the paired protocol above. It does not change that
 protocol or claim that Windows measurements satisfy Mac limits.
 

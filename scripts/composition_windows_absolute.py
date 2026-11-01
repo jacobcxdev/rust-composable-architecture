@@ -74,18 +74,22 @@ def _artifact(log, target, name, kind, source):
 
 
 def _zero_test(log, name):
-    """Require one exact successful filtered test, not an incidental substring."""
+    """Require one exact success from the maintained runner or ordinary libtest."""
     text = log.read_text(encoding="utf-8")
-    selected = re.findall(r"^test (\S+) \.\.\. ok$", text, re.MULTILINE)
-    summaries = re.findall(
-        r"^test result: (\w+)\. (\d+) passed; (\d+) failed; (\d+) ignored; "
-        r"(\d+) measured; (\d+) filtered out; finished in [^\r\n]+$",
-        text, re.MULTILINE,
-    )
-    if (selected != [name]
-            or len(summaries) != 1 or summaries[0][:5] != ("ok", "1", "0", "0", "0")):
+    selected = re.findall(r"^test (\S+) \.\.\. (\S+)$", text, re.MULTILINE)
+    summaries = [line for line in text.splitlines() if line.startswith("test result:")]
+    summary = re.fullmatch(
+        r"test result: (\w+)\. (\d+) passed; (\d+) failed"
+        r"(?:; (\d+) ignored; (\d+) measured; (\d+) filtered out; finished in [^\r\n]+)?",
+        summaries[0],
+    ) if len(summaries) == 1 else None
+    if (selected != [(name, "ok")] or summary is None
+            or summary.groups()[:3] != ("ok", "1", "0")
+            or summary.groups()[3:5] not in ((None, None), ("0", "0"))):
         raise ValueError(f"zero-allocation test did not pass exactly: {name}")
-    return {"test": name, "passed": 1, "failed": 0, "filtered_out": int(summaries[0][5]),
+    filtered = summary.group(6)
+    return {"test": name, "passed": 1, "failed": 0,
+            "filtered_out": int(filtered) if filtered is not None else None,
             "stdout_sha256": evidence._sha256(log)}
 
 

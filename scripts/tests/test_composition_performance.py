@@ -1328,9 +1328,65 @@ class MacWatchdogEvidenceTests(unittest.TestCase):
 
 
 class WindowsPairedProtocolTests(unittest.TestCase):
+    def test_isolated_windows_policy_rejects_missing_or_changed_time_arguments(self):
+        from unittest.mock import patch
+        import copy
+        protocol = self.protocol()
+        bad_values = (None, [], ["--min-time", "0.5"],
+                      ["--min-time", "0.1", "--max-time", "0.5"],
+                      ["--min-time", "0.5", "--max-time", "0.1"],
+                      ["--min-time", "0.5", "--max-time", "0.5", "--sample-size", "100"])
+        with tempfile.TemporaryDirectory() as directory:
+            path = pathlib.Path(directory) / "protocol.json"
+            for arguments in bad_values:
+                bad = copy.deepcopy(protocol)
+                if arguments is None:
+                    bad["runtime"].pop("isolated_divan_arguments", None)
+                else:
+                    bad["runtime"]["isolated_divan_arguments"] = arguments
+                path.write_text(json.dumps(bad))
+                with self.subTest(arguments=arguments), \
+                     patch.object(composition_performance, "_sha256",
+                                  return_value=composition_performance.WINDOWS_PROTOCOL_SHA256), \
+                     self.assertRaisesRegex(ValueError, "sampling arguments"):
+                    composition_performance.load_protocol(path)
+
+    def test_isolated_windows_evidence_rejects_missing_or_changed_time_arguments(self):
+        protocol = self.protocol()
+        arguments = ["--bench", "--exact", "composition::direct::1",
+                     "--min-time", "0.5", "--max-time", "0.5"]
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            subject, control, _ = PairedComparisonTests()._write_protocol_pair_fixture(
+                root, protocol, "reference-reference-aa")
+            paths = [path for arm in (subject, control)
+                     for path in (arm / "runtime/direct__1").glob("*.resources.json")]
+            self.assertEqual(len(paths), 40)
+            for path in paths:
+                path.write_text(json.dumps(self.resources()))
+            with self.assertRaisesRegex(ValueError, "sampling arguments"):
+                composition_performance.load_isolated_runtime_pairs(
+                    subject, control, "direct/1", protocol)
+            for path in paths:
+                row = self.resources()
+                row["process_receipt"]["divan_arguments"] = arguments
+                path.write_text(json.dumps(row))
+            self.assertEqual(len(composition_performance.load_isolated_runtime_pairs(
+                subject, control, "direct/1", protocol)), 20)
+            for bad in (arguments[:-2], [*arguments[:4], "0.1", *arguments[5:]],
+                        [*arguments, "--min-time", "0.5"],
+                        [*arguments[:2], "composition::direct::4", *arguments[3:]],
+                        [*arguments, "--sample-size", "100"]):
+                row = self.resources()
+                row["process_receipt"]["divan_arguments"] = bad
+                paths[0].write_text(json.dumps(row))
+                with self.subTest(arguments=bad), self.assertRaisesRegex(ValueError, "sampling arguments"):
+                    composition_performance.load_isolated_runtime_pairs(
+                        subject, control, "direct/1", protocol)
+
     def protocol(self):
         return composition_performance.load_protocol(
-            REPO_ROOT / "docs/performance/composition/composition-windows-paired-v1.json"
+            REPO_ROOT / "docs/performance/composition/composition-windows-paired-v2.json"
         )
 
     @staticmethod
@@ -1421,9 +1477,13 @@ class WindowsPairedProtocolTests(unittest.TestCase):
         mac = composition_performance.load_protocol(
             REPO_ROOT / "docs/performance/composition/composition-protocol-v7.json"
         )
-        for key in ("randomisation", "runtime", "compile", "confidence", "interleaving",
+        for key in ("randomisation", "compile", "confidence", "interleaving",
                     "regression_limit", "budget_sha256", "reference_revision"):
             self.assertEqual(protocol[key], mac[key], key)
+        for key in ("pairs_per_order_stratum", "diagnostic_processes_per_binary",
+                    "diagnostic_timing_rows", "isolated_timing_rows",
+                    "divan_exact_prefix", "gated_scenarios"):
+            self.assertEqual(protocol["runtime"][key], mac["runtime"][key], key)
         self.assertEqual(protocol["scope"], "paired-only")
         self.assertFalse(protocol["absolute_compatibility"]["qualified"])
         self.assertNotIn("minimum_macos_major", protocol)
@@ -1514,7 +1574,13 @@ class WindowsPairedProtocolTests(unittest.TestCase):
                 root, protocol, "candidate-reference")
             for path in root.rglob("*.resources.json"):
                 seconds = json.loads(path.read_text())["real_seconds"]
-                path.write_text(json.dumps(self.resources(seconds, compiler="compile" in path.parts)))
+                row = self.resources(seconds, compiler="compile" in path.parts)
+                if "runtime" in path.parts:
+                    scenario = path.parent.name.replace("__", "::")
+                    row["process_receipt"]["divan_arguments"] = [
+                        "--bench", "--exact", "composition::" + scenario,
+                        "--min-time", "0.5", "--max-time", "0.5"]
+                path.write_text(json.dumps(row))
             reports = composition_performance.evaluate_protocol_paired(
                 budget, protocol, subject, control, plan, metadata)
             self.assertEqual(len(reports[2]["rows"]), 14)
@@ -1549,7 +1615,7 @@ class WindowsPairedProtocolTests(unittest.TestCase):
     def test_single_mode_cli_cannot_certify_windows_capture(self):
         from types import SimpleNamespace
         arguments = SimpleNamespace(protocol=REPO_ROOT /
-                                    "docs/performance/composition/composition-windows-paired-v1.json")
+                                    "docs/performance/composition/composition-windows-paired-v2.json")
         with self.assertRaisesRegex(ValueError, "combined capture"):
             composition_performance._command_evaluate_protocol(arguments)
 

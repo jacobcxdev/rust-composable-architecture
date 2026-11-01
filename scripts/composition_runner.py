@@ -34,8 +34,8 @@ import windows_strip  # noqa: E402
 ROOT = Path(__file__).resolve().parents[1]
 PROTOCOL = ROOT / "docs/performance/composition/composition-protocol-v7.json"
 CURRENT_PROTOCOL = ROOT / "docs/performance/composition/composition-protocol-v8.json"
-WINDOWS_PROTOCOL = ROOT / "docs/performance/composition/composition-windows-paired-v1.json"
-WINDOWS_COMPLETE_POLICY = ROOT / "docs/performance/composition/composition-windows-complete-v1.json"
+WINDOWS_PROTOCOL = ROOT / "docs/performance/composition/composition-windows-paired-v2.json"
+WINDOWS_COMPLETE_POLICY = ROOT / "docs/performance/composition/composition-windows-complete-v2.json"
 BUDGET = ROOT / "docs/performance/composition/composition-budgets.json"
 EVIDENCE_ROOT = ROOT / "target/qualification-evidence/0.1.0/composition"
 LOCK = Path("/tmp/rca-composition-performance.machine.lock")
@@ -847,6 +847,8 @@ class WindowsMonitor(HostMonitor):
             receipt = {key: value for key, value in result.items() if key != "counters"}
             receipt.update(command_kind="compile" if compiler else "runtime",
                            compiler_telemetry_sha256=None if telemetry is None else telemetry["sha256"])
+            if executed[1:3] == ["--bench", "--exact"]:
+                receipt["divan_arguments"] = executed[1:]
             if result["returncode"]:
                 raise subprocess.CalledProcessError(result["returncode"], executed)
             if (result.get("descendants_exited") is not True
@@ -892,6 +894,8 @@ def execute_pairs(protocol, roots, executables, targets, paired, cargo, env, mon
                         "--bench",
                         "--exact",
                         "composition::" + scenario.replace("/", "::"),
+                        *(protocol["runtime"]["isolated_divan_arguments"]
+                          if evidence.is_windows_protocol(protocol) else []),
                     ],
                     destination,
                     roots[role],

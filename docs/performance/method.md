@@ -270,7 +270,7 @@ of the fifty scenarios, samples or numerical regression limits.
 Each reused record still needs an applicable source, dependency, configuration and toolchain identity.
 Any failed Mac timing observation remains explicit, with its review disposition and limits.
 Composition retains its separate platform-specific absolute and relative gates.
-Windows completion requires the [complete composition policy](composition/composition-windows-complete-v1.json),
+Windows completion requires the [complete composition policy](composition/composition-windows-complete-v2.json),
 not a paired-only capture.
 
 ## Measurements

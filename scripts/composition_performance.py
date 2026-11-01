@@ -53,7 +53,7 @@ LEGACY_PROTOCOL_SHA256 = (
 PROTOCOL_SHA256 = (
     "0fa1f4127bb429b6ec2dd2f85b1e460c1821c472812782dbe2fa35d06b8ad777"
 )
-WINDOWS_METHOD = "composition-windows-paired-v1"
+WINDOWS_METHOD = "composition-windows-paired-v2"
 CURRENT_METHOD = "composition-paired-v8"
 CURRENT_PROTOCOL_SHA256 = "d1edb63946d8040173ad7f54f4a5ef571ad316d644248e229fe61a2780922f6d"
 WINDOWS_RUNNER = "h1-ryzen9-3900x-windows-x86_64-msvc"
@@ -61,7 +61,8 @@ WINDOWS_COMPILER_TELEMETRY = {
     "path": r"C:\RCA-Tools\MSVC-20261014-a098b7b1\VC\Tools\MSVC\14.51.36231\bin\Hostx64\x64\VCTIP.EXE",
     "sha256": "41fe46f8a0b41f6dd94c68c85fba20a10aacb662a9ef04784a632e37f3692371",
 }
-WINDOWS_PROTOCOL_SHA256 = "e4245432869697ec72871b45ea3d305419dc813923fdbf572258505f1e58882a"
+WINDOWS_PROTOCOL_SHA256 = "1d76afa9be7bbddb4942b03591e7e42011b4929a33a0714883917b9bcc6719b9"
+WINDOWS_ISOLATED_DIVAN_ARGUMENTS = ["--min-time", "0.5", "--max-time", "0.5"]
 _INTERLEAVING = {
     "policy": "alternating-mode-first-within-block",
     "blocks": 20,
@@ -880,6 +881,9 @@ def load_protocol(path: pathlib.Path) -> dict[str, Any]:
         raise ValueError("composition protocol confidence is insufficient")
 
     runtime = document.get("runtime", {})
+    if (is_windows_protocol(document)
+            and runtime.get("isolated_divan_arguments") != WINDOWS_ISOLATED_DIVAN_ARGUMENTS):
+        raise ValueError("Windows isolated sampling arguments differ from the frozen policy")
     if runtime.get("pairs_per_order_stratum") != 10:
         raise ValueError("composition protocol runtime sample size is invalid")
     if runtime.get("diagnostic_timing_rows") != EXPECTED_DIVAN_ROWS:
@@ -1316,6 +1320,12 @@ def validate_windows_resource_counters(
     fields = {"command_kind", "returncode", "elapsed_seconds", "leader_elapsed_seconds",
               "descendants_exited", "descendants_exited_naturally", "compiler_telemetry_path",
               "compiler_telemetry_sha256", "terminated_telemetry", "job_memory_limit_bytes"}
+    if isinstance(receipt, dict) and "divan_arguments" in receipt:
+        fields.add("divan_arguments")
+        if (receipt.get("command_kind") != "runtime"
+                or not isinstance(receipt["divan_arguments"], list)
+                or not all(isinstance(value, str) for value in receipt["divan_arguments"])):
+            raise ValueError("Windows isolated sampling arguments are invalid")
     if not isinstance(receipt, dict) or set(receipt) != fields:
         raise ValueError("Windows process receipt fields are invalid")
     kind = receipt["command_kind"]
@@ -1454,6 +1464,12 @@ def load_isolated_runtime_pairs(
         control_resources = _load_resource_counters(
             control_path.with_suffix(".resources.json"), protocol
         )
+        if is_windows_protocol(protocol):
+            expected_arguments = ["--bench", "--exact", "composition::" + scenario.replace("/", "::"),
+                                  *WINDOWS_ISOLATED_DIVAN_ARGUMENTS]
+            for resources in (subject_resources, control_resources):
+                if resources["process_receipt"].get("divan_arguments") != expected_arguments:
+                    raise ValueError("Windows isolated sampling arguments differ from the frozen policy")
         pairs.append(
             {
                 "block": block,

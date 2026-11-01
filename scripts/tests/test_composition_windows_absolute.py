@@ -53,8 +53,11 @@ class WindowsAbsoluteTests(unittest.TestCase):
     def test_zero_host_requires_the_exact_case_and_one_success_summary(self):
         scope = absolute.ZERO_TESTS["direct_scope"]
         combine = absolute.ZERO_TESTS["combine"]
-        self.assertEqual(absolute._zero_test(FIXTURES / "zero-direct-scope.txt", scope)["passed"], 1)
-        self.assertEqual(absolute._zero_test(FIXTURES / "zero-combine.txt", combine)["passed"], 1)
+        for fixture, name in (("zero-direct-scope.txt", scope), ("zero-combine.txt", combine)):
+            with self.subTest(fixture=fixture):
+                result = absolute._zero_test(FIXTURES / fixture, name)
+                self.assertEqual(result["passed"], 1)
+                self.assertEqual(result["filtered_out"], 72)
         with tempfile.TemporaryDirectory() as temporary:
             bad = Path(temporary) / "zero.txt"
             bad.write_text(f"test {scope} ... ok\n"
@@ -62,6 +65,50 @@ class WindowsAbsoluteTests(unittest.TestCase):
                            "0 filtered out; finished in 0.00s\n", encoding="utf-8")
             with self.assertRaisesRegex(ValueError, "exactly"):
                 absolute._zero_test(bad, scope)
+
+    def test_zero_host_accepts_the_maintained_runner_summary(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            log = Path(temporary) / "zero.txt"
+            for name in absolute.ZERO_TESTS.values():
+                with self.subTest(name=name):
+                    log.write_text(f"test {name} ... ok\n\n"
+                                   "test result: ok. 1 passed; 0 failed\n", encoding="utf-8")
+                    result = absolute._zero_test(log, name)
+                    self.assertEqual(result["test"], name)
+                    self.assertEqual(result["passed"], 1)
+                    self.assertEqual(result["failed"], 0)
+                    self.assertIsNone(result["filtered_out"])
+                    self.assertEqual(result["stdout_sha256"],
+                                     hashlib.sha256(log.read_bytes()).hexdigest())
+
+    def test_zero_host_rejects_incomplete_or_contradictory_results(self):
+        name = absolute.ZERO_TESTS["direct_scope"]
+        selected = f"test {name} ... ok\n"
+        summary = "test result: ok. 1 passed; 0 failed\n"
+        invalid = (
+            selected,
+            summary,
+            selected + "test result: ok. 0 passed; 0 failed\n",
+            selected + "test result: ok. 2 passed; 0 failed\n",
+            selected + "test result: ok. 1 passed; 1 failed\n",
+            selected + "test result: FAILED. 1 passed; 0 failed\n",
+            selected + "test result: ok. 1 passed; 0 failed; 0 ignored\n",
+            selected + summary + summary,
+            selected + summary + "test result: malformed\n",
+            selected + selected + summary,
+            selected + "test another_case ... FAILED\n" + summary,
+            selected + "test result: ok. 1 passed; 0 failed; 1 ignored; 0 measured; "
+                       "0 filtered out; finished in 0.00s\n",
+            selected + "test result: ok. 1 passed; 0 failed; 0 ignored; 1 measured; "
+                       "0 filtered out; finished in 0.00s\n",
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            log = Path(temporary) / "zero.txt"
+            for transcript in invalid:
+                with self.subTest(transcript=transcript):
+                    log.write_text(transcript, encoding="utf-8")
+                    with self.assertRaisesRegex(ValueError, "exactly"):
+                        absolute._zero_test(log, name)
 
     def test_cargo_artifact_requires_fresh_owned_source(self):
         with tempfile.TemporaryDirectory() as temporary:
