@@ -332,7 +332,7 @@ class WindowsRunnerTests(unittest.TestCase):
             self.assertIs(complete["mac_absolute_qualified"], False)
 
     def test_windows_host_rejects_different_machine_and_records_kernel_version(self):
-        identity = {"hostname": "H1", "logical_cpus": 24, "machine_model": "AMD64",
+        identity = {"hostname": "Jacob-PC-H1", "logical_cpus": 24, "machine_model": "AMD64",
                     "cpu": "AMD Ryzen 9 3900X 12-Core Processor"}
         with patch.object(runner, "windows_provider", return_value=SimpleNamespace(host_metadata=lambda: identity)), \
              patch.object(runner.platform, "version", return_value="10.0.26200"):
@@ -340,9 +340,12 @@ class WindowsRunnerTests(unittest.TestCase):
             self.assertEqual(recorded["os_version"], "10.0.26200")
             self.assertEqual(recorded["os_build"], "26200")
             self.assertEqual(recorded["target"], "x86_64-pc-windows-msvc")
-            identity["hostname"] = "another-host"
-            with self.assertRaisesRegex(ValueError, "Windows composition runner"):
-                runner.windows_host()
+            self.assertEqual(recorded["hostname"], "Jacob-PC-H1")
+            for hostname in ("H1", "another-host"):
+                identity["hostname"] = hostname
+                with self.subTest(hostname=hostname), \
+                     self.assertRaisesRegex(ValueError, "Windows composition runner"):
+                    runner.windows_host()
 
     def test_windows_interleaving_retains_all_blocks_and_rejects_changed_bytes(self):
         protocol = evidence.load_protocol(runner.WINDOWS_PROTOCOL)

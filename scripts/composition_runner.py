@@ -533,7 +533,7 @@ def windows_host():
     """Pin H1 identity without requiring an idle desktop or changing scheduling."""
     values = windows_provider().host_metadata()
     version = platform.version()
-    if (values.get("hostname", "").casefold() != "h1"
+    if (values.get("hostname", "").casefold() != "jacob-pc-h1"
             or values.get("logical_cpus") != 24
             or values.get("machine_model", "").casefold() != "amd64"
             or "AMD Ryzen 9 3900X" not in values.get("cpu", "")
