@@ -10,6 +10,7 @@ import shutil
 
 import composition_performance as evidence
 import composition_runner as runner
+import windows_strip
 
 
 ZERO_TESTS = {
@@ -122,31 +123,36 @@ def strip_pe(binary, label, directory, env, monitor, tools):
     retained = directory / "binaries"
     retained.mkdir(exist_ok=True)
     original = retained / f"{label}-original.exe"
+    intermediate = retained / f"{label}-llvm-stripped.exe"
     stripped = retained / f"{label}-stripped.exe"
-    if original.exists() or stripped.exists() or original.is_symlink() or stripped.is_symlink():
+    if any(path.exists() or path.is_symlink() for path in (original, intermediate, stripped)):
         raise ValueError("PE evidence already exists")
     before_bytes = binary.stat().st_size
     before_sha256 = evidence._sha256(binary)
     shutil.copyfile(binary, original)
-    shutil.copyfile(binary, stripped)
-    if evidence._sha256(original) != before_sha256 or evidence._sha256(stripped) != before_sha256:
+    if evidence._sha256(original) != before_sha256:
         raise ValueError("copied PE changed before stripping")
     log = directory / f"strip-{label}.txt"
-    monitor.run([tools["objcopy"], "--strip-all", str(stripped)], log, directory, env)
+    monitor.run([tools["objcopy"], "--strip-all", str(original), str(intermediate)], log, directory, env)
+    removal = windows_strip.finish_strip(intermediate, stripped, directory / f"debug-strip-{label}.txt",
+                                         directory, env, monitor, tools)
     size = _pe_identity(stripped)
+    if evidence._sha256(binary) != before_sha256 or evidence._sha256(original) != before_sha256:
+        raise ValueError("original PE changed during stripping")
     if size > before_bytes:
         raise ValueError("PE grew during stripping")
     row = {"bytes": size, "sha256": evidence._sha256(stripped),
            "before_sha256": before_sha256, "format": "PE-x86_64",
            "strip_log_sha256": evidence._sha256(log),
            "strip_tool_sha256": evidence._sha256(Path(tools["objcopy"])),
+           "debug_removal": removal,
            "path": stripped.relative_to(directory).as_posix(),
            "original_path": original.relative_to(directory).as_posix()}
     runner.write_json(directory / f"{label}.json", row)
     return row
 
 
-def validate_tool_inputs(staging, tools, names=("cargo", "objcopy")):
+def validate_tool_inputs(staging, tools, names=("cargo", "objcopy", "python", "lief_wheel", "lief_init", "lief_native")):
     """Bind these extra Windows tools to the capture's existing input receipt."""
     inputs = json.loads((Path(staging) / "inputs.json").read_text(encoding="utf-8"))
     for name in names:

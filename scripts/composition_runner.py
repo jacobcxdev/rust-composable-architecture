@@ -28,6 +28,7 @@ import tomllib
 sys.dont_write_bytecode = True
 import composition_performance as evidence  # noqa: E402 -- suppress bytecode before local imports
 import common_outcome_allocations as common_outcome_evidence  # noqa: E402
+import windows_strip  # noqa: E402
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -1303,6 +1304,7 @@ def qualify(output, staging, reference, mode, aa_evidence=None, *, platform_name
         tools["compiler_telemetry"] = check_windows_compiler_telemetry(protocol)["path"]
         if windows_complete:
             tools["objcopy"] = windows_objcopy(tools)
+            tools.update(windows_strip.preflight(env))
     host = windows_host() if windows else canonical_host()
     reference = Path(read(["git", "rev-parse", "--show-toplevel"], cwd=reference)).resolve()
     controller = source_identity(ROOT)
@@ -1327,7 +1329,8 @@ def qualify(output, staging, reference, mode, aa_evidence=None, *, platform_name
         if windows_complete:
             pinned_files.extend((WINDOWS_COMPLETE_POLICY,
                                  ROOT / "scripts/composition_windows_complete.py",
-                                 ROOT / "scripts/composition_windows_absolute.py"))
+                                 ROOT / "scripts/composition_windows_absolute.py",
+                                 ROOT / "scripts/windows_strip.py"))
     else:
         pinned_files.extend((capture_tool, ROOT / "scripts/guard_cargo_memory.py"))
     hashes = {str(path): evidence._sha256(path) for path in pinned_files}
@@ -2400,6 +2403,7 @@ def main():
                     import composition_windows_complete as complete
                     complete.load_policy(WINDOWS_COMPLETE_POLICY)
                     windows_objcopy(tools)
+                    windows_strip.preflight(_env)
                 print("the pinned Windows Cargo, rustc and rustdoc are available")
             else:
                 tool_environment()

@@ -236,6 +236,32 @@ Missing profiles leave qualification incomplete.
 Run the support capture inside the reviewed Windows memory guard.
 Every child job retains the two-GiB limit.
 
+Windows support and complete composition captures also require LIEF 1.0.0 for PE stripping.
+LLVM removes COFF symbols but can retain an embedded debug directory in `.rdata`.
+The shared helper removes that directory with LIEF's `clear_debug()` API.
+The strict PE validators still reject any remaining debug directory or symbol table.
+This is a capture-tool dependency, not an RCA runtime dependency.
+
+Use standard x64 Windows CPython 3.12 or later.
+Download `lief-1.0.0-cp312-abi3-win_amd64.whl` from the [official release files](https://pypi.org/project/lief/1.0.0/#files).
+Check its SHA-256: `ca7774b0d88f4528a1c153d7a9d2798800d6389847b966861fad9f2edb17a593`.
+The release does not include a publishing attestation.
+Choose a new private directory for the installation. Then set these paths and install the retained wheel:
+
+```powershell
+$env:RCA_WINDOWS_LIEF_WHEEL = 'C:\RCA-Tools\lief-1.0.0-cp312-abi3-win_amd64.whl'
+$env:RCA_WINDOWS_LIEF_SITE = 'C:\RCA-Tools\lief-1.0.0-site'
+python -m pip install --no-index --no-deps --no-compile --target $env:RCA_WINDOWS_LIEF_SITE $env:RCA_WINDOWS_LIEF_WHEEL
+```
+
+The capture never installs or downloads tools. Preflight checks the wheel and both executable package files before any LIEF import.
+It rejects extra Python bytecode or native libraries in that package.
+An isolated child process disables site startup hooks and records the Python, LIEF and helper identities.
+Each result retains the original, LLVM intermediate and final PE bytes.
+The helper permits only debug removal and zeroed file-alignment padding outside each section's `VirtualSize`.
+Mapped code, section layout, imports, relocations and all other non-debug bytes must remain unchanged.
+The existing measured-source identity stays attached to the binaries; a new helper does not establish a new Rust build.
+
 Windows native CPU evidence uses process cycles and sampled CPU profiles.
 Retired instructions remain `null`: neither cycles nor profile samples are instruction counts.
 Retired instructions are supporting measurements, not a numerical gate in the comparator.
