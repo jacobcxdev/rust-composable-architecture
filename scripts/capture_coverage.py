@@ -117,7 +117,6 @@ TARGETS = {
         ("controls", "error_contracts", "snapshot_contracts", "local_test_store",
          "output_delivery", "focused_outputs", "conformance_deterministic",
          "semantic_checks", "issue_expectations", "snapshot_strategies"),
-        include_library=False,
     ),
     "persistence-file": CaptureGroup(
         "rca-persistence", "rca-persistence", "rca_persistence", frozenset({"default", "file"}),

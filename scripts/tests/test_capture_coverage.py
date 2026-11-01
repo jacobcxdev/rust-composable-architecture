@@ -241,13 +241,13 @@ class CaptureCoverageTests(unittest.TestCase):
                     expected.extend(("--nocapture", "--test-threads=1"))
                 self.assertEqual(self.capture.host_arguments("core-terminal", ["test"], executable), expected)
 
-    def test_test_store_group_selects_ten_local_unfiltered_integration_hosts(self):
+    def test_test_store_group_selects_local_library_and_ten_unfiltered_integration_hosts(self):
         names = ("controls", "error_contracts", "snapshot_contracts", "local_test_store",
                  "output_delivery", "focused_outputs", "conformance_deterministic",
                  "semantic_checks", "issue_expectations", "snapshot_strategies")
         self.assertIn("test-store", self.capture.TARGETS)
         self.assertEqual(self.capture.group_arguments("test-store"), [
-            "-p", "rca-test", "--features", "local",
+            "-p", "rca-test", "--features", "local", "--lib",
             *[item for name in names for item in ("--test", name)],
         ])
         for name in names:
@@ -255,6 +255,9 @@ class CaptureCoverageTests(unittest.TestCase):
             with self.subTest(host=name):
                 self.assertEqual(self.capture.host_arguments("test-store", ["test"], executable),
                                  [str(executable)])
+        executable = self.root / "rca_test-123"
+        self.assertEqual(self.capture.host_arguments("test-store", ["lib"], executable),
+                         [str(executable)])
 
     def test_services_group_selects_nine_rich_unfiltered_integration_hosts(self):
         names = ("dependency_defaults", "dependency_preparation", "issue_operations", "issue_contexts",
@@ -387,7 +390,7 @@ class CaptureCoverageTests(unittest.TestCase):
              ["dependency_defaults", "dependency_preparation", "issue_operations", "issue_contexts",
               "diagnostics", "diagnostics_checkpoint", "presentation", "fallible_effect", "fallible_effect_lifecycle"]),
             ("test-store", "rca-test", "rca_test", ["local"],
-             ["controls", "error_contracts", "snapshot_contracts", "local_test_store",
+             ["rca_test", "controls", "error_contracts", "snapshot_contracts", "local_test_store",
               "output_delivery", "focused_outputs", "conformance_deterministic",
               "semantic_checks", "issue_expectations", "snapshot_strategies"]),
             ("persistence-file", "rca-persistence", "rca_persistence", ["default", "file"],
@@ -445,6 +448,8 @@ class CaptureCoverageTests(unittest.TestCase):
                         with self.subTest(group=group, features=wrong_features), self.assertRaises(ValueError):
                             parse([dict(rows[0], features=wrong_features), *rows[1:]])
                 if group == "test-store":
+                    with self.assertRaises(ValueError):
+                        parse(rows[1:])
                     for wrong_features in ([], ["default", "local"], ["local", "test-util"]):
                         with self.subTest(group=group, features=wrong_features), self.assertRaises(ValueError):
                             parse([dict(rows[0], features=wrong_features), *rows[1:]])
