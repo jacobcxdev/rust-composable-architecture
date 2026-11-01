@@ -533,11 +533,31 @@ mod tests {
 
     #[test]
     fn singleton_send_mapping_keeps_user_drop_order_on_success_and_panics() {
+        // A destructor panic can orphan Rust's return value in either traversal.
+        // Catch it inside the probe, then resume after the caller owns the effect.
+        // This checks destructor timing and caller cleanup, not return-place unwinding.
+        struct CaughtMapperDrop {
+            value: Option<DropOrder>,
+            result: Arc<std::sync::Mutex<Option<std::thread::Result<()>>>>,
+        }
+
+        impl Drop for CaughtMapperDrop {
+            fn drop(&mut self) {
+                let value = self.value.take().expect("mapper probe must drop once");
+                let result = std::panic::catch_unwind(|| drop(value));
+                *self.result.lock().expect("drop result must not be poisoned") = Some(result);
+            }
+        }
+
         for (panic_in_call, panic_on_drop) in [(false, false), (true, false), (false, true)] {
             let traces = [false, true].map(|fast_path| {
                 let events = Arc::new(std::sync::Mutex::new(Vec::new()));
+                let drop_result = Arc::new(std::sync::Mutex::new(None));
                 let payload = DropOrder("input", Arc::clone(&events), false);
-                let capture = DropOrder("mapper", Arc::clone(&events), panic_on_drop);
+                let capture = CaughtMapperDrop {
+                    value: Some(DropOrder("mapper", Arc::clone(&events), panic_on_drop)),
+                    result: Arc::clone(&drop_result),
+                };
                 let recorded = Arc::clone(&events);
                 let result = std::panic::catch_unwind(move || {
                     let effect = Effect::merge([Effect::send(payload)]);
@@ -548,7 +568,7 @@ mod tests {
                         drop(input);
                         DropOrder("output", Arc::clone(&recorded), false)
                     };
-                    if fast_path {
+                    let mapped = if fast_path {
                         effect.map(map)
                     } else {
                         // Preserve the pre-optimisation shared traversal as the oracle.
@@ -556,7 +576,16 @@ mod tests {
                             effect,
                             Arc::new(map) as Arc<ActionMap<DropOrder, DropOrder>>,
                         )
+                    };
+                    let destructor_result = drop_result
+                        .lock()
+                        .expect("drop result must not be poisoned")
+                        .take()
+                        .expect("eager mapping must drop its mapper before returning");
+                    if let Err(panic) = destructor_result {
+                        std::panic::resume_unwind(panic);
                     }
+                    mapped
                 });
                 match result {
                     Ok(mapped) => {
@@ -567,22 +596,23 @@ mod tests {
                         );
                         drop(mapped);
                     }
-                    Err(_) => assert!(panic_in_call || panic_on_drop),
+                    Err(panic) => {
+                        let expected = if panic_in_call {
+                            "mapper call failure"
+                        } else {
+                            assert!(panic_on_drop);
+                            "mapper destructor failure"
+                        };
+                        assert_eq!(panic.downcast_ref::<&str>(), Some(&expected));
+                    }
                 }
                 let actual = events.lock().expect("drop log must not be poisoned").clone();
-                // Mapper destruction can panic after an output enters the return
-                // place. The old traversal need not drop that output; compare its
-                // independently observed trace instead of requiring another drop.
-                if panic_on_drop {
-                    assert!(actual.starts_with(&["call", "input", "mapper"]));
+                let expected = if panic_in_call {
+                    vec!["call", "input", "mapper"]
                 } else {
-                    let expected = if panic_in_call {
-                        vec!["call", "input", "mapper"]
-                    } else {
-                        vec!["call", "input", "mapper", "output"]
-                    };
-                    assert_eq!(actual, expected);
-                }
+                    vec!["call", "input", "mapper", "output"]
+                };
+                assert_eq!(actual, expected);
                 actual
             });
             assert_eq!(
