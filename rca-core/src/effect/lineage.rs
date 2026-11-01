@@ -5,8 +5,8 @@
 //! Completion becomes permanent when the last hold ends. Cancellation requests
 //! revoke authority separately and do not release those holds.
 //!
-//! Finish listeners and final completion share permanent bits in one atomic value.
-//! Their updates prevent the final release from missing a concurrent listener.
+//! Finish listeners share a permanent interest flag. Each waiter registers before
+//! joining the work counter's release sequence, so the last release cannot miss it.
 //! Actor control notifications use a lifecycle epoch so the actor can detect changes
 //! before it sleeps.
 
@@ -18,17 +18,12 @@ use std::sync::atomic::Ordering;
 use std::task::{Context, Poll};
 
 #[cfg(all(test, loom))]
-use loom::sync::atomic::{AtomicBool, AtomicU8, AtomicU64, AtomicUsize};
+use loom::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize};
 #[cfg(not(all(test, loom)))]
-use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU64, AtomicUsize};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize};
 
 use event_listener::Event;
 use event_listener::EventListener;
-
-/// The final hold ended and completion is permanently visible.
-const TERMINAL: u8 = 1;
-/// A finish listener registered; interest remains after that listener leaves.
-const INTEREST: u8 = 2;
 
 /// Wakes the actor for admitted commands and lifecycle work.
 #[derive(Debug)]
@@ -157,11 +152,12 @@ mod control_wake_tests {
 /// completion pending. Callers release each lease after its concrete payload.
 pub(crate) struct LineageState {
     /// One initial registration hold plus one count for each live work lease.
+    /// Zero publishes permanent completion and never admits another lease.
     pending: AtomicUsize,
     /// Records the first cancellation request accepted before observed completion.
     cancelled: AtomicBool,
-    /// Stores permanent terminal and finish-interest bits for completion publication.
-    completion: AtomicU8,
+    /// Remains true after any finish listener registers, even if that waiter leaves.
+    finish_interest: AtomicBool,
     /// Notifies finish waiters only after terminal completion is published.
     changed: Event,
     /// Requests actor control without keeping the actor's signal alive.
@@ -176,7 +172,7 @@ impl LineageState {
         Arc::new(Self {
             pending: AtomicUsize::new(1),
             cancelled: AtomicBool::new(false),
-            completion: AtomicU8::new(0),
+            finish_interest: AtomicBool::new(false),
             changed: Event::new(),
             control,
         })
@@ -231,10 +227,10 @@ impl LineageState {
     /// so a panicking waker cannot leave the lineage nonterminal.
     fn complete_work(&self) {
         if self.pending.fetch_sub(1, Ordering::AcqRel) == 1 {
-            // Both updates share one modification order: either this sees interest
-            // or the registered waiter sees terminal in its own update.
-            let previous = self.completion.fetch_or(TERMINAL, Ordering::AcqRel);
-            if previous & INTEREST != 0 {
+            // Every unfinished waiter publishes interest before joining this
+            // counter's release sequence. This acquire sees that publication;
+            // a waiter joining after the final decrement observes zero instead.
+            if self.finish_interest.load(Ordering::Acquire) {
                 self.changed.notify(usize::MAX);
             }
         }
@@ -260,7 +256,7 @@ impl LineageState {
 
     /// Reads permanent completion after the final registration or work hold ended.
     pub(crate) fn is_finished(&self) -> bool {
-        self.completion.load(Ordering::Acquire) & TERMINAL != 0
+        self.pending.load(Ordering::Acquire) == 0
     }
 
     /// Requests named-generation retirement after its final work release completes.
@@ -291,10 +287,10 @@ impl LineageState {
         if listener.is_none() {
             *listener = Some(self.changed.listen());
             // Interest is permanent: dropping one waiter must not hide another.
-            // Register before this update. Either it sees terminal or the final
-            // release sees interest and notifies the registered listener.
-            let previous = self.completion.fetch_or(INTEREST, Ordering::AcqRel);
-            if previous & TERMINAL != 0 {
+            self.finish_interest.store(true, Ordering::Release);
+            // Join the counter's release sequence after registering and publishing
+            // interest. A later final decrement acquires it; an earlier one leaves zero.
+            if self.pending.fetch_add(0, Ordering::AcqRel) == 0 {
                 return Poll::Ready(());
             }
         }
@@ -413,10 +409,9 @@ mod finish_loom_tests {
                 registration_payload.store(true, Ordering::Relaxed);
                 owner.finish_registration();
             });
-            let mut finish = std::pin::pin!(lineage.finish());
-            let pending = finish
-                .as_mut()
-                .poll(&mut Context::from_waker(Waker::noop()))
+            let mut listener = None;
+            let pending = lineage
+                .poll_finish(&mut listener, &mut Context::from_waker(Waker::noop()))
                 .is_pending();
             if !pending {
                 // Check before joining, which would also publish the payloads.
@@ -427,12 +422,13 @@ mod finish_loom_tests {
             registration.join().expect("registration released");
             if pending {
                 assert!(
-                    finish
-                        .as_mut()
-                        .poll(&mut Context::from_waker(Waker::noop()))
+                    lineage
+                        .poll_finish(&mut listener, &mut Context::from_waker(Waker::noop()))
                         .is_ready()
                 );
             }
+            assert!(lineage.is_finished());
+            assert!(lineage.try_add_work().is_none());
         });
     }
 
@@ -452,33 +448,29 @@ mod finish_loom_tests {
             let second_probe = Arc::new(WakeProbe(AtomicBool::new(false)));
             let first_waker = Waker::from(Arc::clone(&first_probe));
             let second_waker = Waker::from(Arc::clone(&second_probe));
-            let mut first = std::pin::pin!(lineage.finish());
-            let mut second = std::pin::pin!(lineage.finish());
-            let first_pending = first
-                .as_mut()
-                .poll(&mut Context::from_waker(&first_waker))
+            let mut first = None;
+            let mut second = None;
+            let first_pending = lineage
+                .poll_finish(&mut first, &mut Context::from_waker(&first_waker))
                 .is_pending();
             drop(abandoned);
-            let second_pending = second
-                .as_mut()
-                .poll(&mut Context::from_waker(&second_waker))
+            let second_pending = lineage
+                .poll_finish(&mut second, &mut Context::from_waker(&second_waker))
                 .is_pending();
             producer.join().expect("lineage completes");
             if first_pending {
                 assert!(first_probe.0.load(Ordering::Acquire));
                 assert!(
-                    first
-                        .as_mut()
-                        .poll(&mut Context::from_waker(&first_waker))
+                    lineage
+                        .poll_finish(&mut first, &mut Context::from_waker(&first_waker))
                         .is_ready()
                 );
             }
             if second_pending {
                 assert!(second_probe.0.load(Ordering::Acquire));
                 assert!(
-                    second
-                        .as_mut()
-                        .poll(&mut Context::from_waker(&second_waker))
+                    lineage
+                        .poll_finish(&mut second, &mut Context::from_waker(&second_waker))
                         .is_ready()
                 );
             }
