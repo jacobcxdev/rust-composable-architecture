@@ -2439,6 +2439,10 @@ fn required_identified_scope_projects_only_its_registered_lifetime() {
 // Catches retargeting an identified handle when shared state changes its path
 // before a reducer commit can refresh registered lifetimes.
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "one ordered lifecycle checks stale selection, held-observer cleanup, replacement and teardown"
+)]
 fn identified_scope_rejects_external_selection_change_before_commit() {
     struct SelectionState {
         selected: Arc<AtomicUsize>,
