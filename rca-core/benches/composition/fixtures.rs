@@ -9,6 +9,7 @@ use std::sync::{Arc, Barrier, Mutex, Weak};
 use std::task::Poll;
 use std::time::Instant;
 
+#[cfg(not(all(test, miri)))]
 use futures_executor::{ThreadPool, ThreadPoolBuilder};
 use indexmap::IndexMap;
 use rca_core::{
@@ -246,10 +247,99 @@ fn depth_16() -> impl Reducer<State = State, Action = Action> {
     )
 }
 
-/// Retains a four-worker pool for one fixture, outside persistent sample timing.
+/// Owns joined LocalPool workers only for Miri's explicit thread-exit checks.
+///
+/// Ordinary tests and native benchmarks keep the existing ThreadPool.
+/// Fixtures must stop Stores and producers before dropping this owner.
+#[cfg(all(test, miri))]
+struct JoinedPool {
+    /// Closes admission after fixture shutdown, even if submission handles remain.
+    sender: Arc<JoinedSender>,
+    /// Owned only by the fixture, never by a submitted actor or effect.
+    workers: Vec<std::thread::JoinHandle<()>>,
+}
+
+/// Submits test futures without owning the worker's join guard.
+#[cfg(all(test, miri))]
+struct JoinedSender(
+    /// Keeps submission separate from worker ownership.
+    async_channel::Sender<RuntimeFuture>,
+);
+
+#[cfg(all(test, miri))]
+impl JoinedSender {
+    /// Transfers a future to the existing LocalPool on its owning thread.
+    fn spawn_ok(&self, task: RuntimeFuture) {
+        self.0
+            .try_send(task)
+            .unwrap_or_else(|_| panic!("joined fixture worker stopped before its drivers"));
+    }
+}
+
+#[cfg(all(test, miri))]
+impl JoinedPool {
+    /// Starts the requested workers using LocalPool scheduling on each thread.
+    fn new(worker_count: usize) -> Self {
+        use futures_util::task::LocalSpawnExt as _;
+
+        let (sender, incoming) = async_channel::unbounded();
+        // Own each successful spawn before starting the next one. Unwind closes
+        // admission and joins prior workers if a later spawn fails.
+        let mut owner = Self {
+            sender: Arc::new(JoinedSender(sender)),
+            workers: Vec::with_capacity(worker_count),
+        };
+        for _ in 0..worker_count {
+            let incoming = incoming.clone();
+            owner.workers.push(std::thread::spawn(move || {
+                let mut pool = futures_executor::LocalPool::new();
+                let spawner = pool.spawner();
+                pool.run_until(async move {
+                    while let Ok(task) = incoming.recv().await {
+                        spawner
+                            .spawn_local(task)
+                            .expect("fixture LocalPool remains live");
+                    }
+                });
+                pool.run();
+            }));
+        }
+        owner
+    }
+
+    /// Shares submission authority without sharing the owning join guard.
+    fn sender(&self) -> Arc<JoinedSender> {
+        Arc::clone(&self.sender)
+    }
+}
+
+#[cfg(all(test, miri))]
+impl Drop for JoinedPool {
+    fn drop(&mut self) {
+        self.sender.0.close();
+        let mut failure = None;
+        for worker in self.workers.drain(..) {
+            if let Err(panic) = worker.join()
+                && failure.is_none()
+            {
+                failure = Some(panic);
+            }
+        }
+        if !std::thread::panicking()
+            && let Some(panic) = failure
+        {
+            std::panic::resume_unwind(panic);
+        }
+    }
+}
+
+/// Retains the benchmark pool, or a joined test host, outside sample timing.
 struct BenchRuntime {
     /// Shares pool ownership with the Store runtime facade.
     driver: ThreadDriver,
+    /// Drops after the driver; Store shutdown precedes both fields' destruction.
+    #[cfg(all(test, miri))]
+    _pool: JoinedPool,
 }
 
 #[derive(Clone)]
@@ -257,7 +347,11 @@ struct BenchRuntime {
 /// Elapsed waits complete and MAX stays pending; finite future waits are rejected.
 struct ThreadDriver {
     /// Executes actor and effect futures; these workloads do not request timers.
+    #[cfg(not(all(test, miri)))]
     pool: ThreadPool,
+    /// Submits test work without keeping the worker's join guard inside an actor.
+    #[cfg(all(test, miri))]
+    pool: Arc<JoinedSender>,
     /// Common clock origin retained by every driver clone.
     origin: Instant,
 }
@@ -306,16 +400,23 @@ impl fmt::Debug for ThreadDriver {
 impl BenchRuntime {
     /// Starts the pool before persistent benchmark timing begins.
     fn new() -> Self {
+        #[cfg(not(all(test, miri)))]
         let pool = ThreadPoolBuilder::new()
             .pool_size(4)
             .name_prefix("rca-composition-bench-")
             .create()
             .expect("benchmark thread pool must start");
+        #[cfg(all(test, miri))]
+        let joined = JoinedPool::new(4);
+        #[cfg(all(test, miri))]
+        let pool = joined.sender();
         Self {
             driver: ThreadDriver {
                 pool,
                 origin: Instant::now(),
             },
+            #[cfg(all(test, miri))]
+            _pool: joined,
         }
     }
 
@@ -1027,6 +1128,81 @@ fn bench_collection_mutation<C: OrderedBenchCollection>(
 
 #[cfg(test)]
 mod cleanup_tests {
+    #[cfg(miri)]
+    #[test]
+    fn joined_pool_waits_for_thread_local_destruction_on_drop_and_unwind() {
+        use std::cell::RefCell;
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use std::sync::{Arc, Barrier};
+
+        /// Marks actual worker teardown, after its submitted future completed.
+        struct Exited(Arc<AtomicUsize>);
+
+        impl Drop for Exited {
+            fn drop(&mut self) {
+                self.0.fetch_add(1, Ordering::Release);
+            }
+        }
+
+        thread_local! {
+            static EXITED: RefCell<Option<Exited>> = const { RefCell::new(None) };
+        }
+
+        for (owner_unwind, worker_unwind) in [(false, false), (true, false), (false, true)] {
+            let exited = Arc::new(AtomicUsize::new(0));
+            let pool = super::JoinedPool::new(4);
+            let retained = pool.sender();
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe({
+                let exited = Arc::clone(&exited);
+                move || {
+                    let release = Arc::new(Barrier::new(5));
+                    for index in 0..4 {
+                        let (started, ready) = futures_channel::oneshot::channel();
+                        let worker_exited = Arc::clone(&exited);
+                        let worker_release = Arc::clone(&release);
+                        pool.sender().spawn_ok(Box::pin(async move {
+                            EXITED.with(|slot| *slot.borrow_mut() = Some(Exited(worker_exited)));
+                            started.send(()).expect("owner awaits worker setup");
+                            // Hold this worker so the next task must use another.
+                            worker_release.wait();
+                            assert!(!(worker_unwind && index == 0), "injected worker unwind");
+                        }));
+                        futures_executor::block_on(ready).expect("worker installed exit probe");
+                    }
+                    assert_eq!(exited.load(Ordering::Acquire), 0);
+                    release.wait();
+                    assert!(!owner_unwind, "injected owner unwind");
+                }
+            }));
+            if owner_unwind || worker_unwind {
+                assert_eq!(
+                    result
+                        .expect_err("injected unwind is retained after joining every worker")
+                        .downcast_ref::<&str>(),
+                    Some(&if owner_unwind {
+                        "injected owner unwind"
+                    } else {
+                        "injected worker unwind"
+                    })
+                );
+            } else {
+                result.expect("ordinary owner drop succeeds");
+            }
+            assert_eq!(
+                exited.load(Ordering::Acquire),
+                4,
+                "owner must join every worker's teardown"
+            );
+            let rejected = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                retained.spawn_ok(Box::pin(async {}));
+            }));
+            assert!(
+                rejected.is_err(),
+                "submission after owner shutdown must fail"
+            );
+        }
+    }
+
     #[test]
     fn scope_depth_filters_preserve_leaf_counts() {
         use super::{Action, Fixture, Reducer, State, finish_task};
@@ -1078,11 +1254,19 @@ mod cleanup_tests {
 
         use rca_core::{MonotonicInstant, RuntimeDriver};
 
+        #[cfg(not(miri))]
         let driver = super::ThreadDriver {
             pool: super::ThreadPoolBuilder::new()
                 .pool_size(1)
                 .create()
                 .expect("clock control thread pool"),
+            origin: super::Instant::now(),
+        };
+        #[cfg(miri)]
+        let owner = super::JoinedPool::new(1);
+        #[cfg(miri)]
+        let driver = super::ThreadDriver {
+            pool: owner.sender(),
             origin: super::Instant::now(),
         };
         let mut context = Context::from_waker(Waker::noop());
@@ -1099,11 +1283,19 @@ mod cleanup_tests {
     fn thread_driver_rejects_unsupported_finite_future_deadlines() {
         use rca_core::RuntimeDriver;
 
+        #[cfg(not(miri))]
         let driver = super::ThreadDriver {
             pool: super::ThreadPoolBuilder::new()
                 .pool_size(1)
                 .create()
                 .expect("clock control thread pool"),
+            origin: super::Instant::now(),
+        };
+        #[cfg(miri)]
+        let owner = super::JoinedPool::new(1);
+        #[cfg(miri)]
+        let driver = super::ThreadDriver {
+            pool: owner.sender(),
             origin: super::Instant::now(),
         };
         let deadline = driver
@@ -1120,6 +1312,32 @@ mod cleanup_tests {
         assert!(
             super::Arc::ptr_eq(&first.pool, &second.pool),
             "live paused fixtures must share their worker pool"
+        );
+    }
+
+    #[cfg(miri)]
+    #[test]
+    fn paused_fixture_cleanup_releases_actor_submission_before_joining() {
+        let owner = super::Arc::new(super::JoinedPool::new(1));
+        let driver = super::PausedDriver {
+            tasks: super::Arc::new(super::Mutex::new(Vec::new())),
+            pool: owner.sender(),
+            origin: super::Instant::now(),
+            _owner: Some(owner),
+        };
+        let submission = super::Arc::downgrade(&driver.pool);
+        let store = super::Store::new(
+            super::State { calls: 0 },
+            super::depth_1(),
+            super::Runtime::new(driver.clone()),
+        );
+        driver.start();
+        futures_executor::block_on(store.shutdown()).expect("paused actor shuts down");
+        drop(store);
+        drop(driver);
+        assert!(
+            submission.upgrade().is_none(),
+            "paused actor and fixture must release their submission handles"
         );
     }
 
@@ -1855,22 +2073,43 @@ impl Drop for ConcurrentSendFixture {
     }
 }
 
-#[derive(Clone)]
+#[cfg_attr(not(all(test, miri)), derive(Clone))]
 /// Holds the actor for capacity checks; it has no finite timer scheduler.
 struct PausedDriver {
     /// Holds the actor unpolled while the bounded mailbox is filled.
     tasks: Arc<Mutex<Vec<RuntimeFuture>>>,
     /// Shares the executor with other live fixtures, without a static owner.
+    #[cfg(not(all(test, miri)))]
     pool: Arc<ThreadPool>,
+    /// Runtime clones share submission only, not the owning join guard.
+    #[cfg(all(test, miri))]
+    pool: Arc<JoinedSender>,
     /// Supplies the runtime facade's common time origin.
     origin: Instant,
+    /// Present only on fixture-owned drivers and dropped after their submission handle.
+    #[cfg(all(test, miri))]
+    _owner: Option<Arc<JoinedPool>>,
+}
+
+#[cfg(all(test, miri))]
+impl Clone for PausedDriver {
+    fn clone(&self) -> Self {
+        Self {
+            tasks: Arc::clone(&self.tasks),
+            pool: Arc::clone(&self.pool),
+            origin: self.origin,
+            _owner: None,
+        }
+    }
 }
 
 impl PausedDriver {
     /// Shares a live pool but retains submitted tasks instead of polling them.
     fn new() -> Self {
         // The cache shares workers without retaining them after fixture cleanup.
+        #[cfg(not(all(test, miri)))]
         static POOL: Mutex<Weak<ThreadPool>> = Mutex::new(Weak::new());
+        #[cfg(not(all(test, miri)))]
         let pool = {
             let mut cached = POOL
                 .lock()
@@ -1881,11 +2120,29 @@ impl PausedDriver {
                 pool
             })
         };
+        #[cfg(all(test, miri))]
+        static POOL: Mutex<Weak<JoinedPool>> = Mutex::new(Weak::new());
+        #[cfg(all(test, miri))]
+        let owner = {
+            let mut cached = POOL
+                .lock()
+                .expect("paused fixture pool cache lock remains available");
+            cached.upgrade().unwrap_or_else(|| {
+                let workers = std::thread::available_parallelism().map_or(1, |count| count.get());
+                let pool = Arc::new(JoinedPool::new(workers));
+                *cached = Arc::downgrade(&pool);
+                pool
+            })
+        };
+        #[cfg(all(test, miri))]
+        let pool = owner.sender();
 
         Self {
             tasks: Arc::new(Mutex::new(Vec::new())),
             pool,
             origin: Instant::now(),
+            #[cfg(all(test, miri))]
+            _owner: Some(owner),
         }
     }
 
