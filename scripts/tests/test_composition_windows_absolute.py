@@ -7,6 +7,7 @@ import sys
 import tempfile
 import unittest
 from unittest.mock import Mock, patch
+from scripts.tests.test_windows_strip import image, cleared, native_transform, tool_fixture
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import composition_windows_absolute as absolute
@@ -148,23 +149,29 @@ class WindowsAbsoluteTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             binary = root / "fixture.exe"
-            binary.write_bytes(self.pe())
+            binary.write_bytes(image())
             tool = root / "rust-objcopy.exe"
             tool.write_bytes(b"pinned-tool")
+            strip_tools = tool_fixture(root)
 
-            def stripped(_command, log, _cwd, _env):
-                log.write_text("", encoding="utf-8")
+            def stripped(command, log, _cwd, _env):
+                if command[1] == "--strip-all":
+                    Path(command[-1]).write_bytes(image())
+                    log.write_text("LLVM completed", encoding="utf-8")
+                else:
+                    native_transform(command, log, strip_tools)
 
             monitor = Mock()
             monitor.run.side_effect = stripped
-            row = absolute.strip_pe(binary, "direct", root, {}, monitor, {"objcopy": str(tool)})
-            self.assertEqual(row["bytes"], 512)
-            self.assertEqual(row["sha256"], hashlib.sha256(self.pe()).hexdigest())
+            row = absolute.strip_pe(binary, "direct", root, {}, monitor, {"objcopy": str(tool), **strip_tools})
+            self.assertEqual(row["bytes"], 2048)
+            self.assertEqual(row["sha256"], hashlib.sha256(cleared(image())).hexdigest())
             self.assertEqual(row["format"], "PE-x86_64")
             self.assertNotIn("ran", row)
-            self.assertEqual(binary.read_bytes(), self.pe())
-            self.assertEqual((root / row["path"]).read_bytes(), self.pe())
-            self.assertEqual((root / row["original_path"]).read_bytes(), self.pe())
+            self.assertEqual(binary.read_bytes(), image())
+            self.assertEqual((root / row["path"]).read_bytes(), cleared(image()))
+            self.assertEqual((root / row["original_path"]).read_bytes(), image())
+            self.assertEqual(Path(row["debug_removal"]["intermediate"]["path"]).read_bytes(), image())
             self.assertEqual(json.loads((root / "direct.json").read_text()), row)
 
     def test_pe_with_remaining_symbols_cannot_be_recorded_as_stripped(self):
@@ -172,12 +179,8 @@ class WindowsAbsoluteTests(unittest.TestCase):
             root = Path(temporary)
             binary = root / "fixture.exe"
             binary.write_bytes(self.pe(symbol_count=1))
-            tool = root / "rust-objcopy.exe"
-            tool.write_bytes(b"pinned-tool")
-            monitor = Mock()
-            monitor.run.side_effect = lambda _command, log, _cwd, _env: log.write_text("", encoding="utf-8")
             with self.assertRaisesRegex(ValueError, "symbol-free"):
-                absolute.strip_pe(binary, "direct", root, {}, monitor, {"objcopy": str(tool)})
+                absolute._pe_identity(binary)
             self.assertFalse((root / "direct.json").exists())
 
     def test_pe_debug_directory_cannot_pass_as_stripped(self):
@@ -185,12 +188,31 @@ class WindowsAbsoluteTests(unittest.TestCase):
             root = Path(temporary)
             binary = root / "fixture.exe"
             binary.write_bytes(self.pe(debug_size=20))
-            tool = root / "rust-objcopy.exe"
-            tool.write_bytes(b"pinned-tool")
-            monitor = Mock()
-            monitor.run.side_effect = lambda _command, log, _cwd, _env: log.write_text("", encoding="utf-8")
             with self.assertRaisesRegex(ValueError, "debug directory"):
-                absolute.strip_pe(binary, "direct", root, {}, monitor, {"objcopy": str(tool)})
+                absolute._pe_identity(binary)
+
+    def test_helper_leaving_debug_data_cannot_produce_a_size_record(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            binary = root / "fixture.exe"
+            binary.write_bytes(image())
+            tools = tool_fixture(root)
+
+            def execute(command, log, _cwd, _env):
+                if command[1] == "--strip-all":
+                    Path(command[-1]).write_bytes(image())
+                    log.write_text("LLVM completed", encoding="utf-8")
+                else:
+                    native_transform(command, log, tools, leave_debug=True)
+
+            monitor = Mock()
+            monitor.run.side_effect = execute
+            with self.assertRaisesRegex(ValueError, "debug data was not fully removed"):
+                absolute.strip_pe(binary, "direct", root, {}, monitor,
+                                  {"objcopy": "C:/pinned/rust-objcopy.exe", **tools})
+            self.assertEqual(monitor.run.call_count, 2)
+            self.assertFalse((root / "direct.json").exists())
+            self.assertEqual(binary.read_bytes(), image())
 
     def test_subject_capture_retains_all_raw_work_and_six_compiled_pes(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -205,8 +227,10 @@ class WindowsAbsoluteTests(unittest.TestCase):
             tools = {name: str(base / f"{name}.exe") for name in ("cargo", "objcopy")}
             for tool in tools.values():
                 Path(tool).write_bytes(b"pinned-tool")
+            strip_tools = tool_fixture(base)
+            tools.update(strip_tools)
             (staging / "inputs.json").write_text(json.dumps({"tools": {
-                name: {"path": path, "sha256": hashlib.sha256(b"pinned-tool").hexdigest()}
+                name: {"path": path, "sha256": hashlib.sha256(Path(path).read_bytes()).hexdigest()}
                 for name, path in tools.items()
             }}), encoding="utf-8")
             lock_hash = hashlib.sha256(b"lock").hexdigest()
@@ -240,7 +264,7 @@ class WindowsAbsoluteTests(unittest.TestCase):
                     for name, kind in names:
                         binary = target / f"{name}.exe"
                         binary.parent.mkdir(parents=True, exist_ok=True)
-                        binary.write_bytes(b"bench" if name == "composition" else self.pe())
+                        binary.write_bytes(b"bench" if name == "composition" else image())
                         source = (root / "rca-core/benches/composition.rs" if name == "composition" else
                                   root / "rca-core/tests/composition_qualification/main.rs" if name == "composition_zero" else
                                   root / "examples/composition-search/tests/app.rs" if name == "app" else
@@ -252,7 +276,10 @@ class WindowsAbsoluteTests(unittest.TestCase):
                                                    "executable": str(binary)}))
                     destination.write_text("\n".join(records), encoding="utf-8")
                 elif command[0] == tools["objcopy"]:
+                    Path(command[-1]).write_bytes(image())
                     destination.write_text("", encoding="utf-8")
+                elif command[1:2] == ["-I"]:
+                    native_transform(command, destination, strip_tools)
                 elif "RCA_COMPOSITION_ALLOCATION_SCENARIO" in environment:
                     destination.write_text(raw_lines[environment["RCA_COMPOSITION_ALLOCATION_SCENARIO"]] + "\n",
                                            encoding="utf-8")
@@ -271,7 +298,7 @@ class WindowsAbsoluteTests(unittest.TestCase):
             source = {"root": str(root), "revision": "a" * 40}
             with patch.object(absolute.runner, "validate_staged_source", return_value=source):
                 observed = absolute.capture_windows_absolute(capture, protocol, {}, monitor, tools)
-            self.assertEqual(len(calls), 60)
+            self.assertEqual(len(calls), 66)
             self.assertEqual(len(observed["allocations"]), 47)
             self.assertEqual(len(observed["selected"]), 13)
             self.assertEqual(set(observed["binaries"]), set(absolute.BINARY_NAMES))

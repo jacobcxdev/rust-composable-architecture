@@ -180,6 +180,7 @@ class WindowsCompleteRunnerTests(unittest.TestCase):
                 stack.enter_context(patch.object(runner, name, return_value=value))
             stack.enter_context(patch.object(runner, "source_identity", side_effect=lambda path, **kw:
                                              controller if path == runner.ROOT else control))
+            stack.enter_context(patch.object(runner.windows_strip, "preflight", return_value={}))
             stack.enter_context(patch.object(runner.evidence, "validate_budget_document",
                                              return_value={"runner_source_hash": "runner"}))
             stack.enter_context(patch.object(runner.evidence, "validate_protocol_sources"))

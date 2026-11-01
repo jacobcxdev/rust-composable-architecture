@@ -13,11 +13,13 @@ import json
 import ntpath
 import os
 from pathlib import Path
+import shutil
 import struct
 import sys
 import time
 
 import composition_runner as runner
+import windows_strip
 from windows_process import WindowsProcessApi, validate_arguments, wait_for_empty_job
 
 
@@ -226,10 +228,13 @@ def capture(args):
     metadata, manifest, tools = validate_inputs(source, args.source_manifest, args.metadata, args.tools,
                                                args.candidate_normal, args.candidate_allocation,
                                                args.candidate_revision)
+    strip_tools = windows_strip.preflight(os.environ)
+    strip_identities = {name: file_record(path) for name, path in strip_tools.items()}
     controllers = [file_record(Path(path)) for path in (
         __file__, runner.__file__, runner.evidence.__file__, provider_module.__file__,
-        sys.modules[WindowsProcessApi.__module__].__file__)]
-    inputs = [file_record(path) for path in (args.metadata, args.source_manifest, args.tools)] + controllers
+        sys.modules[WindowsProcessApi.__module__].__file__, windows_strip.__file__)]
+    inputs = ([file_record(path) for path in (args.metadata, args.source_manifest, args.tools)]
+              + controllers + list(strip_identities.values()))
     # Validate inherited settings before creating any build target or process.
     base_env = build_environment(dict(os.environ), tools, output / "compile-target")
     host = runner.windows_host()
@@ -243,6 +248,7 @@ def capture(args):
               "started_at": runner.now(), "toolchain": metadata["toolchain"],
               "candidate": metadata["candidate"], "source_build": file_record(args.metadata),
               "source_manifest": file_record(args.source_manifest), "tools": tools, "controllers": controllers,
+              "strip_tools": strip_identities,
               "instructions_retired": None, "remaining": []}
     stage = "clean-workspace-build"
     try:
@@ -262,10 +268,21 @@ def capture(args):
         result["stripped_binaries"] = {}
         for name, original in (("qualification", args.candidate_normal),
                                ("rca-size-probe", output / "consumer-target/release/rca-size-probe.exe")):
+            retained_original = output / f"{name}-original.exe"
+            original_identity = file_record(original)
+            shutil.copyfile(original, retained_original)
+            if file_record(retained_original)["sha256"] != original_identity["sha256"]:
+                raise ValueError("original PE changed during retention")
+            intermediate = output / f"{name}-llvm-stripped.exe"
             stripped = output / f"{name}-stripped.exe"
-            monitor.run([tools["objcopy"]["path"], "--strip-all", str(original), str(stripped)],
+            monitor.run([tools["objcopy"]["path"], "--strip-all", str(retained_original), str(intermediate)],
                         output / f"{name}-strip.txt", source, base_env)
-            result["stripped_binaries"][name] = {"original": file_record(original),
+            removal = windows_strip.finish_strip(intermediate, stripped, output / f"{name}-debug-strip.txt",
+                                                 source, base_env, monitor, strip_tools)
+            if file_record(original) != original_identity or file_record(retained_original)["sha256"] != original_identity["sha256"]:
+                raise ValueError("original PE changed during stripping")
+            result["stripped_binaries"][name] = {"original": file_record(retained_original),
+                "source_binary": original_identity, "debug_removal": removal,
                 "stripped": file_record(stripped), "stripped_size_bytes": stripped_pe_size(stripped)}
 
         stage = "idle-live-memory"

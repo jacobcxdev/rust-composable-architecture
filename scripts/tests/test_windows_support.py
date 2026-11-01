@@ -11,6 +11,7 @@ import tempfile
 from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock, patch
+from scripts.tests.test_windows_strip import image, native_transform, tool_fixture
 
 
 SCRIPTS = Path(__file__).resolve().parents[1]
@@ -289,6 +290,7 @@ class WindowsSupportTests(unittest.TestCase):
     def capture_fixture(self, args, *, mutate_receipt=False, stripped=True):
         monitor = Mock()
         commands = []
+        self.strip_tools = tool_fixture(self.root)
 
         def run(command, destination, source, env):
             commands.append((command, dict(env)))
@@ -299,7 +301,9 @@ class WindowsSupportTests(unittest.TestCase):
                 executable.parent.mkdir(parents=True)
                 executable.write_bytes(self.pe_image(debug_size=28))
             elif command[1] == "--strip-all":
-                Path(command[-1]).write_bytes(self.pe_image(debug_size=0 if stripped else 28))
+                Path(command[-1]).write_bytes(image())
+            elif command[1] == "-I":
+                native_transform(command, destination, self.strip_tools, leave_debug=not stripped)
             elif command[1] == "bench":
                 name = command[command.index("--bench") + 1]
                 executable = Path(env["CARGO_TARGET_DIR"]) / f"{name}.exe"
@@ -325,6 +329,7 @@ class WindowsSupportTests(unittest.TestCase):
 
     def run_capture_fixture(self, args, monitor):
         with patch.dict(self.capture.os.environ, {}, clear=True), \
+                patch.object(self.capture.windows_strip, "preflight", return_value=self.strip_tools), \
                 patch.object(self.capture.ntpath, "isabs", side_effect=lambda path: Path(path).is_absolute()), \
                 patch.object(self.capture.runner, "windows_host", return_value={"identity": {"platform": "windows"}}), \
                 patch.object(self.capture.runner, "check_host_unchanged"), \
@@ -356,7 +361,10 @@ class WindowsSupportTests(unittest.TestCase):
         self.assertEqual(runtime, [["--bench", "--color", "never", "--sample-count", "50", "--max-time", "0.5"]] * 5)
         self.assertEqual(commands[-1][0][1:], ["effect/async", "10000"])
         self.assertEqual(commands[-1][1]["RCA_QUALIFY_ALLOCATIONS"], "1")
-        self.assertEqual(result["stripped_binaries"]["qualification"]["stripped_size_bytes"], 512)
+        self.assertEqual(result["stripped_binaries"]["qualification"]["stripped_size_bytes"], 2048)
+        removal = result["stripped_binaries"]["qualification"]["debug_removal"]
+        self.assertEqual(Path(removal["intermediate"]["path"]).read_bytes(), image())
+        self.assertEqual(removal["verification"]["padding_changed_bytes"], 32)
         self.assertTrue((args.output / "support.json").is_file())
 
     def test_full_capture_rejects_rewritten_receipt_before_acceptance(self):
@@ -372,9 +380,9 @@ class WindowsSupportTests(unittest.TestCase):
     def test_unverified_strip_fails_before_runtime_workloads(self):
         args = self.inputs()
         monitor, commands = self.capture_fixture(args, stripped=False)
-        with self.assertRaisesRegex(ValueError, "verified stripped"):
+        with self.assertRaisesRegex(ValueError, "debug data was not fully removed"):
             self.run_capture_fixture(args, monitor)
-        self.assertEqual(len(commands), 3)
+        self.assertEqual(len(commands), 4)
         self.assertFalse((args.output / "support.json").exists())
 
     def test_existing_output_is_not_reused_as_a_clean_build(self):
