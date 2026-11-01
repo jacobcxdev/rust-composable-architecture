@@ -34,7 +34,8 @@ async-channel = { package = "rca-async-channel", path = "dependencies/rca-async-
 concurrent-queue = "2.5.0"
 event-listener = { package = "rca-event-listener", path = "dependencies/rca-event-listener", version = "=0.1.0" }
 futures-core = "0.3.34"
-futures-channel = "0.3.34"
+# Single-value replies need only alloc. Avoid building the unused multi-message channel.
+futures-channel = { version = "0.3.34", default-features = false, features = ["alloc"] }
 futures-executor = { version = "0.3.34", features = ["thread-pool"] }
 futures-util = { version = "0.3.34", default-features = false, features = ["async-await", "std"] }
 indexmap = "2.14.1"
