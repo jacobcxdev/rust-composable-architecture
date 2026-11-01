@@ -39,13 +39,49 @@ where
     Map: Fn(Source) -> Mapped,
     M: MapLeaves<Source, Mapped, C, D>,
 {
-    let (mut program, scope) = effect.into_parts();
-    let singleton_send = match &mut program {
-        Program::Merge(effects) if effects.len() == 1 => {
-            matches!(effects[0].parts_mut().0, Program::Send(_))
+    let (program, scope) = effect.into_parts();
+    let program = match program {
+        Program::Merge(mut effects) => {
+            if effects.len() == 1 && matches!(effects[0].parts_mut().0, Program::Send(_)) {
+                return D::Effect::from_parts(
+                    Program::Merge(
+                        effects
+                            .into_iter()
+                            .zip(std::iter::once((map, share)))
+                            .map(|(effect, (map, share))| {
+                                map_eager_with::<Source, Mapped, C, D, Map, M>(effect, map, share)
+                            })
+                            .collect(),
+                    ),
+                    scope,
+                );
+            }
+            Program::Merge(effects)
         }
-        _ => false,
+        program => program,
     };
+    map_eager_with::<Source, Mapped, C, D, Map, M>(
+        C::Effect::from_parts(program, scope),
+        map,
+        share,
+    )
+}
+
+/// Maps direct variants and shares callback storage for other programs.
+fn map_eager_with<Source, Mapped, C, D, Map, M>(
+    effect: C::Effect,
+    map: Map,
+    share: impl FnOnce(Map) -> M,
+) -> D::Effect
+where
+    Source: 'static,
+    Mapped: 'static,
+    C: EffectLeaves<Source>,
+    D: EffectLeaves<Mapped>,
+    Map: Fn(Source) -> Mapped,
+    M: MapLeaves<Source, Mapped, C, D>,
+{
+    let (program, scope) = effect.into_parts();
     // Eager/action-free variants do not retain the mapper. Share it only when
     // deferred work or multiple children need owned access.
     let program = match program {
@@ -62,15 +98,6 @@ where
             deadline,
             action: map(action),
         },
-        Program::Merge(effects) if singleton_send => Program::Merge(
-            effects
-                .into_iter()
-                .zip(std::iter::once((map, share)))
-                .map(|(effect, (map, share))| {
-                    map_with::<Source, Mapped, C, D, Map, M>(effect, map, share)
-                })
-                .collect(),
-        ),
         program => {
             return map_program::<Source, Mapped, C, D, M>(
                 C::Effect::from_parts(program, scope),
