@@ -2489,6 +2489,26 @@ fn identified_scope_rejects_external_selection_change_before_commit() {
         (7, 3)
     );
 
+    let observation_owner = Arc::new(());
+    let selected_owner = Arc::clone(&observation_owner);
+    let observation_selections = Arc::new(AtomicUsize::new(0));
+    let selected_count = Arc::clone(&observation_selections);
+    let mut values = drive_scoped_actor(
+        &mut actor,
+        child.observe(move |state| {
+            selected_count.fetch_add(1, Ordering::SeqCst);
+            (state.count, Arc::clone(&selected_owner))
+        }),
+    )
+    .unwrap();
+    let initial = drive_scoped_actor(&mut actor, values.next()).unwrap();
+    assert_eq!(initial.0, 3);
+    drop(initial);
+    assert_eq!(Arc::strong_count(&observation_owner), 2);
+    let mut next = Box::pin(values.next());
+    let mut observation_context = Context::from_waker(std::task::Waker::noop());
+    assert!(next.as_mut().poll(&mut observation_context).is_pending());
+
     // No action or actor poll occurs between changing the path and the stale read.
     selected.store(1, Ordering::SeqCst);
     let calls = Arc::new(AtomicUsize::new(0));
@@ -2506,6 +2526,17 @@ fn identified_scope_rejects_external_selection_change_before_commit() {
     assert!(!error.is_store_stopped());
     assert_eq!(calls.load(Ordering::SeqCst), 0);
     assert!(released.upgrade().is_none());
+    assert_eq!(
+        Arc::strong_count(&observation_owner),
+        1,
+        "the post-command control pass releases the expired observation selector"
+    );
+    assert_eq!(observation_selections.load(Ordering::SeqCst), 1);
+    assert!(matches!(
+        next.as_mut().poll(&mut observation_context),
+        Poll::Ready(None)
+    ));
+    drop(next);
     let error = drive_scoped_actor(&mut actor, child.send(100)).unwrap_err();
     assert!(error.is_scope_ended());
     assert!(!error.is_store_stopped());
