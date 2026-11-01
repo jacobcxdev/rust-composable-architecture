@@ -605,6 +605,21 @@ impl<State: 'static, Action: 'static, C: Execution<State, Action> + 'static>
                     prefer = ReadySource::Timers;
                 }
                 TimedWake::Command(Err(_closed)) => return,
+                TimedWake::Control if self.control.epoch() == self.control_epoch => {
+                    // Admission alone needs no control scan. Retain the same
+                    // batch bound and timer preference as the ready queue path.
+                    let (processed, stopped) = self.process_command_batch().await;
+                    if stopped {
+                        drop(active_timer.take());
+                        return;
+                    }
+                    if processed != 0 {
+                        prefer = ReadySource::Timers;
+                        if processed == COMMAND_BATCH_LIMIT {
+                            C::yield_now(&self.runtime).await;
+                        }
+                    }
+                }
                 TimedWake::Control => {}
                 TimedWake::Timer => {
                     // Keep the completed sleep alive until timer actions finish processing.
@@ -1713,7 +1728,7 @@ enum WaitOutcome {
 enum TimedWake<State, Action, C: Carriers<State, Action>> {
     /// An admitted FIFO command, or transport closure.
     Command(Result<Command<State, Action, C>, async_channel::RecvError>),
-    /// Cancellation, completion or admission needs another control pass.
+    /// Admission or lifecycle work notified the actor.
     Control,
     /// The retained sleep completed; due payloads still need validation.
     Timer,
@@ -2020,6 +2035,70 @@ ordinary_test_items! {
             assert_eq!(control.epoch(), 0);
             let mut wait = Box::pin(actor.wait_without_timers(&mut turns));
             assert!(wait.as_mut().poll(&mut context).is_pending());
+        }
+
+        /// Stale timed admission rearms without consuming or losing timer ownership.
+        #[test]
+        fn timed_pending_wait_rearms_after_a_stale_admission_event() {
+            let (actor, ingress) = launch_actor(
+                Effect::send_at(MonotonicInstant::MAX, ()),
+                Runtime::new(TestDriver),
+            );
+            let control = Arc::clone(&actor.control);
+            let (reply, receive) = crate::store::command::commit_channel();
+            ingress
+                .try_send(Command::Action(ActionCommand::external((), reply)))
+                .unwrap();
+            let mut run = Box::pin(actor.run());
+            let mut context = std::task::Context::from_waker(std::task::Waker::noop());
+            assert!(run.as_mut().poll(&mut context).is_pending());
+            let task = receive.now_or_never().unwrap().unwrap().unwrap();
+            assert!(!task.is_finished());
+            let epoch = control.epoch();
+
+            control.notify_admission();
+            assert!(run.as_mut().poll(&mut context).is_pending());
+            assert_eq!(control.epoch(), epoch);
+            assert!(!task.is_finished(), "a stale wake cannot retire a live timer");
+            assert!(run.as_mut().poll(&mut context).is_pending());
+
+            assert!(ingress.close());
+            assert!(run.as_mut().poll(&mut context).is_ready());
+            assert!(task.is_finished());
+            assert!(task.is_cancelled());
+        }
+
+        /// Timed admission cannot overtake lifecycle cancellation already published by its caller.
+        #[test]
+        fn timed_pending_admission_preserves_lifecycle_control_priority() {
+            let (actor, ingress) = launch_actor(
+                Effect::send_at(MonotonicInstant::MAX, ()),
+                Runtime::new(TestDriver),
+            );
+            let (reply, receive) = crate::store::command::commit_channel();
+            ingress
+                .try_send(Command::Action(ActionCommand::external((), reply)))
+                .unwrap();
+            let mut run = Box::pin(actor.run());
+            let mut context = std::task::Context::from_waker(std::task::Waker::noop());
+            assert!(run.as_mut().poll(&mut context).is_pending());
+            let task = receive.now_or_never().unwrap().unwrap().unwrap();
+            assert!(!task.is_finished());
+
+            let observed = task.clone();
+            let (read, receive) = crate::store::read::new_read(move |(): &()| {
+                assert!(observed.is_cancelled());
+                assert!(observed.is_finished(), "control must retire the cancelled timer first");
+            });
+            ingress.try_send(Command::Read(read)).unwrap();
+            task.cancel();
+            assert!(!task.is_finished(), "cancellation alone does not harvest work");
+            assert!(run.as_mut().poll(&mut context).is_pending());
+            receive.now_or_never().unwrap().unwrap();
+
+            drop(ingress);
+            assert!(run.as_mut().poll(&mut context).is_ready());
+            assert!(task.is_finished());
         }
 
         /// Checks a control notification that precedes listener registration and cannot wake that listener.

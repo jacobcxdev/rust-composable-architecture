@@ -510,7 +510,9 @@ fn local_ready_ingress_yields_before_exhaustion_with_and_without_timer() {
         TimerFired,
     }
 
-    for with_timer in [false, true] {
+    for (with_timer, park_before_backlog) in
+        [(false, false), (false, true), (true, false), (true, true)]
+    {
         let host = Host::new();
         let count = Rc::new(Cell::new(0));
         let reductions = Rc::clone(&count);
@@ -538,6 +540,10 @@ fn local_ready_ingress_yields_before_exhaustion_with_and_without_timer() {
             .build()
             .unwrap();
         let timer = with_timer.then(|| store.try_send(BudgetAction::ArmTimer).unwrap());
+        if park_before_backlog {
+            host.turn();
+            assert_eq!(count.get(), 0);
+        }
         let values: Vec<_> = (0..BACKLOG).map(Rc::new).collect();
         let mut receipts: Vec<_> = values
             .iter()
@@ -555,6 +561,9 @@ fn local_ready_ingress_yields_before_exhaustion_with_and_without_timer() {
         assert_eq!(host.0.tasks.borrow().len(), 1);
         host.turn();
         assert!(count.get() > 0 && count.get() < BACKLOG);
+        if park_before_backlog {
+            assert_eq!(count.get(), 64, "a resumed wait retains one command batch");
+        }
         assert!(last_receipt.as_mut().poll(&mut cx).is_pending());
         for _ in 0..BACKLOG {
             if count.get() == BACKLOG {

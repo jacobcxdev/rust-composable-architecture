@@ -34,7 +34,9 @@ enum BudgetAction {
 // Catches removing either production budget, FIFO reordering, or premature receipts.
 #[test]
 fn production_ready_ingress_yields_before_exhaustion_with_and_without_timer() {
-    for with_timer in [false, true] {
+    for (with_timer, park_before_backlog) in
+        [(false, false), (false, true), (true, false), (true, true)]
+    {
         let host = support::ManualRuntime::new();
         let count = Arc::new(AtomicUsize::new(0));
         let reductions = Arc::clone(&count);
@@ -56,6 +58,10 @@ fn production_ready_ingress_yields_before_exhaustion_with_and_without_timer() {
             .unwrap();
         let mut actor = host.take_only_queued_task();
         let timer = with_timer.then(|| store.try_send(BudgetAction::ArmTimer).unwrap());
+        if park_before_backlog {
+            assert!(poll(actor.as_mut()).is_pending());
+            assert_eq!(count.load(Ordering::SeqCst), 0);
+        }
         let mut receipts: Vec<_> = (0..BACKLOG)
             .map(|index| store.try_send(BudgetAction::Commit(index)).unwrap())
             .collect();
@@ -67,6 +73,9 @@ fn production_ready_ingress_yields_before_exhaustion_with_and_without_timer() {
         // exhaustion. No assertion gate or host task-per-output yield assists it.
         let before_peer = count.load(Ordering::SeqCst);
         assert!(before_peer > 0 && before_peer < BACKLOG);
+        if park_before_backlog {
+            assert_eq!(before_peer, 64, "a resumed wait retains one command batch");
+        }
         assert!(poll(last_receipt.as_mut()).is_pending());
         for _ in 0..BACKLOG {
             if count.load(Ordering::SeqCst) == BACKLOG {
