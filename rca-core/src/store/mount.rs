@@ -44,6 +44,7 @@ use super::command_port::{
 use super::ingress::Ingress;
 use super::lifecycle::Lifecycle;
 use super::mounted::{OptionalPath, SharedNode, SharedWeakNode};
+use super::mutex::Mutex;
 use super::reaction::Hook as _;
 use super::reaction::{self, SharedHook};
 use super::scope::{
@@ -53,7 +54,6 @@ use super::task_context::{ReplyGuard, TaskAccessError, TaskAccessReason, TaskPro
 use super::transaction::Batch;
 use crate::feature::{InitialPolicy, ReactionChange};
 use crate::{Feature, ReactionContext, ReduceContext, Task, TaskContext};
-use parking_lot::Mutex;
 use std::fmt;
 use std::hash::Hash;
 use std::pin::Pin;

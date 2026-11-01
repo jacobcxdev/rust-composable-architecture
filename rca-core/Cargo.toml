@@ -31,8 +31,10 @@ futures-channel.workspace = true
 futures-core = { workspace = true, optional = true }
 futures-util.workspace = true
 indexmap.workspace = true
-parking_lot = "0.12.5"
 pin-project-lite = "0.2.17"
+
+[target.'cfg(not(windows))'.dependencies]
+parking_lot = "0.12.5"
 
 [dev-dependencies]
 rca-macros = { path = "../rca-macros", version = "=0.1.0" }

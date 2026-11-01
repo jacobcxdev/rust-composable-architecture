@@ -18,6 +18,7 @@ use super::command_port::{CommandEndpoint, CommandMapper, CommandPort, TryAdmiss
 use super::ingress::CommandIngress;
 #[cfg(feature = "local")]
 use super::local;
+use super::mutex::{Mutex, MutexGuard};
 use super::scope::{ScopeAuthority, ScopeToken};
 use super::task_context::{
     Apply, CommitReply, EnteredSend, ReadCall, ReadInput, SharedReply, TaskAccessError,
@@ -30,7 +31,6 @@ use crate::effect::operation::OperationWork;
 use crate::effect::registry::{GenerationToken, PreparedTask, TaskRegistry};
 use crate::feature::{Work, WorkItem};
 use crate::{ActionTask, Feature, FeatureContext, ReduceContext};
-use parking_lot::Mutex;
 use std::collections::VecDeque;
 use std::sync::{Arc, Weak};
 
@@ -86,7 +86,7 @@ struct SharedInstalled<F: Feature> {
 
 impl<F: Feature> SharedInstalled<F> {
     /// Borrows metadata briefly; callers release the guard before user code.
-    fn lock(&self) -> parking_lot::MutexGuard<'_, Installed<F>> {
+    fn lock(&self) -> MutexGuard<'_, Installed<F>> {
         self.node.lock()
     }
 }
@@ -285,7 +285,7 @@ trait NodeCell<F> {
 }
 impl<F: Feature> NodeCell<F> for SharedInstalled<F> {
     type Guard<'a>
-        = parking_lot::MutexGuard<'a, Installed<F>>
+        = MutexGuard<'a, Installed<F>>
     where
         F: 'a;
     fn borrow_node(&self) -> Self::Guard<'_> {

@@ -8,8 +8,8 @@ use crate::store::mount::{
     Carriers, Ingress, Lifecycle, MountDeclaration, MountPosition, RootDeclaration, RootInitial,
     ScopeRegistry, ScopeToken, ScopeTransitionBatch, Shared, initial_hook, nested,
 };
+use crate::store::mutex::Mutex;
 use crate::{Feature, Runtime, RuntimeDriver, RuntimeFuture, Task};
-use parking_lot::Mutex;
 use std::fmt;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};

@@ -24,6 +24,7 @@ mod command_port;
 mod mailbox;
 mod mount;
 pub(crate) mod mounted;
+pub(crate) mod mutex;
 mod observation;
 mod operation;
 pub(crate) mod output;

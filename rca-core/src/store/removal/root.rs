@@ -5,6 +5,7 @@ use crate::feature::Work;
 use crate::store::actor::Launches;
 use crate::store::carriers::Shared;
 use crate::store::mounted::{InstalledNode, MountedWork, WorkOrigin};
+use crate::store::mutex::Mutex;
 use crate::store::output::{
     FrozenRegistration, HandlerRegistration, HandlerRoute, OutputRegistration,
 };
@@ -12,7 +13,6 @@ use crate::store::scope::{ScopeRegistry, ScopeToken, ScopeTransitionBatch};
 use crate::store::transaction::TransactionParts;
 use crate::store::{ingress::Ingress, lifecycle::Lifecycle, mount::MountDeclaration};
 use crate::{Effect, Task};
-use parking_lot::Mutex;
 use std::sync::{Arc, OnceLock, Weak};
 
 /// Records root authority without retaining the store or installing another scope.
