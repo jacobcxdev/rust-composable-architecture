@@ -1679,9 +1679,10 @@ impl<A: 'static> Effect<A> {
     /// Maps emitted actions without changing work ordering.
     ///
     /// Immediate and delayed-send actions map synchronously. Direct eager and
-    /// action-free variants need no callback storage. Nested and deferred programs
-    /// use shared callback storage. Deferred work retains the mapper until its
-    /// last owner drops. Captures can be owner-local.
+    /// action-free variants need no callback storage, nor does a singleton merge
+    /// of an immediate send. Other nested and deferred programs use shared
+    /// callback storage. Deferred work retains the mapper until its last owner
+    /// drops. Captures can be owner-local.
     pub fn map<B: 'static>(self, map: impl Fn(A) -> B + 'static) -> Effect<B> {
         crate::effect::map::map_with::<A, B, LocalEffects, LocalEffects, _, _>(self, map, |map| {
             Rc::new(map) as Rc<dyn Fn(A) -> B>
