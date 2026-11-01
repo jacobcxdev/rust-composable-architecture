@@ -255,3 +255,7 @@ harness = false
 [[bench]]
 name = "observation"
 harness = false
+
+[[bench]]
+name = "task_access"
+harness = false

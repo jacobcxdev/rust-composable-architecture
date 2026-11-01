@@ -283,7 +283,16 @@ not a paired-only capture.
 - On Mac, maximum resident set and peak memory footprint come from normal processes and are strict paired gates. Windows instead gates peak working set and peak commit charge. Idle RSS is sampled after a Store reaches its ready state. DHAT peak live heap remains diagnostic: concurrent scheduling changes allocation lifetimes enough to make it unsuitable as a cross-process 10% release gate, while total allocation count/bytes and process memory retain strict coverage.
 - Clean compile time uses a fresh target directory and locked workspace `--all-features --features critical-section/std --release` build. The explicit `std` provider supports the critical-section backend enabled by the all-features build. Portable libraries do not select this host implementation. Compile cycles and peak RSS are retained beside elapsed time.
 - Binary size is a stripped, fat-LTO, locked workspace probe that constructs an RCA `Effect`. Qualification-binary size is retained separately for diagnostics. The runner supplies pinned toolchain library directory to `rust-objcopy` and fails if Cargo reports unsuccessful stripping, preventing an unstripped binary from being labelled as release-size evidence.
-- Divan evidence covers every phase benchmark except the custom qualification harness. Each Divan benchmark uses 50 samples and a 0.5-second maximum measurement time.
+- The support capture collects the five Divan suites named by its protocol. Each uses 50 samples and a 0.5-second maximum measurement time.
+
+The separate `task_access` Divan target measures successful root task reads,
+updates and sends through a manually polled actor. It checks actual results,
+committed revisions and final state while the originating task remains live.
+Setup, cancellation and shutdown stay outside timing. It does not measure
+contention or executor scheduling. Use paired results from this target when
+changing typed task admission; they supplement, not replace, the native gates.
+Pass `--sample-size 256` to both binaries in a paired run. A fixed batch size
+limits timer rounding and keeps automatic batch choices out of the comparison.
 
 Normal samples are 10,000. Earlier 1,000-sample cohorts left only ten observations at or beyond p99 and produced unrelated scheduler-tail reversals across repeated cohorts; 10,000-sample targeted checks cleared every flagged scenario in both execution-order strata. DHAT samples default to 1,000. High-fan-out, high-timer-count, mailbox, and shutdown cases use 200 or 500 DHAT samples, while deterministic budget exhaustion uses five. Qualification and comparison validate these exact counts.
 
