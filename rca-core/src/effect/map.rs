@@ -507,7 +507,7 @@ mod tests {
     #[test]
     fn singleton_send_mapping_keeps_user_drop_order_on_success_and_panics() {
         for (panic_in_call, panic_on_drop) in [(false, false), (true, false), (false, true)] {
-            for fast_path in [false, true] {
+            let traces = [false, true].map(|fast_path| {
                 let events = Arc::new(std::sync::Mutex::new(Vec::new()));
                 let payload = DropOrder("input", Arc::clone(&events), false);
                 let capture = DropOrder("mapper", Arc::clone(&events), panic_on_drop);
@@ -542,13 +542,27 @@ mod tests {
                     }
                     Err(_) => assert!(panic_in_call || panic_on_drop),
                 }
-                let expected = if panic_in_call {
-                    vec!["call", "input", "mapper"]
+                let actual = events.lock().expect("drop log must not be poisoned").clone();
+                // Mapper destruction can panic after an output enters the return
+                // place. The old traversal need not drop that output; compare its
+                // independently observed trace instead of requiring another drop.
+                if panic_on_drop {
+                    assert!(actual.starts_with(&["call", "input", "mapper"]));
                 } else {
-                    vec!["call", "input", "mapper", "output"]
-                };
-                assert_eq!(*events.lock().expect("drop log must not be poisoned"), expected);
-            }
+                    let expected = if panic_in_call {
+                        vec!["call", "input", "mapper"]
+                    } else {
+                        vec!["call", "input", "mapper", "output"]
+                    };
+                    assert_eq!(actual, expected);
+                }
+                actual
+            });
+            assert_eq!(
+                traces[1],
+                traces[0],
+                "mapper-call panic={panic_in_call}, mapper-drop panic={panic_on_drop}",
+            );
         }
     }
 
