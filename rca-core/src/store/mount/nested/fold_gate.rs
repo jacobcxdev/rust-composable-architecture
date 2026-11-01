@@ -11,7 +11,7 @@ use super::{
 };
 use crate::effect::lineage::ControlWake;
 use crate::store::ingress::CommandIngress;
-use parking_lot::Mutex;
+use crate::store::mutex::Mutex;
 use std::num::NonZeroUsize;
 use std::ops::ControlFlow;
 use std::sync::Weak;

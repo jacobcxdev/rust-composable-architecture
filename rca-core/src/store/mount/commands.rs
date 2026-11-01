@@ -21,12 +21,12 @@ use crate::store::command_port::{
 use crate::store::ingress::Ingress;
 use crate::store::lifecycle::Lifecycle;
 use crate::store::mounted::{InputClass, MountedApply, MountedCall, scope_ended};
+use crate::store::mutex::Mutex;
 use crate::store::scope::{ScopeAuthority, ScopeRegistry, ScopeToken, ScopeTransitionBatch};
 use crate::store::task_context::{
     ReplyGuard, SharedReply, TaskAccessError, TaskProgress, TypedSend,
 };
 use crate::{ReduceContext, RuntimeFuture};
-use parking_lot::Mutex;
 use std::sync::{Arc, Weak};
 
 /// Captures a command destination from an actor-owned parent declaration.

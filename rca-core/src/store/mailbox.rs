@@ -13,12 +13,12 @@ use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use std::task::Poll;
 
+#[cfg(not(all(test, loom)))]
+use super::mutex::{Mutex, MutexGuard};
 use async_channel::{SendError, TryRecvError, TrySendError};
 use event_listener::Event;
 #[cfg(all(test, loom))]
 use loom::sync::{Arc, Mutex, MutexGuard, atomic::AtomicBool};
-#[cfg(not(all(test, loom)))]
-use parking_lot::{Mutex, MutexGuard};
 #[cfg(not(all(test, loom)))]
 use std::sync::atomic::AtomicBool;
 

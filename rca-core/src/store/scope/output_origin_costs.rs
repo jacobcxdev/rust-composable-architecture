@@ -4,6 +4,7 @@ use std::mem::{align_of, size_of};
 use std::sync::Arc;
 
 use super::{ScopeIdentity, ScopeNodeId, ScopeRegistry};
+use crate::store::mutex::Mutex;
 use crate::store::output::{OutputRequest, OutputSlot};
 
 /// Measures request and receiver ownership separately, excluding caller payload construction.
@@ -55,21 +56,18 @@ fn layout<O>(label: &str) {
     #[cfg(not(feature = "test-util"))]
     assert_eq!(
         size_of::<OutputSlot<O>>(),
-        size_of::<parking_lot::Mutex<Option<O>>>(),
+        size_of::<Mutex<Option<O>>>(),
         "ordinary output slots must not retain test-only origin storage"
     );
     #[cfg(not(feature = "test-util"))]
-    assert_eq!(
-        align_of::<OutputSlot<O>>(),
-        align_of::<parking_lot::Mutex<Option<O>>>()
-    );
+    assert_eq!(align_of::<OutputSlot<O>>(), align_of::<Mutex<Option<O>>>());
     eprintln!(
-        "output_slot_layout payload={label} current_size={} current_align={} historical_value_component_size={} historical_value_component_align={} inline_delta={} origin_size={} optional_origin_size={}",
+        "output_slot_layout payload={label} current_size={} current_align={} value_component_size={} value_component_align={} inline_delta={} origin_size={} optional_origin_size={}",
         size_of::<OutputSlot<O>>(),
         align_of::<OutputSlot<O>>(),
-        size_of::<parking_lot::Mutex<Option<O>>>(),
-        align_of::<parking_lot::Mutex<Option<O>>>(),
-        size_of::<OutputSlot<O>>() - size_of::<parking_lot::Mutex<Option<O>>>(),
+        size_of::<Mutex<Option<O>>>(),
+        align_of::<Mutex<Option<O>>>(),
+        size_of::<OutputSlot<O>>() - size_of::<Mutex<Option<O>>>(),
         size_of::<crate::RemovalOrigin>(),
         size_of::<Option<crate::RemovalOrigin>>(),
     );
@@ -131,6 +129,11 @@ pub(crate) fn output_origin_costs() {
             request_sample(7_u64, Some(origin.clone())),
         ),
         (
+            "bytes6",
+            request_sample([7_u8; 6], None),
+            request_sample([7_u8; 6], Some(origin.clone())),
+        ),
+        (
             "bytes64",
             request_sample([7_u8; 64], None),
             request_sample([7_u8; 64], Some(origin.clone())),
@@ -151,6 +154,7 @@ pub(crate) fn output_origin_costs() {
     for (label, stats) in [
         ("unit", request_sample(())),
         ("u64", request_sample(7_u64)),
+        ("bytes6", request_sample([7_u8; 6])),
         ("bytes64", request_sample([7_u8; 64])),
     ] {
         report_request(label, "feature-off", &stats);
@@ -179,6 +183,7 @@ pub(crate) fn output_origin_costs() {
     );
     layout::<()>("unit");
     layout::<u64>("u64");
+    layout::<[u8; 6]>("bytes6");
     layout::<[u8; 64]>("bytes64");
     layout::<Box<u64>>("box_u64");
     drop((root_weak, node_weak, lifecycle_weak));

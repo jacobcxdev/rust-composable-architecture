@@ -7,8 +7,8 @@
 use std::fmt;
 use std::sync::{Arc, OnceLock, Weak};
 
+use super::mutex::Mutex;
 use futures_channel::oneshot;
-use parking_lot::Mutex;
 
 use super::carriers::{Carriers, Shared};
 use super::command::Command;

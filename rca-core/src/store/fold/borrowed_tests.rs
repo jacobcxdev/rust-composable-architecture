@@ -238,8 +238,8 @@ macro_rules! cases {
 pub(super) use cases;
 
 use crate::store::mount::{Acquisition, commands::Registration as CommandRegistration};
+use crate::store::mutex::Mutex as Storage;
 use crate::store::output::{HandlerRegistration, OutputRegistration};
-use parking_lot::Mutex as Storage;
 use std::sync::Arc as Strong;
 
 /// Carries a frozen handler route without its concrete child type.

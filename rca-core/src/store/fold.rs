@@ -12,7 +12,7 @@ ordinary_test_items! { mod borrowed_tests; }
 pub(super) mod local;
 pub use view::FoldView;
 
-use parking_lot::Mutex;
+use super::mutex::Mutex;
 use std::collections::BTreeMap;
 use std::fmt;
 use std::ops::ControlFlow;

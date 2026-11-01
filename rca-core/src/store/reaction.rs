@@ -10,11 +10,11 @@ mod guard_tests;
 
 use super::carriers::Carriers;
 use super::mount::MountDeclaration;
+use super::mutex::Mutex;
 use super::scope::{ScopeAuthority, ScopeRegistry};
 use super::transaction::Batch;
 use crate::feature::{InitialPolicy, ReactionChange};
 use crate::{ReactionContext, ReduceContext, Task};
-use parking_lot::Mutex;
 use std::marker::PhantomData;
 use std::sync::{Arc, Weak};
 

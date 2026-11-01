@@ -795,7 +795,7 @@ impl<S: 'static, A: Send + 'static> TaskContext<S, A> {
 /// One selected test boundary observes only its primary reply's scalar result.
 #[cfg(feature = "test-util")]
 #[derive(Clone, Default)]
-pub(crate) struct TerminalReceipt(Arc<parking_lot::Mutex<Option<Result<(), TaskAccessError>>>>);
+pub(crate) struct TerminalReceipt(Arc<super::mutex::Mutex<Option<Result<(), TaskAccessError>>>>);
 #[cfg(feature = "test-util")]
 impl TerminalReceipt {
     /// Preserves the first reply even when later destruction also reports failure.

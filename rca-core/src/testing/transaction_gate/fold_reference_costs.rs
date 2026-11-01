@@ -265,7 +265,7 @@ pub(super) use endpoint_reference_case;
 mod shared {
     use super::Arc;
     use crate as domain;
-    use parking_lot::Mutex as Storage;
+    use crate::store::mutex::Mutex as Storage;
     use std::sync::Arc as Ownership;
 
     /// Checks a root with one optional child and no actions.
