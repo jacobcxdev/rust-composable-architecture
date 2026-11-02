@@ -148,6 +148,45 @@ fn ingress_admission_preserves_epoch_and_wakes_registered_consumer() {
     });
 }
 
+/// Races admission against the first listener and the final empty-queue check.
+#[test]
+fn ingress_admission_cannot_sleep_across_first_listener_registration() {
+    model(|| {
+        let (sender, receiver) = bounded(NonZeroUsize::new(1).unwrap());
+        let control = crate::effect::lineage::ControlWake::new();
+        let ingress = WakerArc::new(crate::store::ingress::CommandIngress::new(
+            sender,
+            WakerArc::clone(&control),
+        ));
+        let producer_ingress = WakerArc::clone(&ingress);
+        let producer = thread::spawn(move || producer_ingress.try_send(11).unwrap());
+
+        event_listener::listener!(control.event() => listener);
+        let received = receiver.try_recv();
+        let (waker, notifications) = counted_waker();
+        let pending = received == Err(TryRecvError::Empty)
+            && poll(Pin::new(&mut listener), &waker).is_pending();
+        producer.join().expect("ingress admission completes");
+
+        if pending {
+            assert_eq!(notifications.load(Ordering::SeqCst), 1);
+            assert!(
+                poll(Pin::new(&mut listener), &waker).is_ready(),
+                "a consumer that saw an empty queue must retain the admission notification"
+            );
+        }
+        if received == Err(TryRecvError::Empty) {
+            assert_eq!(receiver.try_recv(), Ok(11));
+        } else {
+            assert_eq!(received, Ok(11));
+        }
+        assert_eq!(receiver.try_recv(), Err(TryRecvError::Empty));
+        assert_eq!(control.epoch(), 0, "admission is not lifecycle maintenance");
+        // Keep ingress alive until every assertion so closure cannot rescue a lost wake.
+        drop(ingress);
+    });
+}
+
 // Catches over-admission, eager rejection destruction and a LIFO queue mutation.
 #[test]
 fn capacity_mapping_preserves_rejected_ownership_and_fifo() {

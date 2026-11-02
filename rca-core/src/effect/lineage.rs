@@ -47,7 +47,11 @@ impl ControlWake {
     /// This requests another control pass. It does not acknowledge task destruction.
     pub(crate) fn notify(&self) {
         self.epoch.fetch_add(1, Ordering::Release);
-        self.changed.notify(usize::MAX);
+        // The maintained Event locks the same list during notification and
+        // listener registration. Registration before the epoch check either
+        // observes this increment or retains this notification. That locking
+        // contract makes a separate SeqCst publication fence unnecessary.
+        self.changed.notify_relaxed(usize::MAX);
     }
 
     /// Wakes the actor for admission without requesting lifecycle maintenance.
