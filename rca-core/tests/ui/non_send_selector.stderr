@@ -1,0 +1,28 @@
+error[E0277]: `Rc<()>` cannot be sent between threads safely
+  --> tests/ui/non_send_selector.rs:53:38
+   |
+53 |       let _observation = store.observe(move |state| {
+   |                                ------- ^-----------
+   |                                |       |
+   |  ______________________________|_______within this `{closure@$DIR/tests/ui/non_send_selector.rs:53:38: 53:50}`
+   | |                              |
+   | |                              required by a bound introduced by this call
+54 | |         let _keep_capture = &capture;
+55 | |         *state
+56 | |     });
+   | |_____^ `Rc<()>` cannot be sent between threads safely
+   |
+   = help: within `{closure@$DIR/tests/ui/non_send_selector.rs:53:38: 53:50}`, the trait `Send` is not implemented for `Rc<()>`
+note: required because it's used within this closure
+  --> tests/ui/non_send_selector.rs:53:38
+   |
+53 |     let _observation = store.observe(move |state| {
+   |                                      ^^^^^^^^^^^^
+note: required by a bound in `Store::<State, Action>::observe`
+  --> src/store/mod.rs
+   |
+   |     pub async fn observe<F, Value>(&self, selector: F) -> Result<Observation<Value>, StoreStopped>
+   |                  ------- required by a bound in this associated function
+...
+   |         F: Fn(&State) -> Value + Send + 'static,
+   |                                  ^^^^ required by this bound in `Store::<State, Action>::observe`

@@ -1,0 +1,17 @@
+[package]
+name = "composable-keyed-policy-candidate"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[dependencies]
+dhat = "=0.3.3"
+
+rca-core = { path = "../../../rca-core" }
+rca-tokio = { path = "../../../rca-tokio" }
+tokio = { version = "1.53.3", features = ["rt", "time"] }
+
+[dev-dependencies]
+serde_json = "1"

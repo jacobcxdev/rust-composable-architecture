@@ -1,0 +1,4 @@
+# Real resolver file input, not a compiled Cargo consumer or fixture workspace.
+# Cargo's dependency-name grammar permits this spelling; a Rust path cannot use it.
+[dependencies]
+self = { package = "rca-core", version = "0.1" }

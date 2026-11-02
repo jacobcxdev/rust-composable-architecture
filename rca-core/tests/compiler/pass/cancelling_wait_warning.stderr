@@ -1,0 +1,23 @@
+warning: unused implementer of `Future` that must be used
+ --> tests/compiler/pass/cancelling_wait_warning.rs:6:5
+  |
+6 |     task.finish_cancelling_on_drop();
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: futures do nothing unless you `.await` or poll them
+  = note: `#[warn(unused_must_use)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused return value of `ActionTask::finish_cancelling_on_drop` that must be used
+ --> tests/compiler/pass/cancelling_wait_warning.rs:6:5
+  |
+6 |     task.finish_cancelling_on_drop();
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: dropping this wait requests cancellation of unfinished causal work
+help: use `let _ = ...` to ignore the resulting value
+  |
+6 |     let _ = task.finish_cancelling_on_drop();
+  |     +++++++
+
+warning: 2 warnings emitted
+

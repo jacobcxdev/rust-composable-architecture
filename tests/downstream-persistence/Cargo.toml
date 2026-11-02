@@ -1,0 +1,11 @@
+[package]
+name = "rca-persistence-downstream"
+version = "0.0.0"
+edition = "2024"
+rust-version = "1.99.0"
+publish = false
+
+[dependencies]
+architecture = { package = "rust-composable-architecture", version = "=0.1.0", registry = "rca-local", default-features = false, features = ["test-util"] }
+documents = { package = "rca-persistence", version = "=0.1.0", registry = "rca-local", default-features = false }
+futures-executor = "0.3.34"

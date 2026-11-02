@@ -1,0 +1,3 @@
+# Exact compiler snapshots keep LF endings, including on Windows checkouts.
+# They also retain rustc's final blank line for exact comparison.
+*.stderr text eol=lf whitespace=-blank-at-eof

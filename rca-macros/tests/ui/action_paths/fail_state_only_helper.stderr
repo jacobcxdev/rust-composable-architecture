@@ -1,0 +1,5 @@
+error: ActionPaths only supports `keyed` and `skip` rca options on enum variants
+ --> tests/ui/action_paths/fail_state_only_helper.rs:7:11
+  |
+7 |     #[rca(required)]
+  |           ^^^^^^^^

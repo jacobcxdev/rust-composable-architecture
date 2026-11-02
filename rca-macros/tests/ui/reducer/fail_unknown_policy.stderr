@@ -1,0 +1,5 @@
+error: expected ignored, data or ephemeral policy
+ --> tests/ui/reducer/fail_unknown_policy.rs:4:42
+  |
+4 |     body(generated), case(data, policy = automatic, action = empty),
+  |                                          ^^^^^^^^^

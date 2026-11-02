@@ -1,0 +1,5 @@
+error: DependencyKey can only be derived for a unit struct
+ --> tests/ui/enum.rs:5:1
+  |
+5 | enum EnumKey {
+  | ^^^^

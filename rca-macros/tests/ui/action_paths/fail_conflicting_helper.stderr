@@ -1,0 +1,5 @@
+error: conflicting rca options `keyed` and `skip`
+ --> tests/ui/action_paths/fail_conflicting_helper.rs:7:18
+  |
+7 |     #[rca(keyed, skip)]
+  |                  ^^^^

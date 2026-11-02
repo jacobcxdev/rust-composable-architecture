@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "method_version": "composition-windows-complete-v2",
+  "status": "frozen-before-measurement",
+  "paired_protocol_sha256": "1d76afa9be7bbddb4942b03591e7e42011b4929a33a0714883917b9bcc6719b9",
+  "budget_sha256": "6f71abeab57bc421bd11a53d30699ad9981d7af097932ee0e01ef477e9a38d69",
+  "allocation_manifest_sha256": "95a9e2ee87deaa3046d4a51893efe164282d51aef6a3b3eec61e9f1ca0b3bf32",
+  "reference_revision": "b9eb6e732d2b0cf6ce3cd7255a5958781587af6c",
+  "runner": "h1-ryzen9-3900x-windows-x86_64-msvc",
+  "regression_limit": 1.1,
+  "reference_limits": {
+    "timing": "Use the median of all twenty reference-b observations from the same A/A capture. Multiply maxima by 1.10; divide throughput minima by 1.10.",
+    "binary": "Use six freshly built, stripped x64 PE products from the pinned reference. Multiply each byte count by 1.10 and round up.",
+    "allocation": "Keep all thirteen existing absolute limits unchanged, including three exact-zero contracts. Run all forty-seven allocation workloads and both exact zero-test hosts.",
+    "seal": "Seal reference-only limits before evaluating the candidate. Candidate measurements cannot define or change these limits. Both interleaved paired modes and both sets of thirty-three absolute gates must pass."
+  },
+  "compiler_cleanup": "In complete mode only, pinned Cargo build and test --no-run may use the same hash-checked VCTIP cleanup as check and bench --no-run. Runtime commands cannot use compiler cleanup.",
+  "scope": "windows-complete",
+  "mac_absolute_qualified": false,
+  "historical_evidence": "macOS protocols, absolute limits and failed captures remain unchanged. Windows PE sizes and native timing limits do not certify Mach-O sizes or macOS performance."
+}

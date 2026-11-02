@@ -1,0 +1,5 @@
+error: expected `,`
+ --> tests/ui/reducers/fail_trailing_tokens.rs:6:29
+  |
+6 |     let _ = reducers![First Second];
+  |                             ^^^^^^

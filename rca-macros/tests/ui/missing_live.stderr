@@ -1,0 +1,5 @@
+error: missing `live` dependency option
+ --> tests/ui/missing_live.rs:4:1
+  |
+4 | #[dependency(value = u8)]
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^

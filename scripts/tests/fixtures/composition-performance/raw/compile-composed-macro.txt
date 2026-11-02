@@ -1,0 +1,380 @@
+sample=1 phase=clean
+   Compiling proc-macro2 v1.0.107
+   Compiling quote v1.0.47
+   Compiling unicode-ident v1.0.24
+    Checking pin-project-lite v0.2.17
+   Compiling syn v3.0.4
+   Compiling crossbeam-utils v0.8.22
+    Checking parking v2.2.1
+    Checking futures-core v0.3.34
+    Checking event-listener v5.4.2
+   Compiling futures-macro v0.3.34
+    Checking futures-task v0.3.34
+   Compiling equivalent v1.0.2
+   Compiling winnow v1.0.4
+    Checking slab v0.4.12
+   Compiling hashbrown v0.17.1
+   Compiling indexmap v2.14.1
+    Checking futures-util v0.3.34
+   Compiling toml_parser v1.1.3+spec-1.1.0
+    Checking concurrent-queue v2.5.0
+    Checking event-listener-strategy v0.5.4
+   Compiling toml_datetime v1.1.1+spec-1.1.0
+   Compiling rca-core v0.8.0-alpha.1 (<repo>/rca-core)
+   Compiling toml_edit v0.25.13+spec-1.1.0
+    Checking async-channel v2.5.0
+   Compiling proc-macro-crate v3.5.0
+   Compiling heck v0.5.0
+   Compiling rca-macros v0.8.0-alpha.1 (<repo>/rca-macros)
+    Checking futures-executor v0.3.34
+    Checking rca-compile-fixture-support v0.0.0 (<repo>/benches/compile/support)
+    Checking rust-composable-architecture v0.8.0-alpha.1 (<repo>/rca)
+    Checking rca-compile-composed-macro v0.0.0 (<repo>/benches/compile/composed-macro)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 9.04s
+real 9.05
+user 7.03
+sys 1.43
+           308805632  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+              440640  page reclaims
+                 746  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                   0  messages sent
+                   0  messages received
+                  20  signals received
+                 289  voluntary context switches
+                7891  involuntary context switches
+           731127842  instructions retired
+           370596201  cycles elapsed
+            16319064  peak memory footprint
+sample=1 phase=incremental
+    Checking rca-compile-composed-macro v0.0.0 (<repo>/benches/compile/composed-macro)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.10s
+real 0.12
+user 0.06
+sys 0.04
+            75792384  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+               17809  page reclaims
+                   1  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                   0  messages sent
+                   0  messages received
+                   1  signals received
+                  17  voluntary context switches
+                 226  involuntary context switches
+           308818970  instructions retired
+           119806582  cycles elapsed
+            15614528  peak memory footprint
+sample=2 phase=clean
+   Compiling proc-macro2 v1.0.107
+   Compiling unicode-ident v1.0.24
+   Compiling quote v1.0.47
+    Checking pin-project-lite v0.2.17
+   Compiling syn v3.0.4
+   Compiling crossbeam-utils v0.8.22
+    Checking parking v2.2.1
+    Checking futures-core v0.3.34
+    Checking event-listener v5.4.2
+   Compiling futures-macro v0.3.34
+    Checking futures-task v0.3.34
+   Compiling equivalent v1.0.2
+   Compiling hashbrown v0.17.1
+   Compiling winnow v1.0.4
+    Checking slab v0.4.12
+    Checking futures-util v0.3.34
+   Compiling toml_parser v1.1.3+spec-1.1.0
+   Compiling indexmap v2.14.1
+    Checking concurrent-queue v2.5.0
+    Checking event-listener-strategy v0.5.4
+   Compiling rca-core v0.8.0-alpha.1 (<repo>/rca-core)
+   Compiling toml_datetime v1.1.1+spec-1.1.0
+   Compiling toml_edit v0.25.13+spec-1.1.0
+    Checking async-channel v2.5.0
+   Compiling proc-macro-crate v3.5.0
+   Compiling heck v0.5.0
+   Compiling rca-macros v0.8.0-alpha.1 (<repo>/rca-macros)
+    Checking futures-executor v0.3.34
+    Checking rca-compile-fixture-support v0.0.0 (<repo>/benches/compile/support)
+    Checking rust-composable-architecture v0.8.0-alpha.1 (<repo>/rca)
+    Checking rca-compile-composed-macro v0.0.0 (<repo>/benches/compile/composed-macro)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 9.13s
+real 9.15
+user 7.13
+sys 1.41
+           308707328  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+              440291  page reclaims
+                 625  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                   0  messages sent
+                   0  messages received
+                  20  signals received
+                 154  voluntary context switches
+                8090  involuntary context switches
+           726826561  instructions retired
+           355881451  cycles elapsed
+            16171560  peak memory footprint
+sample=2 phase=incremental
+    Checking rca-compile-composed-macro v0.0.0 (<repo>/benches/compile/composed-macro)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.10s
+real 0.11
+user 0.06
+sys 0.04
+            75726848  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+               17772  page reclaims
+                   1  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                   0  messages sent
+                   0  messages received
+                   1  signals received
+                   5  voluntary context switches
+                 212  involuntary context switches
+           305015107  instructions retired
+           115640422  cycles elapsed
+            15073832  peak memory footprint
+sample=3 phase=clean
+   Compiling proc-macro2 v1.0.107
+   Compiling quote v1.0.47
+   Compiling unicode-ident v1.0.24
+    Checking pin-project-lite v0.2.17
+   Compiling syn v3.0.4
+   Compiling crossbeam-utils v0.8.22
+    Checking parking v2.2.1
+    Checking futures-core v0.3.34
+    Checking event-listener v5.4.2
+   Compiling futures-macro v0.3.34
+   Compiling hashbrown v0.17.1
+   Compiling winnow v1.0.4
+   Compiling equivalent v1.0.2
+    Checking slab v0.4.12
+    Checking futures-task v0.3.34
+    Checking futures-util v0.3.34
+   Compiling indexmap v2.14.1
+   Compiling toml_parser v1.1.3+spec-1.1.0
+    Checking concurrent-queue v2.5.0
+    Checking event-listener-strategy v0.5.4
+   Compiling rca-core v0.8.0-alpha.1 (<repo>/rca-core)
+   Compiling toml_datetime v1.1.1+spec-1.1.0
+   Compiling toml_edit v0.25.13+spec-1.1.0
+    Checking async-channel v2.5.0
+   Compiling proc-macro-crate v3.5.0
+   Compiling heck v0.5.0
+   Compiling rca-macros v0.8.0-alpha.1 (<repo>/rca-macros)
+    Checking futures-executor v0.3.34
+    Checking rca-compile-fixture-support v0.0.0 (<repo>/benches/compile/support)
+    Checking rust-composable-architecture v0.8.0-alpha.1 (<repo>/rca)
+    Checking rca-compile-composed-macro v0.0.0 (<repo>/benches/compile/composed-macro)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 9.37s
+real 9.39
+user 7.00
+sys 1.37
+           308609024  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+              440363  page reclaims
+                 625  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                   0  messages sent
+                   0  messages received
+                  20  signals received
+                 162  voluntary context switches
+                8006  involuntary context switches
+           728137551  instructions retired
+           361197875  cycles elapsed
+            16319040  peak memory footprint
+sample=3 phase=incremental
+    Checking rca-compile-composed-macro v0.0.0 (<repo>/benches/compile/composed-macro)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.10s
+real 0.11
+user 0.06
+sys 0.04
+            75808768  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+               17767  page reclaims
+                   1  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                   0  messages sent
+                   0  messages received
+                   1  signals received
+                   9  voluntary context switches
+                 223  involuntary context switches
+           311123872  instructions retired
+           119216778  cycles elapsed
+            15237648  peak memory footprint
+sample=4 phase=clean
+   Compiling proc-macro2 v1.0.107
+   Compiling quote v1.0.47
+   Compiling unicode-ident v1.0.24
+    Checking pin-project-lite v0.2.17
+   Compiling syn v3.0.4
+   Compiling crossbeam-utils v0.8.22
+    Checking futures-core v0.3.34
+    Checking parking v2.2.1
+    Checking event-listener v5.4.2
+   Compiling futures-macro v0.3.34
+   Compiling hashbrown v0.17.1
+   Compiling winnow v1.0.4
+    Checking futures-task v0.3.34
+    Checking slab v0.4.12
+   Compiling equivalent v1.0.2
+   Compiling indexmap v2.14.1
+    Checking futures-util v0.3.34
+   Compiling toml_parser v1.1.3+spec-1.1.0
+    Checking concurrent-queue v2.5.0
+    Checking event-listener-strategy v0.5.4
+   Compiling rca-core v0.8.0-alpha.1 (<repo>/rca-core)
+   Compiling toml_datetime v1.1.1+spec-1.1.0
+   Compiling toml_edit v0.25.13+spec-1.1.0
+    Checking async-channel v2.5.0
+   Compiling proc-macro-crate v3.5.0
+   Compiling heck v0.5.0
+   Compiling rca-macros v0.8.0-alpha.1 (<repo>/rca-macros)
+    Checking futures-executor v0.3.34
+    Checking rca-compile-fixture-support v0.0.0 (<repo>/benches/compile/support)
+    Checking rust-composable-architecture v0.8.0-alpha.1 (<repo>/rca)
+    Checking rca-compile-composed-macro v0.0.0 (<repo>/benches/compile/composed-macro)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 10.41s
+real 10.42
+user 7.09
+sys 1.35
+           308477952  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+              440280  page reclaims
+                 625  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                   0  messages sent
+                   0  messages received
+                  20  signals received
+                 168  voluntary context switches
+                8289  involuntary context switches
+           732774574  instructions retired
+           356855437  cycles elapsed
+            16269864  peak memory footprint
+sample=4 phase=incremental
+    Checking rca-compile-composed-macro v0.0.0 (<repo>/benches/compile/composed-macro)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.11s
+real 0.12
+user 0.06
+sys 0.04
+            75857920  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+               17803  page reclaims
+                   1  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                   0  messages sent
+                   0  messages received
+                   1  signals received
+                   6  voluntary context switches
+                 240  involuntary context switches
+           311883935  instructions retired
+           121773522  cycles elapsed
+            15385128  peak memory footprint
+sample=5 phase=clean
+   Compiling proc-macro2 v1.0.107
+   Compiling quote v1.0.47
+   Compiling unicode-ident v1.0.24
+    Checking pin-project-lite v0.2.17
+   Compiling syn v3.0.4
+   Compiling crossbeam-utils v0.8.22
+    Checking parking v2.2.1
+    Checking futures-core v0.3.34
+    Checking event-listener v5.4.2
+   Compiling futures-macro v0.3.34
+    Checking slab v0.4.12
+    Checking futures-task v0.3.34
+   Compiling equivalent v1.0.2
+   Compiling winnow v1.0.4
+   Compiling hashbrown v0.17.1
+   Compiling indexmap v2.14.1
+   Compiling toml_parser v1.1.3+spec-1.1.0
+    Checking futures-util v0.3.34
+    Checking concurrent-queue v2.5.0
+    Checking event-listener-strategy v0.5.4
+   Compiling toml_datetime v1.1.1+spec-1.1.0
+   Compiling rca-core v0.8.0-alpha.1 (<repo>/rca-core)
+   Compiling toml_edit v0.25.13+spec-1.1.0
+    Checking async-channel v2.5.0
+   Compiling proc-macro-crate v3.5.0
+   Compiling heck v0.5.0
+   Compiling rca-macros v0.8.0-alpha.1 (<repo>/rca-macros)
+    Checking futures-executor v0.3.34
+    Checking rca-compile-fixture-support v0.0.0 (<repo>/benches/compile/support)
+    Checking rust-composable-architecture v0.8.0-alpha.1 (<repo>/rca)
+    Checking rca-compile-composed-macro v0.0.0 (<repo>/benches/compile/composed-macro)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 9.30s
+real 9.31
+user 7.17
+sys 1.35
+           308609024  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+              440167  page reclaims
+                 755  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                   0  messages sent
+                   0  messages received
+                  20  signals received
+                 200  voluntary context switches
+                8631  involuntary context switches
+           727918435  instructions retired
+           356294818  cycles elapsed
+            16400912  peak memory footprint
+sample=5 phase=incremental
+    Checking rca-compile-composed-macro v0.0.0 (<repo>/benches/compile/composed-macro)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.12s
+real 0.13
+user 0.06
+sys 0.05
+            75792384  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+               17802  page reclaims
+                   3  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                   0  messages sent
+                   0  messages received
+                   1  signals received
+                  54  voluntary context switches
+                 213  involuntary context switches
+           306965422  instructions retired
+           130401857  cycles elapsed
+            15385128  peak memory footprint

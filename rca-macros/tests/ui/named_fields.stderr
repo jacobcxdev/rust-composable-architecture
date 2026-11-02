@@ -1,0 +1,8 @@
+error: DependencyKey can only be derived for a unit struct
+ --> tests/ui/named_fields.rs:5:20
+  |
+5 |   struct NamedFields {
+  |  ____________________^
+6 | |     value: u8,
+7 | | }
+  | |_^

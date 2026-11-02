@@ -1,0 +1,12 @@
+[package]
+name = "composable-timers-candidate"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[dependencies]
+rca-core = { path = "../../../rca-core" }
+rca-test = { path = "../../../rca-test" }
+futures-executor = "0.3"

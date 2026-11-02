@@ -1,0 +1,5 @@
+error: missing `#[dependency(value = Type, live = expression)]` attribute
+ --> tests/ui/missing_attribute.rs:4:8
+  |
+4 | struct MissingAttribute;
+  |        ^^^^^^^^^^^^^^^^

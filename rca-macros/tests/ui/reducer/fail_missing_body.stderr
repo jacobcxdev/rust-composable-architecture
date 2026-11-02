@@ -1,0 +1,7 @@
+error: unexpected end of input, missing explicit body selection
+ --> tests/ui/reducer/fail_missing_body.rs:1:1
+  |
+1 | #[rca_macros::reducer(state(supplied(())), action(supplied(())))]
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: this error originates in the attribute macro `rca_macros::reducer` (in Nightly builds, run with -Z macro-backtrace for more info)

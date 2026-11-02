@@ -1,0 +1,5 @@
+error: generated child declaration requires selected persistent storage
+  --> tests/ui/reducer/fail_missing_child_storage.rs:16:11
+   |
+16 |     child(child, reducer = Child, kind = required,
+   |           ^^^^^

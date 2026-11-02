@@ -1,0 +1,8 @@
+error: lifetime may not live long enough
+  --> tests/ui/rc08_reactions_borrowed_projection.rs:10:17
+   |
+10 |         |state| state.as_str(),
+   |          ------ ^^^^^^^^^^^^^^ returning this value requires that `'1` must outlive `'2`
+   |          |    |
+   |          |    return type of closure is &'2 str
+   |          has type `&'1 String`

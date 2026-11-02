@@ -1,0 +1,41 @@
+error: dependency client options belong on fields
+ --> tests/ui/dependency_client/fail_raw_helpers.rs:6:1
+  |
+6 | #[r#dependency(r#test = ())]
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error: duplicate `dependency` attribute
+  --> tests/ui/dependency_client/fail_raw_helpers.rs:14:5
+   |
+14 |     #[r#dependency(r#test = Arc::new(|| ()))]
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error: duplicate `test` option
+  --> tests/ui/dependency_client/fail_raw_helpers.rs:20:42
+   |
+20 |     #[dependency(test = Arc::new(|| ()), r#test = Arc::new(|| ()))]
+   |                                          ^^^^^^
+
+error: duplicate `member` option
+  --> tests/ui/dependency_client/fail_raw_helpers.rs:26:32
+   |
+26 |     #[r#dependency(member = 1, r#member = 2)]
+   |                                ^^^^^^^^
+
+error: `test` and `member` options are mutually exclusive
+  --> tests/ui/dependency_client/fail_raw_helpers.rs:32:46
+   |
+32 |     #[dependency(r#member = Arc::new(|| ()), r#test = Arc::new(|| ()))]
+   |                                              ^^^^^^
+
+error: unknown dependency client option; expected `test` or `member`
+  --> tests/ui/dependency_client/fail_raw_helpers.rs:38:20
+   |
+38 |     #[r#dependency(r#live = Arc::new(|| ()))]
+   |                    ^^^^^^
+
+error: unknown dependency client option; expected `test` or `member`
+  --> tests/ui/dependency_client/fail_raw_helpers.rs:44:18
+   |
+44 |     #[dependency(r#nested::r#test = Arc::new(|| ()))]
+   |                  ^^^^^^^^^^^^^^^^

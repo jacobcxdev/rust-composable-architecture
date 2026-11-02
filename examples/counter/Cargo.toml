@@ -1,0 +1,12 @@
+[workspace]
+
+[package]
+name = "rca-example-counter"
+version = "0.0.0"
+edition = "2024"
+rust-version = "1.99.0"
+publish = false
+
+[dependencies]
+rca = { package = "rust-composable-architecture", path = "../../rca", features = ["tokio"] }
+tokio = { version = "1.53.3", features = ["macros", "rt"] }

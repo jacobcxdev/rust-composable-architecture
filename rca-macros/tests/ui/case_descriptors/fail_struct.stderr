@@ -1,0 +1,5 @@
+error: CaseDescriptors can only be derived for an enum
+ --> tests/ui/case_descriptors/fail_struct.rs:4:1
+  |
+4 | struct NotAnEnum;
+  | ^^^^^^^^^^^^^^^^^

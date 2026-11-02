@@ -1,0 +1,5 @@
+error: expected an expression
+ --> tests/ui/reducers/fail_double_comma.rs:6:29
+  |
+6 |     let _ = reducers![First,, Second];
+  |                             ^

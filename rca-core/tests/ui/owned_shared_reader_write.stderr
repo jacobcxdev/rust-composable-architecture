@@ -1,0 +1,17 @@
+error[E0599]: no method named `try_update` found for struct `SharedReader<Value>` in the current scope
+ --> tests/ui/owned_shared_reader_write.rs:7:10
+  |
+6 | /     reader
+7 | |         .try_update(
+  | |         -^^^^^^^^^^ method not found in `SharedReader<{integer}>`
+  | |_________|
+  |
+
+error[E0599]: no method named `try_update` found for struct `SharedReadProjection<Root, Value, Get>` in the current scope
+  --> tests/ui/owned_shared_reader_write.rs:17:10
+   |
+16 | /     projection
+17 | |         .try_update(
+   | |         -^^^^^^^^^^ method not found in `SharedReadProjection<{integer}, {integer}, {closure@$DIR/tests/ui/owned_shared_reader_write.rs:15:37: 15:44}>`
+   | |_________|
+   |

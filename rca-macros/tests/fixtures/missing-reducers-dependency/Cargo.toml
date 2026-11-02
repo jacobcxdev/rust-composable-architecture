@@ -1,0 +1,10 @@
+[package]
+name = "missing-reducers-dependency"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+rca-macros = { path = "../../.." }
+
+[workspace]

@@ -1,0 +1,13 @@
+error[E0119]: conflicting implementations of trait `Feature` for type `Counter`
+  --> tests/compiler/fail/feature_duplicate_implementation.rs:19:1
+   |
+19 | impl Feature for Counter {
+   | ^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: conflicting implementation in crate `rca_core`:
+           - impl<R> Feature for R
+             where R: Reducer, R: ?Sized;
+
+error: aborting due to 1 previous error
+
+For more information about this error, try `rustc --explain E0119`.
