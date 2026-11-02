@@ -162,9 +162,9 @@ fn ingress_admission_cannot_sleep_across_first_listener_registration() {
         let producer = thread::spawn(move || producer_ingress.try_send(11).unwrap());
 
         event_listener::listener!(control.event() => listener);
-        let received = receiver.try_recv();
+        let initial_result = receiver.try_recv();
         let (waker, notifications) = counted_waker();
-        let pending = received == Err(TryRecvError::Empty)
+        let pending = initial_result == Err(TryRecvError::Empty)
             && poll(Pin::new(&mut listener), &waker).is_pending();
         producer.join().expect("ingress admission completes");
 
@@ -175,10 +175,10 @@ fn ingress_admission_cannot_sleep_across_first_listener_registration() {
                 "a consumer that saw an empty queue must retain the admission notification"
             );
         }
-        if received == Err(TryRecvError::Empty) {
+        if initial_result == Err(TryRecvError::Empty) {
             assert_eq!(receiver.try_recv(), Ok(11));
         } else {
-            assert_eq!(received, Ok(11));
+            assert_eq!(initial_result, Ok(11));
         }
         assert_eq!(receiver.try_recv(), Err(TryRecvError::Empty));
         assert_eq!(control.epoch(), 0, "admission is not lifecycle maintenance");
