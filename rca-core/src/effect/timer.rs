@@ -108,16 +108,18 @@ impl<Payload> TimerQueue<Payload> {
         ids.into_iter().filter_map(|id| self.remove(id)).collect()
     }
 
-    /// Collects due timers into a fresh buffer for internal tests.
     #[cfg(test)]
-    pub(crate) fn pop_due(
-        &mut self,
-        now: MonotonicInstant,
-        limit: usize,
-    ) -> Vec<DueTimer<Payload>> {
-        let mut due = VecDeque::new();
-        self.pop_due_into(now, limit, &mut due);
-        due.into()
+    ordinary_test_items! {
+        /// Collects due timers into a fresh buffer for ordinary unit tests.
+        pub(crate) fn pop_due(
+            &mut self,
+            now: MonotonicInstant,
+            limit: usize,
+        ) -> Vec<DueTimer<Payload>> {
+            let mut due = VecDeque::new();
+            self.pop_due_into(now, limit, &mut due);
+            due.into()
+        }
     }
 
     /// Appends at most `limit` eligible timers in deadline and insertion order.
