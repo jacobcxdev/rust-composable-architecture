@@ -48,10 +48,15 @@ at a time. For each action it:
 1. records action provenance and cancellation generation;
 2. invokes reducer synchronously with `&mut State`, `&Action`, and
    `&mut ReduceContext`, then invalidates departed scopes and refreshes handles;
-3. increments the commit version and publishes observation projections;
-4. compiles the returned effect program in source order into pending launches;
-5. launches compiled work and acknowledges commit with one causal
-   `ActionTask`.
+3. increments the commit version, then compiles and registers returned work
+   in source order as unpolled launches;
+4. publishes observation projections, then acknowledges commit with one causal
+   `ActionTask`;
+5. hands the prepared launches to the runtime after the commit reply. Runtime
+   spawn must not poll them inline.
+
+The commit reply does not establish that observation consumers processed a value.
+When consumer processing matters, await its operation separately.
 
 Reducers cannot await. State stays actor-owned until destruction or successful
 terminal extraction. No global `Clone` bound exists on state or actions.
