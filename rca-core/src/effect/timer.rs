@@ -382,9 +382,7 @@ mod tests {
                 while let Some(timer) = due.pop_front() {
                     dispatched.push(timer.payload.value);
                     if timer.payload.value == 0 {
-                        if unwind {
-                            panic!("timer dispatch failed");
-                        }
+                        assert!(!unwind, "timer dispatch failed");
                         return;
                     }
                 }
