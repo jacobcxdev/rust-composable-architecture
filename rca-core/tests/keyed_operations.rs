@@ -73,6 +73,74 @@ fn positional_edits_follow_current_order_and_recover_rejected_inputs() {
 }
 
 #[test]
+fn upsert_hashes_each_input_once_with_colliding_identifiers() {
+    use std::hash::{Hash, Hasher};
+
+    struct Id {
+        value: usize,
+        token: &'static str,
+        hashes: Rc<Cell<usize>>,
+    }
+
+    impl PartialEq for Id {
+        fn eq(&self, other: &Self) -> bool {
+            self.value == other.value
+        }
+    }
+
+    impl Eq for Id {}
+
+    impl Hash for Id {
+        fn hash<H: Hasher>(&self, state: &mut H) {
+            self.hashes.set(self.hashes.get() + 1);
+            0_u8.hash(state);
+        }
+    }
+
+    for count in [0, 1, 2, 16] {
+        let hashes = Rc::new(Cell::new(0));
+        let id = |value, token| Id {
+            value,
+            token,
+            hashes: Rc::clone(&hashes),
+        };
+        let mut states = KeyedState::with_capacity(count + 1);
+        for value in 0..count {
+            states.insert(id(value, "existing"), value);
+        }
+        hashes.set(0);
+
+        let displaced = states
+            .try_upsert_at(0, id(count, "inserted"), count)
+            .expect("valid insertion");
+        assert!(displaced.is_none());
+        assert_eq!(
+            hashes.get(),
+            1,
+            "vacant upsert over {count} entries must hash the input once"
+        );
+        assert_eq!(states.get_index(0).map(|(id, _)| id.value), Some(count));
+
+        hashes.set(0);
+        let (unused_id, previous) = states
+            .try_upsert_at(states.len(), id(count, "replacement"), count + 1)
+            .expect("valid replacement")
+            .expect("existing identifier");
+        let expected_hashes = usize::from(states.len() > 1);
+        assert_eq!(
+            hashes.get(),
+            expected_hashes,
+            "occupied upsert must retain the singleton lookup fast path"
+        );
+        assert_eq!((unused_id.token, previous), ("replacement", count));
+        assert_eq!(
+            states.get_index(0).map(|(id, value)| (id.token, *value)),
+            Some(("inserted", count + 1))
+        );
+    }
+}
+
+#[test]
 fn borrowed_filter_keeps_original_order_and_failure_is_atomic() {
     let states: KeyedState<_, _> = [(1, 10), (2, 20), (3, 30)].into_iter().collect();
     let mut visited = Vec::new();

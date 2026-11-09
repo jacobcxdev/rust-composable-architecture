@@ -668,11 +668,38 @@ impl<Id: Eq + Hash, State> KeyedState<Id, State> {
                 MutationFailure::InvalidPosition,
             ));
         }
-        if let Some(existing) = self.get_mut(&id) {
-            return Ok(Some((id, core::mem::replace(existing, state))));
+        // IndexMap skips hashing for empty and singleton lookups. Preserve that
+        // behaviour and the owner-drop order on their insertion path.
+        if self.len() < 2 {
+            if let Some(existing) = self.get_mut(&id) {
+                return Ok(Some((id, core::mem::replace(existing, state))));
+            }
+            self.try_insert_at(index, id, state)?;
+            return Ok(None);
         }
-        self.try_insert_at(index, id, state)?;
-        Ok(None)
+
+        let hash = self.entries.hasher().hash_one(&id);
+        match self
+            .entries
+            .raw_entry_mut_v1()
+            .from_key_hashed_nocheck(hash, &id)
+        {
+            RawEntryMut::Occupied(mut entry) => Ok(Some((
+                id,
+                core::mem::replace(&mut entry.get_mut().state, state),
+            ))),
+            RawEntryMut::Vacant(entry) => {
+                let revision = self
+                    .lineage
+                    .as_ref()
+                    .expect("keyed entries have a lineage")
+                    .allocate_revision();
+                entry.insert_hashed_nocheck(hash, id, Entry { revision, state });
+                self.structural_revision = revision;
+                self.move_index(self.len() - 1, index);
+                Ok(None)
+            }
+        }
     }
 }
 
@@ -1009,42 +1036,71 @@ mod tests {
     }
 
     #[test]
-    fn positional_insert_revision_exhaustion_preserves_append_then_move_order() {
-        for next_revision in [u64::MAX - 1, u64::MAX] {
-            for index in [0, 1, 2] {
-                let mut states: KeyedState<_, _> = [(1, 10), (2, 20)].into_iter().collect();
-                let before = states.structural_stamp().to_owned();
-                let retained = states.entry_stamp(&1).unwrap().to_owned();
-                states
-                    .lineage()
-                    .next_revision
-                    .store(next_revision, std::sync::atomic::Ordering::Relaxed);
-                let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                    states.try_insert_at(index, 3, 30).unwrap();
-                }));
-                if next_revision == u64::MAX {
-                    result.unwrap_err();
-                    assert_eq!(states.len(), 2);
-                    assert!(before.matches(states.structural_stamp()));
-                } else {
-                    if index == 2 {
-                        result.unwrap();
-                    } else {
+    fn positional_edits_preserve_revision_exhaustion_order() {
+        for upsert in [false, true] {
+            for next_revision in [u64::MAX - 1, u64::MAX] {
+                for index in [0, 1, 2] {
+                    let mut states: KeyedState<_, _> = [(1, 10), (2, 20)].into_iter().collect();
+                    let before = states.structural_stamp().to_owned();
+                    let retained = states.entry_stamp(&1).unwrap().to_owned();
+                    states
+                        .lineage()
+                        .next_revision
+                        .store(next_revision, std::sync::atomic::Ordering::Relaxed);
+                    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                        if upsert {
+                            assert!(states.try_upsert_at(index, 3, 30).unwrap().is_none());
+                        } else {
+                            states.try_insert_at(index, 3, 30).unwrap();
+                        }
+                    }));
+                    if next_revision == u64::MAX {
                         result.unwrap_err();
+                        assert_eq!(states.len(), 2);
+                        assert!(before.matches(states.structural_stamp()));
+                    } else {
+                        if index == 2 {
+                            result.unwrap();
+                        } else {
+                            result.unwrap_err();
+                        }
+                        assert_eq!(states.len(), 3);
+                        assert_eq!(states.get_index(2), Some((&3, &30)));
+                        assert!(!before.matches(states.structural_stamp()));
                     }
-                    assert_eq!(states.len(), 3);
-                    assert_eq!(states.get_index(2), Some((&3, &30)));
-                    assert!(!before.matches(states.structural_stamp()));
+                    assert_eq!(states.get_index(0), Some((&1, &10)));
+                    assert_eq!(states.get_index(1), Some((&2, &20)));
+                    assert!(retained == states.entry_stamp(&1).unwrap().to_owned());
                 }
-                assert_eq!(states.get_index(0), Some((&1, &10)));
-                assert_eq!(states.get_index(1), Some((&2, &20)));
-                assert!(retained == states.entry_stamp(&1).unwrap().to_owned());
             }
         }
     }
 
     #[test]
-    fn positional_insert_preserves_validation_and_revision_drop_order() {
+    fn upsert_preserves_existing_entry_and_collection_authority() {
+        let mut states: KeyedState<_, _> = [(1, 10), (2, 20)].into_iter().collect();
+        let structural = states.structural_stamp().to_owned();
+        let entry = states.entry_stamp(&2).unwrap().to_owned();
+        let next_revision = states
+            .lineage()
+            .next_revision
+            .load(std::sync::atomic::Ordering::Relaxed);
+
+        assert_eq!(states.try_upsert_at(0, 2, 21).unwrap(), Some((2, 20)));
+        assert_eq!(states.get_index(1), Some((&2, &21)));
+        assert!(structural.matches(states.structural_stamp()));
+        assert!(entry == states.entry_stamp(&2).unwrap().to_owned());
+        assert_eq!(
+            states
+                .lineage()
+                .next_revision
+                .load(std::sync::atomic::Ordering::Relaxed),
+            next_revision
+        );
+    }
+
+    #[test]
+    fn positional_edits_preserve_validation_and_revision_drop_order() {
         use std::cell::{Cell, RefCell};
         use std::hash::{Hash, Hasher};
         use std::rc::Rc;
@@ -1073,7 +1129,21 @@ mod tests {
             }
         }
 
-        for (index, panic_at) in [(2, 1), (1, 1), (1, 2), (1, 3)] {
+        for (upsert, count, index, panic_at) in [
+            (false, 1, 2, 1),
+            (false, 1, 1, 1),
+            (false, 1, 1, 2),
+            (false, 1, 1, 3),
+            (true, 0, 0, 1),
+            (true, 1, 2, 1),
+            (true, 1, 1, 1),
+            (true, 1, 1, 2),
+            (true, 1, 1, 3),
+            (true, 2, 3, 1),
+            (true, 2, 2, 1),
+            (true, 2, 2, 2),
+            (true, 2, 2, 3),
+        ] {
             let mode = Rc::new(Cell::new(0));
             let drops = Rc::new(RefCell::new(Vec::new()));
             let owned = |label| Owned {
@@ -1082,7 +1152,15 @@ mod tests {
                 drops: Rc::clone(&drops),
             };
             let mut states = KeyedState::new();
-            states.insert(owned("retained-key"), owned("retained-state"));
+            for (key, state) in [
+                ("retained-key", "retained-state"),
+                ("second-key", "second-state"),
+            ]
+            .into_iter()
+            .take(count)
+            {
+                states.insert(owned(key), owned(state));
+            }
             let before = states.structural_stamp().to_owned();
             mode.set(panic_at);
             if panic_at == 3 {
@@ -1092,9 +1170,15 @@ mod tests {
                     .store(u64::MAX, std::sync::atomic::Ordering::Relaxed);
             }
             let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                states.try_insert_at(index, owned("input-key"), owned("input-state"))
+                if upsert {
+                    states
+                        .try_upsert_at(index, owned("input-key"), owned("input-state"))
+                        .map(|_| ())
+                } else {
+                    states.try_insert_at(index, owned("input-key"), owned("input-state"))
+                }
             }));
-            if index == 2 {
+            if index > count {
                 let error = result.unwrap().unwrap_err();
                 assert!(error.is_invalid_position());
                 assert!(drops.borrow().is_empty());
@@ -1106,16 +1190,18 @@ mod tests {
             } else {
                 result.unwrap_err();
             }
-            let expected = if panic_at == 3 {
+            let state_first = index <= count
+                && (panic_at == 3 || (upsert && (count > 1 || panic_at == 2)));
+            let expected = if state_first {
                 ["input-state", "input-key"]
             } else {
                 ["input-key", "input-state"]
             };
             assert_eq!(*drops.borrow(), expected);
-            assert_eq!(states.len(), 1);
+            assert_eq!(states.len(), count);
             assert!(before.matches(states.structural_stamp()));
             drop(states);
-            assert_eq!(drops.borrow().len(), 4);
+            assert_eq!(drops.borrow().len(), count * 2 + 2);
         }
     }
 
