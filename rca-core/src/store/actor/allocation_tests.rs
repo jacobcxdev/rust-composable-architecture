@@ -1,5 +1,6 @@
 //! Checks actor allocation budgets without the ordinary test harness.
 
+use crate::effect::leaves::EffectValue as _;
 use std::future::pending;
 
 use super::test_support::{LaunchDriver, launch_actor};
@@ -24,6 +25,8 @@ pub(crate) fn timer_command_avoids_discarded_reply_allocation() {
     ) {
         return;
     }
+
+    assert_reused_timer_batch_budget();
 
     let (mut actor, _ingress) = launch_actor(
         Effect::none(),
@@ -133,6 +136,72 @@ pub(crate) fn timer_command_avoids_discarded_reply_allocation() {
     // The real timer constructor must not allocate a discarded reply.
     assert_eq!(released.total_blocks - before.total_blocks, 0);
     assert_eq!(released.total_bytes - before.total_bytes, 0);
+}
+
+/// Checks warm real timer batches reuse storage without retaining payloads.
+fn assert_reused_timer_batch_budget() {
+    // The executor's cached thread notification outlives this isolated measurement.
+    futures_executor::block_on(async {});
+    let (mut actor, ingress) = launch_actor(
+        Effect::none(),
+        Runtime::new(LaunchDriver {
+            tasks: Arc::default(),
+            panic_after: usize::MAX,
+        }),
+    );
+    let profiler = dhat::Profiler::builder().testing().build();
+    let mut costs = [(0, 0); 4];
+    for (index, width) in [super::TIMER_BATCH_LIMIT, 1, 8, super::TIMER_BATCH_LIMIT]
+        .into_iter()
+        .enumerate()
+    {
+        let scope = actor.scopes.root();
+        let mut lineage = None;
+        let mut generations = Vec::new();
+        let mut launches = Launches::default();
+        for _ in 0..width {
+            actor.transaction_parts().compile_effect(
+                Effect::from_parts(super::Program::Wait(std::time::Duration::ZERO), None),
+                super::super::mounted::WorkOrigin {
+                    scope,
+                    lineage: &mut lineage,
+                    generations: &mut generations,
+                    operations: &crate::effect::operation::OperationAncestry::default(),
+                    inherited_generations: 0,
+                    group: None,
+                },
+                &mut launches,
+            );
+        }
+        lineage.as_ref().unwrap().finish_registration();
+        assert!(launches.into_iter().next().is_none());
+        assert_eq!(actor.task_timers.len(), width);
+
+        let before = dhat::HeapStats::get();
+        assert!(futures_executor::block_on(actor.process_timer_batch()));
+        let after = dhat::HeapStats::get();
+        costs[index] = (
+            after.total_blocks - before.total_blocks,
+            after.total_bytes - before.total_bytes,
+        );
+        assert!(actor.timers.is_empty());
+        assert!(actor.task_timers.is_empty());
+        assert!(actor.due_timers.is_empty());
+        assert_eq!(actor.due_timers.capacity(), super::TIMER_BATCH_LIMIT);
+        let turn = actor.process_control();
+        assert!(actor.launch(turn));
+        assert!(lineage.as_ref().unwrap().is_finished());
+    }
+    let retained_bytes = actor.due_timers.capacity()
+        * std::mem::size_of::<super::DueTimer<super::TimerPayload<(), ()>>>();
+    drop(actor);
+    drop(ingress);
+    let released = dhat::HeapStats::get();
+    drop(profiler);
+    eprintln!("timer batch blocks/bytes={costs:?} retained_buffer_bytes={retained_bytes}");
+    assert_eq!(&costs[1..], &[(0, 0); 3]);
+    assert_eq!(released.curr_blocks, 0);
+    assert_eq!(released.curr_bytes, 0);
 }
 
 /// Measures only launch-buffer storage; future boxes are prepared before profiling starts.

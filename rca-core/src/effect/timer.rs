@@ -1,6 +1,6 @@
 //! Maintains indexed timers in deadline and insertion order.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, VecDeque};
 
 use crate::MonotonicInstant;
 use crate::store::scope::{ScopeToken, ScopeTransitionBatch};
@@ -108,18 +108,32 @@ impl<Payload> TimerQueue<Payload> {
         ids.into_iter().filter_map(|id| self.remove(id)).collect()
     }
 
-    /// Transfers at most `limit` eligible timers in deadline and insertion order.
-    ///
-    /// `MAX` remains parked even when `now` is saturated. Payload destruction and
-    /// dispatch happen outside the queue after this method returns.
+    /// Collects due timers into a fresh buffer for internal tests.
+    #[cfg(test)]
     pub(crate) fn pop_due(
         &mut self,
         now: MonotonicInstant,
         limit: usize,
     ) -> Vec<DueTimer<Payload>> {
+        let mut due = VecDeque::new();
+        self.pop_due_into(now, limit, &mut due);
+        due.into()
+    }
+
+    /// Appends at most `limit` eligible timers in deadline and insertion order.
+    ///
+    /// `MAX` remains parked even when `now` is saturated. Payload destruction and
+    /// dispatch happen outside the queue after this method returns. Existing
+    /// output entries remain owned by the caller, without being cleared or dropped.
+    pub(crate) fn pop_due_into(
+        &mut self,
+        now: MonotonicInstant,
+        limit: usize,
+        due: &mut VecDeque<DueTimer<Payload>>,
+    ) {
         let previous = self.earliest_deadline();
-        let mut due = Vec::with_capacity(limit.min(self.records.len()));
-        while due.len() < limit {
+        due.reserve_exact(limit.min(self.records.len()));
+        for _ in 0..limit {
             let Some(entry) = self.order.first_entry() else {
                 break;
             };
@@ -129,14 +143,13 @@ impl<Payload> TimerQueue<Payload> {
             }
             let ((_, id), ()) = entry.remove_entry();
             let record = self.records.remove(&id).expect("timer indexes must agree");
-            due.push(DueTimer {
+            due.push_back(DueTimer {
                 id,
                 deadline,
                 payload: record.payload,
             });
         }
         self.update_wake_generation(previous);
-        due
     }
 
     /// Identifies the next runtime wake, excluding permanently parked deadlines.
@@ -193,6 +206,7 @@ pub(crate) mod allocation_tests;
 #[cfg(test)]
 ordinary_test_items! {
 mod tests {
+    use std::collections::VecDeque;
     use std::time::Duration;
 
     use proptest::prelude::*;
@@ -273,6 +287,112 @@ mod tests {
         assert_eq!(first, [0, 1]);
         assert_eq!(second, [2, 3, 4]);
         assert!(queue.is_empty());
+    }
+
+    #[test]
+    fn reused_due_buffer_preserves_cutoffs_and_detached_batch_order() {
+        let mut queue = TimerQueue::new();
+        let deadline = MonotonicInstant::from_elapsed(Duration::from_secs(1));
+        let first = queue.insert(deadline, 1);
+        let second = queue.insert(deadline, 2);
+        queue.insert(MonotonicInstant::MAX, 4);
+        let wake = queue.next_wake();
+        let mut due = VecDeque::new();
+
+        queue.pop_due_into(deadline, 0, &mut due);
+        queue.pop_due_into(MonotonicInstant::ZERO, 8, &mut due);
+        assert!(due.is_empty());
+        assert_eq!(queue.next_wake(), wake);
+
+        queue.pop_due_into(deadline, 2, &mut due);
+        assert_eq!(queue.remove(first), None);
+        assert_eq!(queue.remove(second), None);
+        let mut dispatched = Vec::new();
+        while let Some(timer) = due.pop_front() {
+            dispatched.push(timer.payload);
+            if timer.payload == 1 {
+                queue.insert(MonotonicInstant::ZERO, 3);
+            }
+        }
+        assert_eq!(dispatched, [1, 2]);
+        assert!(due.is_empty());
+
+        queue.pop_due_into(MonotonicInstant::MAX, 8, &mut due);
+        assert_eq!(
+            due.iter().map(|timer| timer.payload).collect::<Vec<_>>(),
+            [3]
+        );
+        due.clear();
+        assert!(!queue.is_empty());
+        assert_eq!(queue.next_wake(), None);
+        assert!(!queue.has_due(MonotonicInstant::MAX));
+    }
+
+    #[test]
+    fn detached_due_batch_drops_remainder_after_return_or_unwind() {
+        use std::cell::RefCell;
+        use std::rc::Rc;
+
+        /// Records payload destruction without invoking the timer queue.
+        struct DropProbe {
+            /// Distinguishes the current payload from the detached remainder.
+            value: usize,
+            /// Shared destruction order, checked after the dispatch boundary.
+            dropped: Rc<RefCell<Vec<usize>>>,
+        }
+
+        impl Drop for DropProbe {
+            fn drop(&mut self) {
+                self.dropped.borrow_mut().push(self.value);
+            }
+        }
+
+        for unwind in [false, true] {
+            let dropped = Rc::new(RefCell::new(Vec::new()));
+            let mut queue = TimerQueue::new();
+            let mut due = VecDeque::with_capacity(3);
+            // Advance the ring so dropping the later remainder covers both slices.
+            queue.insert(
+                MonotonicInstant::ZERO,
+                DropProbe {
+                    value: 3,
+                    dropped: Rc::clone(&dropped),
+                },
+            );
+            queue.pop_due_into(MonotonicInstant::ZERO, 1, &mut due);
+            drop(due.pop_front());
+            dropped.borrow_mut().clear();
+
+            for value in 0..3 {
+                queue.insert(
+                    MonotonicInstant::ZERO,
+                    DropProbe {
+                        value,
+                        dropped: Rc::clone(&dropped),
+                    },
+                );
+            }
+            queue.pop_due_into(MonotonicInstant::ZERO, 3, &mut due);
+            assert!(queue.is_empty());
+            assert!(dropped.borrow().is_empty());
+
+            let mut dispatched = Vec::new();
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                let mut due = due;
+                while let Some(timer) = due.pop_front() {
+                    dispatched.push(timer.payload.value);
+                    if timer.payload.value == 0 {
+                        if unwind {
+                            panic!("timer dispatch failed");
+                        }
+                        return;
+                    }
+                }
+            }));
+            assert_eq!(result.is_err(), unwind);
+            assert_eq!(dispatched, [0]);
+            assert_eq!(*dropped.borrow(), [0, 1, 2]);
+        }
     }
 
     #[test]

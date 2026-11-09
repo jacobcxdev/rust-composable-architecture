@@ -2,6 +2,7 @@
 
 use super::TimerQueue;
 use crate::MonotonicInstant;
+use std::collections::VecDeque;
 use std::time::Duration;
 
 /// Measures timer-index storage across insertion, removal and expiry.
@@ -26,16 +27,18 @@ pub(crate) fn timer_index_storage_costs() {
             assert_eq!(queue.remove(ids[value]), Some(value));
         }
         let removed = dhat::HeapStats::get();
-        let due = queue.pop_due(
+        let mut due = VecDeque::new();
+        queue.pop_due_into(
             MonotonicInstant::from_elapsed(Duration::from_secs(1)),
             count,
+            &mut due,
         );
         let popped = dhat::HeapStats::get();
         assert_eq!(due.len(), count / 2);
         assert!(queue.is_empty());
         assert!(due.iter().all(|timer| timer.payload % 2 == 1));
-        assert!(due.windows(2).all(|pair| {
-            (pair[0].deadline, pair[0].payload) < (pair[1].deadline, pair[1].payload)
+        assert!(due.iter().zip(due.iter().skip(1)).all(|(first, second)| {
+            (first.deadline, first.payload) < (second.deadline, second.payload)
         }));
         samples.push((
             count,

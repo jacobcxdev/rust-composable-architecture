@@ -348,6 +348,12 @@ registration order. Overdue fixed-rate intervals catch up at their original
 cadence with cooperative fairness between batches. Zero-period intervals panic
 at construction.
 
+Due timers leave the queue as a finite batch before their actions run.
+Successful processing reuses an empty buffer for later batches.
+The Store can retain storage for up to 64 timer entries, without retaining their
+actions or callbacks. If processing stops early or panics, the remaining entries
+are destroyed.
+
 | Timing need | Choice | Deadline and missed-work policy |
 | --- | --- | --- |
 | Deliver an already constructed action after a duration | `Effect::send_after` | The duration starts when that effect begins execution. |

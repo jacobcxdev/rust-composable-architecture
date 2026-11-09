@@ -9,7 +9,7 @@
 //! Unwinding instead drops pending commands through their failure guards. A second
 //! panic from a destructor or waker during unwinding follows Rust's abort behaviour.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Weak};
 
@@ -42,7 +42,7 @@ use crate::effect::Effect;
 use crate::effect::Program;
 use crate::effect::lineage::{ControlWake, LineageState, LineageWork};
 use crate::effect::registry::{GenerationToken, TaskCompletion, TaskId, TaskRegistry, TaskStatus};
-use crate::effect::timer::{TimerId, TimerQueue};
+use crate::effect::timer::{DueTimer, TimerId, TimerQueue};
 #[cfg(test)]
 use crate::feature::ReduceDriver;
 #[cfg(test)]
@@ -248,6 +248,8 @@ pub(crate) struct Actor<State, Action, C: Carriers<State, Action> = Shared> {
     next_sequence_id: SequenceId,
     /// Actor-owned deadlines and their unexecuted actions or routed callbacks.
     timers: TimerQueue<TimerPayload<State, Action, C>>,
+    /// Empty between batches; retains storage for at most `TIMER_BATCH_LIMIT` timers.
+    due_timers: VecDeque<DueTimer<TimerPayload<State, Action, C>>>,
     /// Reverse index used to remove a cancelled task's current timer entry.
     task_timers: HashMap<TaskId, TimerId>,
     /// Terminal reply withheld until teardown and any terminal callbacks succeed.
@@ -368,6 +370,7 @@ impl<State: 'static, Action: 'static, C: Execution<State, Action> + 'static>
             sequences: HashMap::new(),
             next_sequence_id: 0,
             timers: TimerQueue::new(),
+            due_timers: VecDeque::new(),
             task_timers: HashMap::new(),
             shutdown_reply: None,
             observations: ObservationRegistryCore::new(),
@@ -1398,9 +1401,11 @@ impl<State: 'static, Action: 'static, C: Execution<State, Action> + 'static>
         reason = "one due-timer pass keeps cancellation precedence, interval rescheduling and deferred terminal publication ordered"
     )]
     async fn process_timer_batch(&mut self) -> bool {
-        let due = self
-            .timers
-            .pop_due(C::now(&self.runtime), TIMER_BATCH_LIMIT);
+        // Detach storage before dispatch so callbacks may change the queue.
+        // A return or unwind drops the local queue and every remaining payload.
+        let mut due = std::mem::take(&mut self.due_timers);
+        self.timers
+            .pop_due_into(C::now(&self.runtime), TIMER_BATCH_LIMIT, &mut due);
         // A typed gate may drain unrelated runtime control while this finite
         // batch is suspended. Its own timer completions become continuable only
         // after later due actions have had their normal chance to retire scopes.
@@ -1418,7 +1423,7 @@ impl<State: 'static, Action: 'static, C: Execution<State, Action> + 'static>
         };
         #[cfg(not(feature = "test-util"))]
         let complete = TaskRegistry::complete_actor;
-        for timer in due {
+        while let Some(timer) = due.pop_front() {
             // An earlier timer action can remove a scope and cancel another
             // timer already popped into this batch.
             if !self.registry.task_is_running(timer.payload.task) {
@@ -1546,6 +1551,7 @@ impl<State: 'static, Action: 'static, C: Execution<State, Action> + 'static>
                 }
             }
         }
+        self.due_timers = due;
         #[cfg(feature = "test-util")]
         for task in completed {
             // A retirement processed during a gated action may already have
