@@ -287,10 +287,6 @@ pub(crate) struct ScopeTransitionBatch {
     membership: Option<HashSet<ScopeToken>>,
 }
 
-#[expect(
-    clippy::derivable_impls,
-    reason = "keeps hot-path initialisation explicit and visible to native coverage"
-)]
 impl Default for ScopeTransitionBatch {
     /// Starts a transaction without membership hashing or allocation.
     #[inline]
