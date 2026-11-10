@@ -283,15 +283,19 @@ struct ScopeRecord {
 pub(crate) struct ScopeTransitionBatch {
     /// Retains ordered departures for diagnostics and transaction reconciliation.
     invalidated: Vec<ScopeToken>,
-    /// Supports membership checks without repeatedly scanning ordered departures.
-    membership: HashSet<ScopeToken>,
+    /// Creates randomised membership storage only after an actual departure.
+    membership: Option<HashSet<ScopeToken>>,
 }
 
 impl ScopeTransitionBatch {
     /// Appends each newly departed incarnation once, in the supplied order.
     pub(crate) fn extend(&mut self, tokens: impl IntoIterator<Item = ScopeToken>) {
         for token in tokens {
-            if self.membership.insert(token) {
+            if self
+                .membership
+                .get_or_insert_with(HashSet::new)
+                .insert(token)
+            {
                 self.invalidated.push(token);
             }
         }
@@ -299,7 +303,9 @@ impl ScopeTransitionBatch {
 
     /// Checks whether this transaction already recorded the departed incarnation.
     pub(crate) fn contains(&self, token: ScopeToken) -> bool {
-        self.membership.contains(&token)
+        self.membership
+            .as_ref()
+            .is_some_and(|membership| membership.contains(&token))
     }
 
     /// Reports whether reconciliation has any structural departures to process.
@@ -2400,11 +2406,15 @@ mod tests {
 
         let mut transitions = ScopeTransitionBatch::default();
         assert!(transitions.is_empty());
+        assert!(!transitions.contains(root));
+        transitions.extend(std::iter::empty());
+        assert!(transitions.is_empty());
+        assert!(!transitions.contains(root));
         transitions.extend(departed);
         transitions.extend([parent, sibling, child, sibling, parent]);
 
         assert_eq!(transitions.invalidated, [child, parent, sibling]);
-        assert_eq!(transitions.membership.len(), 3);
+        assert_eq!(transitions.membership.as_ref().unwrap().len(), 3);
         for token in [child, parent, sibling] {
             assert!(transitions.contains(token));
         }
