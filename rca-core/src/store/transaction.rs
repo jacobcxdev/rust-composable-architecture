@@ -544,18 +544,25 @@ pub(super) fn commit<S: 'static, A: 'static, C: Execution<S, A>>(
 
     #[cfg(feature = "test-util")]
     structural_terminal.mark_entered();
-    super::mount::nested::reconcile_roster::<S, A, C>(
-        parts.mounts,
-        parts.has_mount_recipes,
-        parts.state,
-        parts.scopes,
-        &mut transitions,
-        parts.mounted,
-        #[cfg(feature = "diagnostics")]
-        parts.lifecycle_sink.as_deref_mut().map(|sink| {
-            crate::diagnostics::LifecycleCall::new(C::lifecycle_sink(sink), *parts.commit_version)
-        }),
-    );
+    // Construction-time owners survive reconciliation even when they select no child.
+    // An empty actor roster therefore has no declarations that could discover work.
+    if let Some(reconcile) = parts.mounts.first().map(|mount| mount.roster_reconciler()) {
+        reconcile(
+            parts.mounts,
+            parts.has_mount_recipes,
+            parts.state,
+            parts.scopes,
+            &mut transitions,
+            parts.mounted,
+            #[cfg(feature = "diagnostics")]
+            parts.lifecycle_sink.as_deref_mut().map(|sink| {
+                crate::diagnostics::LifecycleCall::new(
+                    C::lifecycle_sink(sink),
+                    *parts.commit_version,
+                )
+            }),
+        );
+    }
     parts.scopes.invalidate_outputs(&transitions);
     parts.handles.refresh(parts.state);
     let cancelled_actor_tasks = parts.registry.cancel_scopes(&transitions);

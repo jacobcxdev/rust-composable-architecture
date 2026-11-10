@@ -92,6 +92,17 @@ impl<R, A, C: Carriers<R, A>> Descendants<'_, R, A, C> {
     }
 }
 
+/// Reconciles declarations without retaining a particular declaration owner.
+pub(crate) type RosterReconciler<R, A, C> = fn(
+    &mut Vec<Box<<C as Carriers<R, A>>::Mount>>,
+    bool,
+    &R,
+    &mut ScopeRegistry,
+    &mut ScopeTransitionBatch,
+    &mut Vec<Box<<C as Carriers<R, A>>::Node>>,
+    #[cfg(feature = "diagnostics")] Option<crate::diagnostics::LifecycleCall<'_>>,
+);
+
 /// Reconciles the finite roster, visiting newly declared descendants before later siblings.
 ///
 /// `has_recipes` comes from construction, not from the current child count. The

@@ -1026,6 +1026,13 @@ pub(crate) trait ReactionRunner<R, A, C: Carriers<R, A>> {
 
 /// Participates in actor-owned installation, reaction capture and finite descendant discovery.
 pub(crate) trait MountDeclaration<R, A, C: Carriers<R, A> = Shared> {
+    /// Returns a roster operation that does not retain this declaration.
+    ///
+    /// Keeping the operation here avoids linking it into stores without declarations.
+    fn roster_reconciler(&self) -> nested::RosterReconciler<R, A, C> {
+        nested::reconcile_roster::<R, A, C>
+    }
+
     /// Whether construction requires the depth-first discovery path rather than the flat fast path.
     fn can_discover(&self) -> bool {
         false
