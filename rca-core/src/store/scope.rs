@@ -279,12 +279,27 @@ struct ScopeRecord {
 }
 
 /// Deduplicates departed tokens while preserving first-seen retirement order.
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub(crate) struct ScopeTransitionBatch {
     /// Retains ordered departures for diagnostics and transaction reconciliation.
     invalidated: Vec<ScopeToken>,
     /// Creates randomised membership storage only after an actual departure.
     membership: Option<HashSet<ScopeToken>>,
+}
+
+#[expect(
+    clippy::derivable_impls,
+    reason = "keeps hot-path initialisation explicit and visible to native coverage"
+)]
+impl Default for ScopeTransitionBatch {
+    /// Starts a transaction without membership hashing or allocation.
+    #[inline]
+    fn default() -> Self {
+        Self {
+            invalidated: Vec::new(),
+            membership: None,
+        }
+    }
 }
 
 impl ScopeTransitionBatch {
