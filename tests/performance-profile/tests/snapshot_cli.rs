@@ -489,8 +489,8 @@ fn invalid_dimensions_and_names_emit_no_record() {
     ] {
         let output = child(&args);
         assert!(!output.status.success());
-        assert!(output.stdout.is_empty());
-        assert!(!output.stderr.is_empty());
+        assert_eq!(output.stdout, [] as [u8; 0]);
+        assert_ne!(output.stderr, [] as [u8; 0]);
     }
 }
 
@@ -501,7 +501,7 @@ fn disabled_names_reject_before_measurement() {
         for args in [vec![name], vec![name, "0", "1"], vec![name, "65536", "1"]] {
             let output = child(&args);
             assert!(!output.status.success());
-            assert!(output.stdout.is_empty());
+            assert_eq!(output.stdout, [] as [u8; 0]);
             assert_eq!(
                 std::str::from_utf8(&output.stderr).unwrap().trim(),
                 "snapshot workloads require the deterministic feature"

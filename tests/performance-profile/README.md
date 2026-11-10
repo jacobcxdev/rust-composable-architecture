@@ -488,7 +488,20 @@ exit. Captured DHAT stacks identify one 56-byte and one 32-byte block,
 respectively, on the qualified Apple Silicon host. The expected size is derived
 from the pinned payload fields and platform type sizes, plus the Arc header;
 each retained block must also have both the pinned TLS initializer and Arc
-owner-allocation frames in that session's full stack. Unknown/missing frames,
+owner-allocation frames in that session's full stack.
+
+Optimised `x86_64-pc-windows-msvc` builds can inline those Tokio frames.
+Such profiles instead require the exact typed
+`Option<ParkThread>::unwrap_or_else` and `Storage<ParkThread>::get_or_init_slow`
+frames captured from the pinned compiler and Tokio source. Both full symbols
+must match, including their generic types. Function-pointer types and source
+paths can contain parentheses without changing the symbol boundary.
+
+On the qualified x86_64 Windows host, this Tokio block contains 32 bytes, including its Arc header.
+Each executable must retain its matching PDB under the filename in its CodeView
+record. Separate product directories prevent different PDBs from sharing a name.
+
+Unknown/missing frames,
 malformed profile data or disagreement with live snapshot totals fail, even
 when an unrelated retained block happens to have the same size. The record names and quantifies the cache
 separately from released RCA/host owners. This layout check must be qualified

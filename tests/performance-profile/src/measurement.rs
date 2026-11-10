@@ -256,11 +256,29 @@ impl ExecutorCache {
 
     #[cfg(feature = "allocations")]
     fn owns_stack(self, frames: &[&str]) -> bool {
-        fn symbol(frame: &str) -> Option<&str> {
-            frame
-                .split_once(": ")
-                .and_then(|(_, rest)| rest.split_once(" ("))
-                .map(|(name, _)| name)
+        fn has_symbol(frame: &str, expected: &str) -> bool {
+            let Some((_, rest)) = frame.split_once(": ") else {
+                return false;
+            };
+            // Match the whole name before parsing the location. MSVC names can
+            // contain function-pointer parentheses, and paths can contain spaces.
+            let Some(location) = rest
+                .strip_prefix(expected)
+                .and_then(|suffix| suffix.strip_prefix(" ("))
+                .and_then(|suffix| suffix.strip_suffix(')'))
+            else {
+                return false;
+            };
+            let Some((path_line, column)) = location.rsplit_once(':') else {
+                return false;
+            };
+            let Some((path, line)) = path_line.rsplit_once(':') else {
+                return false;
+            };
+            !path.is_empty()
+                && [line, column]
+                    .iter()
+                    .all(|number| !number.is_empty() && number.bytes().all(|b| b.is_ascii_digit()))
         }
         let (initializer, owner) = match self {
             Self::Native => (
@@ -272,10 +290,19 @@ impl ExecutorCache {
                 "<alloc::sync::Arc<futures_executor::local_pool::ThreadNotify>>::new",
             ),
         };
-        frames
-            .iter()
-            .any(|frame| symbol(frame) == Some(initializer))
-            && frames.iter().any(|frame| symbol(frame) == Some(owner))
+        let has = |name| frames.iter().any(|frame| has_symbol(frame, name));
+        if has(initializer) && has(owner) {
+            return true;
+        }
+        // Optimised MSVC stacks inline ParkThread::new and Arc::new into this
+        // exact typed TLS initialisation pair. The pinned source has one allocation.
+        matches!(self, Self::Native)
+            && has(
+                "enum2$<core::option::Option<tokio::runtime::park::ParkThread> >::unwrap_or_else",
+            )
+            && has(
+                "std::sys::thread_local::native::lazy::Storage<tokio::runtime::park::ParkThread,tuple$<> >::get_or_init_slow<tokio::runtime::park::ParkThread,tuple$<>,tokio::runtime::park::ParkThread (*)()>",
+            )
     }
 }
 
@@ -704,6 +731,115 @@ pub(crate) mod tests {
             "cold unrelated owner was labelled as executor TLS"
         );
         drop(unrelated);
+    }
+
+    #[test]
+    fn attribution_accepts_literal_executor_pairs() {
+        for (cache, frames) in [
+            (
+                ExecutorCache::Native,
+                [
+                    "0x1: tokio::runtime::park::CURRENT_PARKER::__rust_std_internal_init_fn (park.rs:32:0)",
+                    "0x2: <alloc::sync::Arc<tokio::runtime::park::Inner>>::new (sync.rs:406:0)",
+                ],
+            ),
+            (
+                ExecutorCache::Deterministic,
+                [
+                    "0x1: futures_executor::local_pool::CURRENT_THREAD_NOTIFY::__rust_std_internal_init_fn (local_pool.rs:51:0)",
+                    "0x2: <alloc::sync::Arc<futures_executor::local_pool::ThreadNotify>>::new (sync.rs:406:0)",
+                ],
+            ),
+        ] {
+            let profile = live_profile(&frames, 1, cache.bytes());
+            assert_eq!(
+                verify_live_stacks(&profile, Some(cache), 1, cache.bytes()),
+                Ok(())
+            );
+        }
+    }
+
+    const MSVC_PARKER_FRAMES: [&str; 2] = [
+        "0x7ff767bd60cf: enum2$<core::option::Option<tokio::runtime::park::ParkThread> >::unwrap_or_else (core\\src\\option.rs:1065:0)",
+        "0x7ff767bd60cf: std::sys::thread_local::native::lazy::Storage<tokio::runtime::park::ParkThread,tuple$<> >::get_or_init_slow<tokio::runtime::park::ParkThread,tuple$<>,tokio::runtime::park::ParkThread (*)()> (thread_local\\native\\lazy.rs:80:0)",
+    ];
+
+    fn live_profile(frames: &[&str], blocks: usize, bytes: usize) -> String {
+        serde_json::json!({
+            "dhatFileVersion": 2,
+            "mode": "rust-heap",
+            "pps": [{"ebk": blocks, "eb": bytes, "fs": (0..frames.len()).collect::<Vec<_>>()}],
+            "ftbl": frames,
+        })
+        .to_string()
+    }
+
+    #[test]
+    fn attribution_accepts_typed_msvc_parker_pair() {
+        let cache = ExecutorCache::Native;
+        for frames in [
+            MSVC_PARKER_FRAMES.map(str::to_owned),
+            MSVC_PARKER_FRAMES.map(|frame| {
+                let (symbol, location) = frame.rsplit_once(" (").unwrap();
+                format!("{symbol} (C:\\source (checkout)\\{location}")
+            }),
+        ] {
+            let profile = live_profile(&frames.each_ref().map(String::as_str), 1, cache.bytes());
+            assert_eq!(
+                verify_live_stacks(&profile, Some(cache), 1, cache.bytes()),
+                Ok(())
+            );
+            assert!(
+                verify_live_stacks(
+                    &profile,
+                    Some(ExecutorCache::Deterministic),
+                    1,
+                    cache.bytes()
+                )
+                .is_err()
+            );
+        }
+    }
+
+    #[test]
+    fn attribution_rejects_incomplete_or_lookalike_msvc_pairs() {
+        let cache = ExecutorCache::Native;
+        for index in 0..2 {
+            let profile = live_profile(&MSVC_PARKER_FRAMES[index..=index], 1, cache.bytes());
+            assert!(verify_live_stacks(&profile, Some(cache), 1, cache.bytes()).is_err());
+            for frame in [
+                MSVC_PARKER_FRAMES[index].replace("ParkThread", "OtherThread"),
+                MSVC_PARKER_FRAMES[index].replacen(": ", ": lookalike::", 1),
+                MSVC_PARKER_FRAMES[index].replace(" (", "_lookalike ("),
+                MSVC_PARKER_FRAMES[index].trim_end_matches(')').to_owned(),
+                MSVC_PARKER_FRAMES[index].replace(":0)", ":bad)"),
+                MSVC_PARKER_FRAMES[index].replace(":0)", ")"),
+                "0x1: unrelated::owner (owner.rs:1:1)".to_owned(),
+            ] {
+                let mut frames = MSVC_PARKER_FRAMES;
+                frames[index] = &frame;
+                let profile = live_profile(&frames, 1, cache.bytes());
+                assert!(
+                    verify_live_stacks(&profile, Some(cache), 1, cache.bytes()).is_err(),
+                    "accepted {frame}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn attribution_keeps_msvc_size_count_and_snapshot_limits() {
+        let cache = ExecutorCache::Native;
+        for (blocks, bytes, measured_blocks, measured_bytes) in [
+            (1, cache.bytes() + 1, 1, cache.bytes() + 1),
+            (2, 2 * cache.bytes(), 2, 2 * cache.bytes()),
+            (1, cache.bytes(), 0, 0),
+        ] {
+            let profile = live_profile(&MSVC_PARKER_FRAMES, blocks, bytes);
+            assert!(
+                verify_live_stacks(&profile, Some(cache), measured_blocks, measured_bytes).is_err()
+            );
+        }
     }
 
     #[test]

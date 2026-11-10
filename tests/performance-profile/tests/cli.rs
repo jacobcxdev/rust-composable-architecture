@@ -206,8 +206,8 @@ fn invalid_cli_exits_without_a_success_record() {
             Duration::from_secs(60),
         );
         assert!(!output.status.success());
-        assert!(output.stdout.is_empty());
-        assert!(!output.stderr.is_empty());
+        assert_eq!(output.stdout, [] as [u8; 0]);
+        assert_ne!(output.stderr, [] as [u8; 0]);
     }
 }
 
@@ -248,7 +248,7 @@ fn disabled_deterministic_names_fail_before_other_input_validation() {
                 Duration::from_secs(60),
             );
             assert!(!output.status.success());
-            assert!(output.stdout.is_empty());
+            assert_eq!(output.stdout, [] as [u8; 0]);
             assert_eq!(
                 std::str::from_utf8(&output.stderr).unwrap().trim(),
                 "deterministic workloads require the deterministic feature"

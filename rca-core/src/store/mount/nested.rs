@@ -132,7 +132,7 @@ pub(in crate::store) fn reconcile_roster<R, A, C: Carriers<R, A>>(
     }
     let old = std::mem::take(mounts);
     let has_collections = old.iter().any(|owner| owner.can_reorder());
-    let mut reordered_parents = std::collections::HashSet::new();
+    let mut reordered_parents = None;
     let mut next: Vec<Box<C::Mount>> = Vec::with_capacity(old.len());
     let mut frames = vec![(old.into_iter(), None::<usize>)];
     while let Some((frame, _)) = frames.last_mut() {
@@ -184,7 +184,9 @@ pub(in crate::store) fn reconcile_roster<R, A, C: Carriers<R, A>>(
                 .map(crate::diagnostics::LifecycleCall::reborrow),
         );
         if descendants.reordered || (has_collections && previous != owner.installed_scope()) {
-            reordered_parents.insert(parent);
+            reordered_parents
+                .get_or_insert_with(std::collections::HashSet::new)
+                .insert(parent);
         }
         if discovered.is_empty() && scopes.installation_is_live() {
             owner.finish_reconcile();
@@ -195,8 +197,10 @@ pub(in crate::store) fn reconcile_roster<R, A, C: Carriers<R, A>>(
             frames.push((discovered.into_iter(), Some(index)));
         }
     }
-    if scopes.installation_is_live() && !reordered_parents.is_empty() {
-        relink_reordered_children::<R, A, C>(&next, reordered_parents, scopes);
+    if scopes.installation_is_live()
+        && let Some(parents) = reordered_parents
+    {
+        relink_reordered_children::<R, A, C>(&next, parents, scopes);
     }
     *mounts = next;
 }

@@ -185,6 +185,6 @@ fn invalid_dependency_inputs_emit_no_success_record() {
     ] {
         let output = run(&args);
         assert!(!output.status.success(), "{args:?}");
-        assert!(output.stdout.is_empty(), "{args:?}");
+        assert_eq!(output.stdout, [] as [u8; 0], "{args:?}");
     }
 }

@@ -210,7 +210,7 @@ fn invalid_observation_inputs_emit_no_success_record() {
             Duration::from_secs(60),
         );
         assert_eq!(output.status.code(), Some(1));
-        assert!(output.stdout.is_empty());
-        assert!(!output.stderr.is_empty());
+        assert_eq!(output.stdout, [] as [u8; 0]);
+        assert_ne!(output.stderr, [] as [u8; 0]);
     }
 }

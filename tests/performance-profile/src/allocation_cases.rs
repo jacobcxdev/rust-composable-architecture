@@ -303,7 +303,7 @@ mod tests {
             )));
         assert_eq!(CASES.len(), expected);
         for (index, case) in CASES.iter().enumerate() {
-            assert!(!case.0.is_empty());
+            assert_ne!(case.0, "");
             assert!(!CASES[..index].iter().any(|previous| previous.0 == case.0));
         }
     }

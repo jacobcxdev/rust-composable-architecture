@@ -174,7 +174,7 @@ fn finite_mismatch_matrix_retains_failure_then_disposes_all_owners() {
             String::from_utf8_lossy(&output.stderr)
         );
         #[cfg(not(feature = "allocations"))]
-        assert!(output.stderr.is_empty());
+        assert_eq!(output.stderr, [] as [u8; 0]);
         #[cfg(feature = "allocations")]
         {
             let stderr = std::str::from_utf8(&output.stderr).unwrap();
@@ -278,8 +278,8 @@ fn invalid_names_and_dimensions_emit_no_success() {
     ] {
         let output = child(&args);
         assert!(!output.status.success());
-        assert!(output.stdout.is_empty());
-        assert!(!output.stderr.is_empty());
+        assert_eq!(output.stdout, [] as [u8; 0]);
+        assert_ne!(output.stderr, [] as [u8; 0]);
         #[cfg(not(feature = "deterministic"))]
         assert_eq!(
             std::str::from_utf8(&output.stderr).unwrap().trim(),
@@ -295,7 +295,7 @@ fn disabled_names_reject_before_dimension_validation_or_measurement() {
         for args in [vec![name], vec![name, "0", "1"], vec![name, "65536", "1"]] {
             let output = child(&args);
             assert!(!output.status.success());
-            assert!(output.stdout.is_empty());
+            assert_eq!(output.stdout, [] as [u8; 0]);
             assert_eq!(
                 std::str::from_utf8(&output.stderr).unwrap().trim(),
                 "teststore workloads require the deterministic feature"

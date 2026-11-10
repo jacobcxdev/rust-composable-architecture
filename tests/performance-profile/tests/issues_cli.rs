@@ -109,7 +109,7 @@ fn issue_inputs_reject_before_a_success_record() {
     ] {
         let output = run(&args);
         assert_eq!(output.status.code(), Some(1), "{args:?}");
-        assert!(output.stdout.is_empty(), "{args:?}");
-        assert!(!output.stderr.is_empty(), "{args:?}");
+        assert_eq!(output.stdout, [] as [u8; 0], "{args:?}");
+        assert_ne!(output.stderr, [] as [u8; 0], "{args:?}");
     }
 }

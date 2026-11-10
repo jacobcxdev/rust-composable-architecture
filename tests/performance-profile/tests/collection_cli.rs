@@ -119,6 +119,6 @@ fn invalid_collection_dimensions_emit_no_success_record() {
             Duration::from_secs(60),
         );
         assert!(!output.status.success());
-        assert!(output.stdout.is_empty());
+        assert_eq!(output.stdout, [] as [u8; 0]);
     }
 }
