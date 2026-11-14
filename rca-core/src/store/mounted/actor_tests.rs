@@ -124,7 +124,7 @@ impl Feature for Child {
                 let export = Arc::clone(export);
                 context.effect(Effect::run(move |sender| async move {
                     *export.lock().unwrap() = Some(sender);
-                    std::future::pending().await
+                    std::future::pending::<()>().await;
                 }));
             }
             ChildAction::Captured(capture) => {
@@ -416,11 +416,8 @@ fn mounted_command_rejection_preserves_unmapped_payload_and_queued_work() {
             drop(acquire);
             drop((mount, site));
             let mut actor = Some(actor);
-            let queued = if matches!(rejection, CommandRejection::Full) {
-                Some(store.try_send(3).unwrap())
-            } else {
-                None
-            };
+            let queued =
+                matches!(rejection, CommandRejection::Full).then(|| store.try_send(3).unwrap());
             match rejection {
                 CommandRejection::AuthorityEnded => drop(actor.take()),
                 CommandRejection::TransportClosed => assert!(store.ingress.close()),

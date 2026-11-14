@@ -1976,9 +1976,11 @@ ordinary_test_items! {
 
         #[test]
         fn startup_stops_when_initial_spawn_closes_admission_before_retained_head() {
+            type StartupIngress = Arc<std::sync::Mutex<Option<Weak<Ingress<(), ()>>>>>;
+
             struct ClosingDriver {
                 launch: LaunchDriver,
-                ingress: Arc<std::sync::Mutex<Option<Weak<Ingress<(), ()>>>>>,
+                ingress: StartupIngress,
             }
             impl fmt::Debug for ClosingDriver {
                 fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -2024,16 +2026,16 @@ ordinary_test_items! {
             let mount = crate::OptionalMount::new(
                 |state: &()| Some(state),
                 |state: &mut ()| Some(state),
-                |_| Some(crate::MountIdentity {
+                |()| Some(crate::MountIdentity {
                     key: (),
                     replacement: 0,
                     configuration: 0,
                 }),
-                |_| crate::Reduce::new(
+                |()| crate::Reduce::new(
                     |(): &mut (), (): &(), _: &mut ReduceContext<'_>| Effect::none(),
                 ),
             )
-            .on_initial(|_| (), |_, _| crate::Task::<(), ()>::run(|_| async {}));
+            .on_initial(|()| (), |_, _| crate::Task::<(), ()>::run(|_| async {}));
             let (owner, _) = super::super::mount::attach(mount);
             actor.attach_mounts(vec![owner]);
             let (reply, mut receive) = crate::store::command::commit_channel();
