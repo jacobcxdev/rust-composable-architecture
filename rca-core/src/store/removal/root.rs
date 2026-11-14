@@ -113,7 +113,15 @@ impl<R: Send + 'static, A: Send + 'static> MountedWork<R, A, Shared> for RootWor
         origin: WorkOrigin<'_>,
         launches: &mut Launches<crate::RuntimeFuture>,
     ) {
-        super::super::transaction::register_root_work(self.0, parts, origin, launches);
+        super::super::transaction::register_root_work(
+            crate::feature::RootWork::new(
+                self.0,
+                <Shared as crate::store::carriers::Execution<R, A>>::ROOT_REGISTRAR,
+            ),
+            parts,
+            origin,
+            launches,
+        );
     }
 }
 

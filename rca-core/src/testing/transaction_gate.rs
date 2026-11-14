@@ -337,10 +337,6 @@ impl<S, A, C: Carriers<S, A>> Pending<S, A, C> {
         }
     }
     /// Selects gateable mutations while returning other commands without copying them.
-    #[expect(
-        clippy::result_large_err,
-        reason = "Unrecognised commands must retain their original owned payload and reply without allocating an error box"
-    )]
     pub(crate) fn from_command(command: Command<S, A, C>) -> Result<Self, Command<S, A, C>> {
         match command {
             Command::Output {
@@ -402,10 +398,10 @@ impl<S, A, C: Carriers<S, A>> Pending<S, A, C> {
             other => Err(other),
         }
     }
-    /// Restores the original production command without changing its payload or reply.
-    pub(crate) fn into_command(self) -> Command<S, A, C> {
-        match self {
-            Self::Structural => Command::Structural,
+    /// Restores the original command or returns `None` for actor startup.
+    pub(crate) fn into_command(self) -> Option<Command<S, A, C>> {
+        Some(match self {
+            Self::Structural => return None,
             Self::Output {
                 call,
                 provenance,
@@ -451,7 +447,7 @@ impl<S, A, C: Carriers<S, A>> Pending<S, A, C> {
                 authority,
                 operation_work,
             },
-        }
+        })
     }
     /// Identifies externally admitted root actions eligible for a reserved release.
     pub(crate) fn is_root(&self) -> bool {
@@ -2353,7 +2349,9 @@ mod tests {
             ];
             for (index, command) in commands.into_iter().enumerate() {
                 let pending = Pending::from_command(command).ok().unwrap();
-                let pending = Pending::from_command(pending.into_command()).ok().unwrap();
+                let pending = Pending::from_command(pending.into_command().unwrap())
+                    .ok()
+                    .unwrap();
                 binding.gate().begin(pending, diagnostics(), false);
                 assert_eq!(
                     gate.pending_kind(),

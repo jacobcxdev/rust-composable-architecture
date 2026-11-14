@@ -62,15 +62,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "concurrent-queue"
-version = "2.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4ca0197aee26d1ae37445ee532fefce43251d24cc7c166799f4d46817f1d3973"
-dependencies = [
- "crossbeam-utils",
-]
-
-[[package]]
 name = "crossbeam-utils"
 version = "0.8.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -264,16 +255,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "rca-async-channel"
-version = "0.1.0"
-dependencies = [
- "concurrent-queue",
- "futures-core",
- "pin-project-lite",
- "rca-event-listener-strategy",
-]
-
-[[package]]
 name = "rca-core"
 version = "0.1.0"
 dependencies = [
@@ -283,8 +264,8 @@ dependencies = [
  "indexmap",
  "parking_lot",
  "pin-project-lite",
- "rca-async-channel",
  "rca-event-listener",
+ "triomphe",
 ]
 
 [[package]]
@@ -294,14 +275,6 @@ dependencies = [
  "arrayvec",
  "parking",
  "pin-project-lite",
-]
-
-[[package]]
-name = "rca-event-listener-strategy"
-version = "0.1.0"
-dependencies = [
- "pin-project-lite",
- "rca-event-listener",
 ]
 
 [[package]]
@@ -419,6 +392,12 @@ checksum = "ce3335fa71841cda333a58d7615b03901380ecf09d59b3296d21f8bbac0dde4e"
 dependencies = [
  "pin-project-lite",
 ]
+
+[[package]]
+name = "triomphe"
+version = "0.1.17"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0d15f4f5898bcfc5d8a8e45ed30b2f108d710c1a2e5489dbf80e078f707181bc"
 
 [[package]]
 name = "unicode-ident"

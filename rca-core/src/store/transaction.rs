@@ -31,12 +31,16 @@ use super::{ActionTask, Ingress};
 use crate::effect::leaves::{EffectLeaves, EffectValue};
 use crate::effect::lineage::{ControlWake, LineageState};
 use crate::effect::operation::{
-    OperationAncestry, OperationDeclaration, OperationPolicy, OperationRegistration,
+    OperationAncestry, OperationDeclaration, OperationRegistration, OperationStart,
+    StartedOperation,
 };
-use crate::effect::registry::{GenerationToken, TaskId, TaskRegistry, TaskStatus, TerminalTask};
-use crate::effect::timer::{TimerId, TimerQueue};
-use crate::effect::{EffectSendFuture, Program};
-use crate::feature::{ReduceDriver, Work, WorkItem};
+use crate::effect::registry::{
+    GenerationToken, PreparedTask, TaskGenerations, TaskId, TaskRegistry, TaskStatus, TerminalTask,
+};
+use crate::effect::timer::TimerQueue;
+use crate::effect::{EffectSendFuture, OneShotDeadline, Program};
+use crate::feature::{ReduceDriver, RootWork, WorkItem};
+use crate::store::mailbox;
 use crate::{DependencyValues, EffectSendError, MonotonicInstant, ReduceContext};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -85,7 +89,14 @@ impl<F> Turn<F> {
 ///
 /// No part owns the actor or executor. Callbacks may enqueue later commands or
 /// close admission, but cannot re-enter these exclusive state/map borrows.
-pub(crate) struct TransactionParts<'a, State, Action, C: Carriers<State, Action> = Shared> {
+/// Timed phases receive a clock sample. Metadata-only requests use `()`.
+pub(crate) struct TransactionParts<
+    'a,
+    State,
+    Action,
+    C: Carriers<State, Action> = Shared,
+    Stamp = MonotonicInstant,
+> {
     /// Root value accessed only within the current serial phase.
     pub(super) state: &'a mut State,
     /// Feature driver that owns reducer and hook state.
@@ -125,12 +136,10 @@ pub(crate) struct TransactionParts<'a, State, Action, C: Carriers<State, Action>
     pub(super) next_sequence_id: &'a mut SequenceId,
     /// Actor-owned delayed payloads, ordered by deadline and insertion.
     pub(super) timers: &'a mut TimerQueue<TimerPayload<State, Action, C>>,
-    /// Reverse task-to-timer index used before terminal task accounting.
-    pub(super) task_timers: &'a mut HashMap<TaskId, TimerId>,
     /// Live observers closed on retirement and published after registration.
     pub(super) observations: &'a mut ObservationRegistryCore<State, C::ObservationEntry>,
-    /// One clock sample supplied by the actor for this transaction.
-    pub(super) now: MonotonicInstant,
+    /// Clock sample for timed work, or unit for metadata-only requests.
+    pub(super) now: Stamp,
     /// Optional assertion boundary that receives the committed resource snapshot.
     #[cfg(feature = "test-util")]
     pub(super) assertion_gate: &'a Option<crate::testing::AssertionGateBinding<Action>>,
@@ -158,10 +167,52 @@ pub(super) enum Mutation<'a, S, A, C: Carriers<S, A> = Shared> {
     Output(Box<C::Output>, Provenance, super::scope::ScopeAuthority),
 }
 
+/// Borrows independent transaction resources for one owned root task.
+type RootRegistration<S, A, C> = fn(
+    <C as Carriers<S, A>>::Task,
+    &mut TransactionParts<'_, S, A, C>,
+    &mut WorkOrigin<'_>,
+    &mut Launches<<C as Carriers<S, A>>::Future>,
+);
+
+/// Selects typed root registration without linking it into effect-only drivers.
+///
+/// The nominal wrapper keeps the recursive driver relationship behind one pointer.
+/// Its input borrows are independent of the transaction's inner state lifetime.
+pub(crate) struct RootRegistrar<S, A, C: Carriers<S, A>> {
+    /// Registers one owned typed task at the caller's current commit boundary.
+    pub(super) invoke: RootRegistration<S, A, C>,
+}
+
+impl<S, A, C: Carriers<S, A>> Copy for RootRegistrar<S, A, C> {}
+
+impl<S, A, C: Carriers<S, A>> Clone for RootRegistrar<S, A, C> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+
+impl<S, A, C: Carriers<S, A>> RootRegistrar<S, A, C> {
+    /// Transfers one task to its selected interpreter without polling user code.
+    fn register(
+        self,
+        task: C::Task,
+        parts: &mut TransactionParts<'_, S, A, C>,
+        origin: &mut WorkOrigin<'_>,
+        launches: &mut Launches<C::Future>,
+    ) {
+        (self.invoke)(task, parts, origin, launches);
+    }
+}
+
+/// Carries root declarations and their selected typed-task interpreter together.
+pub(crate) type RootBatch<S, A, C> =
+    RootWork<EffectOf<S, A, C>, <C as Carriers<S, A>>::Task, RootRegistrar<S, A, C>>;
+
 /// Retains returned work before reconciliation permits registration.
 pub(crate) enum Batch<S, A, C: Carriers<S, A>> {
     /// Root effects and typed tasks in their declared order.
-    Root(Work<EffectOf<S, A, C>, C::Task>),
+    Root(RootBatch<S, A, C>),
     /// Child-typed work with the scope needed to register its routed leaves.
     Mounted {
         /// Optional erased child work; an empty return needs no allocation.
@@ -291,7 +342,7 @@ pub(super) fn commit<S: 'static, A: 'static, C: Execution<S, A>>(
     let (mut work, provenance, mut reply, cancellation): (Batch<S, A, C>, _, _, _) = match mutation
     {
         Mutation::Structural => (
-            Batch::Root(Work::default()),
+            Batch::Root(RootWork::Empty),
             Provenance::External { handle: None },
             Reply::Structural,
             None,
@@ -462,7 +513,7 @@ pub(super) fn commit<S: 'static, A: 'static, C: Execution<S, A>>(
             };
             output_work = work;
             (
-                Batch::Root(Work::default()),
+                Batch::Root(RootWork::Empty),
                 provenance,
                 Reply::Update(reply),
                 None,
@@ -534,7 +585,7 @@ pub(super) fn commit<S: 'static, A: 'static, C: Execution<S, A>>(
                 super::task_context::Apply::Rejected(error) => return Turn::rejected(error),
             };
             (
-                Batch::Root(Work::default()),
+                Batch::Root(RootWork::Empty),
                 provenance,
                 Reply::Update(reply),
                 None,
@@ -577,12 +628,11 @@ pub(super) fn commit<S: 'static, A: 'static, C: Execution<S, A>>(
             });
         }
     }
-    let cancelled_timers = parts
-        .timers
-        .cancel_scopes(&transitions, |timer| timer.provenance.scope);
-    for timer in cancelled_timers {
-        parts.task_timers.remove(&timer.task);
-    }
+    drop(
+        parts
+            .timers
+            .cancel_scopes(&transitions, |timer| timer.provenance.scope),
+    );
     parts.remove_cancelled_timers(cancelled_actor_tasks);
     if !transitions.is_empty() {
         parts.prune_deferred_scopes();
@@ -780,14 +830,15 @@ pub(super) fn commit<S: 'static, A: 'static, C: Execution<S, A>>(
 
 /// Registers root effects/tasks in order without invoking their runtime factories.
 pub(super) fn register_root_work<S: 'static, A: 'static, C: Execution<S, A>>(
-    work: Work<EffectOf<S, A, C>, C::Task>,
+    work: RootBatch<S, A, C>,
     parts: &mut TransactionParts<'_, S, A, C>,
     mut origin: WorkOrigin<'_>,
     launches: &mut Launches<C::Future>,
 ) {
-    for item in work {
-        match item {
-            WorkItem::Effect(effect) => parts.compile_effect(
+    match work {
+        RootWork::Empty => {}
+        RootWork::Effect(effect) => {
+            parts.compile_effect(
                 effect,
                 WorkOrigin {
                     scope: parts.scopes.root(),
@@ -795,50 +846,81 @@ pub(super) fn register_root_work<S: 'static, A: 'static, C: Execution<S, A>>(
                     ..origin.reborrow()
                 },
                 launches,
-            ),
-            WorkItem::Task(task) => {
-                let (task, declaration) = C::task_parts(task);
-                let named = declaration.map(|declaration| {
-                    parts.begin_operation(
-                        declaration,
-                        parts.scopes.root(),
-                        origin.generations,
-                        origin.operations,
-                    )
-                });
-                let operations = named
-                    .as_ref()
-                    .map_or(origin.operations, |(_, ancestry, _)| ancestry);
-                let lineage = Arc::clone(
-                    origin
-                        .lineage
-                        .get_or_insert_with(|| LineageState::new(Arc::downgrade(parts.control))),
-                );
-                let scope = parts.scopes.root();
-                let prepared = parts.registry.prepare_with_operations(
-                    scope,
-                    Arc::clone(&lineage),
-                    origin.generations,
-                    operations,
-                );
-                let provenance = Provenance::Effect {
-                    scope,
-                    lineage,
-                    task: prepared.sender_token(),
-                    generations: prepared.generation_tokens(),
-                    operations: prepared.operation_ancestry(),
-                };
-                let context = C::context(
-                    Weak::clone(parts.ingress),
-                    scope,
-                    provenance,
-                    parts.scopes.authority(scope),
-                );
-                launches.push(C::register_task(parts.registry, prepared, task, context));
-                parts.end_operation(named, origin.generations);
+            );
+        }
+        RootWork::Full { work, registrar } => {
+            for item in work {
+                match item {
+                    WorkItem::Effect(effect) => parts.compile_effect(
+                        effect,
+                        WorkOrigin {
+                            scope: parts.scopes.root(),
+                            group: None,
+                            ..origin.reborrow()
+                        },
+                        launches,
+                    ),
+                    WorkItem::Task(task) => {
+                        registrar.register(task, parts, &mut origin, launches);
+                    }
+                }
             }
         }
     }
+}
+
+/// Registers one typed root task without polling its factory.
+///
+/// Only producers that can return full work retain this interpreter's address.
+/// The caller preserves declaration order, shared lineage and operation brackets.
+///
+/// # Panics
+/// Propagates named-key and registration panics. The caller retains earlier launches.
+pub(super) fn register_root_task<S: 'static, A: 'static, C: Execution<S, A>>(
+    task: C::Task,
+    parts: &mut TransactionParts<'_, S, A, C>,
+    origin: &mut WorkOrigin<'_>,
+    launches: &mut Launches<C::Future>,
+) {
+    let (task, declaration) = C::task_parts(task);
+    let named = declaration.map(|declaration| {
+        parts.begin_operation(
+            declaration,
+            parts.scopes.root(),
+            origin.generations,
+            origin.operations,
+        )
+    });
+    let operations = named
+        .as_ref()
+        .map_or(origin.operations, |(_, ancestry, _)| ancestry);
+    let lineage = Arc::clone(
+        origin
+            .lineage
+            .get_or_insert_with(|| LineageState::new(Arc::downgrade(parts.control))),
+    );
+    let scope = parts.scopes.root();
+    let prepared = parts.registry.prepare_with_operations(
+        scope,
+        Arc::clone(&lineage),
+        origin.generations,
+        operations,
+    );
+    let provenance = Provenance::Effect {
+        scope,
+        lineage,
+        task: prepared.sender_token(),
+        generations: prepared.generation_tokens(),
+        operations: prepared.operation_ancestry(),
+    };
+    let context = C::context(
+        Weak::clone(parts.ingress),
+        scope,
+        provenance,
+        parts.scopes.authority(scope),
+    );
+    launches.push(C::register_task(parts.registry, prepared, task, context));
+    parts.end_operation(named, origin.generations);
 }
 
 /// Dispatches typed task access; reads validate authority without making a commit.
@@ -875,8 +957,8 @@ pub(crate) mod allocation_tests;
 #[cfg(test)]
 ordinary_test_items! { pub(in crate::store) mod tests; }
 
-impl<State: 'static, Action: 'static, C: Execution<State, Action>>
-    TransactionParts<'_, State, Action, C>
+impl<State: 'static, Action: 'static, C: Execution<State, Action>, Stamp>
+    TransactionParts<'_, State, Action, C, Stamp>
 {
     /// Rejects closed, foreign/stale or cancelled access before user code enters.
     pub(super) fn rejection(
@@ -900,7 +982,11 @@ impl<State: 'static, Action: 'static, C: Execution<State, Action>>
         };
         Some(TaskAccessError::new(reason, TaskProgress::NotStarted))
     }
+}
 
+impl<State: 'static, Action: 'static, C: Execution<State, Action>>
+    TransactionParts<'_, State, Action, C>
+{
     /// Compiles one root-typed description using the common routed interpreter.
     pub(super) fn compile_effect(
         &mut self,
@@ -956,9 +1042,9 @@ impl<State: 'static, Action: 'static, C: Execution<State, Action>>
                 group,
                 launches,
             ),
-            Program::Run(operation) => self.register_leaf::<X, E, D>(
+            Program::Runtime(leaf) => self.register_leaf::<X, E, D>(
                 &delivery,
-                EffectLeaf::Run(operation),
+                EffectLeaf::from(leaf),
                 scope,
                 lineage,
                 generations,
@@ -966,41 +1052,58 @@ impl<State: 'static, Action: 'static, C: Execution<State, Action>>
                 group,
                 launches,
             ),
-            Program::FallibleRun(operation) => self.register_leaf::<X, E, D>(
-                &delivery,
-                EffectLeaf::Fallible(operation),
-                scope,
-                lineage,
-                generations,
-                operations,
-                group,
-                launches,
-            ),
-            Program::Future(future) => self.register_leaf::<X, E, D>(
-                &delivery,
-                EffectLeaf::Future(future),
-                scope,
-                lineage,
-                generations,
-                operations,
-                group,
-                launches,
-            ),
-            Program::Merge(effects) => {
+            Program::Merge(mut effects) => {
+                let mut runtime_only = true;
+                let dense = launches.reserve_dense(effects.len(), || {
+                    effects.iter_mut().all(|effect| {
+                        let (program, scope) = effect.parts_mut();
+                        let runtime = matches!(program, Program::Runtime(_));
+                        runtime_only &= runtime;
+                        scope.is_none() && (runtime || matches!(program, Program::Send(_)))
+                    })
+                });
+                // Only flat Runtime siblings share this immutable capture. The
+                // enclosing generation vector still owns every captured key.
+                let captured = (dense && runtime_only && !generations.is_empty())
+                    .then(|| TaskGenerations::capture(generations));
                 for effect in effects {
-                    self.compile_routed::<X, E, D>(
-                        effect,
-                        delivery.clone(),
-                        WorkOrigin {
-                            scope,
-                            lineage,
-                            generations,
-                            operations,
-                            inherited_generations,
-                            group,
-                        },
-                        launches,
-                    );
+                    let delivery = delivery.clone();
+                    let (program, effect_scope) = effect.into_parts();
+                    match (program, effect_scope, captured.as_ref()) {
+                        (Program::Runtime(leaf), None, Some(captured)) => {
+                            let task_lineage = Arc::clone(lineage.get_or_insert_with(|| {
+                                LineageState::new(Arc::downgrade(self.control))
+                            }));
+                            let prepared = self.registry.prepare_captured(
+                                scope,
+                                Arc::clone(&task_lineage),
+                                captured.clone(),
+                                operations,
+                            );
+                            self.register_prepared_leaf::<X, E, D>(
+                                &delivery,
+                                EffectLeaf::from(leaf),
+                                scope,
+                                task_lineage,
+                                prepared,
+                                group,
+                                launches,
+                            );
+                        }
+                        (program, effect_scope, _) => self.compile_routed::<X, E, D>(
+                            E::Effect::from_parts(program, effect_scope),
+                            delivery,
+                            WorkOrigin {
+                                scope,
+                                lineage,
+                                generations,
+                                operations,
+                                inherited_generations,
+                                group,
+                            },
+                            launches,
+                        ),
+                    }
                 }
             }
             Program::Concatenate(effects) => self.register_sequence(
@@ -1042,8 +1145,11 @@ impl<State: 'static, Action: 'static, C: Execution<State, Action>>
                     group,
                 );
             }
-            Program::SendAfter { duration, action } => {
-                let deadline = self.now.saturating_add(duration);
+            Program::ScheduledSend { deadline, action } => {
+                let deadline = match deadline {
+                    OneShotDeadline::After(duration) => self.now.saturating_add(duration),
+                    OneShotDeadline::At(deadline) => deadline,
+                };
                 self.register_timer(
                     deadline,
                     delivery.timer(TimerKind::OneShot(action)),
@@ -1054,15 +1160,6 @@ impl<State: 'static, Action: 'static, C: Execution<State, Action>>
                     group,
                 );
             }
-            Program::SendAt { deadline, action } => self.register_timer(
-                deadline,
-                delivery.timer(TimerKind::OneShot(action)),
-                scope,
-                lineage,
-                generations,
-                operations,
-                group,
-            ),
             Program::Interval {
                 period,
                 make_action,
@@ -1149,24 +1246,25 @@ impl<State: 'static, Action: 'static, C: Execution<State, Action>>
         generations: &mut Vec<GenerationToken>,
         operations: &OperationAncestry,
     ) -> (GenerationToken, OperationAncestry, OperationRegistration) {
-        let completion = LineageState::new(Arc::downgrade(self.control));
-        let registration = OperationRegistration::new(Arc::clone(&completion));
-        let ancestry = operations.with_generation(Arc::clone(&completion));
-        let identity = declaration.identity.in_scope(scope);
-        let cancelled = if declaration.policy == OperationPolicy::Replace {
-            self.request_cancellation(
-                &identity,
-                scope,
-                #[cfg(feature = "diagnostics")]
-                crate::diagnostics::CancellationCause::Replacement,
-            )
-        } else {
-            Vec::new()
-        };
-        let token = self
-            .registry
-            .register_named_generation(identity, completion);
-        self.remove_cancelled_timers(cancelled);
+        let StartedOperation {
+            token,
+            ancestry,
+            registration,
+            cancelled_timers,
+        } = declaration.start(&mut OperationStart {
+            registry: self.registry,
+            control: self.control,
+            ancestry: operations,
+            scope,
+            #[cfg(feature = "diagnostics")]
+            diagnostics: self.lifecycle_sink.as_deref_mut().map(|sink| {
+                crate::diagnostics::LifecycleCall::new(
+                    C::lifecycle_sink(sink),
+                    *self.commit_version,
+                )
+            }),
+        });
+        self.remove_cancelled_timers(cancelled_timers);
         generations.push(token.clone());
         (token, ancestry, registration)
     }
@@ -1230,21 +1328,24 @@ impl<State: 'static, Action: 'static, C: Execution<State, Action>>
         let operation_work = prepared.take_operation_work();
         self.registry.register_actor(prepared);
         if provenance.is_live() {
-            let timer = self.timers.insert(
+            self.timers.schedule(
+                task,
                 deadline,
                 TimerPayload {
-                    task,
                     provenance,
                     kind,
                     operation_work,
                 },
             );
-            self.task_timers.insert(task, timer);
         } else {
             self.registry.complete_actor(task, TaskStatus::Cancelled);
         }
     }
+}
 
+impl<State: 'static, Action: 'static, C: Execution<State, Action>, Stamp>
+    TransactionParts<'_, State, Action, C, Stamp>
+{
     /// Cancels matching generations and releases their actor-owned timer payloads.
     fn cancel_identity(
         &mut self,
@@ -1288,13 +1389,15 @@ impl<State: 'static, Action: 'static, C: Execution<State, Action>>
         }
     }
 
-    /// Removes reverse indexing before destroying an owned delayed payload.
+    /// Removes the timer before its payload drops.
     pub(super) fn remove_task_timer(&mut self, task: TaskId) {
-        if let Some(timer) = self.task_timers.remove(&task) {
-            self.timers.remove(timer);
-        }
+        drop(self.timers.remove(task));
     }
+}
 
+impl<State: 'static, Action: 'static, C: Execution<State, Action>>
+    TransactionParts<'_, State, Action, C>
+{
     /// Drops retired suffixes and completes waits that no longer guard any work.
     fn prune_deferred_scopes(&mut self) {
         for sequence in self.sequences.values_mut() {
@@ -1312,9 +1415,7 @@ impl<State: 'static, Action: 'static, C: Execution<State, Action>>
         for task in orphaned_waits {
             // Only disjoint timer/registry fields change. Sequence ownership and
             // its optional wait index remain borrowed during payload destruction.
-            if let Some(timer) = self.task_timers.remove(&task) {
-                self.timers.remove(timer);
-            }
+            drop(self.timers.remove(task));
             if self.registry.task_is_running(task) {
                 self.registry.complete_actor(task, TaskStatus::Cancelled);
             }
@@ -1349,6 +1450,29 @@ impl<State: 'static, Action: 'static, C: Execution<State, Action>>
             generations,
             operations,
         );
+        self.register_prepared_leaf::<X, E, D>(
+            delivery, leaf, scope, lineage, prepared, group, launches,
+        );
+    }
+
+    /// Installs provenance and group ownership before returning an unpolled launch.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "explicit prepared ownership and launch ordering are shared by ordinary and dense registration"
+    )]
+    fn register_prepared_leaf<X, E, D>(
+        &mut self,
+        delivery: &D,
+        leaf: EffectLeaf<X, E>,
+        scope: ScopeToken,
+        lineage: Arc<LineageState>,
+        prepared: PreparedTask,
+        group: Option<&Arc<WorkGroup>>,
+        launches: &mut Launches<C::Future>,
+    ) where
+        E: EffectLeaves<X>,
+        D: Delivery<X, E, State, Action, C>,
+    {
         let provenance = Provenance::Effect {
             scope,
             lineage,
@@ -1555,7 +1679,7 @@ impl<State: 'static, Action: 'static, C: Execution<State, Action>>
 
 /// Handles ordered named-work access without mutating state or advancing revision.
 pub(super) fn operation<S: 'static, A: 'static, C: Execution<S, A>>(
-    mut parts: TransactionParts<'_, S, A, C>,
+    mut parts: TransactionParts<'_, S, A, C, ()>,
     request: super::operation::OperationRequest,
     metadata: &(impl super::operation::OperationMetadata + ?Sized),
 ) -> Turn<C::Future> {
@@ -1683,8 +1807,8 @@ pub(super) fn admit_effect_action<S, A, C: Carriers<S, A>>(
     });
     match ingress.try_send(command) {
         Ok(()) => EffectAdmission::Receiving(receive),
-        Err(async_channel::TrySendError::Closed(_command)) => EffectAdmission::Stopped,
-        Err(async_channel::TrySendError::Full(command)) => EffectAdmission::Full {
+        Err(mailbox::TrySendError::Disconnected(_command)) => EffectAdmission::Stopped,
+        Err(mailbox::TrySendError::Full(command)) => EffectAdmission::Full {
             ingress,
             command,
             receive,

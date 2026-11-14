@@ -839,14 +839,14 @@ class RunnerTests(unittest.TestCase):
 
     def test_capture_environment_pins_the_parent_python_for_child_and_hashes(self):
         versions = {
-            "cargo": "cargo 1.99.0 (5f94df478 2026-08-27)",
-            "rustc": "rustc 1.99.0 (b940084d7 2026-09-28)",
-            "rustdoc": "rustdoc 1.99.0 (b940084d7 2026-09-28)",
+            "cargo": "cargo 1.100.0 (3acc79c0c 2026-11-05)",
+            "rustc": "rustc 1.100.0 (0ef1bc386 2026-11-09)",
+            "rustdoc": "rustdoc 1.100.0 (0ef1bc386 2026-11-09)",
         }
 
         def tool(command, **_kwargs):
             if command[0] == "rustup":
-                self.assertEqual(command[3], "1.99.0")
+                self.assertEqual(command[3], "1.100.0")
                 return f"/pinned/{command[-1]}"
             return versions[Path(command[0]).name]
 
@@ -893,7 +893,7 @@ class RunnerTests(unittest.TestCase):
                 text=True, capture_output=True,
             )
             self.assertEqual(selected.returncode, 0, selected.stderr)
-            self.assertEqual(selected.stdout.strip(), python)
+            self.assertEqual(Path(selected.stdout.strip()).resolve(), Path(python))
             self.assertFalse((directory / "output").exists())
 
     def test_absolute_capture_uses_controller_fix_on_reference_sources(self):

@@ -19,6 +19,8 @@ use std::backtrace::{Backtrace, BacktraceStatus};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
+#[cfg(target_pointer_width = "64")]
+use std::task::{Context, Poll, Waker};
 
 #[global_allocator]
 /// Measures the selected child assay, including its explicitly driven actor work.
@@ -76,6 +78,87 @@ fn warmed_committed_actions_do_not_allocate_general_purpose_reply_channels() {
         120
     );
     assert!(runtime.join_all().into_iter().all(|result| result.is_ok()));
+}
+
+/// Limits the storage for one graceful shutdown acknowledgement.
+#[cfg(target_pointer_width = "64")]
+fn shutdown_acknowledgement_uses_one_compact_allocation() {
+    const NAME: &str = "shutdown_acknowledgement_uses_one_compact_allocation";
+    if allocation_test::run_in_child(NAME) {
+        return;
+    }
+
+    let runtime = support::ManualRuntime::new();
+    let store = Store::new(0, Counter, runtime.runtime());
+    let mut actor = runtime.take_only_queued_task();
+    let mut context = Context::from_waker(Waker::noop());
+    assert!(actor.as_mut().poll(&mut context).is_pending());
+    let mut shutdown = std::pin::pin!(store.shutdown());
+
+    let profiler = dhat::Profiler::builder().testing().build();
+    let before = dhat::HeapStats::get();
+    assert!(shutdown.as_mut().poll(&mut context).is_pending());
+    let after = dhat::HeapStats::get();
+    drop(profiler);
+
+    assert!(actor.as_mut().poll(&mut context).is_ready());
+    assert!(matches!(
+        shutdown.as_mut().poll(&mut context),
+        Poll::Ready(Ok(()))
+    ));
+    let blocks = after.total_blocks - before.total_blocks;
+    let bytes = after.total_bytes - before.total_bytes;
+    assert_eq!(
+        blocks, 1,
+        "shutdown acknowledgement allocated {blocks} blocks"
+    );
+    assert!(
+        bytes <= 96,
+        "shutdown acknowledgement allocated {bytes} bytes"
+    );
+}
+
+/// Limits allocations to the handle's liveness signal and single reply.
+#[cfg(target_pointer_width = "64")]
+fn scoped_handle_admission_allocates_only_signal_and_reply() {
+    const NAME: &str = "scoped_handle_admission_allocates_only_signal_and_reply";
+    if allocation_test::run_in_child(NAME) {
+        return;
+    }
+
+    let runtime = support::ManualRuntime::new();
+    let store = Store::new(0, Counter, runtime.runtime());
+    let mut actor = runtime.take_only_queued_task();
+    let mut context = Context::from_waker(Waker::noop());
+    assert!(actor.as_mut().poll(&mut context).is_pending());
+    let mut registration = std::pin::pin!(store.scope_identified(
+        rca_core::identity_state_path(),
+        rca_core::identity_action_path(),
+        |state| state,
+    ));
+
+    let profiler = dhat::Profiler::builder().testing().build();
+    let before = dhat::HeapStats::get();
+    assert!(registration.as_mut().poll(&mut context).is_pending());
+    let after = dhat::HeapStats::get();
+    drop(profiler);
+
+    assert!(actor.as_mut().poll(&mut context).is_pending());
+    let Poll::Ready(Ok(handle)) = registration.as_mut().poll(&mut context) else {
+        panic!("the actor must acknowledge the scoped handle");
+    };
+    let mut read = std::pin::pin!(handle.read(|state| *state));
+    assert!(read.as_mut().poll(&mut context).is_pending());
+    assert!(actor.as_mut().poll(&mut context).is_pending());
+    assert!(matches!(
+        read.as_mut().poll(&mut context),
+        Poll::Ready(Ok(0))
+    ));
+    let blocks = after.total_blocks - before.total_blocks;
+    assert_eq!(
+        blocks, 2,
+        "scoped handle admission allocated {blocks} blocks"
+    );
 }
 
 /// Counts rejected-payload destruction before raising a recognisable panic.
@@ -190,6 +273,16 @@ fn rejected_command_destructors_do_not_leak_captured_backtraces() {
 
 /// Preserves the exact names of the isolated allocation cases.
 const CASES: &[(&str, fn())] = &[
+    #[cfg(target_pointer_width = "64")]
+    (
+        "shutdown_acknowledgement_uses_one_compact_allocation",
+        shutdown_acknowledgement_uses_one_compact_allocation,
+    ),
+    #[cfg(target_pointer_width = "64")]
+    (
+        "scoped_handle_admission_allocates_only_signal_and_reply",
+        scoped_handle_admission_allocates_only_signal_and_reply,
+    ),
     (
         "warmed_committed_actions_do_not_allocate_general_purpose_reply_channels",
         warmed_committed_actions_do_not_allocate_general_purpose_reply_channels,

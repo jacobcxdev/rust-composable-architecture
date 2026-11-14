@@ -3,6 +3,7 @@
 //! The queue lock orders admission, dequeue and closure. Capacity notifications
 //! grant a retry, not a reserved slot or producer fairness. Accepted messages
 //! remain FIFO. All waker callbacks run after releasing the queue lock.
+//! Standard channel errors describe rejection without supplying queue storage.
 
 use std::collections::VecDeque;
 use std::future::{Future, poll_fn};
@@ -13,7 +14,6 @@ use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use std::task::Poll;
 
-use async_channel::{SendError, TryRecvError, TrySendError};
 use event_listener::Event;
 #[cfg(all(test, loom))]
 use loom::sync::{Arc, Mutex, MutexGuard, atomic::AtomicBool};
@@ -21,6 +21,8 @@ use loom::sync::{Arc, Mutex, MutexGuard, atomic::AtomicBool};
 use parking_lot::{Mutex, MutexGuard};
 #[cfg(not(all(test, loom)))]
 use std::sync::atomic::AtomicBool;
+
+pub(super) use std::sync::mpsc::{RecvError, SendError, TryRecvError, TrySendError};
 
 /// Shared queue storage retained until both transport endpoints are dropped.
 struct Channel<T> {
@@ -80,7 +82,7 @@ impl<T> Sender<T> {
     ) -> Result<(), TrySendError<U>> {
         let mut queue = self.0.lock();
         if self.0.closed.load(Ordering::Relaxed) {
-            return Err(TrySendError::Closed(input));
+            return Err(TrySendError::Disconnected(input));
         }
         if queue.len() == self.0.capacity {
             return Err(TrySendError::Full(input));
@@ -135,7 +137,7 @@ impl<T> Sender<T> {
                         drop(listener.take());
                         return Poll::Ready(Ok(()));
                     }
-                    Err(TrySendError::Closed(value)) => {
+                    Err(TrySendError::Disconnected(value)) => {
                         drop(listener.take());
                         return Poll::Ready(Err(SendError(value)));
                     }
@@ -176,7 +178,7 @@ impl<T> Receiver<T> {
             let mut queue = self.0.lock();
             match queue.pop_front() {
                 Some(value) => Ok(value),
-                None if self.0.closed.load(Ordering::Relaxed) => Err(TryRecvError::Closed),
+                None if self.0.closed.load(Ordering::Relaxed) => Err(TryRecvError::Disconnected),
                 None => Err(TryRecvError::Empty),
             }
         };

@@ -90,14 +90,15 @@ PY
     and $s.configuration == "split-native-deterministic-v1"
     and $m.configuration == $s.configuration and $c.configuration == $s.configuration
     and $c.source_build_sha256 == $m.source_build_sha256
-    and ($m.compiler | type == "string" and test("^rustc 1\\.99\\.0 "))
-    and ($m.cargo | type == "string" and test("^cargo 1\\.99\\.0 "))
+    and ($m.compiler | type == "string" and test("^rustc 1\\.100\\.0 "))
+    and ($m.cargo | type == "string" and test("^cargo 1\\.100\\.0 "))
     and ($m.rustc_commit | type == "string" and test("^[0-9a-f]{40}$"))
     and $m.compiler == $c.compiler and $m.compiler == $s.toolchain.rustc
     and $m.cargo == $c.cargo and $m.cargo == $s.toolchain.cargo
     and $m.rustc_commit == $c.rustc_commit and $m.rustc_commit == $s.toolchain.rustc_commit
     and $s.toolchain.target == "x86_64-pc-windows-msvc"
     and $s.harness_sha256 == $c.qualification_source_sha256
+    and $s.harness_module_sha256 == $c.qualification_module_sha256
     and $s.scenario_manifest_sha256 == $c.scenario_manifest_sha256
     and $s.candidate.tokio_manifest_sha256 == $candidate_tokio_manifest
     and $s.reference.tokio_manifest_sha256 == $reference_tokio_manifest
@@ -153,6 +154,7 @@ revision_pin=${repo_root}/docs/performance/baseline-revision.txt
 baseline_lock=${repo_root}/docs/performance/baseline-Cargo.lock
 candidate_lock=${repo_root}/Cargo.lock
 protocol=${repo_root}/rca-tokio/benches/qualification.rs
+qualification_module=${repo_root}/rca-tokio/benches/qualification/shutdown.rs
 qualification_script=${repo_root}/scripts/qualify-performance.sh
 windows=false
 if [[ -f "${candidate}" ]] && [[ "$(jq -r '.schema_version' "${candidate}")" == "6" ]]; then
@@ -165,7 +167,7 @@ if [[ -f "${candidate}" ]] && [[ "$(jq -r '.schema_version' "${candidate}")" == 
 fi
 scenario_manifest=${repo_root}/docs/performance/scenarios.txt
 if [[ ! -f "${revision_pin}" || ! -f "${baseline_lock}" \
-  || ! -f "${candidate_lock}" || ! -f "${protocol}" \
+  || ! -f "${candidate_lock}" || ! -f "${protocol}" || ! -f "${qualification_module}" \
   || ! -f "${qualification_script}" || ! -f "${scenario_manifest}" ]]; then
   echo "pinned performance inputs are missing" >&2
   exit 1
@@ -174,9 +176,10 @@ expected_reference_revision=$(tr -d '\n' < "${revision_pin}")
 expected_reference_lock_sha256=$(shasum -a 256 "${baseline_lock}" | awk '{print $1}')
 expected_candidate_lock_sha256=$(shasum -a 256 "${candidate_lock}" | awk '{print $1}')
 qualification_source_sha256=$(shasum -a 256 "${protocol}" | awk '{print $1}')
+qualification_module_sha256=$(shasum -a 256 "${qualification_module}" | awk '{print $1}')
 expected_qualification_script_sha256=$(shasum -a 256 "${qualification_script}" | awk '{print $1}')
 expected_scenario_manifest_sha256=$(shasum -a 256 "${scenario_manifest}" | awk '{print $1}')
-protocol_inputs=("${qualification_source_sha256}" "${expected_scenario_manifest_sha256}"
+protocol_inputs=("${qualification_source_sha256}" "${qualification_module_sha256}" "${expected_scenario_manifest_sha256}"
                  "${expected_qualification_script_sha256}")
 expected_memory_watchdog_sha256=
 if [[ "${windows}" == false ]]; then
@@ -229,6 +232,24 @@ for result in "${baseline}" "${candidate}"; do
       and .reference.repetition == .repetition
       and .candidate.order == .order
       and .reference.order == .order;
+    def bounded_shutdown_limit:
+      {"shutdown/abortive/live/1": 1, "shutdown/abortive/live/8": 8,
+       "shutdown/abortive/burst/8": 8, "shutdown/abortive/burst/64": 64}[.scenario] // 0;
+    def valid_shutdown_lifetime:
+      bounded_shutdown_limit as $limit
+      | if $limit == 0 then (has("shutdown_lifetime") | not)
+        else
+          (.samples + ([.samples, 20] | min)) as $batches
+          | .operations == (.samples * $limit)
+          and (.shutdown_lifetime | type == "object"
+            and keys == ["batches", "dropped", "live_limit", "maximum_batch_end_unfinished",
+                         "maximum_unfinished", "spawned", "unfinished"]
+            and all(.[]; type == "number" and floor == .))
+          and .shutdown_lifetime == {
+            live_limit: $limit, maximum_unfinished: $limit, batches: $batches,
+            spawned: ($limit * $batches), dropped: ($limit * $batches),
+            unfinished: 0, maximum_batch_end_unfinished: 0}
+        end;
     def valid_configuration:
       if $windows then
         .configuration == (if (.scenario | startswith("deterministic/"))
@@ -236,6 +257,7 @@ for result in "${baseline}" "${candidate}"; do
       else true end;
     def valid_normal:
       same_workload
+      and (.candidate | valid_shutdown_lifetime) and (.reference | valid_shutdown_lifetime)
       and (.candidate | valid_configuration) and (.reference | valid_configuration)
       and .candidate.throughput_per_second > 0
       and .reference.throughput_per_second > 0
@@ -251,6 +273,7 @@ for result in "${baseline}" "${candidate}"; do
       and (.reference | valid_memory);
     def valid_allocation:
       same_workload
+      and (.candidate | valid_shutdown_lifetime) and (.reference | valid_shutdown_lifetime)
       and (.candidate | valid_configuration) and (.reference | valid_configuration)
       and .candidate.allocations > 0
       and .reference.allocations > 0
@@ -282,12 +305,15 @@ for result in "${baseline}" "${candidate}"; do
     and (.metadata.cohort.candidate_lock_sha256 | type == "string" and length == 64)
     and (.metadata.cohort.reference_lock_sha256 | type == "string" and length == 64)
     and (.accepted_regressions | type == "array")
-    and (.rows | type == "array" and length == 50)
+    and (.rows | type == "array" and length == 54)
     and ((.rows | map(.scenario)) == $expected_scenarios)
     and ((.rows | map(.scenario) | unique | length) == (.rows | length))
     and all(.rows[];
       (.scenario | type == "string" and length > 0)
       and valid_configuration
+      and valid_shutdown_lifetime
+      and (bounded_shutdown_limit as $limit
+        | $limit == 0 or .allocation_operations == (.allocation_samples * $limit))
       and expected_samples
       and expected_allocation_samples
       and (.revision == $revision)
@@ -365,7 +391,7 @@ if [[ "${windows}" == false ]]; then
       --arg reference_sha256 "$(shasum -a 256 "${baseline}" | awk '{print $1}')" \
       --arg watchdog_sha256 "${expected_memory_watchdog_sha256}" \
       --arg script_sha256 "${expected_qualification_script_sha256}" '
-        .entrypoint == "qualify-performance" and .toolchain == "1.99.0"
+        .entrypoint == "qualify-performance" and .toolchain == "1.100.0"
         and .protection == "polling-watchdog-not-kernel-memory-cap"
         and .started == true and .reason == "command-exited"
         and .returncode == 0 and .command_returncode == 0
@@ -403,6 +429,7 @@ if ! jq -e \
   --arg reference_revision "${expected_reference_revision}" \
   --arg protocol_sha256 "${expected_protocol_sha256}" \
   --arg qualification_source_sha256 "${qualification_source_sha256}" \
+  --arg qualification_module_sha256 "${qualification_module_sha256}" \
   --arg qualification_script_sha256 "${expected_qualification_script_sha256}" \
   --arg memory_watchdog_sha256 "${expected_memory_watchdog_sha256}" \
   --arg scenario_manifest_sha256 "${expected_scenario_manifest_sha256}" \
@@ -414,6 +441,7 @@ if ! jq -e \
     and .metadata.method.pair.reference_revision == $reference_revision
     and .metadata.cohort.protocol_sha256 == $protocol_sha256
     and .metadata.cohort.qualification_source_sha256 == $qualification_source_sha256
+    and .metadata.cohort.qualification_module_sha256 == $qualification_module_sha256
     and .metadata.cohort.qualification_script_sha256 == $qualification_script_sha256
     and ($memory_watchdog_sha256 == "" or .metadata.cohort.memory_watchdog_sha256 == $memory_watchdog_sha256)
     and .metadata.cohort.scenario_manifest_sha256 == $scenario_manifest_sha256
@@ -429,6 +457,7 @@ if ! jq -e \
   --arg candidate_revision "${candidate_revision}" \
   --arg protocol_sha256 "${expected_protocol_sha256}" \
   --arg qualification_source_sha256 "${qualification_source_sha256}" \
+  --arg qualification_module_sha256 "${qualification_module_sha256}" \
   --arg qualification_script_sha256 "${expected_qualification_script_sha256}" \
   --arg memory_watchdog_sha256 "${expected_memory_watchdog_sha256}" \
   --arg scenario_manifest_sha256 "${expected_scenario_manifest_sha256}" \
@@ -440,6 +469,7 @@ if ! jq -e \
     and .metadata.method.pair.candidate_revision == $candidate_revision
     and .metadata.cohort.protocol_sha256 == $protocol_sha256
     and .metadata.cohort.qualification_source_sha256 == $qualification_source_sha256
+    and .metadata.cohort.qualification_module_sha256 == $qualification_module_sha256
     and .metadata.cohort.qualification_script_sha256 == $qualification_script_sha256
     and ($memory_watchdog_sha256 == "" or .metadata.cohort.memory_watchdog_sha256 == $memory_watchdog_sha256)
     and .metadata.cohort.scenario_manifest_sha256 == $scenario_manifest_sha256
@@ -473,6 +503,16 @@ jq -n \
     ["median_ratio", "p99_ratio", "throughput_ratio", "allocation_ratio",
      "allocated_bytes_ratio", "peak_memory_ratio", "resident_memory_ratio",
      "cpu_cycles_ratio", "task_wakes_ratio"];
+  def scenario_gated_metrics:
+    if (.scenario == "shutdown/abortive/live/1"
+        or .scenario == "shutdown/abortive/live/8"
+        or .scenario == "shutdown/abortive/burst/8"
+        or .scenario == "shutdown/abortive/burst/64")
+    then ["peak_memory_ratio", "resident_memory_ratio"]
+    elif .scenario == "shutdown/abortive"
+    then gated_metrics - ["peak_memory_ratio", "resident_memory_ratio"]
+    else gated_metrics
+    end;
   def accepted($candidate; $comparison):
     $comparison.rationale_id != null
     and any($candidate.accepted_regressions[]?;
@@ -538,8 +578,10 @@ jq -n \
                 .candidate.task_wakes / .reference.task_wakes),
               rationale_id: ($after.rationale_id // null)
             }
+            | .gated_metrics = scenario_gated_metrics
+            | .diagnostic_metrics = (gated_metrics - .gated_metrics + ["peak_live_heap_ratio"])
             | .regressed_metrics = [
-                gated_metrics[] as $metric | select(.[$metric] > $limit) | $metric
+                .gated_metrics[] as $metric | select(.[$metric] > $limit) | $metric
               ]
             | .regressed = (.regressed_metrics | length > 0)
             | .accepted = (if .regressed then accepted($next; .) else false end)

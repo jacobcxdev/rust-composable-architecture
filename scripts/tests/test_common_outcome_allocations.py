@@ -152,9 +152,13 @@ class CommonOutcomeProtocolTests(unittest.TestCase):
         historical = allocations.load_protocol(PROTOCOL.with_name(
             "composable-common-outcome-allocation-protocol-v1.json"))
         current = allocations.load_protocol(PROTOCOL)
+        rust100 = allocations.load_protocol(PROTOCOL.with_name(
+            "composable-common-outcome-allocation-protocol-v3.json"))
         self.assertEqual(allocations.measurement_plan(historical), allocations.measurement_plan(current))
+        self.assertEqual(allocations.measurement_plan(current), allocations.measurement_plan(rust100))
         for protocol, expected in ((historical, allocations.PROTOCOL_SHA256),
-                                   (current, allocations.CURRENT_PROTOCOL_SHA256)):
+                                   (current, allocations.CURRENT_PROTOCOL_SHA256),
+                                   (rust100, allocations.RUST100_PROTOCOL_SHA256)):
             self.assertEqual(allocations.evaluate(observations(), protocol)["protocol_sha256"], expected)
             altered = dict(protocol, rust_toolchain="1.99.0" if protocol is historical else "1.98.0")
             with self.assertRaises(ValueError):

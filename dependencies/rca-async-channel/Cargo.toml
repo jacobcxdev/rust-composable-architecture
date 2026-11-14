@@ -3,7 +3,7 @@
 
 [package]
 edition = "2021"
-rust-version = "1.99.0"
+rust-version = "1.100.0"
 name = "rca-async-channel"
 version = "0.1.0"
 authors = ["Stjepan Glavina <stjepang@gmail.com>"]
@@ -29,6 +29,9 @@ categories = [
 ]
 license = "Apache-2.0 OR MIT"
 repository = "https://github.com/jacobcxdev/rust-composable-architecture"
+
+# This maintained fork keeps its upstream lint policy in the library source.
+[lints]
 
 [features]
 default = ["std"]

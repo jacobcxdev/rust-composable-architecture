@@ -11,7 +11,7 @@ use std::task::{Context, Poll, Waker};
 
 use rca_core::{
     ActionPath, Effect, OptionalStatePath, PredicateWaitOutcome, Reduce, RuntimeFuture,
-    ScopedStore, Store,
+    ScopedStore, StatePath, Store,
 };
 
 fn drive<F: Future>(actor: &mut RuntimeFuture, future: F) -> F::Output {
@@ -246,6 +246,62 @@ fn scoped_owned_send_observes_its_committed_false_selection() {
     wait.cancel();
     assert_eq!(drive(&mut actor, wait), PredicateWaitOutcome::Satisfied);
     drive(&mut actor, store.shutdown()).unwrap();
+}
+
+// Cancellation after commit must still retire the scoped action's causal work.
+#[test]
+fn scoped_owned_send_cancellation_after_commit_retires_causal_work() {
+    for registered in [false, true] {
+        let runtime = support::ManualRuntime::new();
+        let capture = Arc::new(());
+        let weak_capture = Arc::downgrade(&capture);
+        let mut capture = Some(capture);
+        let store = Store::new(
+            Some(false),
+            Reduce::new(move |state: &mut Option<bool>, action: &Option<bool>, _| {
+                assert_eq!(*state, Some(false));
+                *state = *action;
+                let capture = capture.take().expect("one scoped commit");
+                Effect::run(move |_| async move {
+                    std::future::pending::<()>().await;
+                    drop(capture);
+                })
+            }),
+            runtime.runtime(),
+        );
+        let mut actor = runtime.take_only_queued_task();
+        let child = if registered {
+            child(&store, &mut actor)
+        } else {
+            store.scope(
+                StatePath::new(
+                    |state: &Option<bool>| state.as_ref().expect("required child"),
+                    |state: &mut Option<bool>| state.as_mut().expect("required child"),
+                ),
+                ActionPath::new(Option::as_ref, Some),
+            )
+        };
+        let mut wait = child.send_and_wait_while(true, |_| {
+            panic!("cancel before registration must not invoke the predicate");
+        });
+        let mut context = Context::from_waker(Waker::noop());
+        assert!(Pin::new(&mut wait).poll(&mut context).is_pending());
+        assert!(actor.as_mut().poll(&mut context).is_pending());
+        let mut effect = runtime.take_only_queued_task();
+        assert!(effect.as_mut().poll(&mut context).is_pending());
+        assert!(weak_capture.upgrade().is_some());
+
+        wait.cancel();
+        assert_eq!(drive(&mut actor, wait), PredicateWaitOutcome::Cancelled);
+        assert!(actor.as_mut().poll(&mut context).is_pending());
+        assert!(effect.as_mut().poll(&mut context).is_ready());
+        assert!(weak_capture.upgrade().is_none());
+        assert_eq!(
+            drive(&mut actor, store.read(|state| *state)).unwrap(),
+            Some(true)
+        );
+        drive(&mut actor, store.shutdown()).unwrap();
+    }
 }
 
 // Queued removal must reject later observation admission without invoking its selector.

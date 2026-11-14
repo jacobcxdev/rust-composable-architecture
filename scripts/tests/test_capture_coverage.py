@@ -58,6 +58,7 @@ class CaptureCoverageTests(unittest.TestCase):
         self.assertEqual(env["CARGO_BUILD_JOBS"], "1")
         self.assertEqual(env["CARGO_PROFILE_TEST_OPT_LEVEL"], "0")
         self.assertEqual(env["CARGO_TARGET_DIR"], str(self.root / "target"))
+        self.assertEqual(env["CARGO_BUILD_BUILD_DIR"], str(self.root / "target"))
         for key in ("CARGO_PROFILE_RELEASE_LTO", "CARGO_ENCODED_RUSTFLAGS", "LD_PRELOAD", "GITHUB_TOKEN"):
             self.assertNotIn(key, env)
 
@@ -106,6 +107,49 @@ class CaptureCoverageTests(unittest.TestCase):
         directory.symlink_to(moved, target_is_directory=True)
         with self.assertRaises(ValueError):
             self.parse(rows)
+
+    def test_artifact_parser_uses_json_paths_in_configuration_directories(self):
+        rows = self.records()
+        target = self.root / "target/coverage/core-minimal"
+        for row in rows:
+            name = row["target"]["name"]
+            executable = target / "debug/build" / (name + "-abc123") / name
+            executable.parent.mkdir(parents=True)
+            executable.write_bytes(b"selected test host")
+            row.update(executable=str(executable), filenames=[str(executable)])
+        self.assertEqual(len(self.parse(rows)), 3)
+
+        foreign = self.root / "foreign-host"
+        foreign.write_bytes(b"not in the declared build directory")
+        for path in (foreign, target / ".." / ".." / ".." / "foreign-host"):
+            with self.subTest(path=path), self.assertRaises(ValueError):
+                self.parse([dict(rows[0], executable=str(path), filenames=[str(path)]), *rows[1:]])
+
+    def test_macro_object_uses_json_path_without_filename_hash(self):
+        target = self.root / "target/coverage/macros"
+        dynamic = target / "debug/build/rca_macros-abc123/librca_macros.so"
+        dynamic.parent.mkdir(parents=True)
+        dynamic.write_bytes(b"instrumented macro object")
+        record = {"reason": "compiler-artifact",
+                  "package_id": f"path+file://{self.root / 'rca-macros'}#0.1.0",
+                  "manifest_path": str(self.root / "rca-macros/Cargo.toml"),
+                  "target": {"name": "rca_macros", "kind": ["proc-macro"],
+                             "crate_types": ["proc-macro"]},
+                  "profile": {"test": False}, "features": [], "fresh": False,
+                  "filenames": [str(dynamic)], "executable": None}
+        self.assertEqual(self.capture.parse_macro_object(json.dumps(record), self.root, target), record)
+        foreign = self.root / "librca_macros.so"
+        foreign.write_bytes(b"foreign object")
+        with self.assertRaises(ValueError):
+            self.capture.parse_macro_object(json.dumps(dict(record, filenames=[str(foreign)])), self.root, target)
+
+    def test_hashless_hosts_keep_required_serialisation(self):
+        for group, name, extra in (
+            ("macros", "reducer", ["--test-threads=1"]),
+            ("core-terminal", "effects", ["--nocapture", "--test-threads=1"]),
+        ):
+            path = self.root / name
+            self.assertEqual(self.capture.host_arguments(group, ["test"], path), [str(path), *extra])
 
     def test_added_groups_select_only_fixed_package_features_and_ordinary_hosts(self):
         expected = {
@@ -567,19 +611,19 @@ class CaptureCoverageTests(unittest.TestCase):
 
     def test_tool_versions_reject_mixed_compiler_host_and_llvm_inputs(self):
         versions = {
-            "rustc": "rustc 1.99.0 (fixture)\nrelease: 1.99.0\nhost: x86_64-unknown-linux-gnu\nLLVM version: 23.1.1\n",
-            "cargo": "cargo 1.99.0 (fixture)\n", "rustdoc": "rustdoc 1.99.0 (fixture)\n",
-            "llvm-profdata": "LLVM (http://llvm.org/):\n  LLVM version 23.1.1-rust-1.99.0-stable\n  Optimized build.\n",
-            "llvm-cov": "LLVM (http://llvm.org/):\n  LLVM version 23.1.1-rust-1.99.0-stable\n  Optimized build.\n",
+            "rustc": "rustc 1.100.0 (fixture)\nrelease: 1.100.0\nhost: x86_64-unknown-linux-gnu\nLLVM version: 23.1.5\n",
+            "cargo": "cargo 1.100.0 (fixture)\n", "rustdoc": "rustdoc 1.100.0 (fixture)\n",
+            "llvm-profdata": "LLVM (http://llvm.org/):\n  LLVM version 23.1.5-rust-1.100.0-stable\n  Optimized build.\n",
+            "llvm-cov": "LLVM (http://llvm.org/):\n  LLVM version 23.1.5-rust-1.100.0-stable\n  Optimized build.\n",
         }
         self.assertTrue(hasattr(self.capture, "validate_tool_versions"), "tool-version validation is missing")
         self.capture.validate_tool_versions(versions)
         for name, value in [
-            ("rustc", versions["rustc"].replace("1.99.0", "1.98.0")),
+            ("rustc", versions["rustc"].replace("1.100.0", "1.99.0")),
             ("rustc", versions["rustc"].replace("x86_64-unknown-linux-gnu", "aarch64-apple-darwin")),
             ("cargo", "cargo 1.98.0\n"), ("rustdoc", "rustdoc 1.98.0\n"),
-            ("llvm-profdata", versions["llvm-profdata"].replace("23.1.1", "22.1.0")),
-            ("llvm-cov", versions["llvm-cov"].replace("1.99.0-stable", "1.98.0-stable")),
+            ("llvm-profdata", versions["llvm-profdata"].replace("23.1.5", "23.1.1")),
+            ("llvm-cov", versions["llvm-cov"].replace("1.100.0-stable", "1.99.0-stable")),
         ]:
             with self.subTest(tool=name), self.assertRaises(ValueError):
                 self.capture.validate_tool_versions(dict(versions, **{name: value}))
@@ -611,7 +655,7 @@ class CaptureCoverageTests(unittest.TestCase):
                 options.append("--no-default-features")
             options.append("--lib")
         files = {".gitignore": "target/\n.tools/\n", "Cargo.lock": "version = 4\n",
-                 "rust-toolchain.toml": '[toolchain]\nchannel = "1.99.0"\n',
+                 "rust-toolchain.toml": '[toolchain]\nchannel = "1.100.0"\n',
                  "Cargo.toml": f'[workspace]\nmembers = ["{package}"]\n',
                  f"{package}/Cargo.toml": f'[package]\nname = "{package_name}"\nversion = "0.1.0"\n',
                  f"{package}/src/lib.rs": "pub fn fixture() {}\n"}
@@ -717,7 +761,7 @@ elif name == "llvm-cov":
         self.assertTrue(hasattr(self.capture, "capture"), "capture orchestration is missing")
         def discover_tools(_root, destination):
             if group in ("channel-overflow-std", "channel-overflow-nostd"):
-                (destination / "version-rustc.stdout").write_text(f"rustc 1.99.0 (fixture)\nhost: {rustc_host}\n")
+                (destination / "version-rustc.stdout").write_text(f"rustc 1.100.0 (fixture)\nhost: {rustc_host}\n")
             return tools
         with patch.object(self.capture, "discover_tools", side_effect=discover_tools), patch.object(self.capture.sys, "platform", platform), patch.object(self.capture.shutil, "disk_usage", return_value=SimpleNamespace(free=100 * 1024 ** 3)):
             return self.capture.capture(self.root, group, output)

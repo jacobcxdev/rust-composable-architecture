@@ -4,13 +4,14 @@
 //! state or actions. Keys, authority checks and captured completion metadata use
 //! the same protocol as Shared operations. No handle retains Store ownership.
 
+use crate::store::mailbox;
 use std::fmt;
 use std::hash::Hash;
 use std::rc::Rc;
 use std::sync::Weak;
 
 use super::{OperationMetadata, OperationRequest, OperationTarget};
-use crate::effect::CancellationIdentity;
+use crate::effect::UnscopedCancellationIdentity;
 use crate::effect::operation::{OperationDeclaration, OperationStatus, OperationWait};
 use crate::store::command::{Command, Provenance};
 use crate::store::ingress::CommandIngress;
@@ -61,7 +62,7 @@ impl Operation {
         provenance: Provenance,
         scope: ScopeToken,
         authority: ScopeAuthority,
-        identity: CancellationIdentity,
+        identity: UnscopedCancellationIdentity,
     ) -> Self {
         Self {
             endpoint: Rc::new(LocalEndpoint {
@@ -159,7 +160,7 @@ struct LocalEndpoint<S, A> {
     /// Weak mailbox endpoint paired with the target's Store authority.
     ingress: Weak<CommandIngress<Command<S, A, Local>>>,
     /// Portable named-key identity, shared without rehashing for each request.
-    identity: CancellationIdentity,
+    identity: UnscopedCancellationIdentity,
     /// Root or frozen authority, rechecked at actor entry after admission.
     target: OperationTarget,
     /// Producing authority, independent of concrete work ownership.
@@ -167,7 +168,7 @@ struct LocalEndpoint<S, A> {
 }
 
 impl<S, A> OperationMetadata for LocalEndpoint<S, A> {
-    fn identity(&self) -> &CancellationIdentity {
+    fn identity(&self) -> &UnscopedCancellationIdentity {
         &self.identity
     }
 
@@ -202,7 +203,7 @@ impl<S: 'static, A: 'static> OperationEndpoint for LocalEndpoint<S, A> {
             // prefix; no user callback can release the Store's ingress here.
             let ingress = ingress.upgrade().expect("open local store owns ingress");
 
-            if let Err(async_channel::SendError((request, _))) = ingress
+            if let Err(mailbox::SendError((request, _))) = ingress
                 .send_map((request, metadata), |(request, metadata)| {
                     Command::Operation { request, metadata }
                 })

@@ -4,6 +4,7 @@
 //! Admission wakes the actor without advancing the lifecycle epoch. The final
 //! ingress owner closes admission and advances that epoch before waking the actor.
 
+use crate::store::mailbox;
 use std::sync::Arc;
 
 use super::command::Command;
@@ -36,7 +37,7 @@ impl<C> CommandIngress<C> {
     pub(super) fn send(
         &self,
         command: C,
-    ) -> impl Future<Output = Result<(), async_channel::SendError<C>>> {
+    ) -> impl Future<Output = Result<(), mailbox::SendError<C>>> {
         self.sender
             .send(command, || self.control.notify_admission())
     }
@@ -49,13 +50,13 @@ impl<C> CommandIngress<C> {
         &self,
         input: T,
         make: fn(T) -> C,
-    ) -> impl Future<Output = Result<(), async_channel::SendError<T>>> {
+    ) -> impl Future<Output = Result<(), mailbox::SendError<T>>> {
         self.sender
             .send_map(input, make, || self.control.notify_admission())
     }
 
     /// Tries immediate admission and notifies only when the queue accepted ownership.
-    pub(super) fn try_send(&self, command: C) -> Result<(), async_channel::TrySendError<C>> {
+    pub(super) fn try_send(&self, command: C) -> Result<(), mailbox::TrySendError<C>> {
         self.sender.try_send(command)?;
         self.control.notify_admission();
         Ok(())
@@ -69,7 +70,7 @@ impl<C> CommandIngress<C> {
         &self,
         input: T,
         make: fn(T) -> C,
-    ) -> Result<(), async_channel::TrySendError<T>> {
+    ) -> Result<(), mailbox::TrySendError<T>> {
         self.sender.try_send_map(input, make)?;
         self.control.notify_admission();
         Ok(())
@@ -103,6 +104,7 @@ mod tests {
     use super::Ingress;
     use crate::effect::lineage::ControlWake;
     use crate::store::command::{ActionCommand, Command, commit_channel};
+    use crate::store::mailbox;
 
     struct Mailbox {
         ingress: Ingress<(), ()>,
@@ -164,7 +166,7 @@ mod tests {
         assert_eq!(mailbox.control.epoch(), processed_epoch);
         assert!(matches!(
             mailbox.receiver.try_recv(),
-            Err(async_channel::TryRecvError::Empty)
+            Err(mailbox::TryRecvError::Empty)
         ));
         assert!(matches!(mailbox.ingress.try_send(command()), Ok(())));
         assert!(
@@ -187,7 +189,7 @@ mod tests {
         event_listener::listener!(mailbox.control.event() => listener);
         assert!(matches!(
             mailbox.receiver.try_recv(),
-            Err(async_channel::TryRecvError::Empty)
+            Err(mailbox::TryRecvError::Empty)
         ));
         assert!(Pin::new(&mut listener).poll(&mut cx).is_pending());
         let mut send = std::pin::pin!(mailbox.ingress.send(command()));
@@ -212,7 +214,7 @@ mod tests {
         event_listener::listener!(mailbox.control.event() => listener);
         assert!(matches!(
             mailbox.receiver.try_recv(),
-            Err(async_channel::TryRecvError::Empty)
+            Err(mailbox::TryRecvError::Empty)
         ));
         assert!(Pin::new(&mut listener).poll(&mut cx).is_pending());
         drop(mailbox.ingress);
@@ -220,7 +222,7 @@ mod tests {
         assert!(Pin::new(&mut listener).poll(&mut cx).is_ready());
         assert!(matches!(
             mailbox.receiver.try_recv(),
-            Err(async_channel::TryRecvError::Closed)
+            Err(mailbox::TryRecvError::Disconnected)
         ));
     }
 
@@ -231,14 +233,14 @@ mod tests {
         let admitted_epoch = mailbox.control.epoch();
         assert!(matches!(
             mailbox.ingress.try_send(command()),
-            Err(async_channel::TrySendError::Full(_))
+            Err(mailbox::TrySendError::Full(_))
         ));
         assert_eq!(mailbox.control.epoch(), admitted_epoch);
         assert!(mailbox.ingress.close());
         let closed_epoch = mailbox.control.epoch();
         assert!(matches!(
             mailbox.ingress.try_send(command()),
-            Err(async_channel::TrySendError::Closed(_))
+            Err(mailbox::TrySendError::Disconnected(_))
         ));
         assert_eq!(mailbox.control.epoch(), closed_epoch);
     }

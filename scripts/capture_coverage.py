@@ -20,7 +20,7 @@ import time
 import tomllib
 
 
-TOOLCHAIN = "1.99.0"
+TOOLCHAIN = "1.100.0"
 RUSTFLAGS = "-C opt-level=s -C debuginfo=0 -C debug-assertions=yes -C overflow-checks=yes -C panic=unwind -C instrument-coverage -Z coverage-options=branch"
 
 
@@ -189,9 +189,9 @@ def host_arguments(group, kind, executable):
     if group in ("listener-std", "listener-critical-section", "listener-spin",
                  "listener-std-critical-section") and kind == ["test"]:
         args.append("--test-threads=1")
-    if group == "macros" and executable.name.startswith("reducer-"):
+    if group == "macros" and (executable.name == "reducer" or executable.name.startswith("reducer-")):
         args.append("--test-threads=1")
-    if group == "core-terminal" and kind == ["test"] and executable.name.startswith("effects-"):
+    if group == "core-terminal" and kind == ["test"] and (executable.name == "effects" or executable.name.startswith("effects-")):
         args.extend(("--nocapture", "--test-threads=1"))
     if group in ("channel-overflow-std", "channel-overflow-nostd") and kind == ["lib"]:
         args.extend(("--nocapture", "--test-threads=1"))
@@ -215,7 +215,7 @@ def capture_environment(inherited, tools, target):
                RUSTC=str(tools["rustc"]), RUSTDOC=str(tools["rustdoc"]),
                RUSTC_WRAPPER="", RUSTC_WORKSPACE_WRAPPER="", RUSTDOCFLAGS="",
                RUSTFLAGS=RUSTFLAGS, RUSTC_BOOTSTRAP="1", CARGO_BUILD_JOBS="1",
-               CARGO_INCREMENTAL="0", CARGO_TARGET_DIR=str(target),
+               CARGO_INCREMENTAL="0", CARGO_TARGET_DIR=str(target), CARGO_BUILD_BUILD_DIR=str(target),
                CARGO_TERM_COLOR="never", LC_ALL="C", TZ="UTC")
     for profile in ("DEV", "TEST"):
         for setting, value in (("OPT_LEVEL", "0"), ("DEBUG", "0"),
@@ -244,6 +244,13 @@ def source_snapshot(root):
             "tree": git("rev-parse", "HEAD^{tree}").decode().strip(), "files": files}
 
 
+def owned_artifact(path, target):
+    """Bind a Cargo JSON path to the declared build directory, not its layout."""
+    return (path.is_absolute() and path.is_file()
+            and path.resolve().is_relative_to(target.resolve())
+            and not any(part.is_symlink() for part in (path, *path.parents)))
+
+
 def parse_artifacts(text, root, target, group):
     """Reject feature unification, foreign packages and unexpected test hosts."""
     selected = TARGETS[group]
@@ -263,8 +270,7 @@ def parse_artifacts(text, root, target, group):
                 or record["target"]["kind"] != (library_kind if name == selected.library else ["test"])
                 or (group == "macros" and not record["package_id"].startswith(
                     f"path+file://{root / selected.directory}#"))
-                or executable.parent != target / "debug/deps" or not executable.is_file()
-                or any(part.is_symlink() for part in (executable, *executable.parents))
+                or not owned_artifact(executable, target)
                 or name not in expected or name in hosts
                 or str(executable) not in record["filenames"]):
             raise ValueError("Cargo artifact does not match the selected configuration")
@@ -294,9 +300,7 @@ def parse_macro_object(text, root, target):
             or record.get("profile", {}).get("test") is not False
             or record.get("target", {}).get("kind") != ["proc-macro"]
             or record["target"].get("crate_types") != ["proc-macro"]
-            or path.parent != target / "debug/deps"
-            or re.fullmatch(r"librca_macros-[0-9a-f]+\.so", path.name) is None
-            or not path.is_file() or any(part.is_symlink() for part in (path, *path.parents))):
+            or path.suffix != ".so" or not owned_artifact(path, target)):
         raise ValueError("Proc-macro object does not match the selected package and features")
     return record
 
@@ -443,15 +447,15 @@ def run_command(argv, cwd, env, prefix, timeout, minimum_free=2 * GIB):
 def validate_tool_versions(versions):
     """Require one pinned Rust release and its matching branch-coverage tools."""
     fields = dict(line.split(": ", 1) for line in versions["rustc"].splitlines() if ": " in line)
-    if (not versions["rustc"].startswith("rustc 1.99.0 ")
+    if (not versions["rustc"].startswith("rustc 1.100.0 ")
             or fields.get("release") != TOOLCHAIN
             or not fields.get("host", "").endswith("-unknown-linux-gnu")
-            or fields.get("LLVM version") != "23.1.1"
-            or not versions["cargo"].startswith("cargo 1.99.0 ")
-            or not versions["rustdoc"].startswith("rustdoc 1.99.0 ")
-            or any("LLVM version 23.1.1-rust-1.99.0-stable" not in versions[name]
+            or fields.get("LLVM version") != "23.1.5"
+            or not versions["cargo"].startswith("cargo 1.100.0 ")
+            or not versions["rustdoc"].startswith("rustdoc 1.100.0 ")
+            or any("LLVM version 23.1.5-rust-1.100.0-stable" not in versions[name]
                    for name in ("llvm-profdata", "llvm-cov"))):
-        raise ValueError("Coverage requires Rust 1.99.0 Linux GNU and its LLVM 23.1.1 tools")
+        raise ValueError("Coverage requires Rust 1.100.0 Linux GNU and its LLVM 23.1.5 tools")
 
 
 def discover_tools(root, output):

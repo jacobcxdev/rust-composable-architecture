@@ -32,6 +32,9 @@ class PerformanceSourceTests(unittest.TestCase):
         self.lock.write_text("# pinned lockfile\n")
         self.harness = self.root / "qualification.rs"
         self.harness.write_text("// common workload\n")
+        self.module = self.root / "qualification/shutdown.rs"
+        self.module.parent.mkdir()
+        self.module.write_text("// common shutdown workload\n")
         self.destination = self.root / "staged"
 
     def git(self, *arguments):
@@ -45,7 +48,7 @@ class PerformanceSourceTests(unittest.TestCase):
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(contents)
 
-    def run_stage(self, *, tree=None, lock_hash=None, harness_hash=None, after=""):
+    def run_stage(self, *, tree=None, lock_hash=None, harness_hash=None, module_hash=None, after=""):
         # Run the actual shell functions. Only their expensive Cargo consumers
         # are omitted; Git, archives, hashes and filesystem checks remain real.
         script = QUALIFIER.read_text()
@@ -56,7 +59,7 @@ class PerformanceSourceTests(unittest.TestCase):
                 end = script.index("\n}\n", start) + 3
                 functions.append(script[start:end])
         command = "set -euo pipefail\n" + "\n".join(functions) + "\n"
-        command += 'stage_source "$SOURCE" "$REVISION" "$TREE" "$LOCK" "$LOCK_HASH" "$HARNESS" "$HARNESS_HASH" "$DESTINATION"\n'
+        command += 'stage_source "$SOURCE" "$REVISION" "$TREE" "$LOCK" "$LOCK_HASH" "$HARNESS" "$HARNESS_HASH" "$DESTINATION" "$MODULE_HASH"\n'
         command += after
         environment = dict(os.environ)
         environment.update(
@@ -65,6 +68,7 @@ class PerformanceSourceTests(unittest.TestCase):
             LOCK_HASH=lock_hash or hashlib.sha256(self.lock.read_bytes()).hexdigest(),
             HARNESS=str(self.harness),
             HARNESS_HASH=harness_hash or hashlib.sha256(self.harness.read_bytes()).hexdigest(),
+            MODULE_HASH=module_hash or hashlib.sha256(self.module.read_bytes()).hexdigest(),
             DESTINATION=str(self.destination),
         )
         return subprocess.run(
@@ -80,6 +84,9 @@ class PerformanceSourceTests(unittest.TestCase):
         self.assertEqual((self.destination / "Cargo.lock").read_bytes(), self.lock.read_bytes())
         self.assertEqual((self.destination / "rca-tokio/benches/qualification.rs").read_bytes(),
                          self.harness.read_bytes())
+        self.assertEqual((self.destination / "rca-tokio/benches/qualification/shutdown.rs").read_bytes(),
+                         self.module.read_bytes())
+        self.assertFalse((self.source / "rca-tokio/benches/qualification/shutdown.rs").exists())
         self.assertEqual((self.source / "rca-tokio/benches/qualification.rs").read_text(),
                          "// original workload\n")
         self.assertFalse((self.source / "Cargo.lock").exists())
@@ -90,7 +97,7 @@ class PerformanceSourceTests(unittest.TestCase):
         self.assertIn("source tree does not match", result.stderr)
 
     def test_wrong_lockfile_or_common_harness_hash_is_rejected(self):
-        for option in ("lock_hash", "harness_hash"):
+        for option in ("lock_hash", "harness_hash", "module_hash"):
             with self.subTest(option=option):
                 result = self.run_stage(**{option: "0" * 64})
                 self.assertNotEqual(result.returncode, 0)
@@ -129,11 +136,12 @@ class PerformanceSourceTests(unittest.TestCase):
         self.assertFalse(self.destination.exists())
 
     def test_modified_product_lock_or_harness_is_rejected_after_build(self):
-        for relative in ("rca-core/src/lib.rs", "Cargo.lock", "rca-tokio/benches/qualification.rs"):
+        for relative in ("rca-core/src/lib.rs", "Cargo.lock", "rca-tokio/benches/qualification.rs",
+                         "rca-tokio/benches/qualification/shutdown.rs"):
             with self.subTest(relative=relative):
                 self.destination = self.root / ("staged-" + relative.replace("/", "-"))
                 after = f'printf "changed\\n" >> "$DESTINATION/{relative}"\n'
-                after += 'check_staged_source "$SOURCE" "$REVISION" "$LOCK_HASH" "$HARNESS_HASH" "$DESTINATION"\n'
+                after += 'check_staged_source "$SOURCE" "$REVISION" "$LOCK_HASH" "$HARNESS_HASH" "$DESTINATION" "$MODULE_HASH"\n'
                 result = self.run_stage(after=after)
                 self.assertNotEqual(result.returncode, 0)
                 self.assertIn("staged source changed", result.stderr)
@@ -141,7 +149,7 @@ class PerformanceSourceTests(unittest.TestCase):
     def test_added_source_file_is_rejected_after_build(self):
         result = self.run_stage(after='''
 printf 'unexpected\n' > "$DESTINATION/rca-core/src/extra.rs"
-check_staged_source "$SOURCE" "$REVISION" "$LOCK_HASH" "$HARNESS_HASH" "$DESTINATION"
+check_staged_source "$SOURCE" "$REVISION" "$LOCK_HASH" "$HARNESS_HASH" "$DESTINATION" "$MODULE_HASH"
 ''')
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("staged source changed", result.stderr)

@@ -19,7 +19,7 @@ members = [
 [workspace.package]
 version = "0.1.0"
 edition = "2024"
-rust-version = "1.99.0"
+rust-version = "1.100.0"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/jacobcxdev/rust-composable-architecture"
 readme = "README.md"
@@ -39,6 +39,7 @@ futures-channel = { version = "0.3.34", default-features = false, features = ["a
 futures-executor = { version = "0.3.34", features = ["thread-pool"] }
 futures-util = { version = "0.3.34", default-features = false, features = ["async-await", "std"] }
 indexmap = "2.14.1"
+triomphe = { version = "0.1.17", default-features = false, features = ["std"] }
 trybuild = "1.0.120"
 ui_test = { version = "=0.30.6", default-features = false, features = ["rustc"] }
 divan = "0.1.21"

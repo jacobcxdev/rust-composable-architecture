@@ -55,16 +55,16 @@ if grep -Eq '^(DIVAN_|CARGO_PROFILE_|RCA_COMPOSITION_ALLOCATION_)' < <(env); the
   echo "composition qualification rejects ambient benchmark overrides" >&2
   exit 1
 fi
-cargo_bin=$(rustup which --toolchain 1.99.0 cargo)
-rustc_bin=$(rustup which --toolchain 1.99.0 rustc)
-rustdoc_bin=$(rustup which --toolchain 1.99.0 rustdoc)
+cargo_bin=$(rustup which --toolchain 1.100.0 cargo)
+rustc_bin=$(rustup which --toolchain 1.100.0 rustc)
+rustdoc_bin=$(rustup which --toolchain 1.100.0 rustdoc)
 toolchain_dir=${cargo_bin%/*}
-if [[ "$(${rustc_bin} --version)" != "rustc 1.99.0 (b940084d7 2026-09-28)" \
-  || "$(${cargo_bin} --version)" != "cargo 1.99.0 (5f94df478 2026-08-27)" \
-  || "$(${rustdoc_bin} --version)" != "rustdoc 1.99.0 (b940084d7 2026-09-28)" \
+if [[ "$(${rustc_bin} --version)" != "rustc 1.100.0 (0ef1bc386 2026-11-09)" \
+  || "$(${cargo_bin} --version)" != "cargo 1.100.0 (3acc79c0c 2026-11-05)" \
+  || "$(${rustdoc_bin} --version)" != "rustdoc 1.100.0 (0ef1bc386 2026-11-09)" \
   || "${rustc_bin}" != "${toolchain_dir}/rustc" \
   || "${rustdoc_bin}" != "${toolchain_dir}/rustdoc" ]]; then
-  echo "composition qualification requires exact Cargo, rustc, and rustdoc 1.99.0 from one toolchain" >&2
+  echo "composition qualification requires exact Cargo, rustc, and rustdoc 1.100.0 from one toolchain" >&2
   exit 1
 fi
 

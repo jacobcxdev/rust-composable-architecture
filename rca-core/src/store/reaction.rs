@@ -107,10 +107,12 @@ pub(super) fn capture<R, A, C: Carriers<R, A>>(
 }
 
 /// Wraps a returned root task without polling its future.
-pub(super) fn root_batch<R, A, C: Carriers<R, A>>(task: C::Task) -> Batch<R, A, C> {
+pub(super) fn root_batch<R, A, C: super::carriers::Execution<R, A>>(
+    task: C::Task,
+) -> Batch<R, A, C> {
     let mut work = crate::feature::Work::default();
     work.push(crate::feature::WorkItem::Task(task));
-    Batch::Root(work)
+    Batch::Root(crate::feature::RootWork::new(work, C::ROOT_REGISTRAR))
 }
 
 /// Consumes an old projection against post-mutation state without suspending.

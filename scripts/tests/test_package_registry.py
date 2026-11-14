@@ -670,10 +670,10 @@ class ReleaseBoundarySourceTests(unittest.TestCase):
         # actual Git commit, signer provisioning and verification remain real.
         tools = root / "tools"
         tools.mkdir()
-        (tools / "rustc").write_text("#!/bin/sh\necho 'rustc 1.99.0'\n")
+        (tools / "rustc").write_text("#!/bin/sh\necho 'rustc 1.100.0'\n")
         (tools / "cargo").write_text(f"#!{sys.executable}\n" + '''import json, os, pathlib, sys
 if sys.argv[1] == "--version":
-    print("cargo 1.99.0")
+    print("cargo 1.100.0")
 else:
     root = pathlib.Path(os.environ["REGISTRY_CAPTURE"])
     (root / "packaging-started").touch()
@@ -822,7 +822,7 @@ exit 53
             root = pathlib.Path(directory)
             cargo = root / "cargo"
             cargo.write_text('''#!/usr/bin/env bash
-if [[ $1 == --version ]]; then echo 'cargo 1.99.0'; exit 0; fi
+if [[ $1 == --version ]]; then echo 'cargo 1.100.0'; exit 0; fi
 if [[ "$*" == *"--package rca-test"* ]]; then
     if [[ "$*" == *'patch.crates-io.rca-macros.path="rca-macros"'* ]]; then
         exit 73
@@ -833,7 +833,7 @@ fi
 exit 0
 ''')
             rustc = root / "rustc"
-            rustc.write_text("#!/bin/sh\necho 'rustc 1.99.0'\n")
+            rustc.write_text("#!/bin/sh\necho 'rustc 1.100.0'\n")
             cargo.chmod(0o755)
             rustc.chmod(0o755)
             result = subprocess.run(["bash", str(self.repo_root / "scripts/verify-packaged-downstream.sh")],

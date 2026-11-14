@@ -5,6 +5,7 @@
 //! when either stage unwinds. Shared and Local carriers use the same lifecycle
 //! with different transfer bounds.
 
+use crate::store::mailbox;
 use std::fmt;
 use std::hash::Hash;
 use std::sync::{Arc, Weak};
@@ -17,7 +18,7 @@ use super::scope::ScopeToken;
 use super::{ActionTask, Ingress};
 
 use crate::RuntimeFuture;
-use crate::effect::CancellationIdentity;
+use crate::effect::UnscopedCancellationIdentity;
 use crate::effect::operation::{OperationDeclaration, OperationPolicy};
 
 /// Declares deferred work with typed access to its feature.
@@ -122,7 +123,7 @@ pub(crate) trait TaskEndpoint<S, A>: Send + Sync {
     fn submit(&self, request: TaskInput<S, A>) -> RuntimeFuture;
 
     /// Captures a named-operation view under this endpoint's frozen authority.
-    fn operation(&self, identity: CancellationIdentity) -> Operation;
+    fn operation(&self, identity: UnscopedCancellationIdentity) -> Operation;
 
     /// Copies provenance and authority for output or structural access.
     fn output_source(&self) -> super::output::OutputSource;
@@ -443,7 +444,7 @@ mod request_tests {
 
         drop(host.next());
         assert!(filler.as_mut().poll(&mut cx).is_ready());
-        assert!(matches!(host.receiver.try_recv(), Err(async_channel::TryRecvError::Empty)));
+        assert!(matches!(host.receiver.try_recv(), Err(mailbox::TryRecvError::Empty)));
     }
 
     #[test]
@@ -473,7 +474,7 @@ mod request_tests {
                 queried.fetch_add(1, Ordering::SeqCst);
                 payload
             }));
-            assert!(matches!(host.receiver.try_recv(), Err(async_channel::TryRecvError::Empty)));
+            assert!(matches!(host.receiver.try_recv(), Err(mailbox::TryRecvError::Empty)));
             assert_eq!(calls.load(Ordering::SeqCst), 0);
             if admitted {
                 assert!(read.as_mut().poll(&mut Context::from_waker(Waker::noop())).is_pending());
@@ -487,7 +488,7 @@ mod request_tests {
             assert_eq!(calls.load(Ordering::SeqCst), usize::from(admitted));
             assert_eq!(drops.load(Ordering::SeqCst), 1);
             assert_eq!((host.state, host.version), (7, 0));
-            assert!(matches!(host.receiver.try_recv(), Err(async_channel::TryRecvError::Empty)));
+            assert!(matches!(host.receiver.try_recv(), Err(mailbox::TryRecvError::Empty)));
         }
     }
 
@@ -569,7 +570,7 @@ mod request_tests {
 
         drop(host.next());
         assert!(filler.as_mut().poll(&mut cx).is_ready());
-        assert!(matches!(host.receiver.try_recv(), Err(async_channel::TryRecvError::Empty)));
+        assert!(matches!(host.receiver.try_recv(), Err(mailbox::TryRecvError::Empty)));
     }
 
     #[cfg(feature = "local")]
@@ -615,7 +616,7 @@ mod request_tests {
                 queried.set(queried.get() + 1);
                 payload
             }));
-            assert!(matches!(host.receiver.try_recv(), Err(async_channel::TryRecvError::Empty)));
+            assert!(matches!(host.receiver.try_recv(), Err(mailbox::TryRecvError::Empty)));
             if admitted {
                 assert!(read.as_mut().poll(&mut cx).is_pending());
             }
@@ -634,7 +635,7 @@ mod request_tests {
                 state.set(state.get() + 2);
                 payload
             }));
-            assert!(matches!(host.receiver.try_recv(), Err(async_channel::TryRecvError::Empty)));
+            assert!(matches!(host.receiver.try_recv(), Err(mailbox::TryRecvError::Empty)));
             if admitted {
                 assert!(update.as_mut().poll(&mut cx).is_pending());
             }
@@ -647,7 +648,7 @@ mod request_tests {
             assert_eq!((host.state.get(), host.version), (2 * entered, u64::from(admitted)));
 
             let mut send = Box::pin(context.send(Payload(Rc::clone(&drops), owner)));
-            assert!(matches!(host.receiver.try_recv(), Err(async_channel::TryRecvError::Empty)));
+            assert!(matches!(host.receiver.try_recv(), Err(mailbox::TryRecvError::Empty)));
             if admitted {
                 assert!(send.as_mut().poll(&mut cx).is_pending());
             }
@@ -658,7 +659,7 @@ mod request_tests {
             }
             assert_eq!((calls.get(), drops.get()), (3 * entered, 3));
             assert_eq!((host.state.get(), host.version), (5 * entered, 2 * u64::from(admitted)));
-            assert!(matches!(host.receiver.try_recv(), Err(async_channel::TryRecvError::Empty)));
+            assert!(matches!(host.receiver.try_recv(), Err(mailbox::TryRecvError::Empty)));
         }
     }
 }
@@ -1402,7 +1403,7 @@ impl<S: Send + 'static, A: Send + 'static> TaskEndpoint<S, A> for RootEndpoint<S
         Box::pin(submit_request(ingress, provenance, authority, request))
     }
 
-    fn operation(&self, identity: CancellationIdentity) -> Operation {
+    fn operation(&self, identity: UnscopedCancellationIdentity) -> Operation {
         Operation::from_frozen_identity(
             Weak::clone(&self.ingress),
             self.provenance.clone(),
@@ -1471,7 +1472,7 @@ async fn submit_request<S, A, C: super::carriers::Carriers<S, A>>(
         drop(operation_work);
         return;
     };
-    if let Err(async_channel::SendError((request, _, _, operation_work))) = ingress
+    if let Err(mailbox::SendError((request, _, _, operation_work))) = ingress
         .send_map(owned, |(request, provenance, authority, operation_work)| {
             Command::Task {
                 request: match request {
@@ -1626,7 +1627,10 @@ pub(super) mod local {
         fn output_source(&self) -> crate::store::output::OutputSource;
 
         /// Captures a named-operation view under this endpoint's frozen authority.
-        fn operation(&self, identity: super::CancellationIdentity) -> crate::local::Operation;
+        fn operation(
+            &self,
+            identity: super::UnscopedCancellationIdentity,
+        ) -> crate::local::Operation;
     }
     #[cfg(feature = "test-util")]
     impl<S, A> crate::store::mounted::MountedInputInspection<A> for TaskContext<S, A> {
@@ -1651,7 +1655,10 @@ pub(super) mod local {
         authority: super::super::scope::ScopeAuthority,
     }
     impl<S: 'static, A: 'static> Endpoint<S, A> for RootEndpoint<S, A> {
-        fn operation(&self, identity: super::CancellationIdentity) -> crate::local::Operation {
+        fn operation(
+            &self,
+            identity: super::UnscopedCancellationIdentity,
+        ) -> crate::local::Operation {
             crate::local::Operation::from_frozen_identity(
                 Weak::clone(&self.ingress),
                 self.provenance.clone(),

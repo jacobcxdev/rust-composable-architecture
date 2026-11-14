@@ -6,6 +6,7 @@
 
 mod field;
 pub(in crate::store) mod root;
+use crate::store::mailbox;
 use field::{OptionalField, OwnedField};
 #[cfg(feature = "local")]
 pub(in crate::store) mod local;
@@ -594,7 +595,7 @@ impl<
                     return;
                 }
             };
-            if let Err(async_channel::SendError((call, _, _, work))) = ingress
+            if let Err(mailbox::SendError((call, _, _, work))) = ingress
                 .send_map(
                     (call, parent.provenance, parent.authority, work),
                     |(call, provenance, authority, operation_work)| Command::Mounted {

@@ -2,7 +2,7 @@ macro_rules! root_closing_cases {
     ($name:ident, $($api:ident)::+) => {
         mod $name {
             use super::Driver;
-            use $($api)::+::{Feature, FeatureContext, OptionalMount, RootMount, Runtime, Store, Task};
+            use $($api)::+::{Effect, Feature, FeatureContext, OptionalMount, Reducer, RootMount, Runtime, Store, Task, TaskContext};
             use rca_core::{InitialPolicy, MountIdentity, ReactionContext, TaskAccessReason, TaskProgress};
             use rca_core::ReactionChange;
             use std::sync::{Arc, Mutex, atomic::{AtomicUsize, Ordering}};
@@ -22,6 +22,190 @@ macro_rules! root_closing_cases {
                 type State = i32;
                 type Action = ();
                 fn update(&mut self, _: &mut i32, _: &(), _: &mut FeatureContext<'_, i32, ()>) {}
+            }
+
+            #[derive(Debug)]
+            struct IndependentRoot {
+                child: Option<i32>,
+                value: i32,
+                acknowledgements: usize,
+                completed: Vec<&'static str>,
+            }
+
+            #[derive(Debug)]
+            enum IndependentAction { Advance, Acknowledge }
+
+            struct EffectOnlyRoot(Arc<AtomicUsize>);
+
+            impl Reducer for EffectOnlyRoot {
+                type State = IndependentRoot;
+                type Action = IndependentAction;
+
+                fn reduce(
+                    &mut self,
+                    state: &mut IndependentRoot,
+                    action: &IndependentAction,
+                    _: &mut rca_core::ReduceContext<'_>,
+                ) -> Effect<IndependentAction> {
+                    self.0.fetch_add(1, Ordering::SeqCst);
+                    match action {
+                        IndependentAction::Advance => {
+                            state.value = 1;
+                            Effect::send(IndependentAction::Acknowledge)
+                        }
+                        IndependentAction::Acknowledge => {
+                            state.acknowledgements += 1;
+                            Effect::none()
+                        }
+                    }
+                }
+            }
+
+            /// Reads and updates the root only when its factory is first polled.
+            fn independent_root_task(
+                stage: &'static str,
+                expected_value: i32,
+                trace: Arc<Mutex<Vec<&'static str>>>,
+                bodies: Arc<AtomicUsize>,
+                export: Option<futures_channel::oneshot::Sender<TaskContext<IndependentRoot, IndependentAction>>>,
+            ) -> Task<IndependentRoot, IndependentAction> {
+                Task::run(move |context: TaskContext<IndependentRoot, IndependentAction>| async move {
+                    trace.lock().unwrap().push(stage);
+                    assert_eq!(context.read(|state| state.value).await.unwrap(), expected_value);
+                    context.update(move |state| state.completed.push(stage)).await.unwrap();
+                    bodies.fetch_add(1, Ordering::SeqCst);
+                    if let Some(export) = export {
+                        export.send(context).unwrap();
+                        // Keep the exported producing authority live until shutdown.
+                        std::future::pending::<()>().await;
+                    }
+                })
+            }
+
+            #[test]
+            #[expect(
+                clippy::too_many_lines,
+                reason = "one actor carries each independent producer through ordered root access, retirement and shutdown"
+            )]
+            fn effect_only_reducer_preserves_independent_root_task_access_and_laziness() {
+                let driver = Driver::default();
+                let trace = Arc::new(Mutex::new(Vec::new()));
+                let bodies = Arc::new(AtomicUsize::new(0));
+                let reductions = Arc::new(AtomicUsize::new(0));
+                let child_drops = Arc::new(AtomicUsize::new(0));
+                let (export, receive) = futures_channel::oneshot::channel();
+                let mut export = Some(export);
+                let initial_trace = Arc::clone(&trace);
+                let initial_bodies = Arc::clone(&bodies);
+                let change_trace = Arc::clone(&trace);
+                let change_bodies = Arc::clone(&bodies);
+                let make_child = Arc::clone(&child_drops);
+                let (builder, site, removal) = RootMount::new(EffectOnlyRoot(Arc::clone(&reductions)))
+                    .on_initial(|_| (), move |_, _| {
+                        initial_trace.lock().unwrap().push("initial factory");
+                        independent_root_task(
+                            "initial body", 0, Arc::clone(&initial_trace),
+                            Arc::clone(&initial_bodies), Some(export.take().unwrap()),
+                        )
+                    })
+                    .on_change(|state| state.value, InitialPolicy::Skip, move |change, _| {
+                        assert!(matches!(change, ReactionChange::Changed { previous: 0, current: 1 }));
+                        change_trace.lock().unwrap().push("change factory");
+                        independent_root_task(
+                            "change body", 1, Arc::clone(&change_trace),
+                            Arc::clone(&change_bodies), None,
+                        )
+                    })
+                    .builder(
+                        IndependentRoot { child: Some(7), value: 0, acknowledgements: 0, completed: Vec::new() },
+                        Runtime::new(driver.clone()),
+                    )
+                    .mount_removable(
+                        |state: &IndependentRoot| &state.child,
+                        |state: &mut IndependentRoot| &mut state.child,
+                        |state| state.child.map(|_| MountIdentity { key: (), replacement: 0, configuration: 0 }),
+                        move |_| Child(Arc::clone(&make_child)),
+                    );
+                let output_trace = Arc::clone(&trace);
+                let output_bodies = Arc::clone(&bodies);
+                let (builder, output) = builder.output::<u8>(&site, |handlers| {
+                    handlers.at_root(move |_, value, context| {
+                        assert_eq!(value, 9);
+                        output_trace.lock().unwrap().push("output factory");
+                        context.task(independent_root_task(
+                            "output body", 1, Arc::clone(&output_trace),
+                            Arc::clone(&output_bodies), None,
+                        ));
+                        rca_core::OutputFlow::Consumed
+                    });
+                });
+                assert!(trace.lock().unwrap().is_empty());
+                let store = builder.build().unwrap();
+                assert!(trace.lock().unwrap().is_empty());
+                driver.turn();
+                assert_eq!(*trace.lock().unwrap(), ["initial factory"]);
+                assert_eq!(bodies.load(Ordering::SeqCst), 0);
+                driver.finish(store.ready()).unwrap();
+                assert_eq!(bodies.load(Ordering::SeqCst), 0, "readiness must not poll the root task");
+                let parent = driver.finish(receive).unwrap();
+                assert_eq!(bodies.load(Ordering::SeqCst), 1);
+                assert_eq!(*trace.lock().unwrap(), ["initial factory", "initial body"]);
+
+                let action = driver.finish(store.send(IndependentAction::Advance)).unwrap();
+                assert_eq!(bodies.load(Ordering::SeqCst), 1, "change body must follow commit acknowledgement");
+                assert_eq!(trace.lock().unwrap().last(), Some(&"change factory"));
+                driver.finish(action.finish());
+                assert_eq!(bodies.load(Ordering::SeqCst), 2);
+                assert_eq!(reductions.load(Ordering::SeqCst), 2);
+                assert_eq!(driver.finish(parent.read(|state| state.acknowledgements)).unwrap(), 1);
+
+                let child = driver.finish(store.acquire(&site)).unwrap().unwrap();
+                let delivery = driver.finish(child.output(&output, 9)).unwrap();
+                let rca_core::OutputDelivery::Consumed { task } = delivery else {
+                    panic!("root output handler must consume the child value");
+                };
+                assert_eq!(bodies.load(Ordering::SeqCst), 2, "output body must follow output commit");
+                assert_eq!(trace.lock().unwrap().last(), Some(&"output factory"));
+                driver.finish(task.finish());
+                assert_eq!(bodies.load(Ordering::SeqCst), 3);
+
+                let removal_trace = Arc::clone(&trace);
+                let removal_bodies = Arc::clone(&bodies);
+                let removed = driver.finish(parent.remove_child(
+                    &removal, &child, |_| {}, move |state, removed, context| {
+                        assert!(state.child.is_none());
+                        assert_eq!(removed.into_inner(), 7);
+                        removal_trace.lock().unwrap().push("removal factory");
+                        context.task(independent_root_task(
+                            "removal body", 1, removal_trace, removal_bodies, None,
+                        ));
+                    },
+                )).unwrap();
+                assert_eq!(bodies.load(Ordering::SeqCst), 3, "removal body must follow removal commit");
+                assert_eq!(trace.lock().unwrap().last(), Some(&"removal factory"));
+                driver.finish(std::future::poll_fn(|_| {
+                    if bodies.load(Ordering::SeqCst) == 4 {
+                        std::task::Poll::Ready(())
+                    } else {
+                        std::task::Poll::Pending
+                    }
+                }));
+                assert_eq!(child_drops.load(Ordering::SeqCst), 1);
+                let error = driver.finish(child.read(|_| panic!("retired child must not be selected"))).unwrap_err();
+                assert_eq!((error.reason(), error.progress()), (TaskAccessReason::ScopeEnded, TaskProgress::NotStarted));
+                assert_eq!(driver.finish(parent.read(|state| state.completed.clone())).unwrap(),
+                    ["initial body", "change body", "output body", "removal body"]);
+                assert_eq!(reductions.load(Ordering::SeqCst), 2, "root task updates must not become reducer actions");
+                assert_eq!(*trace.lock().unwrap(), [
+                    "initial factory", "initial body", "change factory", "change body",
+                    "output factory", "output body", "removal factory", "removal body",
+                ]);
+                // Removal shares the still-running initial producer's causal lineage.
+                assert!(!removed.is_finished());
+                driver.finish(store.shutdown()).unwrap();
+                assert!(removed.is_finished());
+                let error = driver.finish(parent.read(|_| panic!("closed root must not be selected"))).unwrap_err();
+                assert_eq!((error.reason(), error.progress()), (TaskAccessReason::StoreClosed, TaskProgress::NotStarted));
             }
 
             #[test]

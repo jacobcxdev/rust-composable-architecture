@@ -46,7 +46,7 @@ Run the Cargo command below through that watchdog, not directly.
 Other hosts can use the direct command from the repository root:
 
 ```sh
-rustup run 1.99.0 cargo run --manifest-path examples/counter/Cargo.toml
+rustup run 1.100.0 cargo run --manifest-path examples/counter/Cargo.toml
 ```
 
 The following manifest and source show a standalone Tokio application.
@@ -216,7 +216,7 @@ payloads and client cleanup responsibilities.
 
 ## Requirements and compatibility
 
-RCA 0.1.0 requires Rust 1.99.0. The public API can change before version 1.0.
+RCA 0.1.0 requires Rust 1.100.0. The public API can change before version 1.0.
 The [support policy](docs/support.md) defines platform requirements and compatibility rules.
 The [qualification guide](docs/qualification.md) explains how to assess test and performance evidence for a specific revision.
 

@@ -8,6 +8,7 @@ mod support;
 
 use std::cell::Cell;
 use std::panic::{AssertUnwindSafe, catch_unwind};
+use std::pin::Pin;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll, Waker};
@@ -249,6 +250,53 @@ fn rejected_and_abandoned_actions_release_without_embedding() {
         drop(fixture.child);
         drop(fixture.store);
         assert_eq!(fixture.captures.load(Ordering::SeqCst), 1);
+    }
+}
+
+#[test]
+fn scoped_owned_send_drop_releases_unadmitted_action_once() {
+    for registered in [false, true] {
+        for poll_before_drop in [false, true] {
+            let fixture = Fixture::new(registered, false);
+            let mut filler = fixture.action();
+            filler.drop_probe.label = "filler";
+            let queued = fixture.store.try_send(filler).ok().unwrap();
+            let action = fixture.action();
+            let weak = fixture.child.downgrade();
+            let drop_weak = weak.clone();
+            let reentry = Arc::new(Mutex::new(None));
+            let observed = Arc::clone(&reentry);
+            *action.drop_probe.hook.lock().unwrap() = Some(Box::new(move || {
+                *observed.lock().unwrap() = Some(drop_weak.upgrade().is_some());
+            }));
+
+            let mut wait = fixture.child.send_and_wait_while(action, |_| {
+                panic!("unadmitted work must not register a predicate");
+            });
+            if poll_before_drop {
+                let mut context = Context::from_waker(Waker::noop());
+                assert!(Pin::new(&mut wait).poll(&mut context).is_pending());
+            }
+            drop(fixture.child);
+            drop(fixture.store);
+            assert!(weak.upgrade().is_some());
+            drop(wait);
+
+            assert_eq!(fixture.calls.load(Ordering::SeqCst), 0);
+            assert_eq!(fixture.actions.load(Ordering::SeqCst), 1);
+            assert_eq!(fixture.captures.load(Ordering::SeqCst), 1);
+            assert!(weak.upgrade().is_none());
+            let reentry = reentry.lock().unwrap().expect("payload destructor ran");
+            if poll_before_drop {
+                assert!(
+                    reentry,
+                    "pending send releases its payload before scope authority"
+                );
+            }
+            drop(fixture.actor);
+            futures_executor::block_on(queued.finish()).unwrap_err();
+            assert_eq!(fixture.actions.load(Ordering::SeqCst), 2);
+        }
     }
 }
 

@@ -882,7 +882,30 @@ impl BorrowedEntryStamp<'_> {
     }
 }
 
+impl PartialEq for BorrowedEntryStamp<'_> {
+    fn eq(&self, other: &Self) -> bool {
+        Arc::ptr_eq(self.lineage, other.lineage) && self.revision == other.revision
+    }
+}
+
+impl Eq for BorrowedEntryStamp<'_> {}
+
+impl Hash for BorrowedEntryStamp<'_> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        Arc::as_ptr(self.lineage).hash(state);
+        self.revision.hash(state);
+    }
+}
+
 impl EntryStamp {
+    /// Borrows this retained identity without adding another lineage owner.
+    pub(crate) fn as_borrowed(&self) -> BorrowedEntryStamp<'_> {
+        BorrowedEntryStamp {
+            lineage: &self.lineage,
+            revision: self.revision,
+        }
+    }
+
     /// Compares insertion lifetimes rather than state equality or identifier equality.
     pub(crate) fn matches(&self, other: BorrowedEntryStamp<'_>) -> bool {
         Arc::ptr_eq(&self.lineage, other.lineage) && self.revision == other.revision
@@ -1073,49 +1096,15 @@ impl<Id: Eq + Hash + Clone + Send + Sync + 'static> KeyedLifecycle<Id> {
             .epoch
             .checked_add(1)
             .unwrap_or_else(|| panic!("ForEach reconciliation epoch overflow"));
-        let epoch = snapshot.epoch;
         let entry_node = ReduceContext::node(&mut self.entry_slot);
         self.record_full_reconciliation();
-        context.with_scope(structural_token, |context| {
-            for (id, stamp) in states.entry_stamps() {
-                if snapshot.entries.len() <= 1 {
-                    // IndexMap skips hashing for empty and singleton lookups.
-                    if let Some(active) = snapshot.entries.get_mut(id) {
-                        active.refresh(stamp, epoch, &entry_node, context);
-                    } else {
-                        let active = ActiveEntry::new(stamp, epoch, &entry_node, context);
-                        let previous = snapshot.entries.insert(Arc::new(id.clone()), active);
-                        debug_assert!(
-                            previous.is_none(),
-                            "missing active ID checked before insertion"
-                        );
-                    }
-                } else {
-                    // Larger lookups already hash; retain that hash for a cold insertion.
-                    let hash = snapshot.entries.hasher().hash_one(id);
-                    match snapshot
-                        .entries
-                        .raw_entry_mut_v1()
-                        .from_key_hashed_nocheck(hash, id)
-                    {
-                        RawEntryMut::Occupied(entry) => {
-                            entry.into_mut().refresh(stamp, epoch, &entry_node, context);
-                        }
-                        RawEntryMut::Vacant(entry) => {
-                            let active = ActiveEntry::new(stamp, epoch, &entry_node, context);
-                            entry.insert_hashed_nocheck(hash, Arc::new(id.clone()), active);
-                        }
-                    }
-                }
-            }
-        });
-        snapshot.entries.retain(|_, active| {
-            let retain = active.seen_epoch == epoch;
-            if !retain {
-                context.leave(active.token);
-            }
-            retain
-        });
+        reconcile_keyed_entries(
+            states,
+            context,
+            &mut snapshot,
+            structural_token,
+            &entry_node,
+        );
         snapshot.last_reconciled = Some(structural_stamp.to_owned());
         // A routing callback may panic after reconciliation has completed.
         // Restore the completed snapshot before propagating that same panic.
@@ -1127,6 +1116,61 @@ impl<Id: Eq + Hash + Clone + Send + Sync + 'static> KeyedLifecycle<Id> {
         };
         (structural_token, output)
     }
+}
+
+/// Rebuilds changed entries without specialising their scan for routing callbacks.
+///
+/// Keep this structural-miss path shared. The caller retains snapshot and node
+/// ownership through stamp publication, inspection and cache restoration.
+#[inline(never)]
+fn reconcile_keyed_entries<Id: Eq + Hash + Clone + Send + Sync + 'static, ChildState>(
+    states: &KeyedState<Id, ChildState>,
+    context: &mut ReduceContext<'_>,
+    snapshot: &mut KeyedSnapshot<Id>,
+    structural_token: ScopeToken,
+    entry_node: &ScopeNodeId,
+) {
+    let epoch = snapshot.epoch;
+    context.with_scope(structural_token, |context| {
+        for (id, stamp) in states.entry_stamps() {
+            if snapshot.entries.len() <= 1 {
+                // IndexMap skips hashing for empty and singleton lookups.
+                if let Some(active) = snapshot.entries.get_mut(id) {
+                    active.refresh(stamp, epoch, entry_node, context);
+                } else {
+                    let active = ActiveEntry::new(stamp, epoch, entry_node, context);
+                    let previous = snapshot.entries.insert(Arc::new(id.clone()), active);
+                    debug_assert!(
+                        previous.is_none(),
+                        "missing active ID checked before insertion"
+                    );
+                }
+            } else {
+                // Larger lookups already hash; retain that hash for a cold insertion.
+                let hash = snapshot.entries.hasher().hash_one(id);
+                match snapshot
+                    .entries
+                    .raw_entry_mut_v1()
+                    .from_key_hashed_nocheck(hash, id)
+                {
+                    RawEntryMut::Occupied(entry) => {
+                        entry.into_mut().refresh(stamp, epoch, entry_node, context);
+                    }
+                    RawEntryMut::Vacant(entry) => {
+                        let active = ActiveEntry::new(stamp, epoch, entry_node, context);
+                        entry.insert_hashed_nocheck(hash, Arc::new(id.clone()), active);
+                    }
+                }
+            }
+        }
+    });
+    snapshot.entries.retain(|_, active| {
+        let retain = active.seen_epoch == epoch;
+        if !retain {
+            context.leave(active.token);
+        }
+        retain
+    });
 }
 
 /// Holds a parent reducer with one reducer shared across keyed children.
@@ -1957,7 +2001,7 @@ mod tests {
         assert_eq!(children.len(), 1);
         let child = children.pop().unwrap();
         assert!(child.scope.is_some());
-        let crate::effect::Program::Future(future) = child.program else {
+        let crate::effect::Program::Runtime(crate::effect::RuntimeLeaf::Future(future)) = child.program else {
             panic!("the mapped child retains its future");
         };
         let output = futures_executor::block_on(future).unwrap();
@@ -3399,6 +3443,46 @@ mod tests {
         assert_eq!(identities.len(), 2);
         assert!(identities.contains(&first));
         assert_eq!(identity_hash(&first), identity_hash(&first_clone));
+    }
+
+    #[test]
+    #[expect(
+        clippy::mutable_key_type,
+        reason = "Stamp hashes allocation identity and immutable revision, not its lineage atomic"
+    )]
+    fn borrowed_stamp_membership_matches_owned_without_retaining_lineage() {
+        let states = KeyedState::from_iter([(1_u8, ()), (2, ())]);
+        let other = KeyedState::from_iter([(1_u8, ())]);
+        let first = states.entry_stamp(&1).unwrap().to_owned();
+        let owners = Arc::strong_count(states.lineage());
+        let wanted: std::collections::HashSet<_> = states
+            .entry_stamps()
+            .map(|(_, stamp)| stamp)
+            .collect();
+
+        assert_eq!(Arc::strong_count(states.lineage()), owners);
+        assert_eq!(wanted.len(), 2, "revisions in one lineage stay distinct");
+        assert!(wanted.contains(&first.as_borrowed()));
+        assert!(wanted.contains(&first.clone().as_borrowed()));
+        assert!(!wanted.contains(&other.entry_stamp(&1).unwrap()));
+        assert!(first.as_borrowed() == first.clone().as_borrowed());
+        assert!(first.as_borrowed() != states.entry_stamp(&2).unwrap());
+        assert!(first.as_borrowed() != other.entry_stamp(&1).unwrap());
+        let mut borrowed_hash = DefaultHasher::new();
+        first.as_borrowed().hash(&mut borrowed_hash);
+        assert_eq!(borrowed_hash.finish(), identity_hash(&first));
+
+        let owned: std::collections::HashSet<_> = states
+            .entry_stamps()
+            .map(|(_, stamp)| stamp.to_owned())
+            .collect();
+        assert_eq!(Arc::strong_count(states.lineage()), owners + states.len());
+        assert!(states.entry_stamps().all(|(_, stamp)| {
+            wanted.contains(&stamp) == owned.contains(&stamp.to_owned())
+        }));
+        drop(owned);
+        drop(wanted);
+        assert_eq!(Arc::strong_count(states.lineage()), owners);
     }
 
     /// Compares identity hash behaviour without assuming a persistent numeric hash.

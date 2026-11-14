@@ -75,7 +75,7 @@ def build_environment(inherited, tools, target):
     # Windows environment names are case-insensitive. Replace, do not duplicate.
     explicit = {"RUSTC": tools["rustc"]["path"], "RUSTDOC": tools["rustdoc"]["path"],
                 "RUSTC_WRAPPER": "", "RUSTC_WORKSPACE_WRAPPER": "", "CARGO_BUILD_JOBS": "1",
-                "CARGO_INCREMENTAL": "0", "CARGO_TARGET_DIR": str(target), "RUSTUP_TOOLCHAIN": "1.99.0"}
+                "CARGO_INCREMENTAL": "0", "CARGO_TARGET_DIR": str(target), "RUSTUP_TOOLCHAIN": "1.100.0"}
     env = {key: value for key, value in env.items() if key.upper() not in explicit}
     env.update(explicit)
     path_key = next((key for key in env if key.upper() == "PATH"), "PATH")
@@ -99,6 +99,7 @@ def validate_inputs(source, manifest_path, metadata_path, tools_path, normal, al
     if (manifest.get("Cargo.lock") != metadata["candidate"]["lock_sha256"]
             or manifest.get("Cargo.toml") != metadata["candidate"]["manifest_sha256"]
             or manifest.get("rca-tokio/benches/qualification.rs") != metadata["harness_sha256"]
+            or manifest.get("rca-tokio/benches/qualification/shutdown.rs") != metadata["harness_module_sha256"]
             or manifest.get("docs/performance/scenarios.txt") != metadata["scenario_manifest_sha256"]):
         raise ValueError("staged workspace differs from the qualification build inputs")
     for name, path in (("candidate_normal", normal), ("candidate_allocation", allocation)):

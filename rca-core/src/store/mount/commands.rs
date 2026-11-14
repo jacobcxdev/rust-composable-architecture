@@ -20,6 +20,7 @@ use crate::store::command_port::{
 };
 use crate::store::ingress::Ingress;
 use crate::store::lifecycle::Lifecycle;
+use crate::store::mailbox;
 use crate::store::mounted::{InputClass, MountedApply, MountedCall, scope_ended};
 use crate::store::scope::{ScopeAuthority, ScopeRegistry, ScopeToken, ScopeTransitionBatch};
 use crate::store::task_context::{
@@ -333,10 +334,10 @@ impl<R: Send + 'static, A: Send + 'static, C: Send + 'static, X: Send + 'static>
             },
         ) {
             Ok(()) => Ok(()),
-            Err(async_channel::TrySendError::Full((_, _, request, _, _))) => {
+            Err(mailbox::TrySendError::Full((_, _, request, _, _))) => {
                 Err(TryAdmission::Full(request))
             }
-            Err(async_channel::TrySendError::Closed((_, _, request, _, _))) => {
+            Err(mailbox::TrySendError::Disconnected((_, _, request, _, _))) => {
                 Err(TryAdmission::Rejected {
                     request,
                     error: closed(),

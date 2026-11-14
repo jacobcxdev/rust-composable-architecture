@@ -1,45 +1,41 @@
-//! Maintains indexed timers in deadline and insertion order.
+//! Indexes timers by task and schedules them in deadline order.
 
+use std::collections::hash_map::Entry;
 use std::collections::{BTreeMap, HashMap, VecDeque};
 
 use crate::MonotonicInstant;
+use crate::effect::registry::TaskId;
 use crate::store::scope::{ScopeToken, ScopeTransitionBatch};
-
-/// Identifies one insertion and orders timers with equal deadlines.
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub(crate) struct TimerId(u64);
 
 /// Transfers a due payload out of both indexes before actor dispatch.
 pub(crate) struct DueTimer<Payload> {
-    /// Identifies the removed insertion for the actor's task-to-timer index.
-    pub(crate) id: TimerId,
+    /// Identifies the task whose deadline is due.
+    pub(crate) task: TaskId,
     /// Retains the scheduled deadline for fixed-rate interval renewal.
     pub(crate) deadline: MonotonicInstant,
     /// Owns the action, authority and work leases until dispatch or destruction.
     pub(crate) payload: Payload,
 }
 
-/// Owns a payload and the deadline needed for cancellation by ID.
+/// Owns a payload and its finite or permanently parked deadline.
 struct TimerRecord<Payload> {
-    /// Reconstructs the ordered index key together with this record's map key.
+    /// Reconstructs a finite ordered key; `MAX` has no ordered entry.
     deadline: MonotonicInstant,
+    /// Orders equal deadlines by insertion, including interval renewals.
+    sequence: u64,
     /// Remains outside ordered keys, so comparison cannot invoke user code.
     payload: Payload,
 }
 
-/// Indexes live payloads by ID and schedules them by deadline, then insertion.
+/// Indexes all payloads by ID and schedules only finite deadlines.
 pub(crate) struct TimerQueue<Payload> {
-    /// A unit-valued map permits checking and removing one minimum entry together.
-    #[expect(
-        clippy::zero_sized_map_values,
-        reason = "BTreeSet lacks an occupied entry API for one-lookup conditional removal"
-    )]
-    order: BTreeMap<(MonotonicInstant, TimerId), ()>,
-    /// Owns each payload once and supports cancellation without scanning deadlines.
-    records: HashMap<TimerId, TimerRecord<Payload>>,
-    /// Never reuses a timer ID, including after cancellation or interval renewal.
-    next_id: u64,
-    /// Changes only when the earliest deadline changes, not its equal-deadline ID.
+    /// Orders finite timers by deadline, then insertion, for one-lookup removal.
+    order: BTreeMap<(MonotonicInstant, u64), TaskId>,
+    /// Owns each payload by task ID for direct cancellation.
+    records: HashMap<TaskId, TimerRecord<Payload>>,
+    /// Gives each insertion a new sequence number, including interval renewals.
+    next_sequence: u64,
+    /// Changes only when the earliest scheduled deadline changes.
     wake_generation: u64,
 }
 
@@ -47,43 +43,60 @@ impl<Payload> TimerQueue<Payload> {
     /// Creates empty indexes without allocating payload storage.
     pub(crate) fn new() -> Self {
         Self {
-            #[expect(
-                clippy::zero_sized_map_values,
-                reason = "the unit-valued map provides conditional occupied-entry removal"
-            )]
             order: BTreeMap::new(),
             records: HashMap::new(),
-            next_id: 0,
+            next_sequence: 0,
             wake_generation: 0,
         }
     }
 
-    /// Owns one insertion; equal deadlines retain their insertion order.
+    /// Schedules a task that has no live timer in the queue.
     ///
-    /// ID exhaustion panics before insertion. Wake-generation exhaustion occurs
-    /// after both indexes change; this method does not promise panic rollback.
-    pub(crate) fn insert(&mut self, deadline: MonotonicInstant, payload: Payload) -> TimerId {
-        let previous = self.earliest_deadline();
-        let id = TimerId(self.next_id);
-        self.next_id = self
-            .next_id
+    /// Equal deadlines run in insertion order, even after an interval renews.
+    ///
+    /// # Panics
+    ///
+    /// A duplicate task or exhausted insertion sequence panics before insertion.
+    /// Wake-generation exhaustion panics after insertion.
+    pub(crate) fn schedule(&mut self, task: TaskId, deadline: MonotonicInstant, payload: Payload) {
+        let Entry::Vacant(entry) = self.records.entry(task) else {
+            panic!("task already has a scheduled timer");
+        };
+        let sequence = self.next_sequence;
+        self.next_sequence = sequence
             .checked_add(1)
-            .expect("timer ID space exhausted");
-        let replaced = self.records.insert(id, TimerRecord { deadline, payload });
-        debug_assert!(replaced.is_none(), "new timer ID must be unique");
-        let replaced_order = self.order.insert((deadline, id), ());
-        debug_assert!(replaced_order.is_none(), "timer order key must be unique");
-        self.update_wake_generation(previous);
-        id
+            .expect("timer insertion sequence exhausted");
+        entry.insert(TimerRecord {
+            deadline,
+            sequence,
+            payload,
+        });
+
+        if deadline != MonotonicInstant::MAX {
+            let previous = self.earliest_deadline();
+            let replaced_order = self.order.insert((deadline, sequence), task);
+            debug_assert!(replaced_order.is_none(), "timer order key must be unique");
+            self.update_wake_generation(previous);
+        }
     }
 
-    /// Removes a live insertion and returns its payload without dropping it.
-    pub(crate) fn remove(&mut self, id: TimerId) -> Option<Payload> {
-        let previous = self.earliest_deadline();
-        let record = self.records.remove(&id)?;
-        let removed = self.order.remove(&(record.deadline, id));
-        debug_assert!(removed.is_some(), "timer indexes must agree");
-        self.update_wake_generation(previous);
+    /// Schedules a test payload with a fresh task ID.
+    #[cfg(test)]
+    fn insert(&mut self, deadline: MonotonicInstant, payload: Payload) -> TaskId {
+        let task = self.next_sequence;
+        self.schedule(task, deadline, payload);
+        task
+    }
+
+    /// Removes a task's timer and returns its payload without dropping it.
+    pub(crate) fn remove(&mut self, task: TaskId) -> Option<Payload> {
+        let record = self.records.remove(&task)?;
+        if record.deadline != MonotonicInstant::MAX {
+            let previous = self.earliest_deadline();
+            let removed = self.order.remove(&(record.deadline, record.sequence));
+            debug_assert_eq!(removed, Some(task), "timer indexes must agree");
+            self.update_wake_generation(previous);
+        }
         Some(record.payload)
     }
 
@@ -134,19 +147,22 @@ impl<Payload> TimerQueue<Payload> {
         due: &mut VecDeque<DueTimer<Payload>>,
     ) {
         let previous = self.earliest_deadline();
-        due.reserve_exact(limit.min(self.records.len()));
+        due.reserve_exact(limit.min(self.order.len()));
         for _ in 0..limit {
             let Some(entry) = self.order.first_entry() else {
                 break;
             };
             let &(deadline, _) = entry.key();
-            if deadline == MonotonicInstant::MAX || deadline > now {
+            if deadline > now {
                 break;
             }
-            let ((_, id), ()) = entry.remove_entry();
-            let record = self.records.remove(&id).expect("timer indexes must agree");
+            let (_, task) = entry.remove_entry();
+            let record = self
+                .records
+                .remove(&task)
+                .expect("timer indexes must agree");
             due.push_back(DueTimer {
-                id,
+                task,
                 deadline,
                 payload: record.payload,
             });
@@ -157,14 +173,13 @@ impl<Payload> TimerQueue<Payload> {
     /// Identifies the next runtime wake, excluding permanently parked deadlines.
     pub(crate) fn next_wake(&self) -> Option<(MonotonicInstant, u64)> {
         self.earliest_deadline()
-            .filter(|deadline| *deadline != MonotonicInstant::MAX)
             .map(|deadline| (deadline, self.wake_generation))
     }
 
     /// Checks eligibility without moving payloads or scheduling a runtime wait.
     pub(crate) fn has_due(&self, now: MonotonicInstant) -> bool {
         self.earliest_deadline()
-            .is_some_and(|deadline| deadline != MonotonicInstant::MAX && deadline <= now)
+            .is_some_and(|deadline| deadline <= now)
     }
 
     /// Reports whether any timer remains, including parked timers.
@@ -172,17 +187,30 @@ impl<Payload> TimerQueue<Payload> {
         self.records.is_empty()
     }
 
+    /// Counts timers that still belong to the queue.
+    #[cfg(test)]
+    pub(crate) fn len(&self) -> usize {
+        self.records.len()
+    }
+
     #[cfg(feature = "test-util")]
     /// Copies ordered deadlines for deterministic inspection without exposing IDs.
     pub(crate) fn deadlines(&self) -> Vec<MonotonicInstant> {
-        self.order.keys().map(|(deadline, _)| *deadline).collect()
+        self.order
+            .keys()
+            .map(|(deadline, _)| *deadline)
+            .chain(std::iter::repeat_n(
+                MonotonicInstant::MAX,
+                self.records.len() - self.order.len(),
+            ))
+            .collect()
     }
 
-    /// Reads the earliest key, including `MAX` for wake-change detection.
+    /// Reads the earliest scheduled deadline without visiting parked records.
     fn earliest_deadline(&self) -> Option<MonotonicInstant> {
         self.order
             .first_key_value()
-            .map(|(&(deadline, _), ())| deadline)
+            .map(|(&(deadline, _), _)| deadline)
     }
 
     /// Invalidates a runtime wait only when its deadline changes.
@@ -236,6 +264,42 @@ mod tests {
     }
 
     #[test]
+    fn renewed_task_follows_an_existing_peer_at_the_same_deadline() {
+        let mut queue = TimerQueue::new();
+        let deadline = MonotonicInstant::from_elapsed(Duration::from_secs(1));
+        queue.schedule(3, MonotonicInstant::ZERO, "first tick");
+        queue.schedule(7, deadline, "peer");
+
+        let due = queue.pop_due(MonotonicInstant::ZERO, 1);
+        assert_eq!((due[0].task, due[0].payload), (3, "first tick"));
+        queue.schedule(due[0].task, deadline, "renewed tick");
+
+        let due = queue.pop_due(deadline, 2);
+        assert_eq!((due[0].task, due[0].payload), (7, "peer"));
+        assert_eq!((due[1].task, due[1].payload), (3, "renewed tick"));
+        assert!(queue.is_empty());
+    }
+
+    #[test]
+    fn duplicate_task_preserves_the_old_payload_and_wake() {
+        let mut queue = TimerQueue::new();
+        let deadline = MonotonicInstant::from_elapsed(Duration::from_secs(1));
+        queue.schedule(7, deadline, "original");
+        let wake = queue.next_wake();
+
+        let duplicate = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            queue.schedule(7, MonotonicInstant::ZERO, "duplicate");
+        }));
+
+        assert!(duplicate.is_err());
+        assert_eq!(queue.next_wake(), wake);
+        assert!(!queue.has_due(MonotonicInstant::ZERO));
+        assert_eq!(queue.remove(7), Some("original"));
+        assert!(queue.is_empty());
+        assert_eq!(queue.next_wake(), None);
+    }
+
+    #[test]
     fn removing_far_future_timer_reclaims_record() {
         let mut queue = TimerQueue::new();
         let id = queue.insert(MonotonicInstant::MAX, 1);
@@ -259,7 +323,7 @@ mod tests {
         let due = queue.pop_due(deadline, 2);
         assert_eq!(due.len(), 1);
         assert_eq!(
-            (due[0].id, due[0].deadline, due[0].payload),
+            (due[0].task, due[0].deadline, due[0].payload),
             (second, deadline, 2)
         );
         assert_eq!(queue.remove(second), None);
@@ -403,6 +467,55 @@ mod tests {
         assert_eq!(queue.next_wake(), None);
         assert!(queue.pop_due(MonotonicInstant::MAX, 1).is_empty());
         assert!(!queue.is_empty());
+    }
+
+    #[test]
+    fn parked_timers_leave_scheduled_wake_generations_unchanged() {
+        let mut queue = TimerQueue::new();
+        let early = MonotonicInstant::from_elapsed(Duration::from_secs(1));
+        let later = MonotonicInstant::from_elapsed(Duration::from_secs(2));
+        let parked_first = queue.insert(MonotonicInstant::MAX, 10);
+        let parked_last = queue.insert(MonotonicInstant::MAX, 20);
+        assert_eq!(queue.wake_generation, 0);
+        assert_eq!(queue.next_wake(), None);
+
+        let finite_first = queue.insert(later, 1);
+        let finite_last = queue.insert(later, 2);
+        assert_eq!(queue.next_wake(), Some((later, 1)));
+        queue.insert(early, 0);
+        assert_eq!(queue.next_wake(), Some((early, 2)));
+        #[cfg(feature = "test-util")]
+        assert_eq!(
+            queue.deadlines(),
+            [early, later, later, MonotonicInstant::MAX, MonotonicInstant::MAX]
+        );
+
+        assert_eq!(queue.remove(parked_first), Some(10));
+        assert_eq!(queue.next_wake(), Some((early, 2)));
+        assert_eq!(queue.pop_due(early, 1)[0].payload, 0);
+        assert_eq!(queue.next_wake(), Some((later, 3)));
+        let first = queue.pop_due(later, 1);
+        assert_eq!((first[0].task, first[0].payload), (finite_first, 1));
+        assert_eq!(queue.next_wake(), Some((later, 3)));
+        let last = queue.pop_due(later, 1);
+        assert_eq!((last[0].task, last[0].payload), (finite_last, 2));
+        assert_eq!(queue.wake_generation, 4);
+        assert_eq!(queue.next_wake(), None);
+        assert!(!queue.has_due(MonotonicInstant::MAX));
+        assert!(!queue.is_empty());
+        #[cfg(feature = "test-util")]
+        assert_eq!(queue.deadlines(), [MonotonicInstant::MAX]);
+
+        assert!(queue.pop_due(MonotonicInstant::MAX, 8).is_empty());
+        assert_eq!(queue.wake_generation, 4);
+        assert_eq!(queue.remove(parked_last), Some(20));
+        assert_eq!(queue.wake_generation, 4);
+        assert!(queue.is_empty());
+        #[cfg(feature = "test-util")]
+        assert_eq!(queue.deadlines(), [] as [MonotonicInstant; 0]);
+
+        queue.insert(later, 3);
+        assert_eq!(queue.next_wake(), Some((later, 5)));
     }
 
     #[test]

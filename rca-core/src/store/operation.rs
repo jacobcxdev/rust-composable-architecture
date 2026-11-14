@@ -5,6 +5,7 @@
 //! Replies distinguish rejected access from successful observation or cancellation.
 //! Captured completion waits outlive access without retaining concrete work.
 
+use crate::store::mailbox;
 use std::fmt;
 use std::hash::Hash;
 use std::sync::{Arc, Weak};
@@ -15,7 +16,7 @@ use super::lifecycle::Lifecycle;
 use super::scope::{ScopeAuthority, ScopeToken};
 use super::task_context::{ReplyGuard, TaskAccessError, TaskAccessReason, TaskProgress};
 use crate::RuntimeFuture;
-use crate::effect::CancellationIdentity;
+use crate::effect::UnscopedCancellationIdentity;
 use crate::effect::operation::{OperationDeclaration, OperationStatus, OperationWait};
 
 #[cfg(feature = "local")]
@@ -40,7 +41,7 @@ trait OperationEndpoint {
 /// Supplies immutable operation authority to the common actor transaction.
 pub(crate) trait OperationMetadata {
     /// Borrows the named key before the actor applies its target scope.
-    fn identity(&self) -> &CancellationIdentity;
+    fn identity(&self) -> &UnscopedCancellationIdentity;
 
     /// Borrows either dynamic root access or a captured scope and authority.
     fn target(&self) -> &OperationTarget;
@@ -75,7 +76,7 @@ impl Operation {
         provenance: Provenance,
         scope: ScopeToken,
         authority: ScopeAuthority,
-        identity: CancellationIdentity,
+        identity: UnscopedCancellationIdentity,
     ) -> Self {
         Self {
             endpoint: Arc::new(SharedEndpoint {
@@ -228,7 +229,7 @@ struct SharedEndpoint<S, A> {
     /// Weak mailbox endpoint, upgraded only while submitting a request.
     ingress: Weak<Ingress<S, A>>,
     /// Type-separated named key, shared without rehashing for each request.
-    identity: CancellationIdentity,
+    identity: UnscopedCancellationIdentity,
     /// Root or frozen authority, also rechecked by the actor after admission.
     target: OperationTarget,
     /// Producing authority checked before queueing and at the actor boundary.
@@ -236,7 +237,7 @@ struct SharedEndpoint<S, A> {
 }
 
 impl<S, A> OperationMetadata for SharedEndpoint<S, A> {
-    fn identity(&self) -> &CancellationIdentity {
+    fn identity(&self) -> &UnscopedCancellationIdentity {
         &self.identity
     }
 
@@ -280,7 +281,7 @@ impl<S: Send + 'static, A: Send + 'static> OperationEndpoint for SharedEndpoint<
                 return;
             };
 
-            if let Err(async_channel::SendError((request, _))) = ingress
+            if let Err(mailbox::SendError((request, _))) = ingress
                 .send_map((request, metadata), |(request, metadata)| {
                     Command::Operation { request, metadata }
                 })
@@ -304,6 +305,7 @@ mod tests {
     use crate::effect::lineage::ControlWake;
     use crate::store::ingress::Ingress;
     use crate::store::lifecycle::{CloseState, Lifecycle};
+    use crate::store::mailbox;
     use crate::store::task_context::{ReplyGuard, TaskAccessReason, TaskProgress};
 
     #[test]
@@ -355,12 +357,12 @@ mod tests {
         let cancel = operation.cancel();
         assert!(matches!(
             receiver.try_recv(),
-            Err(async_channel::TryRecvError::Empty)
+            Err(mailbox::TryRecvError::Empty)
         ));
         drop((status, capture, cancel));
         assert!(matches!(
             receiver.try_recv(),
-            Err(async_channel::TryRecvError::Empty)
+            Err(mailbox::TryRecvError::Empty)
         ));
     }
 
@@ -380,7 +382,7 @@ mod tests {
         assert_eq!(error.progress(), TaskProgress::NotStarted);
         assert!(matches!(
             receiver.try_recv(),
-            Err(async_channel::TryRecvError::Empty)
+            Err(mailbox::TryRecvError::Empty)
         ));
     }
 

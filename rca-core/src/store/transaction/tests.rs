@@ -3,6 +3,7 @@
 use super::*;
 #[cfg(feature = "local")]
 use crate::store::local;
+use crate::store::mailbox;
 use crate::store::mounted::path::BorrowPath;
 use crate::store::mounted::{OptionalPath, SharedNode};
 use crate::store::scope::SelectedChild;
@@ -480,7 +481,7 @@ fn local_native_reducer_maps_future_fallible_and_interval_leaves_through_one_pro
     );
     drop(commit(host.parts(), Mutation::Action(action, None)));
     host.registry
-        .complete_actor(timer.payload.task, TaskStatus::Completed);
+        .complete_actor(timer.task, TaskStatus::Completed);
     drop(host.collect());
     assert_eq!(host.state.0.get(), 4);
     assert!(task.is_finished());
@@ -507,7 +508,7 @@ fn typed_admission_is_lazy_wake_driven_and_receiver_drop_does_not_cancel_update(
     assert_eq!(drops.load(Ordering::SeqCst), 1);
     assert!(matches!(
         host.receiver.try_recv(),
-        Err(async_channel::TryRecvError::Empty)
+        Err(mailbox::TryRecvError::Empty)
     ));
     let (reply, receive) = super::super::command::commit_channel();
     host.ingress
@@ -909,13 +910,13 @@ fn local_metadata_commands_borrow_native_rc_ownership_without_a_frontend_adapter
 
     /// Requires the common operation path to borrow native Rc-owned metadata.
     struct Metadata {
-        identity: crate::effect::CancellationIdentity,
+        identity: crate::effect::UnscopedCancellationIdentity,
         target: OperationTarget,
         provenance: Provenance,
         identity_reads: Rc<Cell<usize>>,
     }
     impl OperationMetadata for Metadata {
-        fn identity(&self) -> &crate::effect::CancellationIdentity {
+        fn identity(&self) -> &crate::effect::UnscopedCancellationIdentity {
             self.identity_reads.set(self.identity_reads.get() + 1);
             &self.identity
         }
@@ -1628,7 +1629,7 @@ fn stale_handle_action_is_rejected_before_embedding_or_reduction() {
     };
 
     let mut host = counter_host();
-    let (reply, registered) = async_channel::bounded(1);
+    let (reply, mut registered) = futures_channel::oneshot::channel();
     let selections = Arc::new(AtomicUsize::new(0));
     let selected = Arc::clone(&selections);
     host.handles.register(
@@ -1642,7 +1643,7 @@ fn stale_handle_action_is_rejected_before_embedding_or_reduction() {
             reply,
         },
     );
-    let handle = registered.try_recv().unwrap().unwrap();
+    let handle = registered.try_recv().unwrap().unwrap().unwrap();
     let embeddings = Arc::new(AtomicUsize::new(0));
     let called = Arc::clone(&embeddings);
     let (reply, mut receive) = super::super::command::commit_channel();
@@ -1682,7 +1683,7 @@ fn handle_selector_rejection_preserves_entered_progress_without_reduction() {
     let selections = Arc::new(AtomicUsize::new(0));
     let selected = Arc::clone(&selections);
     let visible = Arc::clone(&present);
-    let (reply, registered) = async_channel::bounded(1);
+    let (reply, mut registered) = futures_channel::oneshot::channel();
     host.handles.register(
         &host.state,
         HandleRegistrationCommandCore {
@@ -1696,7 +1697,7 @@ fn handle_selector_rejection_preserves_entered_progress_without_reduction() {
             reply,
         },
     );
-    let handle = registered.try_recv().unwrap().unwrap();
+    let handle = registered.try_recv().unwrap().unwrap().unwrap();
     assert_eq!(selections.load(Ordering::SeqCst), 1);
     let (mut reply, mut receive) = super::super::command::commit_channel();
     let terminal = TerminalReceipt::default();
@@ -2128,4 +2129,95 @@ fn retired_output_owner_returns_queued_value_from_live_sibling_source() {
     assert_eq!(std::ptr::from_ref(value.as_ref()), identity);
     assert_eq!(value.get(), 7);
     assert_eq!(handlers.load(Ordering::SeqCst), 0);
+}
+
+#[test]
+fn root_registration_panic_preserves_mixed_spill_order_and_unpolled_factories() {
+    /// Counts factory entry and records each owned capture's destruction.
+    struct Capture {
+        /// Names its position in the mixed declaration order.
+        id: usize,
+        /// Records registered and unregistered destruction separately.
+        dropped: Arc<std::sync::Mutex<Vec<usize>>>,
+        /// Detects any factory call during registration or cleanup.
+        started: Arc<AtomicUsize>,
+    }
+    impl Drop for Capture {
+        fn drop(&mut self) {
+            self.dropped.lock().unwrap().push(self.id);
+        }
+    }
+
+    /// Collides by value but panics only when the second task reaches registration.
+    #[derive(Eq)]
+    struct Collision(bool);
+    impl std::hash::Hash for Collision {
+        fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+            state.write_u8(0);
+        }
+    }
+    impl PartialEq for Collision {
+        fn eq(&self, other: &Self) -> bool {
+            assert!(!self.0 && !other.0, "root task collision");
+            true
+        }
+    }
+
+    let dropped = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let started = Arc::new(AtomicUsize::new(0));
+    let mut work = crate::feature::Work::default();
+    for id in 0..6 {
+        let capture = Capture {
+            id,
+            dropped: Arc::clone(&dropped),
+            started: Arc::clone(&started),
+        };
+        if id.is_multiple_of(2) {
+            work.push(WorkItem::Effect(crate::Effect::run(move |_| {
+                capture.started.fetch_add(1, Ordering::SeqCst);
+                async move { drop(capture) }
+            })));
+        } else {
+            work.push(WorkItem::Task(crate::Task::run_named(
+                Collision(id == 3),
+                crate::OperationPolicy::Coexist,
+                move |_| {
+                    capture.started.fetch_add(1, Ordering::SeqCst);
+                    async move { drop(capture) }
+                },
+            )));
+        }
+    }
+
+    let mut host = counter_host();
+    let scope = host.scopes.root();
+    let mut lineage = None;
+    let mut generations = Vec::new();
+    let operations = OperationAncestry::default();
+    let mut launches = Launches::default();
+    let panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        register_root_work(
+            RootWork::new(work, <Shared as Execution<usize, usize>>::ROOT_REGISTRAR),
+            &mut host.parts(),
+            WorkOrigin {
+                scope,
+                lineage: &mut lineage,
+                generations: &mut generations,
+                operations: &operations,
+                inherited_generations: 0,
+                group: None,
+            },
+            &mut launches,
+        );
+    }))
+    .expect_err("the second named task must panic during registration");
+    assert_eq!(panic.downcast_ref::<&str>(), Some(&"root task collision"));
+    assert_eq!(*dropped.lock().unwrap(), [3, 4, 5]);
+    let launches: Vec<_> = launches.into_iter().collect();
+    assert_eq!(launches.len(), 3);
+    assert!(generations.is_empty());
+    assert_eq!(started.load(Ordering::SeqCst), 0);
+    drop(launches);
+    assert_eq!(*dropped.lock().unwrap(), [3, 4, 5, 0, 1, 2]);
+    assert_eq!(started.load(Ordering::SeqCst), 0);
 }

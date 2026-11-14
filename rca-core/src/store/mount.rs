@@ -413,7 +413,7 @@ struct RootDeclaration<S, A, C: Carriers<S, A> = Shared> {
     payload: Mutex<Option<RootInitial<S, A, C>>>,
 }
 
-impl<S: 'static, A: 'static, C: Carriers<S, A> + 'static> ReactionRunner<S, A, C>
+impl<S: 'static, A: 'static, C: super::carriers::Execution<S, A> + 'static> ReactionRunner<S, A, C>
     for RootDeclaration<S, A, C>
 where
     C::Task: 'static,
@@ -457,8 +457,8 @@ where
     }
 }
 
-impl<S: 'static, A: 'static, C: Carriers<S, A> + 'static> MountDeclaration<S, A, C>
-    for RootDeclaration<S, A, C>
+impl<S: 'static, A: 'static, C: super::carriers::Execution<S, A> + 'static>
+    MountDeclaration<S, A, C> for RootDeclaration<S, A, C>
 where
     C::Task: 'static,
 {

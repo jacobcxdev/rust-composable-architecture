@@ -48,7 +48,10 @@ pub(crate) use scoped::allocation_tests::{
     distinct_projection_publication_costs, scoped_observation_adapter_storage_costs,
 };
 #[cfg(all(test, feature = "allocation-measurement"))]
-pub(crate) use transaction::allocation_tests::retiring_delayed_suffixes_prunes_waits_with_constant_allocation_budget;
+pub(crate) use transaction::allocation_tests::{
+    dense_effect_registration_avoids_launch_growth, dense_runtime_merge_shares_generation_snapshot,
+    retiring_delayed_suffixes_prunes_waits_with_constant_allocation_budget,
+};
 
 #[cfg(all(test, feature = "allocation-measurement"))]
 pub(crate) use mount::allocation_tests::mount_declaration_and_acquisition_costs;
@@ -848,18 +851,18 @@ impl<State, Action> Store<State, Action> {
         Action: Send + 'static,
     {
         async move {
-            let (reply, receive) = async_channel::bounded(1);
+            let (reply, receive) = futures_channel::oneshot::channel();
             self.ingress
                 .send(Command::Shutdown(TerminalReply::<
                     <carriers::Shared as carriers::Carriers<State, Action>>::Terminal,
                 >::State(Box::new(
                     move |state| {
-                        let _ = reply.try_send(state);
+                        let _ = reply.send(state);
                     },
                 ))))
                 .await
                 .map_err(|_closed| StoreStopped::new())?;
-            let result = receive.recv().await.map_err(|_closed| StoreStopped::new());
+            let result = receive.await.map_err(|_closed| StoreStopped::new());
             drop(self);
             result
         }
@@ -968,8 +971,8 @@ fn try_send_action<S, A, C: carriers::Carriers<S, A>>(
         Command::Action(ActionCommand::external(action, reply))
     }) {
         Ok(()) => Ok(ActionReceipt::new(receive)),
-        Err(async_channel::TrySendError::Full((action, _))) => Err(TrySendError::full(action)),
-        Err(async_channel::TrySendError::Closed((action, _))) => {
+        Err(mailbox::TrySendError::Full((action, _))) => Err(TrySendError::full(action)),
+        Err(mailbox::TrySendError::Disconnected((action, _))) => {
             Err(TrySendError::store_stopped(action))
         }
     }
@@ -1002,15 +1005,14 @@ async fn shutdown<S, A, C: carriers::Carriers<S, A>>(
     if lifecycle.is_closed() {
         return Err(ShutdownError::store_stopped());
     }
-    let (reply, receive) = async_channel::bounded(1);
+    let (reply, receive) = futures_channel::oneshot::channel();
     ingress
         .send(Command::Shutdown(TerminalReply::Shutdown(reply)))
         .await
         .map_err(|_closed| ShutdownError::store_stopped())?;
     receive
-        .recv()
         .await
-        .unwrap_or_else(|_closed| Err(ShutdownError::store_stopped()))
+        .map_err(|_closed| ShutdownError::store_stopped())
 }
 
 /// Transfers observation cancellation from a registration guard to its returned handle.

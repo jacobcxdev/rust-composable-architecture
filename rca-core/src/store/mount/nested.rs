@@ -56,6 +56,29 @@ impl<R, A, C: Carriers<R, A>> Descendants<'_, R, A, C> {
         &slice[..end]
     }
 
+    /// Checks direct-child authority without first measuring the whole descendant prefix.
+    pub(super) fn has_inactive_direct_child(&self, scopes: &ScopeRegistry) -> bool {
+        let Some(remaining) = &self.remaining else {
+            return false;
+        };
+        for child in remaining.as_slice() {
+            let depth = child.depth();
+            if depth <= self.depth {
+                break;
+            }
+            #[cfg(all(test, feature = "allocation-measurement"))]
+            super::collection_costs::record_inspected(1);
+            if depth == self.depth + 1
+                && child
+                    .installed_scope()
+                    .is_none_or(|token| !scopes.is_current(token))
+            {
+                return true;
+            }
+        }
+        false
+    }
+
     /// Moves the descendant prefix into collection reconciliation's replacement roster.
     ///
     /// Collection declarations always run inside a real iterator frame. The
@@ -657,4 +680,181 @@ where
         },
     );
     (Box::new(owner), site)
+}
+
+#[cfg(test)]
+ordinary_test_items! {
+mod tests {
+    use super::*;
+    use crate::store::ingress::CommandIngress;
+    use crate::store::scope::{ScopeIdentity, ScopeSlot};
+    use parking_lot::Mutex;
+
+    /// Records exact metadata visits independently of the scope-check result.
+    type Trace = Arc<Mutex<Vec<(usize, &'static str)>>>;
+
+    /// Records placement and authority reads without adding production instrumentation.
+    struct ScopeProbe {
+        /// Distinguishes each owned declaration in the literal visit trace.
+        index: usize,
+        /// Places this declaration inside or outside the inspected subtree.
+        depth: usize,
+        /// Supplies a real registry token, or a not-yet-installed entry.
+        scope: Option<ScopeToken>,
+        /// Captures every depth and installed-token query.
+        trace: Trace,
+    }
+
+    impl MountDeclaration<(), ()> for ScopeProbe {
+        fn depth(&self) -> usize {
+            self.trace.lock().push((self.index, "depth"));
+            self.depth
+        }
+
+        fn installed_scope(&self) -> Option<ScopeToken> {
+            self.trace.lock().push((self.index, "scope"));
+            self.scope
+        }
+
+        fn bind(&self, _: &Arc<CommandIngress<Command<(), ()>>>, _: &Arc<Lifecycle>) {}
+
+        fn reconcile(
+            &self,
+            _: &(),
+            _: &mut ScopeRegistry,
+            _: &mut ScopeTransitionBatch,
+            _: &mut Vec<Box<<Shared as Carriers<(), ()>>::Node>>,
+            _: ScopeToken,
+            _: &mut Vec<Box<<Shared as Carriers<(), ()>>::Mount>>,
+            _: &mut Descendants<'_, (), (), Shared>,
+            #[cfg(feature = "diagnostics")] _: Option<crate::diagnostics::LifecycleCall<'_>>,
+        ) {
+            panic!("scope inspection must not reconcile declarations");
+        }
+    }
+
+    /// Checks the real query against literal visits and leaves its owned iterator intact.
+    fn check_direct_scopes(
+        scopes: &ScopeRegistry,
+        layout: &[(usize, Option<ScopeToken>)],
+        inactive: bool,
+        expected: &[(usize, &'static str)],
+    ) {
+        let trace = Arc::new(Mutex::new(Vec::new()));
+        let owners: Vec<Box<dyn MountDeclaration<(), ()> + Send>> = layout
+            .iter()
+            .enumerate()
+            .map(|(index, &(depth, scope))| {
+                Box::new(ScopeProbe {
+                    index,
+                    depth,
+                    scope,
+                    trace: Arc::clone(&trace),
+                }) as Box<dyn MountDeclaration<(), ()> + Send>
+            })
+            .collect();
+        let mut remaining = owners.into_iter();
+        let descendants = Descendants::<(), (), Shared> {
+            remaining: Some(&mut remaining),
+            depth: 2,
+            reordered: false,
+        };
+        assert_eq!(descendants.has_inactive_direct_child(scopes), inactive);
+        assert_eq!(&*trace.lock(), expected);
+        assert_eq!(
+            remaining.len(),
+            layout.len(),
+            "inspection cannot consume owners"
+        );
+    }
+
+    #[test]
+    fn direct_scope_check_visits_each_depth_once_and_stops_at_subtree_boundary() {
+        let (_lifecycle, mut scopes) = ScopeRegistry::for_test();
+        let root = scopes.root();
+        let live = scopes.mount(
+            root,
+            ScopeRegistry::node(&mut ScopeSlot::new()),
+            ScopeIdentity::unit(),
+        );
+        let later_live = scopes.mount(
+            root,
+            ScopeRegistry::node(&mut ScopeSlot::new()),
+            ScopeIdentity::unit(),
+        );
+        let stale = scopes.mount(
+            root,
+            ScopeRegistry::node(&mut ScopeSlot::new()),
+            ScopeIdentity::unit(),
+        );
+        scopes.leave(stale);
+        for boundary in [1, 2] {
+            check_direct_scopes(
+                &scopes,
+                &[
+                    (3, Some(live)),
+                    (4, None),
+                    (5, Some(stale)),
+                    (3, Some(later_live)),
+                    (boundary, None),
+                    (3, None),
+                ],
+                false,
+                &[
+                    (0, "depth"),
+                    (0, "scope"),
+                    (1, "depth"),
+                    (2, "depth"),
+                    (3, "depth"),
+                    (3, "scope"),
+                    (4, "depth"),
+                ],
+            );
+        }
+    }
+
+    #[test]
+    fn direct_scope_check_rejects_missing_or_retired_direct_entries_without_consuming() {
+        let (_lifecycle, mut scopes) = ScopeRegistry::for_test();
+        let root = scopes.root();
+        let live = scopes.mount(
+            root,
+            ScopeRegistry::node(&mut ScopeSlot::new()),
+            ScopeIdentity::unit(),
+        );
+        let stale = scopes.mount(
+            root,
+            ScopeRegistry::node(&mut ScopeSlot::new()),
+            ScopeIdentity::unit(),
+        );
+        scopes.leave(stale);
+        for inactive in [None, Some(stale)] {
+            check_direct_scopes(
+                &scopes,
+                &[(3, Some(live)), (4, None), (3, inactive), (3, Some(live))],
+                true,
+                &[
+                    (0, "depth"),
+                    (0, "scope"),
+                    (1, "depth"),
+                    (2, "depth"),
+                    (2, "scope"),
+                ],
+            );
+        }
+    }
+
+    #[test]
+    fn direct_scope_check_accepts_flat_empty_and_outside_subtree_rosters() {
+        let (_lifecycle, scopes) = ScopeRegistry::for_test();
+        assert!(!Descendants::<(), (), Shared>::empty().has_inactive_direct_child(&scopes));
+        check_direct_scopes(&scopes, &[], false, &[]);
+        check_direct_scopes(
+            &scopes,
+            &[(2, None), (3, None)],
+            false,
+            &[(0, "depth")],
+        );
+    }
+}
 }

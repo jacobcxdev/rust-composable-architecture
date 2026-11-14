@@ -47,26 +47,21 @@ where
     }
 }
 
-/// Selects typed cancellation generations within one structural runtime scope.
-///
-/// Cloning shares the key without calling its `Clone`, `Hash` or `Eq` methods.
-/// Equality still calls user `Eq` after matching scope and cached hash.
+/// Owns a cached key before the actor supplies its structural scope.
 #[derive(Clone)]
-pub(crate) struct CancellationIdentity {
-    /// Absent until effect compilation qualifies the key exactly once.
-    scope: Option<ScopeToken>,
+pub(crate) struct UnscopedCancellationIdentity {
     /// Cached hash of the concrete type and key, not proof of equality.
     value_hash: u64,
     /// Keeps the original key alive for collision-safe equality and destruction.
     value: Arc<dyn ErasedCancellationValue>,
 }
 
-impl CancellationIdentity {
-    /// Owns an unqualified key and caches its type-sensitive hash.
+impl UnscopedCancellationIdentity {
+    /// Owns a key and caches its type-sensitive hash before allocation.
     ///
     /// User hashing runs before shared storage is allocated. A panic drops `id`
     /// without publishing an identity. No stable hash representation is promised.
-    pub(crate) fn local<ID>(id: ID) -> Self
+    pub(crate) fn new<ID>(id: ID) -> Self
     where
         ID: Hash + Eq + Send + Sync + 'static,
     {
@@ -74,49 +69,48 @@ impl CancellationIdentity {
         id.hash(&mut hasher);
         TypeId::of::<ID>().hash(&mut hasher);
         Self {
-            scope: None,
             value_hash: hasher.finish(),
             value: Arc::new(CancellationValue(id)),
         }
     }
 
-    /// Qualifies an unscoped key without hashing or copying the user value.
-    ///
-    /// # Panics
-    ///
-    /// Panics if compilation qualifies an identity more than once.
-    pub(crate) fn in_scope(mut self, scope: ScopeToken) -> Self {
-        assert!(
-            self.scope.replace(scope).is_none(),
-            "cancellation identity cannot be qualified twice"
-        );
-        self
+    /// Transfers the same key into the actor's selected scope without rehashing.
+    pub(crate) fn in_scope(self, scope: ScopeToken) -> CancellationIdentity {
+        CancellationIdentity { scope, key: self }
     }
+}
 
+/// Selects typed cancellation generations within one structural runtime scope.
+///
+/// Cloning shares the key without calling its `Clone`, `Hash` or `Eq` methods.
+/// Equality still calls user `Eq` after matching scope and cached hash.
+#[derive(Clone)]
+pub(crate) struct CancellationIdentity {
+    /// Selects the runtime registry scope before lookup or registration.
+    scope: ScopeToken,
+    /// Retains the cached fingerprint and its concrete equality owner.
+    key: UnscopedCancellationIdentity,
+}
+
+impl CancellationIdentity {
     #[cfg(feature = "test-util")]
     /// Reads the compiled scope's opaque diagnostic identifier.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the key has not passed through scope qualification.
     pub(crate) fn scope_id(&self) -> u64 {
-        self.scope
-            .expect("compiled cancellation identity must have a scope")
-            .diagnostic_id()
+        self.scope.diagnostic_id()
     }
 
     #[cfg(feature = "test-util")]
     /// Names the concrete key type without exposing its value.
     pub(crate) fn type_name(&self) -> &'static str {
-        self.value.type_name()
+        self.key.value.type_name()
     }
 }
 
 impl PartialEq for CancellationIdentity {
     fn eq(&self, other: &Self) -> bool {
         self.scope == other.scope
-            && self.value_hash == other.value_hash
-            && self.value.equals(other.value.as_ref())
+            && self.key.value_hash == other.key.value_hash
+            && self.key.value.equals(other.key.value.as_ref())
     }
 }
 
@@ -125,15 +119,15 @@ impl Eq for CancellationIdentity {}
 impl Hash for CancellationIdentity {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.scope.hash(state);
-        self.value_hash.hash(state);
+        self.key.value_hash.hash(state);
     }
 }
 
 impl fmt::Debug for CancellationIdentity {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("CancellationIdentity")
-            .field("scope", &self.scope)
-            .field("type_id", &self.value.as_any().type_id())
+            .field("scope", &Some(self.scope))
+            .field("type_id", &self.key.value.as_any().type_id())
             .finish_non_exhaustive()
     }
 }
@@ -145,7 +139,7 @@ mod tests {
     use std::sync::Arc;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
-    use super::CancellationIdentity;
+    use super::{CancellationIdentity, UnscopedCancellationIdentity};
     use crate::store::scope::{ScopeIdentity, ScopeRegistry, ScopeSlot};
 
     #[derive(Eq, PartialEq)]
@@ -172,6 +166,25 @@ mod tests {
         }
     }
 
+    #[test]
+    fn unscoped_keys_qualify_without_rehashing_or_replacing_ownership() {
+        let hashes = Arc::new(AtomicUsize::new(0));
+        let equalities = Arc::new(AtomicUsize::new(0));
+        let key = UnscopedCancellationIdentity::new(Counted {
+            hashes: Arc::clone(&hashes),
+            equalities: Arc::clone(&equalities),
+        });
+        let cloned = key.clone();
+        let (_lifecycle, scopes) = ScopeRegistry::for_test();
+        let qualified = key.in_scope(scopes.root());
+
+        assert_eq!(hashes.load(Ordering::Relaxed), 1);
+        assert!(Arc::ptr_eq(&cloned.value, &qualified.key.value));
+        assert_eq!(qualified, cloned.in_scope(scopes.root()));
+        assert_eq!(hashes.load(Ordering::Relaxed), 1);
+        assert_eq!(equalities.load(Ordering::Relaxed), 1);
+    }
+
     #[derive(Default)]
     struct HashBytes(usize);
 
@@ -189,10 +202,11 @@ mod tests {
     fn cached_identity_hash_preserves_user_callbacks() {
         let hashes = Arc::new(AtomicUsize::new(0));
         let equalities = Arc::new(AtomicUsize::new(0));
-        let make = || CancellationIdentity::local(Counted {
+        let (_lifecycle, scopes) = ScopeRegistry::for_test();
+        let make = || UnscopedCancellationIdentity::new(Counted {
             hashes: Arc::clone(&hashes),
             equalities: Arc::clone(&equalities),
-        });
+        }).in_scope(scopes.root());
         let first = make();
         let second = make();
         let cloned = first.clone();
@@ -205,6 +219,7 @@ mod tests {
         }
         assert_eq!(hashes.load(Ordering::Relaxed), 2);
         assert_eq!(equalities.load(Ordering::Relaxed), 32);
+        assert_eq!(bytes.0, 16 * 2 * std::mem::size_of::<u64>());
         let hash = |identity: &CancellationIdentity| {
             let mut digest = std::collections::hash_map::DefaultHasher::new();
             identity.hash(&mut digest);
@@ -230,19 +245,21 @@ mod tests {
 
     #[test]
     fn identity_checks_concrete_values_after_hash_collision() {
+        let (_lifecycle, scopes) = ScopeRegistry::for_test();
         assert_ne!(
-            CancellationIdentity::local(Collision(1)),
-            CancellationIdentity::local(Collision(2))
+            UnscopedCancellationIdentity::new(Collision(1)).in_scope(scopes.root()),
+            UnscopedCancellationIdentity::new(Collision(2)).in_scope(scopes.root())
         );
     }
 
     #[test]
     fn identity_keeps_concrete_types_distinct() {
-        let first = CancellationIdentity::local(1_u8);
-        let mut second = CancellationIdentity::local(1_u16);
+        let (_lifecycle, scopes) = ScopeRegistry::for_test();
+        let first = UnscopedCancellationIdentity::new(1_u8).in_scope(scopes.root());
+        let mut second = UnscopedCancellationIdentity::new(1_u16).in_scope(scopes.root());
         assert_ne!(first, second);
         // Force a cached fingerprint collision to exercise the concrete type check.
-        second.value_hash = first.value_hash;
+        second.key.value_hash = first.key.value_hash;
         assert_ne!(first, second);
     }
 
@@ -253,12 +270,12 @@ mod tests {
         );
         let (_lifecycle, scopes) = ScopeRegistry::for_test();
         let scope = scopes.root();
-        let selected = CancellationIdentity::local(Collision(1)).in_scope(scope);
-        let sibling = CancellationIdentity::local(Collision(2)).in_scope(scope);
-        assert_eq!(selected.value_hash, sibling.value_hash);
+        let selected = UnscopedCancellationIdentity::new(Collision(1)).in_scope(scope);
+        let sibling = UnscopedCancellationIdentity::new(Collision(2)).in_scope(scope);
+        assert_eq!(selected.key.value_hash, sibling.key.value_hash);
         let selected_generation = registry.register_generation(selected);
         let sibling_generation = registry.register_generation(sibling.clone());
-        let equal_selected = CancellationIdentity::local(Collision(1)).in_scope(scope);
+        let equal_selected = UnscopedCancellationIdentity::new(Collision(1)).in_scope(scope);
 
         assert_eq!(registry.cancel_identity(&equal_selected), [] as [u64; 0]);
         assert!(!selected_generation.is_live());
@@ -271,9 +288,10 @@ mod tests {
 
     #[test]
     fn equal_typed_values_share_identity() {
+        let (_lifecycle, scopes) = ScopeRegistry::for_test();
         assert_eq!(
-            CancellationIdentity::local(7_u64),
-            CancellationIdentity::local(7_u64)
+            UnscopedCancellationIdentity::new(7_u64).in_scope(scopes.root()),
+            UnscopedCancellationIdentity::new(7_u64).in_scope(scopes.root())
         );
     }
 
@@ -282,17 +300,21 @@ mod tests {
         #[derive(Hash, PartialEq, Eq)]
         struct PrivateId(&'static str);
 
-        let identity = CancellationIdentity::local(PrivateId("private-account-4821"));
+        let (_lifecycle, scopes) = ScopeRegistry::for_test();
+        let identity = UnscopedCancellationIdentity::new(PrivateId("private-account-4821"))
+            .in_scope(scopes.root());
         let diagnostic = format!("{identity:?}");
         assert!(diagnostic.starts_with("CancellationIdentity"));
         assert!(!diagnostic.contains("private-account-4821"));
         assert_eq!(
             identity,
-            CancellationIdentity::local(PrivateId("private-account-4821"))
+            UnscopedCancellationIdentity::new(PrivateId("private-account-4821"))
+                .in_scope(scopes.root())
         );
         assert_ne!(
             identity,
-            CancellationIdentity::local(PrivateId("private-account-9302"))
+            UnscopedCancellationIdentity::new(PrivateId("private-account-9302"))
+                .in_scope(scopes.root())
         );
     }
 
@@ -308,24 +330,25 @@ mod tests {
         let nested = scopes.mount(first, nested_node, ScopeIdentity::unit());
 
         assert_ne!(
-            CancellationIdentity::local(7_u8).in_scope(first),
-            CancellationIdentity::local(7_u8).in_scope(second)
+            UnscopedCancellationIdentity::new(7_u8).in_scope(first),
+            UnscopedCancellationIdentity::new(7_u8).in_scope(second)
         );
         assert_ne!(
-            CancellationIdentity::local(7_u8).in_scope(root),
-            CancellationIdentity::local(7_u8).in_scope(first)
+            UnscopedCancellationIdentity::new(7_u8).in_scope(root),
+            UnscopedCancellationIdentity::new(7_u8).in_scope(first)
         );
         assert_ne!(
-            CancellationIdentity::local(7_u8).in_scope(first),
-            CancellationIdentity::local(7_u8).in_scope(nested)
+            UnscopedCancellationIdentity::new(7_u8).in_scope(first),
+            UnscopedCancellationIdentity::new(7_u8).in_scope(nested)
         );
     }
 
     #[cfg(feature = "test-util")]
     #[test]
     fn identity_reports_type_without_storing_metadata() {
+        let (_lifecycle, scopes) = ScopeRegistry::for_test();
         assert_eq!(
-            CancellationIdentity::local(7_u64).type_name(),
+            UnscopedCancellationIdentity::new(7_u64).in_scope(scopes.root()).type_name(),
             std::any::type_name::<u64>()
         );
     }

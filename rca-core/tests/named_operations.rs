@@ -367,6 +367,76 @@ impl std::hash::Hash for OperationKey {
     }
 }
 
+/// Repeated requests reuse the cached key; rejected access skips registry equality.
+#[test]
+fn operation_requests_reuse_key_hashes_and_rejection_skips_equality() {
+    /// Counts user callbacks while keeping key equality independent of counters.
+    struct CountedKey {
+        /// Counts calls to the user-supplied hash implementation.
+        hashes: Arc<AtomicUsize>,
+        /// Counts calls to the user-supplied equality implementation.
+        equalities: Arc<AtomicUsize>,
+    }
+
+    impl PartialEq for CountedKey {
+        fn eq(&self, _other: &Self) -> bool {
+            self.equalities.fetch_add(1, Ordering::SeqCst);
+            true
+        }
+    }
+
+    impl Eq for CountedKey {}
+
+    impl std::hash::Hash for CountedKey {
+        fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+            self.hashes.fetch_add(1, Ordering::SeqCst);
+            std::hash::Hash::hash(&7_u64, state);
+        }
+    }
+
+    let host = support::ManualRuntime::new();
+    let hashes = Arc::new(AtomicUsize::new(0));
+    let equalities = Arc::new(AtomicUsize::new(0));
+    let key = || CountedKey {
+        hashes: Arc::clone(&hashes),
+        equalities: Arc::clone(&equalities),
+    };
+    let mut declaration_key = Some(key());
+    let reducer = Reduce::<(), (), _>::new(move |(), (), _| {
+        Effect::run(|_| std::future::pending())
+            .named(declaration_key.take().unwrap(), OperationPolicy::Coexist)
+    });
+    let store = Store::new((), reducer, host.runtime());
+    let operation = store.operation(key());
+    let mut actor = host.take_only_queued_task();
+    drop(store.try_send(()).unwrap());
+    assert!(poll(actor.as_mut()).is_pending());
+    let mut body = host.take_only_queued_task();
+    assert_eq!(hashes.load(Ordering::SeqCst), 2);
+
+    assert_eq!(
+        ordered(&mut actor, operation.status())
+            .unwrap()
+            .active_count(),
+        1
+    );
+    let mut wait = Box::pin(ordered(&mut actor, operation.capture()).unwrap());
+    ordered(&mut actor, operation.cancel()).unwrap();
+    assert!(poll(body.as_mut()).is_ready());
+    assert_eq!(poll(wait.as_mut()), Poll::Ready(Ok(())));
+    assert_eq!(hashes.load(Ordering::SeqCst), 2);
+    let comparisons = equalities.load(Ordering::SeqCst);
+    assert!(comparisons > 0);
+
+    drop(store);
+    assert!(poll(actor.as_mut()).is_ready());
+    assert_operation_rejected(operation.status(), TaskAccessReason::StoreClosed);
+    assert_operation_rejected(operation.capture(), TaskAccessReason::StoreClosed);
+    assert_operation_rejected(operation.cancel(), TaskAccessReason::StoreClosed);
+    assert_eq!(hashes.load(Ordering::SeqCst), 2);
+    assert_eq!(equalities.load(Ordering::SeqCst), comparisons);
+}
+
 /// Records payload destruction and ordering without assertions inside cleanup.
 #[derive(Debug, Default)]
 struct PayloadObservation {
@@ -713,18 +783,18 @@ fn escaped_operation_rejects_completed_producer_and_blocked_requests_close_witho
     assert_eq!(Arc::strong_count(&reductions), 1);
 }
 
-/// Runtime clock callbacks can close the final owner before operation admission.
+/// Metadata skips the clock and rejects requests after the final owner disappears.
 #[test]
 #[expect(
     clippy::too_many_lines,
-    reason = "keeps the runtime callback, all three admitted operation requests and terminal cleanup in one public schedule"
+    reason = "keeps clock avoidance, all three admitted operation requests and final-owner cleanup in one public schedule"
 )]
-fn operation_actor_entry_rechecks_root_owner_after_runtime_callback() {
+fn operation_metadata_skips_clock_and_rejects_admitted_owner_loss() {
     /// Drops the final store owner on the next clock query.
     struct CloseOnClock {
         /// Lets the test drive the actor without starting an executor thread.
         queued: Arc<Mutex<Vec<RuntimeFuture>>>,
-        /// Holds the sole store owner only after the request is admitted.
+        /// Holds the sole store owner while metadata must avoid clock callbacks.
         owner: Arc<Mutex<Option<Store<(), ()>>>>,
         /// Identifies the exact clock query that performs closure.
         calls: Arc<AtomicUsize>,
@@ -807,11 +877,12 @@ fn operation_actor_entry_rechecks_root_owner_after_runtime_callback() {
             assert_eq!(queued.len(), 1);
             queued.pop().unwrap()
         };
-        // Finish startup with no mounts, effects or timers. The next clock
-        // request belongs to the already-admitted operation's transaction.
+        // Finish startup without mounts, effects or timers, then arm the clock
+        // callback before admitting metadata that must not sample the clock.
         assert!(poll(actor.as_mut()).is_pending());
         assert_eq!(calls.load(Ordering::SeqCst), 0);
         assert!(poll(closed.as_mut()).is_pending());
+        *owner.lock().unwrap() = Some(store);
         let mut request = Box::pin(async {
             match method {
                 Request::Status => operation.status().await.map(|_| ()),
@@ -822,13 +893,33 @@ fn operation_actor_entry_rechecks_root_owner_after_runtime_callback() {
         assert!(poll(request.as_mut()).is_pending());
         assert_eq!(calls.load(Ordering::SeqCst), 0);
         assert_eq!(drops.load(Ordering::SeqCst), 0);
-        *owner.lock().unwrap() = Some(store);
 
-        // Runtime::now is a real driver callback: its final-owner drop occurs
-        // after dispatch's closure check but before the target's admission.
+        assert!(poll(actor.as_mut()).is_pending());
+        assert!(matches!(poll(request.as_mut()), Poll::Ready(Ok(()))));
+        assert_eq!(calls.load(Ordering::SeqCst), 0);
+        assert!(owner.lock().unwrap().is_some());
+        assert!(poll(closed.as_mut()).is_pending());
+        assert_eq!(reductions.load(Ordering::SeqCst), 0);
+        assert_eq!(drops.load(Ordering::SeqCst), 0);
+        assert!(queued.lock().unwrap().is_empty());
+        drop(request);
+
+        // Admit another real request, then remove its sole owner before dispatch.
+        let mut request = Box::pin(async {
+            match method {
+                Request::Status => operation.status().await.map(|_| ()),
+                Request::Capture => operation.capture().await.map(|_| ()),
+                Request::Cancel => operation.cancel().await,
+            }
+        });
+        assert!(poll(request.as_mut()).is_pending());
+        let store = owner.lock().unwrap().take().unwrap();
+        drop(store);
+        assert_eq!(calls.load(Ordering::SeqCst), 0);
+        assert_eq!(drops.load(Ordering::SeqCst), 0);
         assert!(poll(actor.as_mut()).is_ready());
         assert_operation_rejected(request.as_mut(), TaskAccessReason::StoreClosed);
-        assert_eq!(calls.load(Ordering::SeqCst), 1);
+        assert_eq!(calls.load(Ordering::SeqCst), 0);
         assert!(owner.lock().unwrap().is_none());
         assert_eq!(poll(closed.as_mut()), Poll::Ready(()));
         assert_eq!(reductions.load(Ordering::SeqCst), 0);

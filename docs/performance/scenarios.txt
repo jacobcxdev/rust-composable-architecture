@@ -42,6 +42,10 @@ timer/remove
 query/multi
 shutdown/graceful
 shutdown/abortive
+shutdown/abortive/live/1
+shutdown/abortive/live/8
+shutdown/abortive/burst/8
+shutdown/abortive/burst/64
 deterministic/ready/1
 deterministic/ready/16
 deterministic/ready/256

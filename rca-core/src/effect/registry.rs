@@ -15,6 +15,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use crossbeam_utils::atomic::AtomicCell;
 use futures_util::future::{AbortHandle, AbortRegistration, Abortable, FutureExt};
+use triomphe::ThinArc;
 
 use super::CancellationIdentity;
 use super::lineage::{ControlWake, LineageState, LineageWork};
@@ -57,12 +58,111 @@ impl GenerationToken {
     }
 }
 
+/// Shares a task's captured generations with its senders without copying tokens.
+#[derive(Clone, Default)]
+pub(crate) struct TaskGenerations(Option<ThinArc<(), GenerationToken>>);
+
+impl TaskGenerations {
+    /// Captures generation authority once, without allocating for empty input.
+    pub(crate) fn capture(generations: &[GenerationToken]) -> Self {
+        // Token cloning shares library-owned references without calling user code.
+        // The slice iterator supplies the thin allocation's exact element count.
+        Self(
+            (!generations.is_empty())
+                .then(|| ThinArc::from_header_and_iter((), generations.iter().cloned())),
+        )
+    }
+
+    /// Borrows the captured tokens in their original order.
+    pub(crate) fn as_slice(&self) -> &[GenerationToken] {
+        self.0
+            .as_ref()
+            .map_or(&[], |generations| &generations.slice)
+    }
+}
+
+/// Stores a generation's first task inline and retains a table after spilling.
+enum TaskMembership {
+    /// Avoids allocating for empty and singleton generations.
+    Inline(Option<TaskId>),
+    /// Keeps allocated capacity when harvested tasks leave the table empty.
+    Table(HashSet<TaskId>),
+}
+
+impl TaskMembership {
+    /// Inserts a task once, spilling only for a distinct second task.
+    fn insert(&mut self, task: TaskId) -> bool {
+        match self {
+            Self::Inline(slot @ None) => {
+                *slot = Some(task);
+                true
+            }
+            Self::Inline(Some(existing)) if *existing == task => false,
+            Self::Inline(Some(existing)) => {
+                let mut tasks = HashSet::with_capacity(2);
+                tasks.insert(*existing);
+                tasks.insert(task);
+                *self = Self::Table(tasks);
+                true
+            }
+            Self::Table(tasks) => tasks.insert(task),
+        }
+    }
+
+    /// Removes one matching task without discarding spilled capacity.
+    fn remove(&mut self, task: TaskId) -> bool {
+        match self {
+            Self::Inline(slot) if *slot == Some(task) => {
+                *slot = None;
+                true
+            }
+            Self::Inline(_) => false,
+            Self::Table(tasks) => tasks.remove(&task),
+        }
+    }
+
+    /// Reports whether any reserved or registered task remains.
+    fn is_empty(&self) -> bool {
+        match self {
+            Self::Inline(task) => task.is_none(),
+            Self::Table(tasks) => tasks.is_empty(),
+        }
+    }
+
+    /// Visits membership without imposing an order on spilled tasks.
+    fn iter(&self) -> impl Iterator<Item = &TaskId> {
+        let (inline, table) = match self {
+            Self::Inline(task) => (task.as_ref(), std::collections::hash_set::Iter::default()),
+            Self::Table(tasks) => (None, tasks.iter()),
+        };
+        inline.into_iter().chain(table)
+    }
+}
+
+#[cfg(test)]
+ordinary_test_items! {
+impl TaskMembership {
+    /// Counts memberships for ordinary registry assertions.
+    fn len(&self) -> usize {
+        self.iter().count()
+    }
+
+    /// Checks membership for ordinary registry assertions.
+    fn contains(&self, task: TaskId) -> bool {
+        match self {
+            Self::Inline(existing) => *existing == Some(task),
+            Self::Table(tasks) => tasks.contains(&task),
+        }
+    }
+}
+}
+
 /// Keeps a generation reachable while its compiler holders or work remain.
 struct GenerationRecord {
     /// Revocation signal shared with every token for this exact generation.
     live: Arc<AtomicBool>,
     /// Reserved and registered task IDs, detached during terminal harvesting.
-    tasks: HashSet<u64>,
+    tasks: TaskMembership,
     /// Explicit compiler-frame holds, independent of token clone counts.
     holders: usize,
     /// Named completion keeps the record alive beyond its registered tasks.
@@ -210,16 +310,14 @@ fn track_completion<W>(
 struct TaskNode {
     /// Exact structural incarnation used by descendant cancellation.
     scope: ScopeToken,
-    /// Causal cancellation domain shared with the initiating action.
-    lineage: Arc<LineageState>,
     /// Runtime or actor terminal signal; observing it does not remove the node.
     completion: Arc<TaskCompletion>,
     /// Selects who can finish the task and how cancellation reaches it.
     authority: TaskAuthority,
     /// Immutable memberships removed before this node releases causal work.
-    generations: Box<[GenerationToken]>,
+    generations: TaskGenerations,
     /// Last field: harvesting records the outcome before dropping this work lease.
-    _work: LineageWork,
+    work: LineageWork,
 }
 
 /// Distinguishes runtime cancellation from synchronously owned actor timers.
@@ -313,14 +411,12 @@ pub(crate) struct PreparedTask {
     id: u64,
     /// Exact structural incarnation inherited by the eventual task node.
     scope: ScopeToken,
-    /// Causal owner whose work is retained during carrier construction.
-    lineage: Arc<LineageState>,
     /// Signal used by weak sender authority before runtime registration.
     completion: Arc<TaskCompletion>,
     /// Generation liveness captured during this uninterrupted actor phase.
     cancelled: bool,
     /// Immutable memberships already reserved in matching cancellation records.
-    generations: Box<[GenerationToken]>,
+    generations: TaskGenerations,
     /// Causal lease transferred to the task node when registration succeeds.
     work: LineageWork,
     /// Named polling ancestry transferred to the runtime wrapper or actor timer.
@@ -340,8 +436,8 @@ impl PreparedTask {
         Arc::downgrade(&self.completion)
     }
 
-    /// Copies generation authority into independently owned sender provenance.
-    pub(crate) fn generation_tokens(&self) -> Box<[GenerationToken]> {
+    /// Shares immutable generation authority with sender provenance.
+    pub(crate) fn generation_tokens(&self) -> TaskGenerations {
         self.generations.clone()
     }
 
@@ -356,6 +452,14 @@ impl PreparedTask {
     }
 }
 
+/// Runs named cleanup and records any cancellation it applies.
+#[cfg(feature = "diagnostics")]
+type MaintainNamedOperations = fn(&mut TaskRegistry, bool, &mut bool);
+
+/// Runs named cleanup without a diagnostic result.
+#[cfg(not(feature = "diagnostics"))]
+type MaintainNamedOperations = fn(&mut TaskRegistry, bool);
+
 /// Owns actor-local task membership and cancellation-generation bookkeeping.
 ///
 /// Shared atomics let runtime workers report completion without borrowing this
@@ -365,8 +469,8 @@ pub(crate) struct TaskRegistry {
     nodes: HashMap<u64, TaskNode>,
     /// User cancellation keys map to concurrent ordinary or named generations.
     cancellations: HashMap<CancellationIdentity, CancellationEntry>,
-    /// False rules out named records; true may survive until the next pass.
-    may_have_operations: bool,
+    /// Starts with no named cleanup and clears after the last named record retires.
+    maintain_named_operations: Option<MaintainNamedOperations>,
     /// Next never-reused task ID; overflow is a terminal exhaustion error.
     next_id: u64,
     /// Next never-reused generation ID, independent of cancellation key reuse.
@@ -384,7 +488,7 @@ impl TaskRegistry {
         Self {
             nodes: HashMap::new(),
             cancellations: HashMap::new(),
-            may_have_operations: false,
+            maintain_named_operations: None,
             next_id: 0,
             next_generation: 0,
             #[cfg(feature = "test-util")]
@@ -407,6 +511,7 @@ impl TaskRegistry {
         identity: CancellationIdentity,
         completion: Arc<LineageState>,
     ) -> GenerationToken {
+        self.maintain_named_operations = Some(Self::maintain_named);
         self.register_generation_with_completion(identity, Some(completion))
     }
 
@@ -420,7 +525,6 @@ impl TaskRegistry {
         identity: CancellationIdentity,
         completion: Option<Arc<LineageState>>,
     ) -> GenerationToken {
-        self.may_have_operations |= completion.is_some();
         let generation = self.next_generation;
         self.next_generation = self
             .next_generation
@@ -450,7 +554,7 @@ impl TaskRegistry {
             generation,
             GenerationRecord {
                 live: Arc::clone(&live),
-                tasks: HashSet::new(),
+                tasks: TaskMembership::Inline(None),
                 holders: 1,
                 completion: completion.clone(),
             },
@@ -478,7 +582,7 @@ impl TaskRegistry {
             if let Some(completion) = &record.completion {
                 completion.cancel();
             }
-            for task in &record.tasks {
+            for task in record.tasks.iter() {
                 if let Some(node) = self.nodes.get(task) {
                     match &node.authority {
                         TaskAuthority::Runtime(abort) => abort.abort(),
@@ -538,18 +642,30 @@ impl TaskRegistry {
         );
     }
 
-    /// Fuses named retirement and optional cancellation into one record traversal.
-    ///
-    /// The no-named-work flag skips the traversal entirely. Call only after all
-    /// reservations in the current actor phase have been registered.
+    /// Runs named cleanup only if a named declaration has started work.
     fn maintain_operations(
         &mut self,
         cancel: bool,
         #[cfg(feature = "diagnostics")] cancellation_applied: &mut bool,
     ) {
-        if !self.may_have_operations {
-            return;
+        if let Some(maintain) = self.maintain_named_operations {
+            maintain(
+                self,
+                cancel,
+                #[cfg(feature = "diagnostics")]
+                cancellation_applied,
+            );
         }
+    }
+
+    /// Retires completed named records and applies pending cancellation.
+    ///
+    /// The actor calls this method after it registers all current reservations.
+    fn maintain_named(
+        &mut self,
+        cancel: bool,
+        #[cfg(feature = "diagnostics")] cancellation_applied: &mut bool,
+    ) {
         let mut retained_named = false;
         let nodes = &self.nodes;
         self.cancellations.retain(|_, entry| {
@@ -571,7 +687,7 @@ impl TaskRegistry {
                     {
                         *cancellation_applied = true;
                     };
-                    for id in &record.tasks {
+                    for id in record.tasks.iter() {
                         // Control runs after task registration; harvesting detaches
                         // task IDs before control can run again.
                         let node = nodes.get(id).expect("control processes registered tasks");
@@ -587,7 +703,9 @@ impl TaskRegistry {
             });
             !entry.active.is_empty()
         });
-        self.may_have_operations = retained_named;
+        if !retained_named {
+            self.maintain_named_operations = None;
+        }
     }
 
     /// Adds a compiler-frame hold only if this exact generation remains registered.
@@ -637,14 +755,37 @@ impl TaskRegistry {
         generations: &[GenerationToken],
         ancestry: &OperationAncestry,
     ) -> PreparedTask {
+        self.prepare_captured(
+            scope,
+            lineage,
+            TaskGenerations::capture(generations),
+            ancestry,
+        )
+    }
+
+    /// Reserves one task from an already captured immutable generation list.
+    ///
+    /// Membership and liveness are sampled for each task, not for the batch.
+    /// Registration must finish in the same actor phase, before processing control.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the registry exhausts its monotone task IDs.
+    pub(crate) fn prepare_captured(
+        &mut self,
+        scope: ScopeToken,
+        lineage: Arc<LineageState>,
+        generations: TaskGenerations,
+        ancestry: &OperationAncestry,
+    ) -> PreparedTask {
         let id = self.next_id;
         self.next_id = self
             .next_id
             .checked_add(1)
             .expect("task ID space exhausted");
         let completion = TaskCompletion::new(Arc::clone(&self.control));
-        let work = lineage.add_work();
-        for token in generations {
+        let work = lineage.into_work();
+        for token in generations.as_slice() {
             if let Some(record) = self
                 .cancellations
                 .get_mut(&token.identity)
@@ -654,14 +795,13 @@ impl TaskRegistry {
                 record.tasks.insert(id);
             }
         }
-        let cancelled = generations.iter().any(|token| !token.is_live());
+        let cancelled = generations.as_slice().iter().any(|token| !token.is_live());
         PreparedTask {
             id,
             scope,
-            lineage,
             completion,
             cancelled,
-            generations: generations.into(),
+            generations,
             work,
             ancestry: ancestry.clone(),
             operations: ancestry.retain_work(),
@@ -769,7 +909,6 @@ impl TaskRegistry {
         let PreparedTask {
             id,
             scope,
-            lineage,
             completion,
             cancelled,
             generations,
@@ -787,11 +926,10 @@ impl TaskRegistry {
             id,
             TaskNode {
                 scope,
-                lineage,
                 completion,
                 authority: TaskAuthority::Runtime(abort),
                 generations,
-                _work: work,
+                work,
             },
         );
         (registration, guard)
@@ -805,7 +943,6 @@ impl TaskRegistry {
         let PreparedTask {
             id,
             scope,
-            lineage,
             completion,
             generations,
             work,
@@ -815,11 +952,10 @@ impl TaskRegistry {
             id,
             TaskNode {
                 scope,
-                lineage,
                 completion,
                 authority: TaskAuthority::Actor,
                 generations,
-                _work: work,
+                work,
             },
         );
         id
@@ -863,7 +999,7 @@ impl TaskRegistry {
             &mut cancellation_applied,
         );
         for node in self.nodes.values() {
-            if node.lineage.is_cancelled() {
+            if node.work.lineage().is_cancelled() {
                 match &node.authority {
                     TaskAuthority::Runtime(abort) => {
                         #[cfg(feature = "diagnostics")]
@@ -940,10 +1076,10 @@ impl TaskRegistry {
             (_, status) => status,
         };
         if matches!(status, TaskStatus::Panicked | TaskStatus::RuntimeDropped) {
-            node.lineage.cancel();
+            node.work.lineage().cancel();
         }
         assert_ne!(status, TaskStatus::Panicked, "effect task panicked");
-        for token in node.generations.as_ref() {
+        for token in node.generations.as_slice() {
             self.detach_task(token, id);
         }
         completed.push(TerminalTask { id, status });
@@ -979,7 +1115,7 @@ impl TaskRegistry {
     /// This terminal signal alone is not an acknowledgement of payload destruction.
     pub(crate) fn invalidate_all(&mut self) {
         for node in self.nodes.values() {
-            node.lineage.cancel();
+            node.work.lineage().cancel();
             node.completion.finish(TaskStatus::Cancelled);
             if let TaskAuthority::Runtime(abort) = &node.authority {
                 abort.abort();
@@ -990,6 +1126,38 @@ impl TaskRegistry {
                 record.live.store(false, Ordering::Release);
             }
         }
+    }
+
+    /// Reports retained task IDs and nonempty generation backing identities.
+    #[cfg(all(test, feature = "allocation-measurement"))]
+    pub(crate) fn generation_snapshot_backings(&self) -> Vec<(TaskId, Option<usize>)> {
+        let mut backings: Vec<_> = self
+            .nodes
+            .iter()
+            .map(|(id, node)| {
+                let backing = node
+                    .generations
+                    .0
+                    .as_ref()
+                    .map(|generations| generations.slice.as_ptr().addr());
+                (*id, backing)
+            })
+            .collect();
+        backings.sort_unstable_by_key(|(id, _)| *id);
+        backings
+    }
+
+    /// Lists actual generation memberships independently of retained task nodes.
+    #[cfg(all(test, feature = "allocation-measurement"))]
+    pub(crate) fn generation_membership_task_ids(&self) -> Vec<TaskId> {
+        let mut ids: Vec<_> = self
+            .cancellations
+            .values()
+            .flat_map(|entry| entry.active.values())
+            .flat_map(|record| record.tasks.iter().copied())
+            .collect();
+        ids.sort_unstable();
+        ids
     }
 
     /// Lists still-running tasks deterministically without exposing node storage.
@@ -1033,7 +1201,7 @@ impl TaskRegistry {
     /// Removes a harvested membership and retires an unheld ordinary generation.
     fn detach_task(&mut self, token: &GenerationToken, task: u64) {
         self.update_generation(token, |record| {
-            record.tasks.remove(&task);
+            record.tasks.remove(task);
             record.tasks.is_empty() && record.holders == 0
         });
     }
@@ -1101,10 +1269,208 @@ mod tests {
     use std::sync::{Arc, Barrier};
     use std::task::{Context, Poll, Waker};
 
-    use super::{TaskRegistry, TaskStatus};
-    use crate::effect::CancellationIdentity;
+    use super::{TaskGenerations, TaskRegistry, TaskStatus};
+    use crate::effect::{CancellationIdentity, UnscopedCancellationIdentity};
     use crate::effect::lineage::{ControlWake, LineageState};
+    use crate::effect::operation::OperationAncestry;
     use crate::store::scope::{ScopeIdentity, ScopeRegistry, ScopeSlot, ScopeTransitionBatch};
+
+    /// Preserves set semantics and table capacity through spill, removal and refill.
+    #[test]
+    fn task_membership_spills_only_for_distinct_tasks_and_keeps_capacity() {
+        let mut tasks = super::TaskMembership::Inline(None);
+        assert!(tasks.is_empty());
+        assert!(!tasks.remove(0));
+        assert!(tasks.insert(0));
+        assert!(!tasks.insert(0));
+        assert!(!tasks.remove(1));
+        assert_eq!(tasks.iter().copied().collect::<Vec<_>>(), [0]);
+        assert!(matches!(tasks, super::TaskMembership::Inline(Some(0))));
+        assert!(tasks.remove(0));
+        assert!(tasks.is_empty());
+        assert!(tasks.insert(7));
+        assert!(tasks.insert(9));
+        assert!(!tasks.insert(7));
+        let super::TaskMembership::Table(table) = &tasks else {
+            panic!("distinct second task must spill");
+        };
+        let capacity = table.capacity();
+        let mut actual: Vec<_> = tasks.iter().copied().collect();
+        actual.sort_unstable();
+        assert_eq!(actual, [7, 9]);
+        assert!(!tasks.remove(11));
+        assert!(tasks.remove(7));
+        assert!(tasks.remove(9));
+        assert!(tasks.is_empty());
+        let super::TaskMembership::Table(table) = &tasks else {
+            panic!("empty membership must retain the spilled table");
+        };
+        assert_eq!(table.capacity(), capacity);
+        assert!(tasks.insert(11));
+        let super::TaskMembership::Table(table) = &tasks else {
+            panic!("refilling must retain the spilled table");
+        };
+        assert_eq!(table.capacity(), capacity);
+        assert_eq!(tasks.iter().copied().collect::<Vec<_>>(), [11]);
+    }
+
+    /// Prevents singleton savings from enlarging generation buckets or task nodes.
+    #[test]
+    #[cfg(target_pointer_width = "64")]
+    fn task_membership_preserves_standard_table_record_and_node_sizes() {
+        assert_eq!(
+            std::mem::size_of::<super::TaskMembership>(),
+            std::mem::size_of::<std::collections::HashSet<super::TaskId>>()
+        );
+        assert_eq!(std::mem::align_of::<super::TaskMembership>(), 8);
+        // Measured standard-table baseline before the singleton representation.
+        assert_eq!(std::mem::size_of::<super::GenerationRecord>(), 72);
+        assert_eq!(std::mem::size_of::<super::TaskNode>(), 40);
+    }
+
+    /// Keeps shared metadata compact without merging it with task authority.
+    #[test]
+    fn shared_metadata_snapshots_fit_one_word() {
+        let word = std::mem::size_of::<usize>();
+        assert_eq!(std::mem::size_of::<TaskGenerations>(), word);
+        assert_eq!(std::mem::size_of::<OperationAncestry>(), word);
+    }
+
+    /// Drops every retained key in order when the final shared owner unwinds.
+    #[test]
+    fn shared_generation_final_owner_unwind_drops_remaining_keys() {
+        /// Gives the first key one observable destructor panic.
+        struct Key {
+            id: usize,
+            drops: Arc<std::sync::Mutex<Vec<usize>>>,
+        }
+
+        impl std::hash::Hash for Key {
+            fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+                self.id.hash(state);
+            }
+        }
+
+        impl PartialEq for Key {
+            fn eq(&self, other: &Self) -> bool {
+                self.id == other.id
+            }
+        }
+
+        impl Eq for Key {}
+
+        impl Drop for Key {
+            fn drop(&mut self) {
+                self.drops.lock().unwrap().push(self.id);
+                assert_ne!(self.id, 0, "intentional generation-key drop panic");
+            }
+        }
+
+        let drops = Arc::new(std::sync::Mutex::new(Vec::with_capacity(3)));
+        let (_lifecycle, scopes) = ScopeRegistry::for_test();
+        let generations: Vec<_> = (0..3)
+            .map(|id| super::GenerationToken {
+                identity: UnscopedCancellationIdentity::new(Key {
+                    id,
+                    drops: Arc::clone(&drops),
+                })
+                .in_scope(scopes.root()),
+                generation: id as u64,
+                live: Arc::new(AtomicBool::new(true)),
+                completion: None,
+            })
+            .collect();
+        let snapshot = TaskGenerations::capture(&generations);
+        let retained = snapshot.clone();
+        drop(generations);
+        drop(snapshot);
+        assert!(drops.lock().unwrap().is_empty());
+
+        let panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| drop(retained)));
+        assert!(panic.is_err());
+        assert_eq!(*drops.lock().unwrap(), [0, 1, 2]);
+    }
+
+    #[test]
+    fn completion_preserves_each_terminal_status_and_notifies_once() {
+        let terminal = [
+            TaskStatus::Completed,
+            TaskStatus::Cancelled,
+            TaskStatus::Panicked,
+            TaskStatus::RuntimeDropped,
+        ];
+        for first in terminal {
+            let control = ControlWake::new();
+            let completion = super::TaskCompletion::new(Arc::clone(&control));
+            assert!(completion.is_running());
+            assert_eq!(completion.status(), TaskStatus::Running);
+            let epoch = control.epoch();
+
+            assert!(completion.finish(first));
+            assert!(!completion.is_running());
+            assert_eq!(completion.status(), first);
+            assert_eq!(control.epoch(), epoch + 1);
+            for later in terminal {
+                assert!(!completion.finish(later));
+                assert_eq!(completion.status(), first);
+                assert_eq!(control.epoch(), epoch + 1);
+            }
+        }
+    }
+
+    #[test]
+    fn concurrent_terminal_signals_keep_one_winner_and_one_notification() {
+        let control = ControlWake::new();
+        let completion = super::TaskCompletion::new(Arc::clone(&control));
+        let terminal = [
+            TaskStatus::Completed,
+            TaskStatus::Cancelled,
+            TaskStatus::Panicked,
+            TaskStatus::RuntimeDropped,
+        ];
+        let barrier = Barrier::new(terminal.len());
+        let epoch = control.epoch();
+        let winners = std::thread::scope(|threads| {
+            let workers: Vec<_> = terminal.into_iter().map(|status| {
+                let completion = &completion;
+                let barrier = &barrier;
+                threads.spawn(move || {
+                    barrier.wait();
+                    completion.finish(status).then_some(status)
+                })
+            }).collect();
+            workers.into_iter()
+                .filter_map(|worker| worker.join().expect("terminal publisher"))
+                .collect::<Vec<_>>()
+        });
+        assert_eq!(winners.len(), 1);
+        assert_eq!(completion.status(), winners[0]);
+        assert!(!completion.is_running());
+        assert_eq!(control.epoch(), epoch + 1);
+    }
+
+    #[test]
+    fn actor_task_keeps_one_lineage_owner_until_harvest() {
+        let control = ControlWake::new();
+        let mut registry = TaskRegistry::new(Arc::clone(&control));
+        let lineage = LineageState::new(Arc::downgrade(&control));
+        let scope = ScopeRegistry::for_test().1.root();
+        let prepared = registry.prepare(scope, Arc::clone(&lineage), &[]);
+        assert_eq!(Arc::strong_count(&lineage), 2, "prepared lineage owners");
+
+        let id = registry.register_actor(prepared);
+        assert_eq!(Arc::strong_count(&lineage), 2, "registered lineage owners");
+        lineage.finish_registration();
+        assert!(!lineage.is_finished());
+
+        lineage.cancel();
+        let terminal = registry.process_control().terminal;
+        assert_eq!(terminal.len(), 1);
+        assert_eq!(terminal[0].id, id);
+        assert_eq!(terminal[0].status, TaskStatus::Cancelled);
+        assert!(lineage.is_finished());
+        assert_eq!(Arc::strong_count(&lineage), 1);
+    }
 
     #[test]
     fn unnamed_ready_registration_does_not_store_named_operation_metadata() {
@@ -1256,8 +1622,10 @@ mod tests {
     #[test]
     fn unnamed_control_does_not_visit_cancellation_records_for_named_maintenance() {
         let mut registry = TaskRegistry::new(ControlWake::new());
+        let (_scope_lifecycle, scopes) = ScopeRegistry::for_test();
+        let scope = scopes.root();
         for key in 0..16 {
-            registry.register_generation(CancellationIdentity::local(key));
+            registry.register_generation(UnscopedCancellationIdentity::new(key).in_scope(scope));
         }
         super::OPERATION_RECORD_VISITS.with(|visits| visits.set(0));
         assert!(registry.process_control().terminal.is_empty());
@@ -1282,10 +1650,12 @@ mod tests {
     fn named_maintenance_fuses_visits_and_returns_to_zero_after_real_retirement() {
         let control = ControlWake::new();
         let mut registry = TaskRegistry::new(Arc::clone(&control));
+        let (_scope_lifecycle, scopes) = ScopeRegistry::for_test();
+        let scope = scopes.root();
         let ordinary: Vec<_> = (0..16).map(|key| {
-            registry.register_generation(CancellationIdentity::local(key))
+            registry.register_generation(UnscopedCancellationIdentity::new(key).in_scope(scope))
         }).collect();
-        let identity = crate::effect::operation::OperationDeclaration::identity("work");
+        let identity = crate::effect::operation::OperationDeclaration::identity("work").in_scope(scope);
         let first = LineageState::new(Arc::downgrade(&control));
         let second = LineageState::new(Arc::downgrade(&control));
         let one = registry.register_named_generation(identity.clone(), Arc::clone(&first));
@@ -1297,16 +1667,16 @@ mod tests {
         assert!(registry.process_control().terminal.is_empty());
         assert_eq!(super::OPERATION_RECORD_VISITS.with(std::cell::Cell::get), 18,
             "one fused pass visits each of sixteen ordinary and two named records once");
-        assert!(registry.may_have_operations);
+        assert!(registry.maintain_named_operations.is_some());
         registry.invalidate_all();
         registry.prune_operations();
-        assert!(registry.may_have_operations, "invalidation does not destroy retained payload ownership");
+        assert!(registry.maintain_named_operations.is_some(), "invalidation does not destroy retained payload ownership");
         first.finish_registration();
         second.finish_registration();
         registry.release_generation(&one);
         registry.release_generation(&two);
         registry.prune_operations();
-        assert!(!registry.may_have_operations);
+        assert!(registry.maintain_named_operations.is_none());
         assert_eq!(registry.cancellations.len(), 16);
         super::OPERATION_RECORD_VISITS.with(|visits| visits.set(0));
         assert!(registry.process_control().terminal.is_empty());
@@ -1314,11 +1684,11 @@ mod tests {
 
         let later = LineageState::new(Arc::downgrade(&control));
         let later_token = registry.register_named_generation(identity, Arc::clone(&later));
-        assert!(registry.may_have_operations);
+        assert!(registry.maintain_named_operations.is_some());
         later.finish_registration();
         registry.release_generation(&later_token);
         registry.prune_operations();
-        assert!(!registry.may_have_operations, "later registration can retire back to the empty fast path");
+        assert!(registry.maintain_named_operations.is_none(), "later registration can retire back to the empty fast path");
         for token in ordinary { registry.release_generation(&token); }
         assert!(registry.cancellations.is_empty(), "ordinary retirement remains unchanged");
     }
@@ -1362,11 +1732,13 @@ mod tests {
             let mut registry = TaskRegistry::new(Arc::clone(&control));
             let operation = LineageState::new(Arc::downgrade(&control));
             let registration = OperationRegistration::new(Arc::clone(&operation));
-            let identity = OperationDeclaration::identity("panicking body");
+            let (_scope_lifecycle, scopes) = ScopeRegistry::for_test();
+            let scope = scopes.root();
+            let identity = OperationDeclaration::identity("panicking body").in_scope(scope);
             let generation = registry.register_named_generation(identity.clone(), Arc::clone(&operation));
             let ancestry = OperationAncestry::default().with_generation(Arc::clone(&operation));
             let lineage = LineageState::new(Arc::downgrade(&control));
-            let prepared = registry.prepare_with_operations(ScopeRegistry::for_test().1.root(), Arc::clone(&lineage), &[generation], &ancestry);
+            let prepared = registry.prepare_with_operations(scope, Arc::clone(&lineage), &[generation], &ancestry);
             let completion = prepared.sender_token().upgrade().unwrap();
             let observed_pending = Arc::new(AtomicBool::new(false));
             let drops = Arc::new(AtomicUsize::new(0));
@@ -1431,10 +1803,12 @@ mod tests {
             let mut registry = TaskRegistry::new(Arc::clone(&control));
             let operation = LineageState::new(Arc::downgrade(&control));
             let registration = OperationRegistration::new(Arc::clone(&operation));
-            let identity = OperationDeclaration::identity("panicking factory");
+            let (_scope_lifecycle, scopes) = ScopeRegistry::for_test();
+            let scope = scopes.root();
+            let identity = OperationDeclaration::identity("panicking factory").in_scope(scope);
             let generation = registry.register_named_generation(identity.clone(), Arc::clone(&operation));
             let ancestry = OperationAncestry::default().with_generation(Arc::clone(&operation));
-            let prepared = registry.prepare_with_operations(ScopeRegistry::for_test().1.root(), LineageState::new(Arc::downgrade(&control)), &[generation], &ancestry);
+            let prepared = registry.prepare_with_operations(scope, LineageState::new(Arc::downgrade(&control)), &[generation], &ancestry);
             let completion = prepared.sender_token().upgrade().unwrap();
             let observed_pending = Arc::new(AtomicBool::new(false));
             let drops = Arc::new(AtomicUsize::new(0));
@@ -1481,7 +1855,7 @@ mod tests {
             let node = ScopeRegistry::node(&mut ScopeSlot::new());
             let scope = scopes.mount(root, node, ScopeIdentity::unit());
             let lineage = LineageState::new(Arc::downgrade(&control));
-            let identity = CancellationIdentity::local("retiring work").in_scope(scope);
+            let identity = UnscopedCancellationIdentity::new("retiring work").in_scope(scope);
             let generation = registry.register_generation(identity.clone());
             let ids: Vec<_> = (0..2)
                 .map(|_| {
@@ -1539,24 +1913,175 @@ mod tests {
         }
     }
 
+    type ComparisonHook = Arc<parking_lot::Mutex<Option<Box<dyn FnOnce() + Send>>>>;
+
+    struct CountedIdentity {
+        comparisons: Arc<AtomicUsize>,
+        on_compare: Option<ComparisonHook>,
+        drops: Option<Arc<AtomicUsize>>,
+    }
+
+    impl CountedIdentity {
+        fn new(comparisons: Arc<AtomicUsize>) -> Self {
+            Self { comparisons, on_compare: None, drops: None }
+        }
+    }
+
+    impl PartialEq for CountedIdentity {
+        fn eq(&self, _: &Self) -> bool {
+            self.comparisons.fetch_add(1, Ordering::SeqCst);
+            let callback = self.on_compare.as_ref().and_then(|hook| hook.lock().take());
+            if let Some(callback) = callback {
+                callback();
+            }
+            true
+        }
+    }
+    impl Eq for CountedIdentity {}
+    impl std::hash::Hash for CountedIdentity {
+        fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+            state.write_u8(0);
+        }
+    }
+    impl Drop for CountedIdentity {
+        fn drop(&mut self) {
+            if let Some(drops) = &self.drops {
+                drops.fetch_add(1, Ordering::SeqCst);
+            }
+        }
+    }
+
+    #[test]
+    fn shared_generation_capture_rechecks_cancellation_during_each_membership_lookup() {
+        let comparisons = Arc::new(AtomicUsize::new(0));
+        let hook: ComparisonHook = Arc::default();
+        let control = ControlWake::new();
+        let mut registry = TaskRegistry::new(Arc::clone(&control));
+        let lineage = LineageState::new(Arc::downgrade(&control));
+        let scope = ScopeRegistry::for_test().1.root();
+        let generation = registry.register_generation(
+            UnscopedCancellationIdentity::new(CountedIdentity {
+                comparisons: Arc::clone(&comparisons),
+                on_compare: Some(Arc::clone(&hook)),
+                drops: None,
+            }).in_scope(scope),
+        );
+        let captured = TaskGenerations::capture(std::slice::from_ref(&generation));
+        let first = registry.prepare_captured(
+            scope, Arc::clone(&lineage), captured.clone(), &OperationAncestry::default(),
+        );
+        assert!(!first.cancelled);
+        let first_id = registry.register_actor(first);
+
+        let live = Arc::clone(&generation.live);
+        *hook.lock() = Some(Box::new(move || live.store(false, Ordering::Release)));
+        comparisons.store(0, Ordering::SeqCst);
+        let second = registry.prepare_captured(
+            scope, Arc::clone(&lineage), captured.clone(), &OperationAncestry::default(),
+        );
+        assert!(comparisons.load(Ordering::SeqCst) > 0);
+        assert!(second.cancelled, "shared capture cannot cache the first task's liveness");
+        let second_id = registry.register_actor(second);
+        assert_eq!((first_id, second_id), (0, 1));
+        assert!(std::ptr::eq(
+            registry.nodes[&first_id].generations.as_slice(),
+            registry.nodes[&second_id].generations.as_slice(),
+        ));
+        let record = &registry.cancellations.values().next().unwrap().active[&generation.generation];
+        assert_eq!(record.tasks.len(), 2);
+        assert!(record.tasks.contains(first_id));
+        assert!(record.tasks.contains(second_id));
+
+        lineage.finish_registration();
+        registry.complete_actor(first_id, TaskStatus::Cancelled);
+        registry.complete_actor(second_id, TaskStatus::Cancelled);
+        let terminal = registry.process_control().terminal;
+        assert_eq!(terminal.len(), 2);
+        assert_eq!((terminal[0].id, terminal[1].id), (first_id, second_id));
+        assert!(lineage.is_finished());
+        registry.release_generation(&generation);
+        assert!(registry.cancellations.is_empty());
+    }
+
+    #[test]
+    fn shared_generation_lookup_panic_preserves_payload_work_and_outer_key_lifetime() {
+        let comparisons = Arc::new(AtomicUsize::new(0));
+        let key_drops = Arc::new(AtomicUsize::new(0));
+        let hook: ComparisonHook = Arc::default();
+        let control = ControlWake::new();
+        let mut registry = TaskRegistry::new(Arc::clone(&control));
+        let lineage = LineageState::new(Arc::downgrade(&control));
+        let scope = ScopeRegistry::for_test().1.root();
+        let identity = UnscopedCancellationIdentity::new(CountedIdentity {
+            comparisons: Arc::clone(&comparisons),
+            on_compare: Some(Arc::clone(&hook)),
+            drops: Some(Arc::clone(&key_drops)),
+        }).in_scope(scope);
+        let generations = vec![
+            registry.register_generation(identity.clone()),
+            registry.register_generation(identity),
+        ];
+        let captured = TaskGenerations::capture(&generations);
+        let first = registry.prepare_captured(
+            scope, Arc::clone(&lineage), captured.clone(), &OperationAncestry::default(),
+        );
+        let first_id = first.id();
+        let completion = first.sender_token().upgrade().unwrap();
+        let payload_drops = Arc::new(AtomicUsize::new(0));
+        let dropped_while_running = Arc::new(AtomicBool::new(false));
+        let wrapper = registry.register(first, ReadyDrop {
+            dropped: Arc::clone(&dropped_while_running),
+            drops: Arc::clone(&payload_drops),
+            completion: Arc::clone(&completion),
+            panic_on_drop: false,
+            _pinned: PhantomPinned,
+        });
+        let later_lookup = Arc::downgrade(&hook);
+        *hook.lock() = Some(Box::new(move || {
+            let later_lookup = later_lookup.upgrade().expect("key retains its comparison hook");
+            *later_lookup.lock() = Some(Box::new(|| panic!("intentional membership comparison panic")));
+        }));
+        comparisons.store(0, Ordering::SeqCst);
+        let panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _ = registry.prepare_captured(
+                scope, Arc::clone(&lineage), captured.clone(), &OperationAncestry::default(),
+            );
+        })).expect_err("the second preparation must reach user equality");
+        assert_eq!(panic.downcast_ref::<&str>(), Some(&"intentional membership comparison panic"));
+        assert_eq!(comparisons.load(Ordering::SeqCst), 2, "panic follows one successful membership insertion");
+        assert_eq!(registry.next_id, 2, "the abandoned preparation reserves its own ID");
+        assert_eq!(registry.nodes.len(), 1);
+        assert!(registry.nodes.contains_key(&first_id));
+        let entry = registry.cancellations.values().next().unwrap();
+        let earlier = &entry.active[&generations[0].generation];
+        assert_eq!(earlier.tasks.len(), 2);
+        assert!(earlier.tasks.contains(first_id));
+        assert!(earlier.tasks.contains(1), "aborted preparation leaves its reserved membership");
+        let later = &entry.active[&generations[1].generation];
+        assert_eq!(later.tasks.len(), 1);
+        assert!(later.tasks.contains(first_id));
+        assert_eq!(payload_drops.load(Ordering::SeqCst), 0);
+        assert_eq!(key_drops.load(Ordering::SeqCst), 0);
+
+        lineage.finish_registration();
+        assert!(!lineage.is_finished());
+        drop(wrapper);
+        assert_eq!(payload_drops.load(Ordering::SeqCst), 1);
+        assert!(dropped_while_running.load(Ordering::Relaxed));
+        assert_eq!(completion.status(), TaskStatus::RuntimeDropped);
+        // Preparation unwind ends the actor phase; do not resume control with
+        // the documented abandoned membership still present.
+        drop(registry);
+        assert!(lineage.is_finished(), "abandoned preparation must release its work");
+        drop(captured);
+        assert_eq!(key_drops.load(Ordering::SeqCst), 0, "outer vector still owns the key");
+        drop(generations);
+        assert_eq!(key_drops.load(Ordering::SeqCst), 1);
+    }
+
     // Repeated outer lookups invoke user equality even for one cancellation identity.
     #[test]
     fn generation_retirement_reuses_the_matched_identity_entry() {
-        struct CountedIdentity(Arc<AtomicUsize>);
-
-        impl PartialEq for CountedIdentity {
-            fn eq(&self, _: &Self) -> bool {
-                self.0.fetch_add(1, Ordering::SeqCst);
-                true
-            }
-        }
-        impl Eq for CountedIdentity {}
-        impl std::hash::Hash for CountedIdentity {
-            fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-                state.write_u8(0);
-            }
-        }
-
         let mut comparison_counts = Vec::new();
         for (task_finishes_last, keep_sibling) in [
             (false, false),
@@ -1569,7 +2094,7 @@ mod tests {
             let mut registry = TaskRegistry::new(Arc::clone(&control));
             let lineage = LineageState::new(Arc::downgrade(&control));
             let scope = ScopeRegistry::for_test().1.root();
-            let identity = CancellationIdentity::local(CountedIdentity(Arc::clone(&comparisons)))
+            let identity = UnscopedCancellationIdentity::new(CountedIdentity::new(Arc::clone(&comparisons)))
                 .in_scope(scope);
             let generation = registry.register_generation(identity.clone());
             let sibling = keep_sibling
@@ -1591,7 +2116,7 @@ mod tests {
             let entry = registry.cancellations.values().next().unwrap();
             let record = &entry.active[&generation.generation];
             assert_eq!(record.holders, 1);
-            assert!(record.tasks.contains(&id));
+            assert!(record.tasks.contains(id));
             assert!(foreign_generation.is_live());
             assert!(generation.is_live());
 
@@ -1801,7 +2326,7 @@ mod tests {
         let mut registry = TaskRegistry::new(Arc::clone(&control));
         let lineage = LineageState::new(Arc::downgrade(&control));
         let scope = ScopeRegistry::for_test().1.root();
-        let identity = CancellationIdentity::local("unlaunched").in_scope(scope);
+        let identity = UnscopedCancellationIdentity::new("unlaunched").in_scope(scope);
         let generation = registry.register_generation(identity.clone());
         let prepared = registry.prepare(
             scope,
@@ -1813,7 +2338,7 @@ mod tests {
         assert!(
             registry.cancellations[&identity].active[&generation.generation]
                 .tasks
-                .contains(&prepared.id())
+                .contains(prepared.id())
         );
         lineage.finish_registration();
         let mut finish = Box::pin(lineage.finish());
@@ -1847,7 +2372,7 @@ mod tests {
         let mut registry = TaskRegistry::new(Arc::clone(&control));
         let lineage = LineageState::new(Arc::downgrade(&control));
         let scope = ScopeRegistry::for_test().1.root();
-        let identity = CancellationIdentity::local("cancelled").in_scope(scope);
+        let identity = UnscopedCancellationIdentity::new("cancelled").in_scope(scope);
         let generation = registry.register_generation(identity.clone());
         registry.cancel_identity(&identity);
         let prepared = registry.prepare(scope, Arc::clone(&lineage), &[generation]);
@@ -1940,7 +2465,7 @@ mod tests {
         let mut registry = TaskRegistry::new(Arc::clone(&control));
         let lineage = LineageState::new(Arc::downgrade(&control));
         let scope = ScopeRegistry::for_test().1.root();
-        let identity = CancellationIdentity::local("sequence").in_scope(scope);
+        let identity = UnscopedCancellationIdentity::new("sequence").in_scope(scope);
         let generation = registry.register_generation(identity.clone());
         let prepared = registry.prepare(scope, Arc::clone(&lineage), &[generation]);
         lineage.finish_registration();
@@ -1982,7 +2507,7 @@ mod tests {
         let mut registry = TaskRegistry::new(Arc::clone(&control));
         let lineage = LineageState::new(Arc::downgrade(&control));
         let scope = ScopeRegistry::for_test().1.root();
-        let identity = CancellationIdentity::local("sequence").in_scope(scope);
+        let identity = UnscopedCancellationIdentity::new("sequence").in_scope(scope);
         let generation = registry.register_generation(identity.clone());
         let prepared = registry.prepare(scope, lineage, &[generation]);
         let wrapper = registry.register(prepared, Box::pin(std::future::ready(())));
@@ -2116,7 +2641,7 @@ mod tests {
         let mut registry = TaskRegistry::new(Arc::clone(&control));
         let lineage = LineageState::new(Arc::downgrade(&control));
         let scope = ScopeRegistry::for_test().1.root();
-        let identity = CancellationIdentity::local("runtime authority").in_scope(scope);
+        let identity = UnscopedCancellationIdentity::new("runtime authority").in_scope(scope);
         let generation = registry.register_generation(identity.clone());
         let prepared = registry.prepare(
             scope,
@@ -2150,7 +2675,7 @@ mod tests {
         let record = &registry.cancellations[&identity].active[&generation.generation];
         assert_eq!(record.holders, 1);
         assert_eq!(record.tasks.len(), 1);
-        assert!(record.tasks.contains(&id));
+        assert!(record.tasks.contains(id));
         assert!(generation.is_live());
 
         futures_executor::block_on(wrapper);
@@ -2171,6 +2696,7 @@ mod tests {
 #[cfg(all(test, feature = "allocation-measurement"))]
 pub(crate) use allocation_tests::{
     actor_task_registration_allocates_only_completion, paired_harvest_allocates_only_result_buffer,
+    singleton_generation_registration_allocates_only_completion,
 };
 
 #[cfg(all(test, feature = "allocation-measurement"))]
@@ -2216,6 +2742,67 @@ mod allocation_tests {
         assert!(
             blocks <= 1,
             "actor registration allocated {blocks} blocks / {bytes} bytes; budget is 1 block"
+        );
+    }
+
+    /// Checks that one captured generation adds no membership allocation.
+    pub(crate) fn singleton_generation_registration_allocates_only_completion() {
+        if crate::allocation_test::run_in_child(
+            "effect::registry::tests::singleton_generation_registration_allocates_only_completion",
+        ) {
+            return;
+        }
+        let control = ControlWake::new();
+        let mut registry = TaskRegistry::new(Arc::clone(&control));
+        let lineage = LineageState::new(Arc::downgrade(&control));
+        let scope = ScopeRegistry::for_test().1.root();
+        let warm = registry.prepare(scope, Arc::clone(&lineage), &[]);
+        let warm_id = registry.register_actor(warm);
+        registry.complete_actor(warm_id, TaskStatus::Completed);
+        assert_eq!(registry.process_control().terminal.len(), 1);
+
+        let identity = crate::effect::UnscopedCancellationIdentity::new("singleton-membership")
+            .in_scope(scope);
+        let generation = registry.register_generation(identity);
+        let captured = super::TaskGenerations::capture(std::slice::from_ref(&generation));
+        let ancestry = super::OperationAncestry::default();
+
+        // Key, generation and immutable snapshot storage are outside this window.
+        let profiler = dhat::Profiler::builder().testing().build();
+        let before = dhat::HeapStats::get();
+        let prepared =
+            registry.prepare_captured(scope, Arc::clone(&lineage), captured.clone(), &ancestry);
+        let id = registry.register_actor(prepared);
+        let after = dhat::HeapStats::get();
+        let blocks = after.total_blocks - before.total_blocks;
+        let bytes = after.total_bytes - before.total_bytes;
+
+        assert!(registry.task_is_running(id));
+        lineage.finish_registration();
+        registry.complete_actor(id, TaskStatus::Completed);
+        let terminal = registry.process_control().terminal;
+        assert_eq!(terminal.len(), 1);
+        assert_eq!(terminal[0].id, id);
+        assert!(lineage.is_finished());
+        registry.release_generation(&generation);
+        assert!(!generation.is_live());
+        assert!(registry.cancellations.is_empty());
+        drop(terminal);
+        drop(captured);
+        drop(generation);
+        drop(registry);
+        drop(lineage);
+        drop(control);
+        drop(profiler);
+
+        eprintln!(
+            "singleton generation registration blocks={blocks} bytes={bytes} generation_record_bytes={} task_node_bytes={}",
+            std::mem::size_of::<super::GenerationRecord>(),
+            std::mem::size_of::<super::TaskNode>(),
+        );
+        assert_eq!(
+            blocks, 1,
+            "singleton generation registration allocated {blocks} blocks / {bytes} bytes; budget is 1 block"
         );
     }
 

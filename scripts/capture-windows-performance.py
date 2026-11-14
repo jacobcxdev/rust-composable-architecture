@@ -3,7 +3,7 @@
 
 This script consumes eight existing binaries and their source/build receipt.
 Native rows use default-Core binaries; deterministic rows use test-runtime
-binaries. All 50 scenarios remain required in one paired cohort.
+binaries. All 54 scenarios remain required in one paired cohort.
 It does not build code, compare products, retry failures or publish evidence.
 PeakWorkingSetSize measures peak resident working-set bytes. PeakPagefileUsage
 measures peak process commit charge, not physical memory or macOS footprint.
@@ -38,6 +38,12 @@ BINARY_ROLES = {
     f"{role}_{'deterministic_' if configuration == 'deterministic' else ''}{mode}": (role, configuration, mode)
     for role in ("candidate", "reference") for configuration in ("native", "deterministic")
     for mode in ("normal", "allocation")
+}
+SHUTDOWN_LIVE_LIMITS = {
+    "shutdown/abortive/live/1": 1,
+    "shutdown/abortive/live/8": 8,
+    "shutdown/abortive/burst/8": 8,
+    "shutdown/abortive/burst/64": 64,
 }
 
 
@@ -144,10 +150,10 @@ def run_process(command, stem, env, timeout, provider):
 
 
 def load_scenarios():
-    """Read the existing pinned 50-scenario manifest."""
+    """Read the pinned 54-scenario manifest, including bounded shutdown memory."""
     scenarios = MANIFEST.read_text(encoding="utf-8").splitlines()
-    if len(scenarios) != 50 or len(set(scenarios)) != 50 or any(not value.strip() for value in scenarios):
-        raise ValueError("expected 50 distinct qualification scenarios")
+    if len(scenarios) != 54 or len(set(scenarios)) != 54 or any(not value.strip() for value in scenarios):
+        raise ValueError("expected 54 distinct qualification scenarios")
     return scenarios
 
 
@@ -164,6 +170,8 @@ def allocation_samples(scenario):
 
 def operations_per_sample(scenario):
     """Match the units asserted by the common qualification workload."""
+    if scenario in SHUTDOWN_LIVE_LIMITS:
+        return SHUTDOWN_LIVE_LIMITS[scenario]
     if scenario.startswith("external_commit/"):
         parts = scenario.split("/")
         return int(parts[2].split("_")[0]) * (8 if parts[3] == "saturated" else 1)
@@ -179,6 +187,24 @@ def operations_per_sample(scenario):
     return 1
 
 
+def validate_shutdown_lifetime(value, scenario, samples):
+    """Require each bounded batch to retire before the next batch starts."""
+    limit = SHUTDOWN_LIVE_LIMITS.get(scenario)
+    if limit is None:
+        if "shutdown_lifetime" in value:
+            raise ValueError("unexpected shutdown lifetime evidence")
+        return
+    batches = samples + min(samples, 20)
+    expected = dict(live_limit=limit, maximum_unfinished=limit, batches=batches,
+                    spawned=limit * batches, dropped=limit * batches,
+                    unfinished=0, maximum_batch_end_unfinished=0)
+    lifetime = value.get("shutdown_lifetime")
+    if not isinstance(lifetime, dict) or lifetime.keys() != expected.keys() or any(
+            type(lifetime[key]) is not int or lifetime[key] != count
+            for key, count in expected.items()):
+        raise ValueError("invalid bounded shutdown lifetime evidence")
+
+
 def validate_measurement(value, scenario, samples, mode):
     """Reject altered workloads, missing measurements and non-finite values."""
     if not isinstance(value, dict) or value.get("scenario") != scenario:
@@ -186,6 +212,7 @@ def validate_measurement(value, scenario, samples, mode):
     for key, expected in (("samples", samples), ("operations", samples * operations_per_sample(scenario))):
         if type(value.get(key)) is not int or value[key] != expected:
             raise ValueError(f"workload {key} mismatch")
+    validate_shutdown_lifetime(value, scenario, samples)
     for key in ("allocations", "allocated_bytes", "task_wakes", "peak_bytes"):
         if type(value.get(key)) is not int or value[key] < 0:
             raise ValueError(f"invalid workload metric: {key}")
@@ -224,11 +251,13 @@ def validate_source_metadata(value):
                     raise ValueError(f"invalid {role} {key}")
         if not re.fullmatch("[0-9a-f]{64}", value["harness_sha256"]):
             raise ValueError("invalid common harness hash")
+        if not re.fullmatch("[0-9a-f]{64}", value["harness_module_sha256"]):
+            raise ValueError("invalid common harness module hash")
         if not re.fullmatch("[0-9a-f]{64}", value["scenario_manifest_sha256"]):
             raise ValueError("invalid scenario manifest hash")
         tools = value["toolchain"]
-        if not tools["rustc"].startswith("rustc 1.99.0 ") or not tools["cargo"].startswith("cargo 1.99.0 "):
-            raise ValueError("Windows capture requires pinned Rust 1.99.0")
+        if not tools["rustc"].startswith("rustc 1.100.0 ") or not tools["cargo"].startswith("cargo 1.100.0 "):
+            raise ValueError("Windows capture requires pinned Rust 1.100.0")
         if tools["target"] != "x86_64-pc-windows-msvc" or not re.fullmatch("[0-9a-f]{40}", tools["rustc_commit"]):
             raise ValueError("invalid Windows toolchain identity")
         if value["candidate"]["revision"] == value["reference"]["revision"]:
@@ -397,7 +426,8 @@ def validate_staged_sources(source):
         for relative, digest in (("Cargo.toml", source[role]["manifest_sha256"]),
                                  ("Cargo.lock", binary["lock_sha256"]),
                                  ("rca-tokio/Cargo.toml", binary["manifest_sha256"]),
-                                 ("rca-tokio/benches/qualification.rs", binary["harness_sha256"])):
+                                 ("rca-tokio/benches/qualification.rs", binary["harness_sha256"]),
+                                 ("rca-tokio/benches/qualification/shutdown.rs", source["harness_module_sha256"])):
             if inventory.get(relative) != digest:
                 raise ValueError(f"source inventory does not bind {relative}")
         inventories[role, configuration] = inventory
@@ -472,12 +502,14 @@ def capture(binaries, metadata_path, output, timeout):
     recorded_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     script_hash, manifest_hash = sha256(Path(__file__)), sha256(MANIFEST)
     source_hash = hashlib.sha256(source_bytes).hexdigest()
-    protocol_hash = hashlib.sha256((source["harness_sha256"] + "\n" + manifest_hash + "\n" + script_hash + "\n" + source_hash + "\n").encode()).hexdigest()
+    protocol_hash = hashlib.sha256((source["harness_sha256"] + "\n" + source["harness_module_sha256"] + "\n"
+                                   + manifest_hash + "\n" + script_hash + "\n" + source_hash + "\n").encode()).hexdigest()
     runner = f"windows-native-{host.get('hostname', 'unknown')}-{source['toolchain']['target']}"
     cohort = {"id": hashlib.sha256(uuid.uuid4().bytes).hexdigest(), "recorded_at": recorded_at, "runner": runner,
               "compiler": source["toolchain"]["rustc"], "cargo": source["toolchain"]["cargo"],
               "rustc_commit": source["toolchain"]["rustc_commit"], **host,
               "protocol_sha256": protocol_hash, "qualification_source_sha256": source["harness_sha256"],
+              "qualification_module_sha256": source["harness_module_sha256"],
               "qualification_script_sha256": script_hash, "scenario_manifest_sha256": manifest_hash,
               "configuration": CONFIGURATION, "source_build_sha256": source_hash}
     for role in ("candidate", "reference"):

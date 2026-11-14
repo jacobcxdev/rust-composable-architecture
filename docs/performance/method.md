@@ -12,14 +12,16 @@ The `mac15-9-m3-max-16c-48gb-macos27-ac-high` runner is:
 
 - `Mac15,9`, Apple M3 Max, 16 logical CPUs, and 48 GiB memory;
 - macOS 27 on AC power with high-power mode selected; and
-- exact Rust and Cargo 1.99.0.
+- exact Rust and Cargo 1.100.0.
 
 `scripts/qualify-performance.sh` validates this cohort, a clean checkout, release-profile settings, and absence of another RCA benchmark process. Results from a different runner are not comparable. New runner cohorts require a separately reviewed baseline instead of relabelling existing evidence.
 
 On 30 October 2026, the canonical runner changed to the installed macOS 27 host.
 The first host version is macOS 27.0, build `26A428`. Hardware requirements remain unchanged.
-Rust 1.99.0 is required for both revisions. Earlier Rust 1.98 captures remain historical evidence and do not qualify the current toolchain.
-New qualification must capture both pinned revisions on this runner. The reference source revision, scenario list, sample counts and regression limits remain unchanged.
+Rust 1.100.0 is required for both revisions. Earlier Rust 1.98 and 1.99 captures remain historical evidence and do not qualify the current toolchain.
+New qualification captures both revisions on the same runner with Rust 1.100.0.
+The release baseline is `ab99e19ca772086f11e0a855f840f5cf9fae5d7f`, the implementation before the performance review.
+Earlier architecture comparisons remain historical evidence, not release baselines. Numerical regression limits remain unchanged.
 Retain macOS 26 evidence under its original runner and protocol identities. It does not qualify a macOS 27 pair.
 The qualifier's new source hash gives this cohort a new protocol identity. The comparator rejects evidence with the previous protocol hash.
 
@@ -66,12 +68,13 @@ existing or aliased output paths. If shell capture fails, it removes only artefa
 A later watchdog or output-binding failure preserves completed files as failed evidence.
 
 The reference argument accepts a clean worktree or the exact revision from `docs/performance/baseline-revision.txt`.
-For either argument, the controller repository must contain that archived Git object. This requirement lets the comparator check provenance without an external worktree.
-For a worktree argument, its ignored `Cargo.lock` must match `docs/performance/baseline-Cargo.lock` exactly.
+For either argument, the controller repository must contain that Git object. The comparator checks its provenance without an external worktree.
+For a worktree argument, its `Cargo.lock` must match `docs/performance/baseline-Cargo.lock` exactly.
 The candidate uses its tracked root `Cargo.lock`. Every Cargo command uses `--locked`.
 
 The qualifier exports each exact product tree into a temporary directory.
-It preserves each product's manifests and dependency lockfile, then copies the controller's qualification harness into both directories.
+It preserves each product's manifests and dependency lockfile, then copies the controller's two qualification source files into both directories.
+These files are `qualification.rs` and `qualification/shutdown.rs`. Staging checks both hashes and rejects every other source change.
 The original worktrees remain unchanged. Staging rejects links, submodules, wrong hashes and unexpected source changes.
 Before measurement and publication, the qualifier checks the staged product files, lockfiles and common harness again.
 
@@ -79,22 +82,19 @@ Both results record the original product trees, manifest hashes and original har
 `qualification_source_sha256` identifies the common harness that actually ran.
 Build metadata records each temporary source directory and its normal and DHAT executables. These directories are removed after capture.
 The comparator checks original identities against the archived Git objects and checks the common harness against the current controller.
-Protocol identity includes this harness, the exact ordered scenario manifest, the qualification script and the memory watchdog.
+Protocol identity includes both harness files, the exact ordered scenario manifest, the qualification script and the memory watchdog.
 Changes to measurement boundaries or capture policy require fresh paired evidence, not new labels on historical captures.
 
 The common harness retains the current mailbox admission and final-state checks.
 Its poll counts exclude native warm-up and final processing, as documented in the harness.
 The budget row checks the exact poll budget and one ready task on both products.
-The reference has no public live-task snapshot API. Candidate tests separately check live-task diagnostics in `rca-test/tests/deadline_draining.rs`.
-These workload changes require a fresh pair. They do not change the 50 scenarios or numerical gates.
+Candidate tests separately check live-task diagnostics in `rca-test/tests/deadline_draining.rs`.
+The four bounded-shutdown rows require a fresh 54-scenario pair. Existing numerical gates remain unchanged.
 
-That reference belongs to RCA's archived development history, not the public
-repository. A clean public clone cannot reproduce this paired gate without
-the exact reference objects from the retained archive. The revision pin and
-lockfile remain public because the qualifier and comparator validate them.
-Do not substitute a different baseline or treat parser tests as candidate
-performance evidence. Replacing the reference requires a reviewed method and
-baseline change.
+The reference belongs to the initial pull request's history.
+The revision pin and lockfile identify the exact implementation and dependencies.
+Earlier reference objects and results retain their original identities outside the public source tree.
+Parser tests do not qualify candidate performance. A different release baseline requires explicit review.
 
 Qualification runner builds four distinct bench executables, two from each revision, and balances execution order within every scenario:
 
@@ -141,12 +141,12 @@ Top-level metadata records cohort ID, compiler and Cargo versions, compiler comm
 Windows provides a separate native measurement route when the Mac is busy.
 It does not require an idle host or a Linux virtual machine.
 Its results never share a cohort with Mac results.
-It uses the same reference revision, common workload, dependency locks, fifty scenarios, samples, balanced pairs and `1.10` regression limit.
+It uses the same reference revision, common workload, dependency locks, 54 scenarios, samples, balanced pairs and `1.10` regression limit.
 
 `scripts/capture-windows-performance.py` consumes eight prebuilt executables and their source/build receipt.
 Each product has normal and DHAT builds for two configurations:
 
-- The 44 native-runtime rows use `rca-core` with exactly its `default` feature.
+- The 48 native-runtime rows use `rca-core` with exactly its `default` feature.
 - The six `deterministic/` rows use the original test-runtime dependency graph, including `test-util` and any `diagnostics` feature that graph enables.
 
 Cargo merges features requested by development dependencies. Building the original
@@ -161,7 +161,8 @@ all production source stay unchanged. Dependency versions and checksums stay unc
 The deterministic copy retains the original manifests, lockfile and common harness.
 
 The receipt binds each executable to its complete effective source inventory,
-package manifest, dependency lock, harness and exact Rust 1.99.0 toolchain.
+package manifest, dependency lock, harness and exact Rust 1.100.0 toolchain.
+Its `harness_module_sha256` binds the common shutdown module in all four source inventories.
 It records before-and-after hashes for the three changed native files.
 Cargo's retained build transcripts must identify the exact Core features and
 optimised benchmark executable. Normal and DHAT builds must use the same source
@@ -195,11 +196,11 @@ Then run `scripts/compare-performance.sh <capture>/reference.json <capture>/cand
 
 Schema version 6 identifies the `win32-process-v1` provider and the
 `split-native-deterministic-v1` configuration.
-All fifty rows still belong to one complete cohort, with unchanged samples,
+All 54 rows belong to one complete cohort, with unchanged samples,
 balanced pairs and numerical limits. Each row and process observation identifies
 its native or deterministic configuration.
 The protocol hash includes the source/build receipt hash as well as the common
-harness, scenario manifest and capture script. The comparator validates the same
+harness files, scenario manifest and capture script. The comparator validates the same
 build schema as the capture, then checks source identities, feature routing,
 protocol, sample counts, paired observations and numerical limits.
 Earlier combined-harness captures remain historical evidence. They cannot qualify
@@ -266,11 +267,11 @@ Windows native CPU evidence uses process cycles and sampled CPU profiles.
 Retired instructions remain `null`: neither cycles nor profile samples are instruction counts.
 Retired instructions are supporting measurements, not a numerical gate in the comparator.
 This Windows route removes the need for a separate Mac capture without changing any
-of the fifty scenarios, samples or numerical regression limits.
+of the 54 scenarios, samples or numerical regression limits.
 Each reused record still needs an applicable source, dependency, configuration and toolchain identity.
 Any failed Mac timing observation remains explicit, with its review disposition and limits.
 Composition retains its separate platform-specific absolute and relative gates.
-Windows completion requires the [complete composition policy](composition/composition-windows-complete-v2.json),
+Windows completion requires the [complete composition policy](composition/composition-windows-complete-v3.json),
 not a paired-only capture.
 
 ## Measurements
@@ -301,7 +302,7 @@ Normal samples are 10,000. Earlier 1,000-sample cohorts left only ten observatio
 
 ## Matrix
 
-The 50 stable scenarios cover:
+The 54 stable scenarios cover:
 
 - current-thread and multi-thread external commit;
 - 1, 2, 4, and 8 producers with empty and saturated mailboxes;
@@ -313,7 +314,7 @@ The 50 stable scenarios cover:
 - cancellation insertion, replacement, and churn;
 - action-task fan-out, finish, and cancellation;
 - timer insertion, wake, and removal;
-- query, graceful shutdown, and abortive shutdown; and
+- query, graceful shutdown, abortive shutdown speed, fixed-live-store memory and bounded-burst memory; and
 - deterministic ready work, timer work, and step-budget exhaustion.
 
 ## Profiling rule

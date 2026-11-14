@@ -1,7 +1,6 @@
 //! Contracts exercise real endpoints, futures and notifier callbacks, not queue internals.
 
-use super::{Sender, bounded};
-use async_channel::{SendError, TryRecvError, TrySendError};
+use super::{SendError, Sender, TryRecvError, TrySendError, bounded};
 use std::cell::Cell;
 use std::future::Future;
 use std::num::NonZeroUsize;
@@ -222,13 +221,14 @@ fn capacity_mapping_preserves_rejected_ownership_and_fifo() {
         assert!(receiver.is_closed());
         let rejected = Payload::new(44, &drops);
         let pointer = std::ptr::from_ref(rejected.id.as_ref());
-        let Err(TrySendError::Closed(rejected)) = sender.try_send_map(rejected, |value| (value,))
+        let Err(TrySendError::Disconnected(rejected)) =
+            sender.try_send_map(rejected, |value| (value,))
         else {
             panic!("closed value must be returned");
         };
         assert_eq!(std::ptr::from_ref(rejected.id.as_ref()), pointer);
         drop(rejected);
-        assert_eq!(receiver.try_recv().unwrap_err(), TryRecvError::Closed);
+        assert_eq!(receiver.try_recv().unwrap_err(), TryRecvError::Disconnected);
         assert_eq!(drops.load(Ordering::SeqCst), 4);
     });
 }
@@ -250,8 +250,8 @@ fn rejected_mapping_never_constructs_envelope() {
             let error = sender
                 .try_send_map(rejected, |_| panic!("rejected envelope constructor ran"))
                 .unwrap_err();
-            let ((false, TrySendError::Full(rejected)) | (true, TrySendError::Closed(rejected))) =
-                (closed, error)
+            let ((false, TrySendError::Full(rejected))
+            | (true, TrySendError::Disconnected(rejected))) = (closed, error)
             else {
                 panic!("rejection did not preserve the expected admission state");
             };
@@ -534,7 +534,7 @@ fn concurrent_close_and_admission_have_one_ownership_outcome() {
                 assert_eq!(value.id.get(), 7);
                 drop(value);
             }
-            Err(TrySendError::Closed(value)) => {
+            Err(TrySendError::Disconnected(value)) => {
                 assert_eq!(value.id.get(), 7);
                 drop(value);
             }
@@ -542,9 +542,10 @@ fn concurrent_close_and_admission_have_one_ownership_outcome() {
                 panic!("one send into an initially empty queue cannot be full")
             }
         }
-        assert_eq!(receiver.try_recv().unwrap_err(), TryRecvError::Closed);
+        assert_eq!(receiver.try_recv().unwrap_err(), TryRecvError::Disconnected);
         assert!(receiver.is_closed());
-        let Err(TrySendError::Closed(value)) = sender.try_send(Payload::new(8, &drops)) else {
+        let Err(TrySendError::Disconnected(value)) = sender.try_send(Payload::new(8, &drops))
+        else {
             panic!("post-close admission");
         };
         assert_eq!(value.id.get(), 8);
@@ -657,7 +658,8 @@ fn receiver_drop_closes_without_dropping_sender_owned_backlog() {
         sender.try_send(Payload::new(1, &drops)).unwrap();
         drop(receiver);
         assert_eq!(drops.load(Ordering::SeqCst), 0);
-        let Err(TrySendError::Closed(value)) = sender.try_send(Payload::new(2, &drops)) else {
+        let Err(TrySendError::Disconnected(value)) = sender.try_send(Payload::new(2, &drops))
+        else {
             panic!("receiver drop did not close");
         };
         drop(value);

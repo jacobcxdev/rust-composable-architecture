@@ -50,37 +50,46 @@ pub(crate) trait EffectValue<A, C: EffectLeaves<A>>: Sized {
 pub(crate) fn merge<A, C: EffectLeaves<A>>(
     effects: impl IntoIterator<Item = C::Effect>,
 ) -> C::Effect {
+    let mut non_empty = Vec::new();
     let mut effects = effects.into_iter();
     while let Some(effect) = effects.next() {
-        if effect.is_none() {
-            continue;
-        }
-
-        let capacity = super::initial_merge_capacity(effects.size_hint().0);
-        let mut non_empty = Vec::with_capacity(capacity);
-        non_empty.push(effect);
-        // Keep iterator cleanup ahead of the retained children when unwinding.
-        let mut tail = effects;
-        while let Some(effect) = tail.next() {
-            if effect.is_none() {
-                continue;
-            }
-
-            if non_empty.len() == non_empty.capacity()
-                && non_empty.capacity() >= super::MAX_MERGE_PREALLOCATION
-            {
-                // Align growth after the initial cap without reserving beyond
-                // the remaining input. Loose hints cannot increase this bound.
-                let growth = (non_empty.len() + 1).next_power_of_two() - non_empty.len();
-                let remaining = tail.size_hint().1.unwrap_or(usize::MAX).saturating_add(1);
-                non_empty.reserve_exact(growth.min(remaining));
-            }
-            non_empty.push(effect);
-        }
-        drop(tail);
-        return C::Effect::from_parts(Program::Merge(non_empty), None);
+        append_merge::<A, C>(&mut non_empty, effect, || effects.size_hint());
     }
-    C::Effect::from_parts(Program::None, None)
+    drop(effects);
+    finish_merge::<A, C>(non_empty)
+}
+
+/// Retains one nonempty child with the existing bounded allocation policy.
+pub(crate) fn append_merge<A, C: EffectLeaves<A>>(
+    non_empty: &mut Vec<C::Effect>,
+    effect: C::Effect,
+    remaining: impl FnOnce() -> (usize, Option<usize>),
+) {
+    if effect.is_none() {
+        return;
+    }
+
+    if non_empty.is_empty() {
+        non_empty.reserve_exact(super::initial_merge_capacity(remaining().0));
+    } else if non_empty.len() == non_empty.capacity()
+        && non_empty.capacity() >= super::MAX_MERGE_PREALLOCATION
+    {
+        // Align growth without reserving beyond the remaining input.
+        let growth = (non_empty.len() + 1).next_power_of_two() - non_empty.len();
+        let remaining = remaining().1.unwrap_or(usize::MAX).saturating_add(1);
+        non_empty.reserve_exact(growth.min(remaining));
+    }
+    non_empty.push(effect);
+}
+
+/// Builds an unscoped wrapper without removing a retained child's scope.
+pub(crate) fn finish_merge<A, C: EffectLeaves<A>>(non_empty: Vec<C::Effect>) -> C::Effect {
+    let program = if non_empty.is_empty() {
+        Program::None
+    } else {
+        Program::Merge(non_empty)
+    };
+    C::Effect::from_parts(program, None)
 }
 
 /// Selects sendable leaf storage without adding a runtime carrier value.

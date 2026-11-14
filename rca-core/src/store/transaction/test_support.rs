@@ -30,7 +30,6 @@ pub(in crate::store) struct Host<S, A, C: Execution<S, A>> {
     pub(in crate::store) sequences: HashMap<SequenceId, Sequence<DeferredQueue<S, A, C>>>,
     pub(in crate::store) next_sequence: SequenceId,
     pub(in crate::store) timers: TimerQueue<TimerPayload<S, A, C>>,
-    pub(in crate::store) task_timers: HashMap<TaskId, TimerId>,
     pub(in crate::store) observations: ObservationRegistryCore<S, C::ObservationEntry>,
     pub(in crate::store) lifecycle: Arc<super::super::lifecycle::Lifecycle>,
 }
@@ -62,7 +61,6 @@ impl<S: 'static, A: 'static, C: Execution<S, A>> Host<S, A, C> {
             sequences: HashMap::new(),
             next_sequence: 0,
             timers: TimerQueue::new(),
-            task_timers: HashMap::new(),
             observations: ObservationRegistryCore::new(),
             lifecycle,
         }
@@ -70,6 +68,11 @@ impl<S: 'static, A: 'static, C: Execution<S, A>> Host<S, A, C> {
 
     /// Borrows the production kernel at a fixed clock sample with no assertion gate.
     pub(in crate::store) fn parts(&mut self) -> TransactionParts<'_, S, A, C> {
+        self.parts_with_stamp(MonotonicInstant::ZERO)
+    }
+
+    /// Borrows the same resources for timed work or metadata requests.
+    fn parts_with_stamp<Stamp>(&mut self, now: Stamp) -> TransactionParts<'_, S, A, C, Stamp> {
         TransactionParts {
             #[cfg(feature = "diagnostics")]
             lifecycle_sink: None,
@@ -91,9 +94,8 @@ impl<S: 'static, A: 'static, C: Execution<S, A>> Host<S, A, C> {
             sequences: &mut self.sequences,
             next_sequence_id: &mut self.next_sequence,
             timers: &mut self.timers,
-            task_timers: &mut self.task_timers,
             observations: &mut self.observations,
-            now: MonotonicInstant::ZERO,
+            now,
             #[cfg(feature = "test-util")]
             assertion_gate: &None,
             #[cfg(feature = "test-util")]
@@ -141,7 +143,7 @@ impl<S: 'static, A: 'static, C: Execution<S, A>> Host<S, A, C> {
                 turn
             }
             Command::Operation { request, metadata } => {
-                super::operation(self.parts(), request, &*metadata)
+                super::operation(self.parts_with_stamp(()), request, &*metadata)
             }
             _ => panic!("witness uses only action/read/update commands"),
         }

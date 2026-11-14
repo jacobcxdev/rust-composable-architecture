@@ -9,11 +9,14 @@
 //! Unwinding instead drops pending commands through their failure guards. A second
 //! panic from a destructor or waker during unwinding follows Rust's abort behaviour.
 
+use crate::store::mailbox;
 use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Weak};
 
-use futures_util::future::{Either, FutureExt, select};
+#[cfg(feature = "test-util")]
+use futures_util::future::FutureExt;
+use futures_util::future::{Either, select};
 
 #[cfg(test)]
 use super::Ingress;
@@ -41,8 +44,10 @@ use crate::effect::Effect;
 #[cfg(test)]
 use crate::effect::Program;
 use crate::effect::lineage::{ControlWake, LineageState, LineageWork};
-use crate::effect::registry::{GenerationToken, TaskCompletion, TaskId, TaskRegistry, TaskStatus};
-use crate::effect::timer::{DueTimer, TimerId, TimerQueue};
+use crate::effect::registry::{
+    GenerationToken, TaskCompletion, TaskGenerations, TaskId, TaskRegistry, TaskStatus,
+};
+use crate::effect::timer::{DueTimer, TimerQueue};
 #[cfg(test)]
 use crate::feature::ReduceDriver;
 #[cfg(test)]
@@ -78,6 +83,25 @@ impl<F> Default for Launches<F> {
 }
 
 impl<F> Launches<F> {
+    /// Reserves a fresh buffer for a large batch of known launches.
+    ///
+    /// Returns whether the lazy classification accepted the complete batch.
+    pub(super) fn reserve_dense(
+        &mut self,
+        count: usize,
+        all_launches: impl FnOnce() -> bool,
+    ) -> bool {
+        // Smaller batches do not justify a separate classification pass.
+        const MIN_DENSE_LAUNCHES: usize = 8;
+        if count >= MIN_DENSE_LAUNCHES && self.rest.capacity() == 0 && all_launches() {
+            self.rest
+                .reserve_exact(count - usize::from(self.first.is_none()));
+            true
+        } else {
+            false
+        }
+    }
+
     /// Appends work without polling it or transferring it to the runtime.
     pub(super) fn push(&mut self, future: F) {
         if self.first.is_none() {
@@ -250,8 +274,6 @@ pub(crate) struct Actor<State, Action, C: Carriers<State, Action> = Shared> {
     timers: TimerQueue<TimerPayload<State, Action, C>>,
     /// Empty between batches; retains storage for at most `TIMER_BATCH_LIMIT` timers.
     due_timers: VecDeque<DueTimer<TimerPayload<State, Action, C>>>,
-    /// Reverse index used to remove a cancelled task's current timer entry.
-    task_timers: HashMap<TaskId, TimerId>,
     /// Terminal reply withheld until teardown and any terminal callbacks succeed.
     shutdown_reply: Option<TerminalReply<C::Terminal>>,
     /// Installed projections notified after committed mutations.
@@ -371,7 +393,6 @@ impl<State: 'static, Action: 'static, C: Execution<State, Action> + 'static>
             next_sequence_id: 0,
             timers: TimerQueue::new(),
             due_timers: VecDeque::new(),
-            task_timers: HashMap::new(),
             shutdown_reply: None,
             observations: ObservationRegistryCore::new(),
             #[cfg(not(feature = "diagnostics"))]
@@ -487,8 +508,47 @@ impl<State: 'static, Action: 'static, C: Execution<State, Action> + 'static>
         } else {
             None
         };
-        if !self.mounts.is_empty() && !self.install().await {
-            return;
+        if !self.mounts.is_empty() {
+            if self.receiver.is_closed() {
+                return;
+            }
+
+            // Retain one admitted head. Do not scan or requeue later commands.
+            let head = self.receiver.try_recv().ok();
+            if let Some(Command::Shutdown(reply)) = head {
+                let turn = self.process_released_command(Command::Shutdown(reply));
+                self.launch(turn);
+                return;
+            }
+
+            #[cfg(feature = "test-util")]
+            let mut head = head;
+            #[cfg(feature = "test-util")]
+            let turn = if let Some(binding) = &self.transaction_gate {
+                let gate = binding.gate().clone();
+                gate.begin(
+                    crate::testing::PendingTransaction::Structural,
+                    self.runtime_diagnostics(),
+                    false,
+                );
+                self.release_typed_transaction(gate, Some(&mut head)).await
+            } else {
+                self.install_structure()
+            };
+            #[cfg(not(feature = "test-util"))]
+            let turn = self.install_structure();
+
+            if !self.launch(turn) {
+                return;
+            }
+            if let Some(command) = head {
+                let turn = self.process_command(command);
+                #[cfg(feature = "test-util")]
+                let turn = turn.await;
+                if !self.launch(turn) {
+                    return;
+                }
+            }
         }
         let mut prefer = ReadySource::Commands;
         let mut active_timer: Option<ActiveTimerWake<C::Future>> = None;
@@ -504,7 +564,10 @@ impl<State: 'static, Action: 'static, C: Execution<State, Action> + 'static>
                 // head, consumed only after the ordinary control pass.
                 #[cfg(feature = "diagnostics")]
                 let outcome = if let Some(command) = retained_head.take() {
-                    self.process_untimed_command(command).await
+                    let outcome = self.process_untimed_command(command);
+                    #[cfg(feature = "test-util")]
+                    let outcome = outcome.await;
+                    outcome
                 } else {
                     self.wait_without_timers(&mut timer_free_turns).await
                 };
@@ -538,10 +601,19 @@ impl<State: 'static, Action: 'static, C: Execution<State, Action> + 'static>
             }
 
             prefer = ReadySource::Commands;
-            let (processed, stopped) = self.process_command_batch().await;
-            if stopped {
-                drop(active_timer.take());
-                return;
+            let mut processed = 0;
+            while processed < COMMAND_BATCH_LIMIT {
+                let Ok(command) = self.receiver.try_recv() else {
+                    break;
+                };
+                let turn = self.process_command(command);
+                #[cfg(feature = "test-util")]
+                let turn = turn.await;
+                if !self.launch(turn) {
+                    drop(active_timer.take());
+                    return;
+                }
+                processed += 1;
             }
             if processed != 0 {
                 prefer = ReadySource::Timers;
@@ -580,16 +652,15 @@ impl<State: 'static, Action: 'static, C: Execution<State, Action> + 'static>
                 // Inspect the queue after registration too.
                 match self.receiver.try_recv() {
                     Ok(command) => TimedWake::Command(Ok(command)),
-                    Err(async_channel::TryRecvError::Closed) => {
-                        TimedWake::Command(Err(async_channel::RecvError))
+                    Err(mailbox::TryRecvError::Disconnected) => {
+                        TimedWake::Command(Err(mailbox::RecvError))
                     }
-                    Err(async_channel::TryRecvError::Empty) => {
-                        let control = listener.fuse();
+                    Err(mailbox::TryRecvError::Empty) => {
+                        let control = listener;
                         let timer = match active_timer.as_mut() {
                             Some(wake) => Either::Left(std::pin::Pin::new(&mut wake.sleep)),
                             None => Either::Right(std::future::pending()),
-                        }
-                        .fuse();
+                        };
                         futures_util::pin_mut!(control, timer);
                         match select(control, timer).await {
                             Either::Left(((), _)) => TimedWake::Control,
@@ -600,7 +671,9 @@ impl<State: 'static, Action: 'static, C: Execution<State, Action> + 'static>
             };
             match wake {
                 TimedWake::Command(Ok(command)) => {
-                    let turn = self.process_command(command).await;
+                    let turn = self.process_command(command);
+                    #[cfg(feature = "test-util")]
+                    let turn = turn.await;
                     if !self.launch(turn) {
                         drop(active_timer.take());
                         return;
@@ -621,63 +694,6 @@ impl<State: 'static, Action: 'static, C: Execution<State, Action> + 'static>
         }
     }
 
-    /// Installs structural state without overtaking an already-admitted shutdown.
-    ///
-    /// At most one ordinary head is retained across installation; later commands
-    /// stay in the mailbox and cannot be scanned for terminal priority.
-    async fn install(&mut self) -> bool {
-        if self.receiver.is_closed() {
-            return false;
-        }
-        // Exactly one admitted head may precede installation. An ordinary head
-        // is retained here, never scanned past or requeued for terminal priority.
-        let head = self.receiver.try_recv().ok();
-        if let Some(Command::Shutdown(reply)) = head {
-            let turn = self.process_released_command(Command::Shutdown(reply));
-            return self.launch(turn);
-        }
-        #[cfg(feature = "test-util")]
-        let mut head = head;
-        #[cfg(feature = "test-util")]
-        let turn = if let Some(binding) = &self.transaction_gate {
-            let gate = binding.gate().clone();
-            gate.begin(
-                crate::testing::PendingTransaction::Structural,
-                self.runtime_diagnostics(),
-                false,
-            );
-            self.release_typed_transaction(gate, Some(&mut head)).await
-        } else {
-            self.process_released_command(Command::Structural)
-        };
-        #[cfg(not(feature = "test-util"))]
-        let turn = self.process_released_command(Command::Structural);
-        if !self.launch(turn) {
-            return false;
-        }
-        if let Some(command) = head {
-            let turn = self.process_command(command).await;
-            return self.launch(turn);
-        }
-        true
-    }
-
-    /// Runs a bounded ready-command batch, returning its count and whether it stopped.
-    async fn process_command_batch(&mut self) -> (usize, bool) {
-        let mut processed = 0;
-        while processed < COMMAND_BATCH_LIMIT {
-            let Ok(command) = self.receiver.try_recv() else {
-                break;
-            };
-            let turn = self.process_command(command).await;
-            if !self.launch(turn) {
-                return (processed, true);
-            }
-            processed += 1;
-        }
-        (processed, false)
-    }
-
     /// Processes one due batch, then yields before another source gets its turn.
     async fn process_due_timer_batch(&mut self) -> bool {
         if !self.process_timer_batch().await {
@@ -695,8 +711,8 @@ impl<State: 'static, Action: 'static, C: Execution<State, Action> + 'static>
 
         let command = match self.receiver.try_recv() {
             Ok(command) => Some(Ok(command)),
-            Err(async_channel::TryRecvError::Closed) => Some(Err(async_channel::RecvError)),
-            Err(async_channel::TryRecvError::Empty) => {
+            Err(mailbox::TryRecvError::Disconnected) => Some(Err(mailbox::RecvError)),
+            Err(mailbox::TryRecvError::Empty) => {
                 // Ready commands need no listener. Before waiting, register and recheck both sources.
                 #[cfg(test)]
                 if let Some(before_listener) = self.before_untimed_listener.take() {
@@ -713,8 +729,8 @@ impl<State: 'static, Action: 'static, C: Execution<State, Action> + 'static>
                 }
                 match self.receiver.try_recv() {
                     Ok(command) => Some(Ok(command)),
-                    Err(async_channel::TryRecvError::Closed) => Some(Err(async_channel::RecvError)),
-                    Err(async_channel::TryRecvError::Empty) => {
+                    Err(mailbox::TryRecvError::Disconnected) => Some(Err(mailbox::RecvError)),
+                    Err(mailbox::TryRecvError::Empty) => {
                         let mut listener = std::pin::pin!(listener);
                         std::future::poll_fn(|context| {
                             let result = listener.as_mut().poll(context);
@@ -730,9 +746,8 @@ impl<State: 'static, Action: 'static, C: Execution<State, Action> + 'static>
                 }
             }
         };
-        match command {
-            Some(Ok(command)) => self.process_untimed_command(command).await,
-            Some(Err(_closed)) => WaitOutcome::Closed,
+        let command = match command {
+            Some(result) => result,
             // The listener and its waker are dropped before this lifecycle check.
             // Admission alone needs no extra control pass before dequeuing.
             None if self.control.epoch() == self.control_epoch => {
@@ -741,13 +756,20 @@ impl<State: 'static, Action: 'static, C: Execution<State, Action> + 'static>
                     before_dequeue();
                 }
                 match self.receiver.try_recv() {
-                    Ok(command) => self.process_untimed_command(command).await,
-                    Err(async_channel::TryRecvError::Closed) => WaitOutcome::Closed,
-                    Err(async_channel::TryRecvError::Empty) => WaitOutcome::Continue,
+                    Ok(command) => Ok(command),
+                    Err(mailbox::TryRecvError::Disconnected) => Err(mailbox::RecvError),
+                    Err(mailbox::TryRecvError::Empty) => return WaitOutcome::Continue,
                 }
             }
-            None => WaitOutcome::Continue,
-        }
+            None => return WaitOutcome::Continue,
+        };
+        let Ok(command) = command else {
+            return WaitOutcome::Closed;
+        };
+        let outcome = self.process_untimed_command(command);
+        #[cfg(feature = "test-util")]
+        let outcome = outcome.await;
+        outcome
     }
 
     /// Lets test frontiers suspend a timer-free command before launching its work.
@@ -759,12 +781,9 @@ impl<State: 'static, Action: 'static, C: Execution<State, Action> + 'static>
 
     /// Processes a timer-free command without an additional suspended async frame.
     #[cfg(not(feature = "test-util"))]
-    fn process_untimed_command(
-        &mut self,
-        command: Command<State, Action, C>,
-    ) -> std::future::Ready<WaitOutcome> {
+    fn process_untimed_command(&mut self, command: Command<State, Action, C>) -> WaitOutcome {
         let turn = self.process_released_command(command);
-        std::future::ready(self.launch_untimed(turn))
+        self.launch_untimed(turn)
     }
 
     /// Distinguishes a graceful terminal command from an otherwise closed actor.
@@ -836,13 +855,35 @@ impl<State: 'static, Action: 'static, C: Execution<State, Action> + 'static>
         self.process_released_command(Command::Action(command))
     }
 
-    /// Keeps the common awaitable dispatch interface without storing a test frontier.
+    /// Dispatches a production command without a test frontier.
     #[cfg(not(feature = "test-util"))]
-    fn process_command(
-        &mut self,
-        command: Command<State, Action, C>,
-    ) -> std::future::Ready<Turn<C::Future>> {
-        std::future::ready(self.process_released_command(command))
+    fn process_command(&mut self, command: Command<State, Action, C>) -> Turn<C::Future> {
+        self.process_released_command(command)
+    }
+
+    /// Installs the initial structure without passing through the mailbox dispatcher.
+    fn install_structure(&mut self) -> Turn<C::Future> {
+        if self.receiver.is_closed() {
+            return Turn::rejected(crate::TaskAccessError::new(
+                crate::TaskAccessReason::StoreClosed,
+                crate::TaskProgress::NotStarted,
+            ));
+        }
+
+        #[cfg(feature = "test-util")]
+        let terminal = super::task_context::TerminalGuard::new(
+            self.transaction_gate
+                .as_ref()
+                .and_then(|binding| binding.gate().terminal_receipt()),
+        );
+        let parts = self.transaction_parts();
+        #[cfg(feature = "test-util")]
+        let parts = {
+            let mut parts = parts;
+            parts.structural_terminal = Some(terminal);
+            parts
+        };
+        super::transaction::commit(parts, Mutation::Structural)
     }
 
     /// Executes one released command and retains operation work through its commit.
@@ -863,22 +904,6 @@ impl<State: 'static, Action: 'static, C: Execution<State, Action> + 'static>
         }
         let state = self.state.as_ref().expect("running actor owns state");
         match command {
-            Command::Structural => {
-                #[cfg(feature = "test-util")]
-                let terminal = super::task_context::TerminalGuard::new(
-                    self.transaction_gate
-                        .as_ref()
-                        .and_then(|binding| binding.gate().terminal_receipt()),
-                );
-                let parts = self.transaction_parts();
-                #[cfg(feature = "test-util")]
-                let parts = {
-                    let mut parts = parts;
-                    parts.structural_terminal = Some(terminal);
-                    parts
-                };
-                return super::transaction::commit(parts, Mutation::Structural);
-            }
             Command::Acquire(call) => call.execute(&self.scopes, &self.guard().lifecycle),
             Command::Fold(call) => {
                 call.execute(state, &self.scopes, &self.mounts, &self.guard().lifecycle);
@@ -934,7 +959,7 @@ impl<State: 'static, Action: 'static, C: Execution<State, Action> + 'static>
             }
             Command::Operation { request, metadata } => {
                 return super::transaction::operation(
-                    self.transaction_parts(),
+                    self.transaction_parts_with_stamp(()),
                     request,
                     &*metadata,
                 );
@@ -1084,7 +1109,10 @@ impl<State: 'static, Action: 'static, C: Execution<State, Action> + 'static>
                     pending.reject();
                     return Turn::empty(true);
                 }
-                let turn = self.process_released_command(pending.into_command());
+                let turn = match pending.into_command() {
+                    Some(command) => self.process_released_command(command),
+                    None => self.install_structure(),
+                };
                 match turn
                     .receipt
                     .clone()
@@ -1246,7 +1274,7 @@ impl<State: 'static, Action: 'static, C: Execution<State, Action> + 'static>
             drop(guard);
             match reply {
                 Some(TerminalReply::Shutdown(reply)) => {
-                    let _ = reply.try_send(Ok(()));
+                    let _ = reply.send(());
                 }
                 Some(TerminalReply::State(reply)) => {
                     reply(state.expect("extraction retains original State"));
@@ -1267,7 +1295,7 @@ impl<State: 'static, Action: 'static, C: Execution<State, Action> + 'static>
             TerminalReply::Shutdown(reply) => {
                 drop(self);
                 issues.close();
-                let _ = reply.try_send(Ok(()));
+                let _ = reply.send(());
             }
             TerminalReply::State(reply) => {
                 let state = self.state.take().expect("running actor owns state");
@@ -1306,7 +1334,7 @@ impl<State: 'static, Action: 'static, C: Execution<State, Action> + 'static>
             if task.status == TaskStatus::RuntimeDropped {
                 return Turn::empty(false);
             }
-            if !self.task_timers.is_empty() || !self.task_groups.is_empty() {
+            if !self.timers.is_empty() || !self.task_groups.is_empty() {
                 self.transaction_parts().complete_task(task, &mut launches);
             }
         }
@@ -1327,6 +1355,17 @@ impl<State: 'static, Action: 'static, C: Execution<State, Action> + 'static>
 
     /// Borrows disjoint actor resources for one transaction and samples its clock once.
     fn transaction_parts(&mut self) -> super::transaction::TransactionParts<'_, State, Action, C> {
+        let now = C::now(&self.runtime);
+        self.transaction_parts_with_stamp(now)
+    }
+
+    /// Borrows actor resources without reading the clock.
+    ///
+    /// Callers supply a clock sample only for timed work.
+    fn transaction_parts_with_stamp<Stamp>(
+        &mut self,
+        now: Stamp,
+    ) -> super::transaction::TransactionParts<'_, State, Action, C, Stamp> {
         super::transaction::TransactionParts {
             state: self.state.as_mut().expect("running actor owns state"),
             reducer: &mut *self.reducer,
@@ -1348,9 +1387,8 @@ impl<State: 'static, Action: 'static, C: Execution<State, Action> + 'static>
             sequences: &mut self.sequences,
             next_sequence_id: &mut self.next_sequence_id,
             timers: &mut self.timers,
-            task_timers: &mut self.task_timers,
             observations: &mut self.observations,
-            now: C::now(&self.runtime),
+            now,
             #[cfg(feature = "test-util")]
             assertion_gate: &self.assertion_gate,
             #[cfg(feature = "test-util")]
@@ -1400,6 +1438,14 @@ impl<State: 'static, Action: 'static, C: Execution<State, Action> + 'static>
         clippy::too_many_lines,
         reason = "one due-timer pass keeps cancellation precedence, interval rescheduling and deferred terminal publication ordered"
     )]
+    #[cfg_attr(
+        not(feature = "test-util"),
+        expect(
+            clippy::unused_async,
+            clippy::unused_async_trait_impl,
+            reason = "the batch starts on first poll in every feature configuration; only typed test gates can suspend it"
+        )
+    )]
     async fn process_timer_batch(&mut self) -> bool {
         // Detach storage before dispatch so callbacks may change the queue.
         // A return or unwind drops the local queue and every remaining payload.
@@ -1426,35 +1472,30 @@ impl<State: 'static, Action: 'static, C: Execution<State, Action> + 'static>
         while let Some(timer) = due.pop_front() {
             // An earlier timer action can remove a scope and cancel another
             // timer already popped into this batch.
-            if !self.registry.task_is_running(timer.payload.task) {
-                self.task_timers.remove(&timer.payload.task);
+            if !self.registry.task_is_running(timer.task) {
                 continue;
             }
-            debug_assert_eq!(self.task_timers.get(&timer.payload.task), Some(&timer.id));
             match timer.payload.kind {
                 super::mounted::DeferredTimer::Root(TimerKind::Wait) => {
-                    self.task_timers.remove(&timer.payload.task);
                     let status = if timer.payload.provenance.is_live() {
                         TaskStatus::Completed
                     } else {
                         TaskStatus::Cancelled
                     };
-                    complete(&self.registry, timer.payload.task, status);
+                    complete(&self.registry, timer.task, status);
                 }
                 super::mounted::DeferredTimer::Root(TimerKind::OneShot(action)) => {
-                    self.task_timers.remove(&timer.payload.task);
                     if timer.payload.provenance.is_live() {
-                        let Some(committed) = self
-                            .commit_timer_action(action, &timer.payload.provenance)
-                            .await
-                        else {
+                        let committed = self.commit_timer_action(action, &timer.payload.provenance);
+                        #[cfg(feature = "test-util")]
+                        let Some(committed) = committed.await else {
                             self.refresh_assertion_snapshot();
                             return false;
                         };
                         let committed = self.launch(committed);
                         complete(
                             &self.registry,
-                            timer.payload.task,
+                            timer.task,
                             if committed {
                                 TaskStatus::Completed
                             } else {
@@ -1462,7 +1503,7 @@ impl<State: 'static, Action: 'static, C: Execution<State, Action> + 'static>
                             },
                         );
                     } else {
-                        complete(&self.registry, timer.payload.task, TaskStatus::Cancelled);
+                        complete(&self.registry, timer.task, TaskStatus::Cancelled);
                     }
                 }
                 super::mounted::DeferredTimer::Root(TimerKind::Interval {
@@ -1470,26 +1511,25 @@ impl<State: 'static, Action: 'static, C: Execution<State, Action> + 'static>
                     mut make_action,
                 }) => {
                     if timer.payload.provenance.is_live() {
-                        let Some(turn) = self
-                            .commit_timer_action(make_action(), &timer.payload.provenance)
-                            .await
-                        else {
+                        let turn =
+                            self.commit_timer_action(make_action(), &timer.payload.provenance);
+                        #[cfg(feature = "test-util")]
+                        let Some(turn) = turn.await else {
                             self.refresh_assertion_snapshot();
                             return false;
                         };
                         self.launch(turn);
                         if !timer.payload.provenance.is_live() {
-                            self.task_timers.remove(&timer.payload.task);
-                            if self.registry.task_is_running(timer.payload.task) {
-                                complete(&self.registry, timer.payload.task, TaskStatus::Cancelled);
+                            if self.registry.task_is_running(timer.task) {
+                                complete(&self.registry, timer.task, TaskStatus::Cancelled);
                             }
                             continue;
                         }
                         let deadline = timer.deadline.saturating_add(period);
-                        let next = self.timers.insert(
+                        self.timers.schedule(
+                            timer.task,
                             deadline,
                             TimerPayload {
-                                task: timer.payload.task,
                                 provenance: timer.payload.provenance,
                                 kind: super::mounted::DeferredTimer::Root(TimerKind::Interval {
                                     period,
@@ -1498,10 +1538,8 @@ impl<State: 'static, Action: 'static, C: Execution<State, Action> + 'static>
                                 operation_work: timer.payload.operation_work,
                             },
                         );
-                        self.task_timers.insert(timer.payload.task, next);
                     } else {
-                        self.task_timers.remove(&timer.payload.task);
-                        complete(&self.registry, timer.payload.task, TaskStatus::Cancelled);
+                        complete(&self.registry, timer.task, TaskStatus::Cancelled);
                     }
                 }
                 super::mounted::DeferredTimer::Routed(mut routed) => {
@@ -1511,13 +1549,14 @@ impl<State: 'static, Action: 'static, C: Execution<State, Action> + 'static>
                         .rejection(&provenance, routed.authority())
                         .is_some()
                     {
-                        self.task_timers.remove(&timer.payload.task);
-                        complete(&self.registry, timer.payload.task, TaskStatus::Cancelled);
+                        complete(&self.registry, timer.task, TaskStatus::Cancelled);
                         continue;
                     }
                     let period = routed.period();
                     let command = routed.fire(provenance);
-                    let turn = self.process_command(command).await;
+                    let turn = self.process_command(command);
+                    #[cfg(feature = "test-util")]
+                    let turn = turn.await;
                     if !self.launch(turn) {
                         self.refresh_assertion_snapshot();
                         return false;
@@ -1526,27 +1565,22 @@ impl<State: 'static, Action: 'static, C: Execution<State, Action> + 'static>
                         if !timer.payload.provenance.is_live()
                             || !self.scopes.accepts(routed.authority())
                         {
-                            self.task_timers.remove(&timer.payload.task);
-                            if self.registry.task_is_running(timer.payload.task) {
-                                complete(&self.registry, timer.payload.task, TaskStatus::Cancelled);
+                            if self.registry.task_is_running(timer.task) {
+                                complete(&self.registry, timer.task, TaskStatus::Cancelled);
                             }
                             continue;
                         }
-                        let next = self.timers.insert(
+                        self.timers.schedule(
+                            timer.task,
                             timer.deadline.saturating_add(period),
                             TimerPayload {
-                                task: timer.payload.task,
                                 provenance: timer.payload.provenance,
                                 kind: super::mounted::DeferredTimer::Routed(routed),
                                 operation_work: timer.payload.operation_work,
                             },
                         );
-                        self.task_timers.insert(timer.payload.task, next);
-                    } else {
-                        self.task_timers.remove(&timer.payload.task);
-                        if self.registry.task_is_running(timer.payload.task) {
-                            complete(&self.registry, timer.payload.task, TaskStatus::Completed);
-                        }
+                    } else if self.registry.task_is_running(timer.task) {
+                        complete(&self.registry, timer.task, TaskStatus::Completed);
                     }
                 }
             }
@@ -1628,9 +1662,9 @@ impl<State: 'static, Action: 'static, C: Execution<State, Action> + 'static>
         &mut self,
         action: Action,
         provenance: &TimerProvenance,
-    ) -> std::future::Ready<Option<Turn<C::Future>>> {
+    ) -> Turn<C::Future> {
         let command = Self::timer_action_command(action, provenance);
-        std::future::ready(Some(self.commit_action(command)))
+        self.commit_action(command)
     }
 
     /// Transfers timer provenance into a command without allocating an unused reply channel.
@@ -1718,7 +1752,7 @@ enum WaitOutcome {
 /// Owned result of the timed wait, after all borrowed wait futures have ended.
 enum TimedWake<State, Action, C: Carriers<State, Action>> {
     /// An admitted FIFO command, or transport closure.
-    Command(Result<Command<State, Action, C>, async_channel::RecvError>),
+    Command(Result<Command<State, Action, C>, mailbox::RecvError>),
     /// Cancellation, completion or admission needs another control pass.
     Control,
     /// The retained sleep completed; due payloads still need validation.
@@ -1742,8 +1776,6 @@ pub(super) struct TimerPayload<
     Action,
     C: super::carriers::Carriers<State, Action> = super::carriers::Shared,
 > {
-    /// Registry identity whose completion this deadline will publish.
-    pub(super) task: TaskId,
     /// Authority and cancellation snapshot checked before firing and rescheduling.
     pub(super) provenance: TimerProvenance,
     /// Unexecuted root action or mounted callback; drops before named-work ownership.
@@ -1794,13 +1826,13 @@ pub(super) struct TimerProvenance {
     /// Non-owning task identity; a retired registry entry cannot be revived by a timer.
     pub(super) task: Weak<TaskCompletion>,
     /// Immutable cancellation generations captured at registration.
-    pub(super) generations: Box<[GenerationToken]>,
+    pub(super) generations: TaskGenerations,
     /// Named-operation ancestry inherited by each produced action.
     pub(super) operations: crate::effect::operation::OperationAncestry,
 }
 
 impl TimerProvenance {
-    /// Copies context for a routed command while the timer retains its next tick.
+    /// Shares context for a routed command while the timer retains its next tick.
     pub(super) fn as_provenance(&self) -> super::command::Provenance {
         super::command::Provenance::Effect {
             scope: self.scope,
@@ -1815,7 +1847,11 @@ impl TimerProvenance {
     pub(super) fn is_live(&self) -> bool {
         !self.lineage.is_cancelled()
             && self.task.upgrade().is_some_and(|task| task.is_running())
-            && self.generations.iter().all(GenerationToken::is_live)
+            && self
+                .generations
+                .as_slice()
+                .iter()
+                .all(GenerationToken::is_live)
     }
 }
 
@@ -1900,11 +1936,27 @@ ordinary_test_items! {
         use std::future::pending;
         use std::sync::atomic::{AtomicUsize, Ordering};
 
+        use futures_util::future::FutureExt;
+
         use super::*;
         use crate::observation::ObservationSignal;
         use crate::store::observation::new_registration;
         use crate::store::scope::{ScopeIdentity, ScopeSlot, ScopeTransitionBatch};
         use crate::{ActionTask, MonotonicInstant, Reducer, RuntimeDriver};
+
+        /// Keeps production timer processing free of storage for impossible suspension.
+        #[cfg(not(feature = "test-util"))]
+        #[test]
+        fn production_timer_batch_retains_only_actor_borrow() {
+            let (mut actor, _ingress) =
+                launch_actor(Effect::none(), Runtime::new(TestDriver));
+            let batch = actor.process_timer_batch();
+            let bytes = std::mem::size_of_val(&batch);
+            assert!(
+                bytes <= 2 * std::mem::size_of::<usize>(),
+                "normal timer processing cannot suspend, but its future retains {bytes} bytes"
+            );
+        }
 
         /// Observes closure that races with the resumed wait's final dequeue.
         #[test]
@@ -2700,6 +2752,80 @@ ordinary_test_items! {
             );
         }
 
+        /// Keeps metadata requests independent of the transaction clock.
+        #[test]
+        fn named_operation_metadata_requests_do_not_sample_clock() {
+            let now_calls = Arc::new(AtomicUsize::new(0));
+            let (mut actor, ingress) = launch_actor(
+                Effect::none(),
+                Runtime::new(CountingClockDriver {
+                    launch: LaunchDriver {
+                        tasks: Arc::new(std::sync::Mutex::new(Vec::new())),
+                        panic_after: usize::MAX,
+                    },
+                    now_calls: Arc::clone(&now_calls),
+                    now_seconds: Arc::new(AtomicUsize::new(40)),
+                }),
+            );
+            let turn = actor.install_structure();
+            assert!(actor.launch(turn));
+            let revision = actor.commit_version;
+            let named = LineageState::new(Arc::downgrade(&actor.control));
+            let registration = crate::effect::operation::OperationRegistration::new(Arc::clone(&named));
+            let token = actor.registry.register_named_generation(
+                crate::effect::operation::OperationDeclaration::identity("work")
+                    .in_scope(actor.scopes.root()),
+                Arc::clone(&named),
+            );
+            let operation = crate::store::operation::Operation::root(
+                Arc::downgrade(&ingress),
+                Arc::downgrade(&actor.guard().lifecycle),
+                "work",
+            );
+            let mut context = std::task::Context::from_waker(std::task::Waker::noop());
+            now_calls.store(0, Ordering::Relaxed);
+
+            let mut status = std::pin::pin!(operation.status());
+            assert!(status.as_mut().poll(&mut context).is_pending());
+            let command = actor.receiver.try_recv().unwrap();
+            let turn = actor.process_released_command(command);
+            assert!(actor.launch(turn));
+            let status = status.as_mut().now_or_never().unwrap().unwrap();
+            assert_eq!(status.active_count(), 1);
+
+            let mut capture = std::pin::pin!(operation.capture());
+            assert!(capture.as_mut().poll(&mut context).is_pending());
+            let command = actor.receiver.try_recv().unwrap();
+            let turn = actor.process_released_command(command);
+            assert!(actor.launch(turn));
+            let mut captured = capture.as_mut().now_or_never().unwrap().unwrap();
+            assert!(std::pin::Pin::new(&mut captured).poll(&mut context).is_pending());
+
+            let mut cancel = std::pin::pin!(operation.cancel());
+            assert!(cancel.as_mut().poll(&mut context).is_pending());
+            let command = actor.receiver.try_recv().unwrap();
+            let turn = actor.process_released_command(command);
+            assert!(actor.launch(turn));
+            cancel.as_mut().now_or_never().unwrap().unwrap();
+            assert!(named.is_cancelled());
+            assert!(!token.is_live());
+            assert!(!named.is_finished(), "cancellation does not release registration");
+            assert!(std::pin::Pin::new(&mut captured).poll(&mut context).is_pending());
+
+            drop(registration);
+            assert!(matches!(
+                std::pin::Pin::new(&mut captured).poll(&mut context),
+                std::task::Poll::Ready(Ok(()))
+            ));
+            actor.registry.release_generation(&token);
+            assert_eq!(actor.commit_version, revision);
+            assert!(actor.timers.is_empty());
+            assert!(actor.task_groups.is_empty());
+            let samples = now_calls.load(Ordering::Relaxed);
+            eprintln!("metadata-only status/capture/cancel clock samples={samples}");
+            assert_eq!(samples, 0, "metadata requests do not use transaction time");
+        }
+
         #[test]
         fn terminal_control_without_timers_or_groups_does_not_sample_clock() {
             let tasks = Arc::new(std::sync::Mutex::new(Vec::new()));
@@ -2749,7 +2875,7 @@ ordinary_test_items! {
                 "registry work stays live until terminal harvest"
             );
             assert!(!task.is_cancelled());
-            assert!(actor.task_timers.is_empty());
+            assert!(actor.timers.is_empty());
             assert!(actor.task_groups.is_empty());
 
             now_calls.store(0, Ordering::Relaxed);
@@ -2760,7 +2886,6 @@ ordinary_test_items! {
             assert!(lineage.is_finished());
             assert!(!task.is_cancelled());
             assert!(actor.timers.is_empty());
-            assert!(actor.task_timers.is_empty());
             assert!(actor.task_groups.is_empty());
             assert!(actor.sequence_waits.is_empty());
             assert!(actor.sequences.is_empty());
@@ -2816,7 +2941,7 @@ ordinary_test_items! {
                 "sequence still owns the timed successor"
             );
             assert!(!actor.task_groups.is_empty());
-            assert!(actor.task_timers.is_empty());
+            assert!(actor.timers.is_empty());
 
             now_seconds.store(40, Ordering::Relaxed);
             now_calls.store(0, Ordering::Relaxed);
@@ -2832,7 +2957,7 @@ ordinary_test_items! {
                 deadline,
                 MonotonicInstant::from_elapsed(std::time::Duration::from_secs(45))
             );
-            assert_eq!(actor.task_timers.len(), 1);
+            assert_eq!(actor.timers.len(), 1);
             assert_eq!(actor.task_groups.len(), 1);
             assert!(!task.is_finished());
             assert!(!task.is_cancelled());
@@ -2850,7 +2975,6 @@ ordinary_test_items! {
             assert!(task.is_finished());
             assert!(task.is_cancelled());
             assert!(actor.timers.is_empty());
-            assert!(actor.task_timers.is_empty());
             assert!(actor.task_groups.is_empty());
             assert!(actor.sequence_waits.is_empty());
             assert!(actor.sequences.is_empty());
@@ -2877,7 +3001,7 @@ ordinary_test_items! {
             assert!(actor.launch(turn));
             let task = receive.try_recv().unwrap().unwrap().unwrap();
             assert!(tasks.lock().unwrap().is_empty());
-            assert_eq!(actor.task_timers.len(), 1);
+            assert_eq!(actor.timers.len(), 1);
             assert!(actor.task_groups.is_empty());
             assert!(!task.is_finished());
 
@@ -2889,7 +3013,6 @@ ordinary_test_items! {
             assert!(task.is_finished());
             assert!(task.is_cancelled());
             assert!(actor.timers.is_empty());
-            assert!(actor.task_timers.is_empty());
             assert!(actor.task_groups.is_empty());
             assert!(actor.sequence_waits.is_empty());
             assert!(actor.sequences.is_empty());
@@ -2949,7 +3072,7 @@ ordinary_test_items! {
             assert!(actor.timers.is_empty());
             assert!(matches!(
                 actor.receiver.try_recv(),
-                Err(async_channel::TryRecvError::Empty)
+                Err(mailbox::TryRecvError::Empty)
             ));
 
             // Harvest releases the current node only after the cancellation scan.
@@ -3358,17 +3481,18 @@ struct LegacyDriver<S, A>(Box<dyn ErasedReducer<S, A>>);
 impl<S, A> ReduceDriver<S, A> for LegacyDriver<S, A> {
     type Effect = Effect<A>;
     type Task = crate::Task<S, A>;
+    type RootRegistrar = super::transaction::RootRegistrar<S, A, Shared>;
     fn reduce(
         &mut self,
         state: &mut S,
         action: &A,
         mut context: ReduceContext<'_>,
-    ) -> crate::feature::Work<Self::Effect, Self::Task> {
+    ) -> crate::feature::RootWork<Self::Effect, Self::Task, Self::RootRegistrar> {
         let effect = self.0.reduce(state, action, &mut context);
-        let mut work = crate::feature::Work::default();
         if !matches!(effect.program, Program::None) {
-            work.push(crate::feature::WorkItem::Effect(effect));
+            crate::feature::RootWork::Effect(effect)
+        } else {
+            crate::feature::RootWork::Empty
         }
-        work
     }
 }

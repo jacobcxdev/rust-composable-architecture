@@ -20,7 +20,9 @@ use super::task_context::{ReadCall, ReadInput, UpdateCall};
 use super::transaction::{EffectAdmission, admit_effect_action};
 use crate::effect::leaves::{EffectLeaves, EffectValue};
 use crate::effect::registry::{PreparedTask, TaskRegistry};
-use crate::effect::{CancellationIdentity, EffectSendFuture, Program};
+use crate::effect::{
+    EffectSendFuture, OneShotDeadline, Program, RuntimeLeaf, UnscopedCancellationIdentity,
+};
 use crate::feature::{ReduceDriver, Work, WorkItem};
 use crate::{EffectSendError, ReduceContext};
 
@@ -651,14 +653,13 @@ mod frontend {
             A: 'static,
         {
             async move {
-                let (reply, receive) = async_channel::bounded(1);
+                let (reply, receive) = futures_channel::oneshot::channel();
                 let command = Command::<S, A, Local>::Shutdown(TerminalReply::State(Box::new(
                     move |state| {
-                        let _ = reply.try_send(state);
+                        let _ = reply.send(state);
                     },
                 )));
-                let result =
-                    crate::store::ordered_reply(&self.ingress, command, receive.recv()).await;
+                let result = crate::store::ordered_reply(&self.ingress, command, receive).await;
                 drop(self);
                 result
             }
@@ -1538,7 +1539,7 @@ impl<A: 'static> Effect<A> {
         ID: std::hash::Hash + Eq + Send + Sync + 'static,
     {
         Self {
-            program: Program::Cancel(CancellationIdentity::local(id)),
+            program: Program::Cancel(UnscopedCancellationIdentity::new(id)),
             scope: None,
         }
     }
@@ -1561,7 +1562,7 @@ impl<A: 'static> Effect<A> {
         Self {
             program: Program::Cancellable {
                 effect: Box::new(self),
-                identity: CancellationIdentity::local(id),
+                identity: UnscopedCancellationIdentity::new(id),
                 cancel_in_flight: false,
             },
             scope: None,
@@ -1580,7 +1581,7 @@ impl<A: 'static> Effect<A> {
         Self {
             program: Program::Cancellable {
                 effect: Box::new(self),
-                identity: CancellationIdentity::local(id),
+                identity: UnscopedCancellationIdentity::new(id),
                 cancel_in_flight: true,
             },
             scope: None,
@@ -1590,7 +1591,10 @@ impl<A: 'static> Effect<A> {
     /// Sends one causal action after the runtime's monotonic delay.
     pub fn send_after(duration: std::time::Duration, action: A) -> Self {
         Self {
-            program: Program::SendAfter { duration, action },
+            program: Program::ScheduledSend {
+                deadline: OneShotDeadline::After(duration),
+                action,
+            },
             scope: None,
         }
     }
@@ -1606,7 +1610,10 @@ impl<A: 'static> Effect<A> {
     /// remain the same as for [`Self::send_after`].
     pub fn send_at(deadline: crate::MonotonicInstant, action: A) -> Self {
         Self {
-            program: Program::SendAt { deadline, action },
+            program: Program::ScheduledSend {
+                deadline: OneShotDeadline::At(deadline),
+                action,
+            },
             scope: None,
         }
     }
@@ -1671,7 +1678,9 @@ impl<A: 'static> Effect<A> {
         Fut: Future<Output = ()> + 'static,
     {
         Self {
-            program: Program::<A, LocalEffects>::Run(Box::new(move |sender| Box::pin(run(sender)))),
+            program: Program::Runtime(RuntimeLeaf::<A, LocalEffects>::Run(Box::new(
+                move |sender| Box::pin(run(sender)),
+            ))),
             scope: None,
         }
     }
@@ -1692,7 +1701,7 @@ impl<A: 'static> Effect<A> {
     /// Emits the optional result of an owner-local future.
     pub fn future(future: impl Future<Output = Option<A>> + 'static) -> Self {
         Self {
-            program: Program::<A, LocalEffects>::Future(Box::pin(future)),
+            program: Program::Runtime(RuntimeLeaf::<A, LocalEffects>::Future(Box::pin(future))),
             scope: None,
         }
     }
@@ -1706,7 +1715,7 @@ impl<A: 'static> Effect<A> {
         HFut: Future<Output = ()> + 'static,
     {
         Self {
-            program: Program::<A, LocalEffects>::FallibleRun(Box::new(
+            program: Program::Runtime(RuntimeLeaf::<A, LocalEffects>::Fallible(Box::new(
                 move |sender, provenance, cancellation| {
                     Box::pin(async move {
                         let next = crate::effect::fallible::handle_result(
@@ -1723,7 +1732,7 @@ impl<A: 'static> Effect<A> {
                         }
                     })
                 },
-            )),
+            ))),
             scope: None,
         }
     }
@@ -1776,7 +1785,7 @@ impl<A: 'static> Effect<A> {
     {
         let location = std::panic::Location::caller();
         Self {
-            program: Program::<A, LocalEffects>::FallibleRun(Box::new(
+            program: Program::Runtime(RuntimeLeaf::<A, LocalEffects>::Fallible(Box::new(
                 move |sender, provenance, cancellation| {
                     Box::pin(async move {
                         crate::effect::fallible::report_result(
@@ -1790,7 +1799,7 @@ impl<A: 'static> Effect<A> {
                         );
                     })
                 },
-            )),
+            ))),
             scope: None,
         }
     }
@@ -1930,7 +1939,33 @@ pub trait Feature {
         action: &Self::Action,
         context: &mut FeatureContext<'_, Self::State, Self::Action>,
     );
+
+    /// Returns the same state changes and work for root Store dispatch.
+    ///
+    /// Root Stores use this hook. Mounted features use [`Self::update`].
+    /// Feature authors implement `update`. RCA uses this hook to adapt reducers.
+    ///
+    /// Overrides must preserve the state changes, work order and panic behaviour
+    /// of `update`. Reducers return their effect without a temporary feature context.
+    ///
+    /// # Panics
+    ///
+    /// Propagates an update or reducer panic.
+    #[doc(hidden)]
+    fn reduce_for_store<'deps>(
+        &mut self,
+        state: &mut Self::State,
+        action: &Self::Action,
+        context: ReduceContext<'deps>,
+    ) -> StoreReduction<'deps, Self::State, Self::Action> {
+        let mut context = FeatureContext::new(context);
+        self.update(state, action, &mut context);
+        std::ops::ControlFlow::Continue(context)
+    }
 }
+
+/// Distinguishes an effect-only callback from an owned feature work collection.
+type StoreReduction<'deps, S, A> = std::ops::ControlFlow<Effect<A>, FeatureContext<'deps, S, A>>;
 
 /// Collects owner-local work during one reduction.
 pub struct FeatureContext<'a, S, A> {
@@ -2004,24 +2039,44 @@ impl<R: Reducer + ?Sized> Feature for R {
         let effect = Reducer::reduce(self, state, action, context.reducer_context());
         context.effect(effect);
     }
+
+    fn reduce_for_store<'deps>(
+        &mut self,
+        state: &mut R::State,
+        action: &R::Action,
+        mut context: ReduceContext<'deps>,
+    ) -> StoreReduction<'deps, R::State, R::Action> {
+        std::ops::ControlFlow::Break(Reducer::reduce(self, state, action, &mut context))
+    }
 }
 
 /// Owns a local feature and adapts its context to the common reduction driver.
 pub(super) struct Driver<F>(pub(super) F);
 
-impl<S, A, F: Feature<State = S, Action = A>> ReduceDriver<S, A> for Driver<F> {
+impl<S: 'static, A: 'static, F: Feature<State = S, Action = A>> ReduceDriver<S, A> for Driver<F> {
     type Effect = Effect<A>;
     type Task = Task<S, A>;
+    type RootRegistrar = super::transaction::RootRegistrar<S, A, Local>;
 
     fn reduce(
         &mut self,
         state: &mut S,
         action: &A,
         context: ReduceContext<'_>,
-    ) -> Work<Self::Effect, Self::Task> {
-        let mut context = FeatureContext::new(context);
-        self.0.update(state, action, &mut context);
-        context.into_work()
+    ) -> crate::feature::RootWork<Self::Effect, Self::Task, Self::RootRegistrar> {
+        match Feature::reduce_for_store(&mut self.0, state, action, context) {
+            std::ops::ControlFlow::Break(effect) => {
+                if effect.is_none() {
+                    crate::feature::RootWork::Empty
+                } else {
+                    crate::feature::RootWork::Effect(effect)
+                }
+            }
+            std::ops::ControlFlow::Continue(context) => crate::feature::RootWork::new(
+                context.into_work(),
+                <Local as Execution<S, A>>::ROOT_REGISTRAR,
+            ),
+        }
     }
 }
 
@@ -2046,7 +2101,13 @@ impl<S, A> Carriers<S, A> for Local {
         Box<dyn for<'a> FnMut(&S, crate::ReduceContext<'a>) -> Option<Self::Task>>;
     type RootReaction = super::reaction::LocalHook<S, A>;
     type RootConfiguration = Box<dyn FnMut(&S) -> u64>;
-    type Driver = dyn ReduceDriver<S, A, Effect = Effect<A>, Task = Task<S, A>>;
+    type Driver = dyn ReduceDriver<
+            S,
+            A,
+            Effect = Effect<A>,
+            Task = Task<S, A>,
+            RootRegistrar = super::transaction::RootRegistrar<S, A, Self>,
+        >;
     type Read = dyn ReadCall<S>;
     type ReadInput = dyn ReadInput<S>;
 
@@ -2079,6 +2140,11 @@ impl<S, A> Carriers<S, A> for Local {
 }
 
 impl<S: 'static, A: 'static> Execution<S, A> for Local {
+    const ROOT_REGISTRAR: super::transaction::RootRegistrar<S, A, Self> =
+        super::transaction::RootRegistrar {
+            invoke: super::transaction::register_root_task::<S, A, Self>,
+        };
+
     fn now(runtime: &Self::Runtime) -> crate::MonotonicInstant {
         runtime.now()
     }
@@ -2216,6 +2282,175 @@ mod tests {
     use super::{Effect, Feature, FeatureContext, Reduce, Reducer, WorkItem};
     use crate::store::scope::{ScopeRegistry, ScopeTransitionBatch};
     use crate::{DependencyValues, MonotonicInstant, ReduceContext};
+
+    #[test]
+    fn tagged_update_preserves_direct_feature_order_and_unwind() {
+        use std::cell::Cell;
+        use std::panic::{AssertUnwindSafe, catch_unwind};
+        use std::rc::Rc;
+
+        struct Capture(Rc<Cell<usize>>);
+
+        impl Drop for Capture {
+            fn drop(&mut self) {
+                self.0.set(self.0.get() + 1);
+            }
+        }
+
+        struct Direct {
+            drops: Rc<Cell<usize>>,
+            panic: bool,
+        }
+
+        impl Feature for Direct {
+            type State = usize;
+            type Action = usize;
+
+            fn update(
+                &mut self,
+                state: &mut usize,
+                action: &usize,
+                context: &mut FeatureContext<'_, usize, usize>,
+            ) {
+                *state += action;
+                context.effect(Effect::send(1));
+                let capture = Capture(Rc::clone(&self.drops));
+                context.task(super::Task::run(move |_| async move {
+                    drop(capture);
+                }));
+                context.effect(Effect::send(2));
+                assert!(!self.panic, "direct feature panic");
+            }
+        }
+
+        for owned in [false, true] {
+            for panic in [false, true] {
+                let drops = Rc::new(Cell::new(0));
+                let mut feature = Direct {
+                    drops: Rc::clone(&drops),
+                    panic,
+                };
+                let mut dependencies = DependencyValues::new();
+                let (_lifecycle, mut scopes) = ScopeRegistry::for_test();
+                let mut transitions = ScopeTransitionBatch::default();
+                let context = ReduceContext::new(
+                    &mut dependencies,
+                    MonotonicInstant::ZERO,
+                    &mut scopes,
+                    &mut transitions,
+                );
+                let mut state = 3;
+                let result = catch_unwind(AssertUnwindSafe(|| {
+                    let feature: &mut dyn Feature<State = usize, Action = usize> = &mut feature;
+                    if owned {
+                        match Feature::reduce_for_store(feature, &mut state, &4, context) {
+                            std::ops::ControlFlow::Continue(context) => context.into_work(),
+                            std::ops::ControlFlow::Break(_) => {
+                                panic!("direct feature must retain its work");
+                            }
+                        }
+                    } else {
+                        let mut context = FeatureContext::new(context);
+                        Feature::update(feature, &mut state, &4, &mut context);
+                        context.into_work()
+                    }
+                }));
+                assert_eq!(state, 7);
+                assert!(transitions.is_empty());
+                if panic {
+                    let payload = result.err().expect("direct feature must panic");
+                    assert_eq!(payload.downcast_ref::<&str>(), Some(&"direct feature panic"));
+                } else {
+                    let mut items = result.unwrap().into_iter();
+                    assert!(matches!(items.next(), Some(WorkItem::Effect(effect))
+                        if matches!(effect.program, crate::effect::Program::Send(1))));
+                    assert!(matches!(items.next(), Some(WorkItem::Task(_))));
+                    assert!(matches!(items.next(), Some(WorkItem::Effect(effect))
+                        if matches!(effect.program, crate::effect::Program::Send(2))));
+                    assert!(items.next().is_none());
+                }
+                assert_eq!(drops.get(), 1);
+            }
+        }
+    }
+
+    #[test]
+    fn tagged_update_matches_reducer_effect_none_and_panic() {
+        use std::panic::{AssertUnwindSafe, catch_unwind};
+
+        for owned in [false, true] {
+            for mode in 0..3 {
+                let reports = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+                let count = std::sync::Arc::clone(&reports);
+                let reporter = crate::IssueReporter::new(move |_| {
+                    count.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                });
+                let mut feature = Reduce::new(
+                    move |state: &mut usize, action: &usize, context: &mut ReduceContext<'_>| {
+                        *state += action;
+                        context
+                            .issue_reporter()
+                            .report(crate::Issue::new("tag", "observed"))
+                            .unwrap();
+                        if mode == 2 {
+                            panic!("reducer panic");
+                        }
+                        if mode == 0 {
+                            Effect::none()
+                        } else {
+                            Effect::send(9)
+                        }
+                    },
+                );
+                let mut dependencies = DependencyValues::new();
+                let (_lifecycle, mut scopes) = ScopeRegistry::for_test();
+                let mut transitions = ScopeTransitionBatch::default();
+                let context = ReduceContext::new(
+                    &mut dependencies,
+                    MonotonicInstant::ZERO,
+                    &mut scopes,
+                    &mut transitions,
+                )
+                .with_issue_reporter(reporter);
+                let mut state = 2;
+                let result = catch_unwind(AssertUnwindSafe(|| {
+                    if owned {
+                        match Feature::reduce_for_store(&mut feature, &mut state, &3, context) {
+                            std::ops::ControlFlow::Break(effect) => {
+                                let mut work = crate::feature::Work::default();
+                                if !matches!(effect.program, crate::effect::Program::None) {
+                                    work.push(WorkItem::Effect(effect));
+                                }
+                                work
+                            }
+                            std::ops::ControlFlow::Continue(_) => {
+                                panic!("reducer must return its effect");
+                            }
+                        }
+                    } else {
+                        let mut context = FeatureContext::new(context);
+                        Feature::update(&mut feature, &mut state, &3, &mut context);
+                        context.into_work()
+                    }
+                }));
+                assert_eq!(state, 5);
+                assert_eq!(reports.load(std::sync::atomic::Ordering::SeqCst), 1);
+                assert_eq!(std::sync::Arc::strong_count(&reports), 1);
+                assert!(transitions.is_empty());
+                if mode == 2 {
+                    let payload = result.err().expect("reducer must panic");
+                    assert_eq!(payload.downcast_ref::<&str>(), Some(&"reducer panic"));
+                } else {
+                    let mut items = result.unwrap().into_iter();
+                    if mode == 1 {
+                        assert!(matches!(items.next(), Some(WorkItem::Effect(effect))
+                            if matches!(effect.program, crate::effect::Program::Send(9))));
+                    }
+                    assert!(items.next().is_none());
+                }
+            }
+        }
+    }
 
     #[test]
     fn reducer_is_a_feature_with_borrowed_owner_local_values() {

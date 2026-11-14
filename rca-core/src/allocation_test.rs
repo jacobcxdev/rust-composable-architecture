@@ -87,6 +87,14 @@ const CASES: &[(&str, fn())] = &[
         crate::store::scoped_observation_adapter_storage_costs,
     ),
     (
+        "store::transaction::tests::dense_runtime_merge_shares_generation_snapshot",
+        crate::store::dense_runtime_merge_shares_generation_snapshot,
+    ),
+    (
+        "store::transaction::tests::dense_effect_registration_avoids_launch_growth",
+        crate::store::dense_effect_registration_avoids_launch_growth,
+    ),
+    (
         "store::transaction::tests::retiring_delayed_suffixes_prunes_waits_with_constant_allocation_budget",
         crate::store::retiring_delayed_suffixes_prunes_waits_with_constant_allocation_budget,
     ),
@@ -118,6 +126,11 @@ const CASES: &[(&str, fn())] = &[
     (
         "store::scope::allocation_tests::authority_capture_clone_and_drop_costs",
         crate::store::scope::authority_capture_clone_and_drop_costs,
+    ),
+    #[cfg(not(feature = "diagnostics"))]
+    (
+        "store::scope::allocation_tests::retirement_without_diagnostics_allocates_only_membership",
+        crate::store::scope::retirement_without_diagnostics_allocates_only_membership,
     ),
     (
         "store::mount::allocation_tests::mount_declaration_and_acquisition_costs",
@@ -170,6 +183,10 @@ const CASES: &[(&str, fn())] = &[
     (
         "effect::registry::tests::actor_task_registration_allocates_only_completion",
         crate::effect::registry::actor_task_registration_allocates_only_completion,
+    ),
+    (
+        "effect::registry::tests::singleton_generation_registration_allocates_only_completion",
+        crate::effect::registry::singleton_generation_registration_allocates_only_completion,
     ),
     (
         "effect::registry::tests::paired_harvest_allocates_only_result_buffer",
@@ -280,6 +297,8 @@ mod runner_tests {
             "store::scoped::tests::distinct_projection_publication_costs",
             #[cfg(not(loom))]
             "store::scoped::tests::scoped_observation_adapter_storage_costs",
+            "store::transaction::tests::dense_runtime_merge_shares_generation_snapshot",
+            "store::transaction::tests::dense_effect_registration_avoids_launch_growth",
             "store::transaction::tests::retiring_delayed_suffixes_prunes_waits_with_constant_allocation_budget",
             "store::actor::tests::timer_command_avoids_discarded_reply_allocation",
             "store::actor::tests::direct_future_launch_avoids_erased_sender_allocation",
@@ -289,6 +308,8 @@ mod runner_tests {
             "store::mount::collection_costs::keyed_collection_costs",
             "store::mounted::allocation_tests::route_and_roster_costs",
             "store::scope::allocation_tests::authority_capture_clone_and_drop_costs",
+            #[cfg(not(feature = "diagnostics"))]
+            "store::scope::allocation_tests::retirement_without_diagnostics_allocates_only_membership",
             "store::mount::allocation_tests::mount_declaration_and_acquisition_costs",
             "store::mounted::allocation_tests::mounted_storage_and_work_costs",
             "composition::keyed::allocation_tests::cleared_shrink_releases_backing_storage_but_retains_lineage",
@@ -302,6 +323,7 @@ mod runner_tests {
             "reducer::tests::closure_reducer_and_identity_paths_do_not_allocate",
             "effect::allocation_tests::scope_tagging_non_empty_effects_does_not_allocate",
             "effect::registry::tests::actor_task_registration_allocates_only_completion",
+            "effect::registry::tests::singleton_generation_registration_allocates_only_completion",
             "effect::registry::tests::paired_harvest_allocates_only_result_buffer",
             "composition::scope::allocation_tests::scope_none_paths_do_not_allocate_after_warm_up",
             "composition::shared::allocation_tests::warmed_shared_empty_effect_matches_ordinary_scope_allocations",

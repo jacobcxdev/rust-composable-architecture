@@ -1,7 +1,7 @@
 //! Measures actual registration and first-poll costs without copying the kernel.
 
 use super::{EffectLeaf, Execution, Provenance, Shared, TaskRegistry};
-use crate::effect::CancellationIdentity;
+use crate::effect::UnscopedCancellationIdentity;
 use crate::effect::leaves::SharedEffects;
 use crate::effect::lineage::{ControlWake, LineageState};
 use crate::store::local::{Local, LocalEffects};
@@ -76,10 +76,12 @@ pub(crate) fn effect_registration_costs() {
             std::future::pending()
         });
         assert_eq!(shared_calls.load(Ordering::Relaxed), 0);
-        let crate::effect::Program::Run(run) = effect.program else {
+        let crate::effect::Program::Runtime(leaf @ crate::effect::RuntimeLeaf::Run(_)) =
+            effect.program
+        else {
             panic!("run constructor must retain its deferred factory");
         };
-        EffectLeaf::Run(run)
+        EffectLeaf::from(leaf)
     });
     let local = measure_run_first_poll::<Local>(|| {
         let calls = Rc::clone(&local_calls);
@@ -88,10 +90,12 @@ pub(crate) fn effect_registration_costs() {
             std::future::pending()
         });
         assert_eq!(local_calls.get(), 0);
-        let crate::effect::Program::Run(run) = effect.program else {
+        let crate::effect::Program::Runtime(leaf @ crate::effect::RuntimeLeaf::Run(_)) =
+            effect.program
+        else {
             panic!("run constructor must retain its deferred factory");
         };
-        EffectLeaf::Run(run)
+        EffectLeaf::from(leaf)
     });
     assert_eq!(shared_calls.load(Ordering::Relaxed), 1);
     assert_eq!(local_calls.get(), 1);
@@ -161,7 +165,9 @@ fn measure<C: Execution<(), ()>>(
         let scope = scopes.root();
         let lineage = LineageState::new(Arc::downgrade(&control));
         let generations: Vec<_> = (0..depth)
-            .map(|id| registry.register_generation(CancellationIdentity::local(id).in_scope(scope)))
+            .map(|id| {
+                registry.register_generation(UnscopedCancellationIdentity::new(id).in_scope(scope))
+            })
             .collect();
         let prepared = registry.prepare(scope, Arc::clone(&lineage), &generations);
         let provenance = Provenance::Effect {

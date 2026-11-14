@@ -14,10 +14,13 @@ pub(crate) mod allocation_tests;
 use super::command::{Command, Provenance};
 use super::ingress::CommandIngress;
 use super::task_context::{CommitReply, ReadCall, ReadInput, SharedReply, UpdateCall};
+use crate::effect::RuntimeLeaf;
 use crate::effect::leaves::EffectLeaves;
 use crate::effect::registry::{PreparedTask, TaskRegistry};
 use crate::feature::ReduceDriver;
 use std::sync::Weak;
+
+pub(crate) use super::transaction::RootRegistrar;
 
 /// Selects one compatible family of owned commands, callbacks and runtime values.
 ///
@@ -53,7 +56,13 @@ pub(crate) trait Carriers<S, A>: Sized {
     type RootConfiguration: FnMut(&S) -> u64;
     /// Reduces actions into effects and tasks from this same family.
     type Driver: ?Sized
-        + ReduceDriver<S, A, Effect = <Self::Effects as EffectLeaves<A>>::Effect, Task = Self::Task>;
+        + ReduceDriver<
+            S,
+            A,
+            Effect = <Self::Effects as EffectLeaves<A>>::Effect,
+            Task = Self::Task,
+            RootRegistrar = super::transaction::RootRegistrar<S, A, Self>,
+        >;
     /// A query ready for execution against actor-owned state.
     type Read: ?Sized + ReadCall<S>;
     /// An input query that can record entry before endpoint projection.
@@ -125,11 +134,24 @@ pub(crate) enum EffectLeaf<A, E: EffectLeaves<A>> {
     Future(E::Future),
 }
 
+impl<A, E: EffectLeaves<A>> From<RuntimeLeaf<A, E>> for EffectLeaf<A, E> {
+    fn from(leaf: RuntimeLeaf<A, E>) -> Self {
+        match leaf {
+            RuntimeLeaf::Run(operation) => Self::Run(operation),
+            RuntimeLeaf::Fallible(operation) => Self::Fallible(operation),
+            RuntimeLeaf::Future(future) => Self::Future(future),
+        }
+    }
+}
+
 /// Adapts concrete runtime operations to the common transaction kernel.
 ///
 /// These associated functions resolve statically for `Shared` or `Local`.
 /// Registration returns an unpolled future. The actor launches it after commit.
 pub(crate) trait Execution<S, A>: Carriers<S, A> {
+    /// Keeps typed root registration reachable only through producers that use it.
+    const ROOT_REGISTRAR: super::transaction::RootRegistrar<S, A, Self>;
+
     /// Reads the selected runtime's monotonic clock.
     fn now(runtime: &Self::Runtime) -> crate::MonotonicInstant;
     /// Gives other runtime tasks an opportunity to run.
@@ -180,6 +202,11 @@ pub(crate) trait Execution<S, A>: Carriers<S, A> {
 }
 
 impl<S: Send + 'static, A: Send + 'static> Execution<S, A> for Shared {
+    const ROOT_REGISTRAR: super::transaction::RootRegistrar<S, A, Self> =
+        super::transaction::RootRegistrar {
+            invoke: super::transaction::register_root_task::<S, A, Self>,
+        };
+
     fn now(runtime: &Self::Runtime) -> crate::MonotonicInstant {
         runtime.now()
     }
@@ -302,8 +329,13 @@ impl<S, A> Carriers<S, A> for Shared {
         Box<dyn for<'a> FnMut(&S, crate::ReduceContext<'a>) -> Option<Self::Task> + Send>;
     type RootReaction = super::reaction::SharedHook<S, A>;
     type RootConfiguration = Box<dyn FnMut(&S) -> u64 + Send>;
-    type Driver =
-        dyn ReduceDriver<S, A, Effect = crate::Effect<A>, Task = crate::Task<S, A>> + Send;
+    type Driver = dyn ReduceDriver<
+            S,
+            A,
+            Effect = crate::Effect<A>,
+            Task = crate::Task<S, A>,
+            RootRegistrar = super::transaction::RootRegistrar<S, A, Self>,
+        > + Send;
     type Read = dyn ReadCall<S> + Send;
     type ReadInput = dyn ReadInput<S> + Send;
 
@@ -332,4 +364,78 @@ impl<S, A> Carriers<S, A> for Shared {
     type Deferred = dyn super::mounted::DeferredProgram<S, A, Self> + Send;
     type Timer = dyn super::mounted::RoutedTimer<S, A, Self> + Send;
     type Node = dyn super::mounted::InstalledNode + Send;
+}
+
+#[cfg(test)]
+ordinary_test_items! {
+mod tagged_layout_tests {
+    use crate::feature::{FeatureContext, Work};
+    use crate::{Effect, Task};
+
+    #[test]
+    fn root_registrar_remains_one_word_without_clone_bounds() {
+        struct State;
+        struct Action;
+
+        fn clone_value<T: Clone>(value: &T) -> T {
+            value.clone()
+        }
+
+        let registrar = <super::Shared as super::Execution<State, Action>>::ROOT_REGISTRAR;
+        let copied = registrar;
+        let cloned = clone_value(&registrar);
+        assert_eq!(
+            std::mem::size_of_val(&registrar),
+            std::mem::size_of::<usize>()
+        );
+        let _ = (copied, cloned, registrar);
+
+        #[cfg(feature = "local")]
+        {
+            struct LocalState {
+                _non_send: std::marker::PhantomData<std::rc::Rc<()>>,
+            }
+            let registrar =
+                <crate::store::Local as super::Execution<LocalState, Action>>::ROOT_REGISTRAR;
+            let copied = registrar;
+            let cloned = clone_value(&registrar);
+            assert_eq!(
+                std::mem::size_of_val(&registrar),
+                std::mem::size_of::<usize>()
+            );
+            let _ = (copied, cloned, registrar);
+        }
+    }
+
+    #[test]
+    fn tagged_update_layout_report() {
+        use crate::store::carriers::Shared;
+        use crate::store::transaction::{Batch, RootBatch};
+
+        println!(
+            "shared Work={} RootBatch={} Batch={} ControlFlow={} FeatureContext={}",
+            std::mem::size_of::<Work<Effect<()>, Task<(), ()>>>(),
+            std::mem::size_of::<RootBatch<(), (), Shared>>(),
+            std::mem::size_of::<Batch<(), (), Shared>>(),
+            std::mem::size_of::<std::ops::ControlFlow<Effect<()>, FeatureContext<'_, (), ()>>>(),
+            std::mem::size_of::<FeatureContext<'_, (), ()>>(),
+        );
+        #[cfg(feature = "local")]
+        {
+            use crate::store::Local;
+            use crate::store::local::Task;
+            use crate::store::local::{Effect, FeatureContext};
+
+            println!(
+                "local Work={} RootBatch={} Batch={} ControlFlow={} FeatureContext={}",
+                std::mem::size_of::<Work<Effect<()>, Task<(), ()>>>(),
+                std::mem::size_of::<RootBatch<(), (), Local>>(),
+                std::mem::size_of::<Batch<(), (), Local>>(),
+                std::mem::size_of::<std::ops::ControlFlow<Effect<()>, FeatureContext<'_, (), ()>>>(
+                ),
+                std::mem::size_of::<FeatureContext<'_, (), ()>>(),
+            );
+        }
+    }
+}
 }

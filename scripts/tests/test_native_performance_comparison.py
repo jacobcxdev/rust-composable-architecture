@@ -32,6 +32,7 @@ class NativePerformanceComparisonTests(unittest.TestCase):
             "docs/performance/baseline-revision.txt": (REFERENCE + "\n").encode(),
             "docs/performance/scenarios.txt": (ROOT / "docs/performance/scenarios.txt").read_bytes(),
             "rca-tokio/benches/qualification.rs": b"harness\n",
+            "rca-tokio/benches/qualification/shutdown.rs": b"shutdown harness\n",
             "scripts/qualify-performance.sh": b"Mac capture\n",
             "scripts/guard_cargo_memory.py": b"Mac memory watchdog\n",
             "scripts/capture-windows-performance.py": (ROOT / "scripts/capture-windows-performance.py").read_bytes(),
@@ -67,14 +68,16 @@ esac
     def evidence(self, windows):
         capture = "scripts/capture-windows-performance.py" if windows else "scripts/qualify-performance.sh"
         harness_hash = digest(b"harness\n")
+        module_hash = digest(b"shutdown harness\n")
         scenario_hash = digest((self.root / "docs/performance/scenarios.txt").read_bytes())
         capture_hash = digest((self.root / capture).read_bytes())
         cohort = {
             "id": "c" * 64,
             "recorded_at": "2026-10-30T23:00:00Z",
             "runner": "test-windows" if windows else "test-mac",
-            "protocol_sha256": digest(f"{harness_hash}\n{scenario_hash}\n{capture_hash}\n".encode()),
+            "protocol_sha256": digest(f"{harness_hash}\n{module_hash}\n{scenario_hash}\n{capture_hash}\n".encode()),
             "qualification_source_sha256": harness_hash,
+            "qualification_module_sha256": module_hash,
             "qualification_script_sha256": capture_hash,
             "scenario_manifest_sha256": scenario_hash,
             "candidate_lock_sha256": digest(b"candidate lock\n"),
@@ -84,7 +87,7 @@ esac
             cohort["memory_watchdog_sha256"] = digest((self.root / "scripts/guard_cargo_memory.py").read_bytes())
             cohort["memory_watchdog_receipt"] = str((self.root / "memory.json").resolve())
             cohort["protocol_sha256"] = digest(
-                f"{harness_hash}\n{scenario_hash}\n{capture_hash}\n{cohort['memory_watchdog_sha256']}\n".encode())
+                f"{harness_hash}\n{module_hash}\n{scenario_hash}\n{capture_hash}\n{cohort['memory_watchdog_sha256']}\n".encode())
         for role in ("candidate", "reference"):
             cohort[f"{role}_source_tree"] = "d" * 40
             cohort[f"{role}_manifest_sha256"] = digest(b"manifest\n")
@@ -100,14 +103,15 @@ esac
         }
         if windows:
             metadata["resource_provider"] = "win32-process-v1"
-            tools = {"rustc": "rustc 1.99.0 (pinned)",
-                     "cargo": "cargo 1.99.0 (pinned)",
+            tools = {"rustc": "rustc 1.100.0 (pinned)",
+                     "cargo": "cargo 1.100.0 (pinned)",
                      "rustc_commit": "6" * 40,
                      "target": "x86_64-pc-windows-msvc"}
             for target in (metadata, cohort):
                 target.update(compiler=tools["rustc"], cargo=tools["cargo"], rustc_commit=tools["rustc_commit"])
             configuration = "split-native-deterministic-v1"
-            source = {"harness_sha256": harness_hash, "scenario_manifest_sha256": scenario_hash,
+            source = {"harness_sha256": harness_hash, "harness_module_sha256": module_hash,
+                      "scenario_manifest_sha256": scenario_hash,
                       "toolchain": tools, "binaries": {}, "commands": [],
                       "configuration": configuration}
             metadata["binaries"] = {}
@@ -164,7 +168,7 @@ esac
             metadata["configuration"] = cohort["configuration"] = configuration
             cohort["source_build_sha256"] = metadata["source_build_sha256"]
             cohort["protocol_sha256"] = digest(
-                f"{harness_hash}\n{scenario_hash}\n{capture_hash}\n{metadata['source_build_sha256']}\n".encode())
+                f"{harness_hash}\n{module_hash}\n{scenario_hash}\n{capture_hash}\n{metadata['source_build_sha256']}\n".encode())
         rows = []
         for scenario in (self.root / "docs/performance/scenarios.txt").read_text().splitlines():
             allocation_samples = 1000
@@ -187,6 +191,17 @@ esac
                 normal.update(peak_resident_bytes=1000, peak_memory_footprint_bytes=1000)
             allocation = dict(normal, samples=allocation_samples, operations=allocation_samples,
                               allocations=1000, allocated_bytes=1000, peak_bytes=1000)
+            limit = {"shutdown/abortive/live/1": 1, "shutdown/abortive/live/8": 8,
+                     "shutdown/abortive/burst/8": 8, "shutdown/abortive/burst/64": 64}.get(scenario)
+            if limit is not None:
+                for sample in (normal, allocation):
+                    count = sample["samples"]
+                    batches = count + min(count, 20)
+                    sample["operations"] = limit * count
+                    sample["shutdown_lifetime"] = dict(
+                        live_limit=limit, maximum_unfinished=limit, batches=batches,
+                        spawned=limit * batches, dropped=limit * batches,
+                        unfinished=0, maximum_batch_end_unfinished=0)
             pairs = {}
             for kind, count, sample in (("normal", 10, normal), ("allocation", 6, allocation)):
                 pairs[kind] = []
@@ -197,7 +212,7 @@ esac
                                         "candidate": copy.deepcopy(entry), "reference": copy.deepcopy(entry)})
             rows.append(dict(normal, revision=CANDIDATE, runner=cohort["runner"],
                              allocations=1000, allocated_bytes=1000, peak_bytes=1000,
-                             allocation_samples=allocation_samples, allocation_operations=allocation_samples,
+                             allocation_samples=allocation_samples, allocation_operations=allocation["operations"],
                              normal_repetitions=10, allocation_repetitions=6,
                              pairs=pairs, rationale_id=None))
         candidate = dict(schema_version=6 if windows else 4, suite="rca-performance-qualification",
@@ -217,7 +232,7 @@ esac
         candidate_path.write_text(json.dumps(candidate))
         if candidate["schema_version"] == 4:
             receipt = dict(
-                entrypoint="qualify-performance", toolchain="1.99.0", started=True,
+                entrypoint="qualify-performance", toolchain="1.100.0", started=True,
                 protection="polling-watchdog-not-kernel-memory-cap", reason="command-exited",
                 returncode=0, command_returncode=0, cleanup_complete=True, descendants_complete=True,
                 forced_cleanup=False, memory_limit_bytes=8 * 1024**3,
@@ -271,6 +286,7 @@ esac
             metadata["source_build_sha256"] = metadata["cohort"]["source_build_sha256"] = receipt_hash
             cohort = metadata["cohort"]
             cohort["protocol_sha256"] = digest((cohort["qualification_source_sha256"] + "\n"
+                                                + cohort["qualification_module_sha256"] + "\n"
                                                 + cohort["scenario_manifest_sha256"] + "\n"
                                                 + cohort["qualification_script_sha256"] + "\n"
                                                 + receipt_hash + "\n").encode())
@@ -337,6 +353,7 @@ esac
                         del cohort["memory_watchdog_sha256"]
                         cohort["protocol_sha256"] = digest((
                             cohort["qualification_source_sha256"] + "\n" +
+                            cohort["qualification_module_sha256"] + "\n" +
                             cohort["scenario_manifest_sha256"] + "\n" +
                             cohort["qualification_script_sha256"] + "\n").encode())
                 result = self.compare(reference, candidate)
@@ -347,6 +364,20 @@ esac
         (self.root / "scripts/guard_cargo_memory.py").write_text("changed watchdog\n")
         result = self.compare(reference, candidate)
         self.assertNotEqual(result.returncode, 0, result.stdout)
+
+    def test_both_platforms_reject_changed_or_missing_shutdown_module_provenance(self):
+        for windows in (False, True):
+            for mutation in ("missing", "different"):
+                with self.subTest(windows=windows, mutation=mutation):
+                    reference, candidate = self.evidence(windows)
+                    for document in (reference, candidate):
+                        cohort = document["metadata"]["cohort"]
+                        if mutation == "missing":
+                            del cohort["qualification_module_sha256"]
+                        else:
+                            cohort["qualification_module_sha256"] = "0" * 64
+                    result = self.compare(reference, candidate)
+                    self.assertNotEqual(result.returncode, 0, result.stdout)
 
     def test_mac_rejects_missing_outer_guard_completion(self):
         result = self.compare(*self.evidence(False), no_guard=True)
@@ -400,6 +431,120 @@ esac
                 result = self.compare(reference, candidate)
                 self.assertEqual(result.returncode, 1, result.stderr)
                 self.assertIn("unexplained performance regressions", result.stderr)
+
+    def test_bounded_shutdown_gates_only_process_memory_and_retains_other_ratios(self):
+        for windows in (False, True):
+            for scenario in ("shutdown/abortive/live/1", "shutdown/abortive/live/8",
+                             "shutdown/abortive/burst/8", "shutdown/abortive/burst/64"):
+                with self.subTest(windows=windows, scenario=scenario):
+                    reference, candidate = self.evidence(windows)
+                    row = next(row for row in candidate["rows"] if row["scenario"] == scenario)
+                    for pair in row["pairs"]["normal"]:
+                        pair["candidate"]["latency_ns"]["p50"] = 111
+                        pair["candidate"]["latency_ns"]["p99"] = 222
+                        pair["candidate"]["throughput_per_second"] = 500
+                        pair["candidate"]["cpu_cycles"] = 1110
+                        pair["candidate"]["task_wakes"] = 11100
+                    for pair in row["pairs"]["allocation"]:
+                        pair["candidate"]["allocations"] = 1110
+                        pair["candidate"]["allocated_bytes"] = 1110
+                    next(item for item in reference["rows"] if item["scenario"] == scenario)["pairs"] = copy.deepcopy(row["pairs"])
+                    result = self.compare(reference, candidate)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    report = json.loads((self.root / "candidate-comparison.json").read_text())
+                    observed = next(item for item in report["comparisons"] if item["scenario"] == scenario)
+                    self.assertEqual(observed["gated_metrics"], ["peak_memory_ratio", "resident_memory_ratio"])
+                    self.assertGreater(observed["median_ratio"], 1.10)
+                    self.assertEqual(observed["regressed_metrics"], [])
+
+    def test_bounded_shutdown_rejects_eleven_percent_memory_regressions(self):
+        for windows, metrics in ((False, ("peak_resident_bytes", "peak_memory_footprint_bytes")),
+                                 (True, ("peak_working_set_bytes", "peak_commit_bytes"))):
+            for metric in metrics:
+                with self.subTest(windows=windows, metric=metric):
+                    reference, candidate = self.evidence(windows)
+                    row = next(row for row in candidate["rows"] if row["scenario"] == "shutdown/abortive/burst/64")
+                    for pair in row["pairs"]["normal"]:
+                        pair["candidate"][metric] = 1110
+                    next(item for item in reference["rows"] if item["scenario"] == row["scenario"])["pairs"] = copy.deepcopy(row["pairs"])
+                    result = self.compare(reference, candidate)
+                    self.assertEqual(result.returncode, 1, result.stderr)
+                    self.assertIn("unexplained performance regressions", result.stderr)
+
+    def test_original_abortive_memory_is_diagnostic_but_speed_still_gates(self):
+        for speed_regression in (False, True):
+            reference, candidate = self.evidence(True)
+            row = next(row for row in candidate["rows"] if row["scenario"] == "shutdown/abortive")
+            for pair in row["pairs"]["normal"]:
+                pair["candidate"]["peak_working_set_bytes"] = 2000
+                pair["candidate"]["peak_commit_bytes"] = 2000
+                if speed_regression:
+                    pair["candidate"]["latency_ns"]["p50"] = 111
+            next(item for item in reference["rows"] if item["scenario"] == row["scenario"])["pairs"] = copy.deepcopy(row["pairs"])
+            result = self.compare(reference, candidate)
+            self.assertEqual(result.returncode, int(speed_regression), result.stderr)
+            report = json.loads((self.root / "candidate-comparison.json").read_text())
+            observed = next(item for item in report["comparisons"] if item["scenario"] == row["scenario"])
+            self.assertEqual(observed["peak_memory_ratio"], 2)
+            self.assertEqual(observed["resident_memory_ratio"], 2)
+            self.assertNotIn("peak_memory_ratio", observed["gated_metrics"])
+            self.assertEqual(observed["regressed_metrics"], ["median_ratio"] if speed_regression else [])
+
+    def test_shutdown_lifetime_cannot_be_missing_forged_or_attached_to_legacy_rows(self):
+        for mutation in ("missing-row", "missing-normal", "missing-allocation", "batch-leak", "final-leak",
+                         "wrong-limit", "wrong-maximum", "wrong-count", "wrong-batches", "boolean",
+                         "extra-field", "wrong-operations", "legacy"):
+            with self.subTest(mutation=mutation):
+                reference, candidate = self.evidence(True)
+                row = next(row for row in candidate["rows"] if row["scenario"] == "shutdown/abortive/live/8")
+                if mutation == "missing-row":
+                    del row["shutdown_lifetime"]
+                elif mutation in ("missing-normal", "missing-allocation"):
+                    del row["pairs"][mutation.removeprefix("missing-")][0]["candidate"]["shutdown_lifetime"]
+                elif mutation == "wrong-operations":
+                    row["operations"] = 10000
+                    for pair in row["pairs"]["normal"]:
+                        pair["candidate"]["operations"] = pair["reference"]["operations"] = 10000
+                elif mutation == "legacy":
+                    row = next(row for row in candidate["rows"] if row["scenario"] == "shutdown/abortive")
+                    row["shutdown_lifetime"] = None
+                else:
+                    field, bad = {"batch-leak": ("maximum_batch_end_unfinished", 1),
+                                  "final-leak": ("unfinished", 1), "wrong-limit": ("live_limit", 64),
+                                  "wrong-maximum": ("maximum_unfinished", 7), "wrong-count": ("dropped", 0),
+                                  "wrong-batches": ("batches", 10000), "boolean": ("unfinished", False),
+                                  "extra-field": ("unrecognised", 0)}[mutation]
+                    row["pairs"]["normal"][0]["candidate"]["shutdown_lifetime"][field] = bad
+                next(item for item in reference["rows"] if item["scenario"] == row["scenario"])["pairs"] = copy.deepcopy(row["pairs"])
+                result = self.compare(reference, candidate)
+                self.assertNotEqual(result.returncode, 0, result.stdout)
+                self.assertIn("invalid performance result schema", result.stderr)
+
+    def test_mac_capture_rejects_forged_shutdown_lifetime_before_publication(self):
+        script = (ROOT / "scripts/qualify-performance.sh").read_text()
+        start = script.index("validate_rows() {")
+        function = script[start:script.index("\n}\n", start) + 3]
+        scenarios = (self.root / "docs/performance/scenarios.txt").read_text().splitlines()
+        for mutation in (None, "row", "normal", "allocation", "operations", "legacy"):
+            with self.subTest(mutation=mutation):
+                _, candidate = self.evidence(False)
+                row = next(row for row in candidate["rows"] if row["scenario"] == "shutdown/abortive/live/8")
+                if mutation == "row":
+                    row["shutdown_lifetime"]["batches"] = 10000
+                elif mutation in ("normal", "allocation"):
+                    row["pairs"][mutation][0]["reference"]["shutdown_lifetime"]["maximum_batch_end_unfinished"] = 1
+                elif mutation == "operations":
+                    row["allocation_operations"] = 500
+                    for pair in row["pairs"]["allocation"]:
+                        pair["candidate"]["operations"] = pair["reference"]["operations"] = 500
+                elif mutation == "legacy":
+                    next(item for item in candidate["rows"] if item["scenario"] == "shutdown/graceful")["shutdown_lifetime"] = None
+                path = self.root / "capture-rows.jsonl"
+                path.write_text("\n".join(json.dumps(item) for item in candidate["rows"]))
+                result = subprocess.run(["bash", "-c", function + '\nvalidate_rows "$1"', "capture-test", str(path)],
+                                        env=dict(os.environ, expected_scenarios=json.dumps(scenarios)),
+                                        text=True, capture_output=True, check=False)
+                self.assertEqual(result.returncode == 0, mutation is None, result.stderr)
 
     def test_reviewed_poll_tradeoff_does_not_accept_other_metrics(self):
         for extra_metric, reviewed in ((None, False), ("cpu_cycles", False), ("p99", False), ("cpu_cycles", True)):
@@ -512,7 +657,7 @@ esac
             metadata["source_build_sha256"] = digest(receipt)
         result = self.compare(reference, candidate)
         self.assertNotEqual(result.returncode, 0, result.stdout)
-        self.assertIn("Windows capture requires pinned Rust 1.99.0", result.stderr)
+        self.assertIn("Windows capture requires pinned Rust 1.100.0", result.stderr)
 
 
 if __name__ == "__main__":

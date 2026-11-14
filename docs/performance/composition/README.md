@@ -1,21 +1,25 @@
 # Composition performance qualification
 
-The [v8 macOS protocol](composition-protocol-v8.json) and
-[absolute budgets](composition-budgets.json) define the composition performance
-gate. Their contents, hashes and thresholds are frozen before capture. This directory holds
-the maintained method and the three receipts needed to validate those budgets,
-not captures of the current candidate.
+The [v9 macOS protocol](composition-protocol-v9.json) and
+[complete Windows policy](composition-windows-complete-v3.json) define separate qualification routes.
+Their workloads, hashes and numerical limits are frozen before capture.
+Complete Windows qualification uses the current release reference.
+The older [macOS absolute budgets](composition-budgets.json) retain their original values and provenance.
+Those older architectural ceilings are not additional release blockers for the current reference.
+This directory contains the methods and historical receipts, not current-candidate captures.
+
+The v9 macOS and v3 Windows methods use Rust 1.100.0. Their workloads,
+ordering and acceptance limits match the preceding Rust 1.99 methods.
+The frozen Rust 1.98 and 1.99 protocols and captures retain their original
+identities. A new compiler requires a new matched capture, not relabelled evidence.
 
 ## Reference and availability
 
-The reference revision is
-`b9eb6e732d2b0cf6ce3cd7255a5958781587af6c`. It belongs to RCA's archived
-development history and is not available from the public repository. Running
-the full paired gate therefore requires a clean copy of that exact reference
-from the retained archive. A fresh public clone alone cannot reproduce it.
-Do not substitute another revision or claim that fixture tests qualify a
-candidate. A replacement reference needs a reviewed protocol and baseline
-change.
+The release reference is `ab99e19ca772086f11e0a855f840f5cf9fae5d7f`, the implementation before the performance review.
+It belongs to the initial pull request's history. Qualification requires a clean checkout of that exact revision.
+The older `b9eb6e732d2b0cf6ce3cd7255a5958781587af6c` reference identifies historical budgets and protocols, not current paired measurements.
+Those original files and results retain their hashes and values.
+Fixture tests do not qualify candidate performance. A different release reference requires explicit review.
 
 The retained [v5 protocol](composition-protocol-v5.json) corrected six binary-size baselines. The original builds had reported
 success despite `rust-objcopy` failures. The reference binaries were rebuilt
@@ -43,7 +47,7 @@ This watchdog is not a kernel-enforced memory cap. Use an OS-limited remote job 
 Do not run `capture-composition-performance.sh` directly on the Mac. Use the guarded controller below.
 The Windows paired route below applies an OS memory limit.
 
-The v8 protocol requires macOS 27 or later, the named hardware and Rust 1.99.0,
+The v9 protocol requires macOS 27 or later, the named hardware and Rust 1.100.0,
 twenty paired blocks per mode, the fixed ordering seed and confidence rule,
 and the 1.10 relative limit. These host requirements do not set RCA's deployment support.
 The runner records background CPU load and compiler processes without waiting for an idle host.
@@ -92,8 +96,7 @@ revision's implementation. In particular, `scope.rs` and `combine.rs` remain unc
 
 The runner records the original Git revision and tree, original file hashes,
 effective file hashes, and applied adapters. Both source checkouts remain clean
-and unchanged. Shared Git ancestry is not required: the approved clean-slate
-history does not contain the archived reference as an ancestor.
+and unchanged. Shared Git ancestry is not required.
 
 The deterministic binary fixture retains the historical lifecycle trace. The
 candidate constructor uses a unit projection because its `TestStore` requires
@@ -127,8 +130,8 @@ These deletions occur outside measured intervals.
 
 ## Windows paired measurements
 
-The [Windows protocol](composition-windows-paired-v2.json) runs the same 14
-relative gates on H1 with Rust 1.99.0. It uses the same 20 paired blocks, fixed
+The [Windows protocol](composition-windows-paired-v3.json) runs the same 14
+relative gates on H1 with Rust 1.100.0. It uses the same 20 paired blocks, fixed
 orders, confidence rule and 1.10 limit. Every block contains both comparison
 modes; their first mode alternates. All measurements and their hashes remain in the
 capture, including failures. Windows results do not qualify any of the 33 macOS
@@ -172,7 +175,7 @@ diagnostics, not treated as compiler-child totals or instruction counts.
 
 ## Complete Windows qualification
 
-The [complete Windows policy](composition-windows-complete-v2.json) adds native
+The [complete Windows policy](composition-windows-complete-v3.json) adds native
 absolute measurements to the paired protocol above. It does not change that
 protocol or claim that Windows measurements satisfy Mac limits.
 

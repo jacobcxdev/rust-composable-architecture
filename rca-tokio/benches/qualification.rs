@@ -31,6 +31,9 @@ use rca_core::{
 use rca_test::{DEFAULT_STEP_BUDGET, DeterministicRuntime};
 use tokio_metrics::TaskMonitor;
 
+#[path = "qualification/shutdown.rs"]
+mod shutdown;
+
 #[cfg(feature = "qualification-dhat")]
 #[global_allocator]
 static ALLOCATOR: dhat::Alloc = dhat::Alloc;
@@ -110,6 +113,10 @@ const SCENARIOS: &[&str] = &[
     "query/multi",
     "shutdown/graceful",
     "shutdown/abortive",
+    "shutdown/abortive/live/1",
+    "shutdown/abortive/live/8",
+    "shutdown/abortive/burst/8",
+    "shutdown/abortive/burst/64",
     "deterministic/ready/1",
     "deterministic/ready/16",
     "deterministic/ready/256",
@@ -218,6 +225,8 @@ struct Measurement {
     task_wakes: u64,
     /// Copies the recorded peak live bytes, excluding allocations before profiler startup.
     peak_bytes: u64,
+    /// Proves fixed ownership and completed cleanup for bounded shutdown rows.
+    shutdown_lifetime: Option<shutdown::Lifetime>,
 }
 
 impl Measurement {
@@ -225,13 +234,13 @@ impl Measurement {
     ///
     /// The fixed labels contain no characters that require JSON escaping.
     fn print(&self, scenario: &str) {
-        println!(
+        print!(
             concat!(
                 "{{\"scenario\":\"{}\",\"samples\":{},\"operations\":{},",
                 "\"throughput_per_second\":{:.3},",
                 "\"latency_ns\":{{\"p50\":{},\"p95\":{},\"p99\":{}}},",
                 "\"allocations\":{},\"allocated_bytes\":{},",
-                "\"task_wakes\":{},\"peak_bytes\":{}}}"
+                "\"task_wakes\":{},\"peak_bytes\":{}"
             ),
             scenario,
             self.samples,
@@ -245,6 +254,23 @@ impl Measurement {
             self.task_wakes,
             self.peak_bytes,
         );
+        if let Some(lifetime) = &self.shutdown_lifetime {
+            print!(
+                concat!(
+                    ",\"shutdown_lifetime\":{{\"live_limit\":{},",
+                    "\"maximum_unfinished\":{},\"spawned\":{},\"dropped\":{},",
+                    "\"unfinished\":{},\"maximum_batch_end_unfinished\":{},\"batches\":{}}}"
+                ),
+                lifetime.live_limit,
+                lifetime.maximum_unfinished,
+                lifetime.spawned,
+                lifetime.dropped,
+                lifetime.unfinished,
+                lifetime.maximum_batch_end_unfinished,
+                lifetime.batches,
+            );
+        }
+        println!("}}");
     }
 }
 
@@ -348,6 +374,7 @@ fn finish_measurement(
         allocated_bytes: heap.allocated_bytes,
         task_wakes,
         peak_bytes: heap.peak_bytes,
+        shutdown_lifetime: None,
     }
 }
 
@@ -1242,6 +1269,9 @@ fn query(samples: usize) -> Measurement {
 
 /// Measures Store construction through acknowledged graceful or last-handle shutdown.
 fn shutdown(kind: &str, samples: usize) -> Measurement {
+    if kind.starts_with("abortive/") {
+        return bounded_shutdown(kind, samples);
+    }
     let host = QualificationHost::multi();
     host.measure(measure_async(
         &host.driver.monitor,
@@ -1258,6 +1288,85 @@ fn shutdown(kind: &str, samples: usize) -> Measurement {
             closed.await;
         },
     ))
+}
+
+/// Tracks only bounded-memory actors without changing any existing workload driver.
+#[derive(Clone, Debug)]
+struct ShutdownDriver(QualificationDriver);
+
+impl RuntimeDriver for ShutdownDriver {
+    fn spawn(&self, task: RuntimeFuture) {
+        let task = shutdown::TrackedFuture::new(task);
+        drop(self.0.handle.spawn(self.0.monitor.instrument(task)));
+    }
+
+    fn now(&self) -> MonotonicInstant {
+        self.0.now()
+    }
+
+    fn sleep_until(&self, deadline: MonotonicInstant) -> RuntimeFuture {
+        self.0.sleep_until(deadline)
+    }
+
+    fn yield_now(&self) -> RuntimeFuture {
+        self.0.yield_now()
+    }
+}
+
+/// Measures fixed live populations or bounded bursts with no inherited cleanup.
+///
+/// Every Store owns the usual 64 KiB state and capacity-64 mailbox. An ordered
+/// query proves every actor is ready before destruction starts. Live rows drain
+/// one actor at a time. Burst rows drop all handles before awaiting closure.
+/// Both modes wait for actor-future destruction before the next sample. This
+/// does not establish that Tokio already freed its completed task allocation.
+fn bounded_shutdown(kind: &str, samples: usize) -> Measurement {
+    let (mode, count) = kind.rsplit_once('/').expect("validated shutdown label");
+    let count = parse_count(count);
+    let host = QualificationHost::multi();
+    let driver = ShutdownDriver(host.driver.clone());
+    let mut measurement = host.measure(measure_async(
+        &host.driver.monitor,
+        samples,
+        count,
+        async || {
+            let mut stores = Vec::with_capacity(count);
+            for _ in 0..count {
+                stores.push(
+                    Store::builder(
+                        BenchState::new(),
+                        BenchReducer,
+                        Runtime::new(driver.clone()),
+                    )
+                    .mailbox_capacity(64)
+                    .build()
+                    .expect("valid shutdown Store"),
+                );
+            }
+            for store in &stores {
+                assert_count(store, 0).await;
+            }
+            assert_eq!(shutdown::unfinished(), count, "exact live actor population");
+            if mode == "abortive/live" {
+                for (index, store) in stores.into_iter().enumerate() {
+                    let closed = store.closed();
+                    drop(store);
+                    closed.await;
+                    shutdown::wait_until(count - index - 1);
+                }
+            } else {
+                let closed: Vec<_> = stores.iter().map(Store::closed).collect();
+                drop(stores);
+                for closed in closed {
+                    closed.await;
+                }
+            }
+            shutdown::finish_batch();
+        },
+    ));
+    measurement.shutdown_lifetime =
+        Some(shutdown::lifetime(count, iterations_with_warm_up(samples)));
+    measurement
 }
 
 /// Measures finite ready work, virtual timers, or exact step-budget exhaustion.

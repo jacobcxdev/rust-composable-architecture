@@ -10,28 +10,36 @@ require_reference_object() {
 
 # The separate index lets Git check exported files without touching either checkout.
 check_staged_source() {
-  local source=$1 revision=$2 lock_hash=$3 harness_hash=$4 destination=$5
+  local source=$1 revision=$2 lock_hash=$3 harness_hash=$4 destination=$5 module_hash=$6
   if [[ -L "${destination}/Cargo.lock" || -L "${destination}/rca-tokio/benches/qualification.rs" \
     || "$(shasum -a 256 "${destination}/Cargo.lock" | awk '{print $1}')" != "${lock_hash}" \
-    || "$(shasum -a 256 "${destination}/rca-tokio/benches/qualification.rs" | awk '{print $1}')" != "${harness_hash}" ]] \
+    || "$(shasum -a 256 "${destination}/rca-tokio/benches/qualification.rs" | awk '{print $1}')" != "${harness_hash}" \
+    || -L "${destination}/rca-tokio/benches/qualification/shutdown.rs" \
+    || "$(shasum -a 256 "${destination}/rca-tokio/benches/qualification/shutdown.rs" | awk '{print $1}')" != "${module_hash}" ]] \
     || ! GIT_INDEX_FILE="${destination}.index" git -C "${source}" --work-tree="${destination}" \
       diff --quiet "${revision}" -- . ':(exclude)Cargo.lock' ':(exclude)rca-tokio/benches/qualification.rs' \
+        ':(exclude)rca-tokio/benches/qualification/shutdown.rs' \
     || [[ -n "$(GIT_INDEX_FILE="${destination}.index" git -C "${source}" --work-tree="${destination}" \
-      ls-files --others --exclude-standard -- . ':(exclude)Cargo.lock')" ]]; then
+      ls-files --others --exclude-standard -- . ':(exclude)Cargo.lock' \
+        ':(exclude)rca-tokio/benches/qualification/shutdown.rs')" ]]; then
     echo "staged source changed outside the common harness and pinned lockfile" >&2
     return 1
   fi
 }
 
-# Only the benchmark source is replaced. Library source and manifests stay exact.
+# Only the two benchmark sources are replaced. Product source stays exact.
 stage_source() {
-  local source=$1 revision=$2 tree=$3 lock=$4 lock_hash=$5 harness=$6 harness_hash=$7 destination=$8
+  local source=$1 revision=$2 tree=$3 lock=$4 lock_hash=$5 harness=$6 harness_hash=$7 destination=$8 module_hash=$9
+  local module
+  module=$(dirname "${harness}")/qualification/shutdown.rs
   if [[ "$(git -C "${source}" rev-parse "${revision}^{tree}")" != "${tree}" ]]; then
     echo "source tree does not match the recorded revision" >&2
     return 1
   fi
   if [[ "$(shasum -a 256 "${lock}" | awk '{print $1}')" != "${lock_hash}" \
-    || "$(shasum -a 256 "${harness}" | awk '{print $1}')" != "${harness_hash}" ]]; then
+    || "$(shasum -a 256 "${harness}" | awk '{print $1}')" != "${harness_hash}" \
+    || -L "${module}" || ! -f "${module}" \
+    || "$(shasum -a 256 "${module}" | awk '{print $1}')" != "${module_hash}" ]]; then
     echo "staging input hash mismatch" >&2
     return 1
   fi
@@ -59,7 +67,9 @@ stage_source() {
   GIT_INDEX_FILE="${destination}.index" git -C "${source}" read-tree "${revision}"
   cp "${lock}" "${destination}/Cargo.lock"
   cp "${harness}" "${destination}/rca-tokio/benches/qualification.rs"
-  check_staged_source "${source}" "${revision}" "${lock_hash}" "${harness_hash}" "${destination}"
+  mkdir -p "${destination}/rca-tokio/benches/qualification"
+  cp "${module}" "${destination}/rca-tokio/benches/qualification/shutdown.rs"
+  check_staged_source "${source}" "${revision}" "${lock_hash}" "${harness_hash}" "${destination}" "${module_hash}"
 }
 
 if [[ $# -ne 3 ]]; then
@@ -147,7 +157,7 @@ if [[ -n "${RCA_QUALIFY_ALLOCATIONS:-}" || -n "${RCA_DHAT_FILE:-}" ]]; then
   exit 1
 fi
 
-if pgrep -f 'target/(debug|release)/deps/(qualification|effects|observation|store_actor|deterministic|runtime)-|cargo bench' >/dev/null 2>&1; then
+if pgrep -f '(^|[ /])(qualification|effects|observation|store_actor|deterministic|runtime)(-[[:xdigit:]]+)?([[:space:]]|$)|cargo bench' >/dev/null 2>&1; then
   echo "another RCA benchmark process is running" >&2
   exit 1
 fi
@@ -182,8 +192,8 @@ if [[ "$(uname -m)" != "arm64" \
   exit 1
 fi
 
-cargo=$(rustup which --toolchain 1.99.0 cargo)
-rustc=$(rustup which --toolchain 1.99.0 rustc)
+cargo=$(rustup which --toolchain 1.100.0 cargo)
+rustc=$(rustup which --toolchain 1.100.0 rustc)
 toolchain_bin=$(dirname "${cargo}")
 toolchain_root=$(dirname "${toolchain_bin}")
 toolchain_library_path=${toolchain_root}/lib
@@ -196,8 +206,8 @@ export RUSTC="${rustc}"
 
 rustc_version=$("${rustc}" --version)
 cargo_version=$("${cargo}" --version)
-if [[ "${rustc_version}" != rustc\ 1.99.0* || "${cargo_version}" != cargo\ 1.99.0* ]]; then
-  echo "qualification requires exact Rust and Cargo 1.99.0" >&2
+if [[ "${rustc_version}" != rustc\ 1.100.0* || "${cargo_version}" != cargo\ 1.100.0* ]]; then
+  echo "qualification requires exact Rust and Cargo 1.100.0" >&2
   exit 1
 fi
 
@@ -262,10 +272,11 @@ candidate_original_harness_sha256=$(git show "${revision}:rca-tokio/benches/qual
 reference_original_harness_sha256=$(git -C "${reference_repository}" \
   show "${reference_revision}:rca-tokio/benches/qualification.rs" | shasum -a 256 | awk '{print $1}')
 qualification_source_sha256=$(shasum -a 256 rca-tokio/benches/qualification.rs | awk '{print $1}')
+qualification_module_sha256=$(shasum -a 256 rca-tokio/benches/qualification/shutdown.rs | awk '{print $1}')
 scenario_manifest_sha256=$(shasum -a 256 docs/performance/scenarios.txt | awk '{print $1}')
 qualification_script_sha256=$(shasum -a 256 scripts/qualify-performance.sh | awk '{print $1}')
 memory_watchdog_sha256=$(shasum -a 256 scripts/guard_cargo_memory.py | awk '{print $1}')
-protocol_sha256=$(printf '%s\n' "${qualification_source_sha256}" \
+protocol_sha256=$(printf '%s\n' "${qualification_source_sha256}" "${qualification_module_sha256}" \
   "${scenario_manifest_sha256}" "${qualification_script_sha256}" "${memory_watchdog_sha256}" \
   | shasum -a 256 | awk '{print $1}')
 recorded_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
@@ -317,10 +328,10 @@ candidate_build_root=${temporary}/candidate-source
 reference_build_root=${temporary}/reference-source
 stage_source "${repo_root}" "${revision}" "${candidate_source_tree}" \
   "${repo_root}/Cargo.lock" "${candidate_lock_sha256}" \
-  "${repo_root}/rca-tokio/benches/qualification.rs" "${qualification_source_sha256}" "${candidate_build_root}"
+  "${repo_root}/rca-tokio/benches/qualification.rs" "${qualification_source_sha256}" "${candidate_build_root}" "${qualification_module_sha256}"
 stage_source "${reference_repository}" "${reference_revision}" "${reference_source_tree}" \
   "${repo_root}/docs/performance/baseline-Cargo.lock" "${reference_lock_sha256}" \
-  "${repo_root}/rca-tokio/benches/qualification.rs" "${qualification_source_sha256}" "${reference_build_root}"
+  "${repo_root}/rca-tokio/benches/qualification.rs" "${qualification_source_sha256}" "${reference_build_root}" "${qualification_module_sha256}"
 "${cargo}" metadata --locked --manifest-path "${reference_build_root}/Cargo.toml" \
   --no-deps --format-version 1 >/dev/null
 
@@ -380,16 +391,16 @@ if [[ "${normal_executable}" == "${allocation_executable}" \
 fi
 
 check_staged_source "${repo_root}" "${revision}" "${candidate_lock_sha256}" \
-  "${qualification_source_sha256}" "${candidate_build_root}"
+  "${qualification_source_sha256}" "${candidate_build_root}" "${qualification_module_sha256}"
 check_staged_source "${reference_repository}" "${reference_revision}" "${reference_lock_sha256}" \
-  "${qualification_source_sha256}" "${reference_build_root}"
+  "${qualification_source_sha256}" "${reference_build_root}" "${qualification_module_sha256}"
 
 scenarios=()
 while IFS= read -r scenario; do
   scenarios[${#scenarios[@]}]="${scenario}"
 done < <("${normal_executable}" --list)
-if [[ ${#scenarios[@]} -ne 50 ]]; then
-  echo "expected 50 qualification scenarios, found ${#scenarios[@]}" >&2
+if [[ ${#scenarios[@]} -ne 54 ]]; then
+  echo "expected 54 qualification scenarios, found ${#scenarios[@]}" >&2
   exit 1
 fi
 actual_scenarios=${temporary}/scenarios.txt
@@ -672,6 +683,24 @@ validate_rows() {
       then .allocation_samples == 500
     else .allocation_samples == 1000
     end;
+    def bounded_shutdown_limit:
+      {"shutdown/abortive/live/1": 1, "shutdown/abortive/live/8": 8,
+       "shutdown/abortive/burst/8": 8, "shutdown/abortive/burst/64": 64}[.scenario] // 0;
+    def valid_shutdown_lifetime:
+      bounded_shutdown_limit as $limit
+      | if $limit == 0 then (has("shutdown_lifetime") | not)
+        else
+          (.samples + ([.samples, 20] | min)) as $batches
+          | .operations == (.samples * $limit)
+          and (.shutdown_lifetime | type == "object"
+            and keys == ["batches", "dropped", "live_limit", "maximum_batch_end_unfinished",
+                         "maximum_unfinished", "spawned", "unfinished"]
+            and all(.[]; type == "number" and floor == .))
+          and .shutdown_lifetime == {
+            live_limit: $limit, maximum_unfinished: $limit, batches: $batches,
+            spawned: ($limit * $batches), dropped: ($limit * $batches),
+            unfinished: 0, maximum_batch_end_unfinished: 0}
+        end;
   def same_workload:
     .candidate.scenario == .reference.scenario
     and .candidate.samples == .reference.samples
@@ -682,6 +711,7 @@ validate_rows() {
     and .reference.order == .order;
   def valid_normal:
     same_workload
+    and (.candidate | valid_shutdown_lifetime) and (.reference | valid_shutdown_lifetime)
     and .candidate.throughput_per_second > 0
     and .reference.throughput_per_second > 0
     and .candidate.latency_ns.p50 > 0
@@ -698,18 +728,22 @@ validate_rows() {
     and .reference.peak_memory_footprint_bytes > 0;
   def valid_allocation:
     same_workload
+    and (.candidate | valid_shutdown_lifetime) and (.reference | valid_shutdown_lifetime)
     and .candidate.allocations > 0
     and .reference.allocations > 0
     and .candidate.allocated_bytes > 0
     and .reference.allocated_bytes > 0
     and .candidate.peak_bytes > 0
     and .reference.peak_bytes > 0;
-  length == 50
+  length == 54
   and (map(.scenario) == $expected_scenarios)
   and all(.[];
     . as $row
     | expected_samples
     and expected_allocation_samples
+    and valid_shutdown_lifetime
+    and (bounded_shutdown_limit as $limit
+      | $limit == 0 or .allocation_operations == (.allocation_samples * $limit))
     and .throughput_per_second > 0
     and .operations > 0
     and .latency_ns.p50 > 0
@@ -903,6 +937,7 @@ jq -n \
   --arg power "AC high-power mode" \
   --arg protocol_sha256 "${protocol_sha256}" \
   --arg qualification_source_sha256 "${qualification_source_sha256}" \
+  --arg qualification_module_sha256 "${qualification_module_sha256}" \
   --arg qualification_script_sha256 "${qualification_script_sha256}" \
   --arg memory_watchdog_sha256 "${memory_watchdog_sha256}" \
   --arg memory_watchdog_receipt "${memory_watchdog_receipt}" \
@@ -969,6 +1004,7 @@ jq -n \
           power: $power,
           protocol_sha256: $protocol_sha256,
           qualification_source_sha256: $qualification_source_sha256,
+          qualification_module_sha256: $qualification_module_sha256,
           qualification_script_sha256: $qualification_script_sha256,
           memory_watchdog_sha256: $memory_watchdog_sha256,
           memory_watchdog_receipt: $memory_watchdog_receipt,
@@ -1072,9 +1108,9 @@ printf '%s\n' \
 
 stage=evidence-finalisation
 check_staged_source "${repo_root}" "${revision}" "${candidate_lock_sha256}" \
-  "${qualification_source_sha256}" "${candidate_build_root}"
+  "${qualification_source_sha256}" "${candidate_build_root}" "${qualification_module_sha256}"
 check_staged_source "${reference_repository}" "${reference_revision}" "${reference_lock_sha256}" \
-  "${qualification_source_sha256}" "${reference_build_root}"
+  "${qualification_source_sha256}" "${reference_build_root}" "${qualification_module_sha256}"
 if [[ "$(git rev-parse HEAD)" != "${revision}" \
   || -n "$(git status --porcelain=v1 --untracked-files=all)" \
   || "$(shasum -a 256 Cargo.lock | awk '{print $1}')" != "${candidate_lock_sha256}" ]]; then

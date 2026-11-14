@@ -135,6 +135,29 @@ pub trait Feature {
         action: &Self::Action,
         context: &mut FeatureContext<'_, Self::State, Self::Action>,
     );
+
+    /// Returns the same state changes and work for root Store dispatch.
+    ///
+    /// Root Stores use this hook. Mounted features use [`Self::update`].
+    /// Feature authors implement `update`. RCA uses this hook to adapt reducers.
+    ///
+    /// Overrides must preserve the state changes, work order and panic behaviour
+    /// of `update`. Reducers return their effect without a temporary feature context.
+    ///
+    /// # Panics
+    ///
+    /// Propagates an update or reducer panic.
+    #[doc(hidden)]
+    fn reduce_for_store<'deps>(
+        &mut self,
+        state: &mut Self::State,
+        action: &Self::Action,
+        context: ReduceContext<'deps>,
+    ) -> StoreReduction<'deps, Self::State, Self::Action> {
+        let mut context = FeatureContext::new(context);
+        self.update(state, action, &mut context);
+        std::ops::ControlFlow::Continue(context)
+    }
 }
 
 impl<R: Reducer + ?Sized> Feature for R {
@@ -150,7 +173,19 @@ impl<R: Reducer + ?Sized> Feature for R {
         let effect = Reducer::reduce(self, state, action, context.reducer_context());
         context.effect(effect);
     }
+
+    fn reduce_for_store<'deps>(
+        &mut self,
+        state: &mut R::State,
+        action: &R::Action,
+        mut context: ReduceContext<'deps>,
+    ) -> StoreReduction<'deps, R::State, R::Action> {
+        std::ops::ControlFlow::Break(Reducer::reduce(self, state, action, &mut context))
+    }
 }
+
+/// Distinguishes an effect-only callback from an owned feature work collection.
+type StoreReduction<'deps, S, A> = std::ops::ControlFlow<Effect<A>, FeatureContext<'deps, S, A>>;
 
 /// Owns a turn's dependency borrow and ordered follow-up work.
 ///
@@ -295,12 +330,65 @@ impl<A, T> IntoIterator for Work<A, T> {
     }
 }
 
+/// Keeps effect-only root returns independent of typed task construction.
+pub(crate) enum RootWork<E, T, F> {
+    /// No declarations or registration side effects.
+    Empty,
+    /// One effect retains the reducer's inline return path.
+    Effect(E),
+    /// Preserves the original inline item and spill buffer for ordered work.
+    Full {
+        /// Owns all declarations without moving the inline item into the buffer.
+        work: Work<E, T>,
+        /// Selects typed-task registration within this batch's declaration order.
+        registrar: F,
+    },
+}
+
+impl<E, T, F: Copy> RootWork<E, T, F> {
+    /// Classifies a concrete root producer without visiting or invoking its work.
+    #[inline]
+    pub(crate) fn new(work: Work<E, T>, registrar: F) -> Self {
+        if work.rest.is_empty() {
+            match work.first {
+                None => Self::Empty,
+                Some(WorkItem::Effect(effect)) => Self::Effect(effect),
+                Some(WorkItem::Task(task)) => Self::Full {
+                    work: Work {
+                        first: Some(WorkItem::Task(task)),
+                        rest: work.rest,
+                    },
+                    registrar,
+                },
+            }
+        } else {
+            Self::Full { work, registrar }
+        }
+    }
+
+    /// Reports whether registration has any returned work to visit.
+    pub(crate) fn is_empty(&self) -> bool {
+        matches!(self, Self::Empty)
+    }
+
+    /// Prunes effect scopes without changing task positions or invoking factories.
+    pub(crate) fn for_each_effect(&mut self, mut visit: impl FnMut(&mut E)) {
+        match self {
+            Self::Empty => {}
+            Self::Effect(effect) => visit(effect),
+            Self::Full { work, .. } => work.for_each_effect(visit),
+        }
+    }
+}
+
 /// Unifies Shared and Local reduction without erasing their effect and task types.
 pub(crate) trait ReduceDriver<S, A> {
     /// The carrier-specific effect program to compile after reduction.
     type Effect;
     /// The carrier-specific task that owns deferred factory captures.
     type Task;
+    /// One typed-task interpreter selected while the concrete root producer is known.
+    type RootRegistrar: Copy;
 
     /// Runs one synchronous reduction and returns its ordered, owned declarations.
     ///
@@ -310,22 +398,36 @@ pub(crate) trait ReduceDriver<S, A> {
         state: &mut S,
         action: &A,
         context: ReduceContext<'_>,
-    ) -> Work<Self::Effect, Self::Task>;
+    ) -> RootWork<Self::Effect, Self::Task, Self::RootRegistrar>;
 }
 
-impl<S, A, F: Feature<State = S, Action = A>> ReduceDriver<S, A> for F {
+impl<S: Send + 'static, A: Send + 'static, F: Feature<State = S, Action = A>> ReduceDriver<S, A>
+    for F
+{
     type Effect = Effect<A>;
     type Task = Task<S, A>;
+    type RootRegistrar =
+        crate::store::carriers::RootRegistrar<S, A, crate::store::carriers::Shared>;
 
     fn reduce(
         &mut self,
         state: &mut S,
         action: &A,
         context: ReduceContext<'_>,
-    ) -> Work<Self::Effect, Self::Task> {
-        let mut context = FeatureContext::new(context);
-        Feature::update(self, state, action, &mut context);
-        context.into_work()
+    ) -> RootWork<Self::Effect, Self::Task, Self::RootRegistrar> {
+        match Feature::reduce_for_store(self, state, action, context) {
+            std::ops::ControlFlow::Break(effect) => {
+                if matches!(effect.program, crate::effect::Program::None) {
+                    RootWork::Empty
+                } else {
+                    RootWork::Effect(effect)
+                }
+            }
+            std::ops::ControlFlow::Continue(context) => RootWork::new(
+                context.into_work(),
+                <crate::store::carriers::Shared as crate::store::carriers::Execution<S, A>>::ROOT_REGISTRAR,
+            ),
+        }
     }
 }
 
@@ -335,6 +437,220 @@ mod tests {
     use super::*;
     use crate::store::scope::{ScopeRegistry, ScopeTransitionBatch};
     use crate::{DependencyValues, Effect, MonotonicInstant, Reduce, ReduceContext};
+
+    #[test]
+    fn tagged_update_preserves_direct_feature_order_and_unwind() {
+        use std::panic::{AssertUnwindSafe, catch_unwind};
+        use std::sync::Arc;
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        struct Capture(Arc<AtomicUsize>);
+
+        impl Drop for Capture {
+            fn drop(&mut self) {
+                self.0.fetch_add(1, Ordering::SeqCst);
+            }
+        }
+
+        struct Direct {
+            drops: Arc<AtomicUsize>,
+            panic: bool,
+        }
+
+        impl Feature for Direct {
+            type State = usize;
+            type Action = usize;
+
+            fn update(
+                &mut self,
+                state: &mut usize,
+                action: &usize,
+                context: &mut FeatureContext<'_, usize, usize>,
+            ) {
+                *state += action;
+                context.effect(Effect::send(1));
+                let capture = Capture(Arc::clone(&self.drops));
+                context.task(crate::Task::run(move |_| async move {
+                    drop(capture);
+                }));
+                context.effect(Effect::send(2));
+                assert!(!self.panic, "direct feature panic");
+            }
+        }
+
+        for owned in [false, true] {
+            for panic in [false, true] {
+                let drops = Arc::new(AtomicUsize::new(0));
+                let mut feature = Direct {
+                    drops: Arc::clone(&drops),
+                    panic,
+                };
+                let mut dependencies = DependencyValues::new();
+                let (_lifecycle, mut scopes) = ScopeRegistry::for_test();
+                let mut transitions = ScopeTransitionBatch::default();
+                let context = ReduceContext::new(
+                    &mut dependencies,
+                    MonotonicInstant::ZERO,
+                    &mut scopes,
+                    &mut transitions,
+                );
+                let mut state = 3;
+                let result = catch_unwind(AssertUnwindSafe(|| {
+                    let feature: &mut dyn Feature<State = usize, Action = usize> = &mut feature;
+                    if owned {
+                        match Feature::reduce_for_store(feature, &mut state, &4, context) {
+                            std::ops::ControlFlow::Continue(context) => context.into_work(),
+                            std::ops::ControlFlow::Break(_) => {
+                                panic!("direct feature must retain its work");
+                            }
+                        }
+                    } else {
+                        let mut context = FeatureContext::new(context);
+                        Feature::update(feature, &mut state, &4, &mut context);
+                        context.into_work()
+                    }
+                }));
+                assert_eq!(state, 7);
+                assert!(transitions.is_empty());
+                if panic {
+                    let payload = result.err().expect("direct feature must panic");
+                    assert_eq!(payload.downcast_ref::<&str>(), Some(&"direct feature panic"));
+                } else {
+                    let mut items = result.unwrap().into_iter();
+                    assert!(matches!(items.next(), Some(WorkItem::Effect(effect))
+                        if matches!(effect.program, crate::effect::Program::Send(1))));
+                    assert!(matches!(items.next(), Some(WorkItem::Task(_))));
+                    assert!(matches!(items.next(), Some(WorkItem::Effect(effect))
+                        if matches!(effect.program, crate::effect::Program::Send(2))));
+                    assert!(items.next().is_none());
+                }
+                assert_eq!(drops.load(Ordering::SeqCst), 1);
+            }
+        }
+    }
+
+    #[test]
+    fn tagged_update_matches_reducer_effect_none_and_panic() {
+        use std::panic::{AssertUnwindSafe, catch_unwind};
+
+        for owned in [false, true] {
+            for mode in 0..3 {
+                let reports = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+                let count = std::sync::Arc::clone(&reports);
+                let reporter = crate::IssueReporter::new(move |_| {
+                    count.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                });
+                let mut feature = Reduce::new(
+                    move |state: &mut usize, action: &usize, context: &mut ReduceContext<'_>| {
+                        *state += action;
+                        context
+                            .issue_reporter()
+                            .report(crate::Issue::new("tag", "observed"))
+                            .unwrap();
+                        if mode == 2 {
+                            panic!("reducer panic");
+                        }
+                        if mode == 0 {
+                            Effect::none()
+                        } else {
+                            Effect::send(9)
+                        }
+                    },
+                );
+                let mut dependencies = DependencyValues::new();
+                let (_lifecycle, mut scopes) = ScopeRegistry::for_test();
+                let mut transitions = ScopeTransitionBatch::default();
+                let context = ReduceContext::new(
+                    &mut dependencies,
+                    MonotonicInstant::ZERO,
+                    &mut scopes,
+                    &mut transitions,
+                )
+                .with_issue_reporter(reporter);
+                let mut state = 2;
+                let result = catch_unwind(AssertUnwindSafe(|| {
+                    if owned {
+                        match Feature::reduce_for_store(&mut feature, &mut state, &3, context) {
+                            std::ops::ControlFlow::Break(effect) => {
+                                let mut work = crate::feature::Work::default();
+                                if !matches!(effect.program, crate::effect::Program::None) {
+                                    work.push(WorkItem::Effect(effect));
+                                }
+                                work
+                            }
+                            std::ops::ControlFlow::Continue(_) => {
+                                panic!("reducer must return its effect");
+                            }
+                        }
+                    } else {
+                        let mut context = FeatureContext::new(context);
+                        Feature::update(&mut feature, &mut state, &3, &mut context);
+                        context.into_work()
+                    }
+                }));
+                assert_eq!(state, 5);
+                assert_eq!(reports.load(std::sync::atomic::Ordering::SeqCst), 1);
+                assert_eq!(std::sync::Arc::strong_count(&reports), 1);
+                assert!(transitions.is_empty());
+                if mode == 2 {
+                    let payload = result.err().expect("reducer must panic");
+                    assert_eq!(payload.downcast_ref::<&str>(), Some(&"reducer panic"));
+                } else {
+                    let mut items = result.unwrap().into_iter();
+                    if mode == 1 {
+                        assert!(matches!(items.next(), Some(WorkItem::Effect(effect))
+                            if matches!(effect.program, crate::effect::Program::Send(9))));
+                    }
+                    assert!(items.next().is_none());
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn root_work_preserves_spill_storage_and_ordered_panic_cleanup() {
+        use std::cell::RefCell;
+        use std::panic::{AssertUnwindSafe, catch_unwind};
+        use std::rc::Rc;
+
+        struct Captured(usize, Rc<RefCell<Vec<usize>>>);
+        impl Drop for Captured {
+            fn drop(&mut self) {
+                self.1.borrow_mut().push(self.0);
+            }
+        }
+
+        fn deferred_constructor() {
+            panic!("classifying work must not construct a context");
+        }
+
+        let drops = Rc::new(RefCell::new(Vec::new()));
+        let mut work = Work::default();
+        work.push(WorkItem::Effect(Captured(0, Rc::clone(&drops))));
+        work.push(WorkItem::Task(Captured(1, Rc::clone(&drops))));
+        work.push(WorkItem::Effect(Captured(2, Rc::clone(&drops))));
+        work.push(WorkItem::Task(Captured(3, Rc::clone(&drops))));
+        let buffer = work.rest.as_ptr();
+        let capacity = work.rest.capacity();
+
+        let mut root = super::RootWork::new(work, deferred_constructor as fn());
+        let super::RootWork::Full { work, .. } = &root else {
+            panic!("multiple declarations retain their original storage");
+        };
+        assert_eq!(work.rest.as_ptr(), buffer);
+        assert_eq!(work.rest.capacity(), capacity);
+        assert_eq!(work.rest.len(), 3);
+        assert!(matches!(&work.first, Some(WorkItem::Effect(Captured(0, _)))));
+        assert!(drops.borrow().is_empty());
+
+        let panic = catch_unwind(AssertUnwindSafe(move || {
+            root.for_each_effect(|capture| {
+                assert_ne!(capture.0, 2, "second effect visit panics");
+            });
+        }));
+        assert!(panic.is_err());
+        assert_eq!(*drops.borrow(), [0, 1, 2, 3]);
+    }
 
     // Catches an adapter borrowing the dependency context for the whole turn,
     // losing the returned effect, or adding work for Effect::none().

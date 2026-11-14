@@ -896,7 +896,7 @@ mod tests {
                     scope,
                     lineage: Arc::clone(&lineage),
                     task: prepared.sender_token(),
-                    generations: Box::default(),
+                    generations: prepared.generation_tokens(),
                     operations: crate::effect::operation::OperationAncestry::default(),
                 },
                 reply,

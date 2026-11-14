@@ -22,7 +22,7 @@ use std::sync::Arc;
 use std::task::{Context, Poll};
 use std::time::Duration;
 
-pub(crate) use cancellation::CancellationIdentity;
+pub(crate) use cancellation::{CancellationIdentity, UnscopedCancellationIdentity};
 
 #[doc(inline)]
 pub use fallible::EffectError;
@@ -167,6 +167,14 @@ pub struct Effect<Action> {
     pub(crate) scope: Option<ScopeToken>,
 }
 
+/// Describes when a one-shot send becomes due.
+pub(crate) enum OneShotDeadline {
+    /// Starts the delay when the actor interprets the effect.
+    After(Duration),
+    /// Uses an absolute instant from the target runtime.
+    At(MonotonicInstant),
+}
+
 /// Retains scheduling and authority declarations independently of leaf thread bounds.
 ///
 /// The actor interprets wrappers in declaration order. A wrapper around empty
@@ -178,12 +186,8 @@ pub(crate) enum Program<Action, C: leaves::EffectLeaves<Action> = leaves::Shared
     Dismiss(crate::composition::DismissTarget),
     /// Owns an action whose admission begins after the triggering commit.
     Send(Action),
-    /// Defers factory invocation until managed work starts polling.
-    Run(C::Run),
-    /// Defers work that needs live authority when routing its typed failure.
-    FallibleRun(C::FallibleRun),
-    /// Owns an existing future producing at most one action, without polling it here.
-    Future(C::Future),
+    /// Owns a boxed runtime leaf without scheduling or polling it.
+    Runtime(RuntimeLeaf<Action, C>),
     /// Registers retained children in source order without waiting between them.
     Merge(Vec<C::Effect>),
     /// Owns the current child's successors until completion releases each next child.
@@ -191,20 +195,13 @@ pub(crate) enum Program<Action, C: leaves::EffectLeaves<Action> = leaves::Shared
     /// Removes inherited cancellation generations while retaining other ownership.
     WithoutInheritedCancellation(Box<C::Effect>),
     /// Cancels matching live generations in the interpreting reducer scope.
-    Cancel(CancellationIdentity),
+    Cancel(UnscopedCancellationIdentity),
     /// Prefixes a delayed continuation without producing an action itself.
     Wait(Duration),
-    /// Retains a one-shot action until a relative timer expires.
-    SendAfter {
-        /// Starts when the actor interprets this program, using saturating time arithmetic.
-        duration: Duration,
-        /// Released on cancellation or transferred to admission when the timer is due.
-        action: Action,
-    },
-    /// Retains a one-shot action against an unchanged absolute monotonic deadline.
-    SendAt {
-        /// Uses the target runtime's clock origin; sequencing does not rebase it.
-        deadline: MonotonicInstant,
+    /// Retains a one-shot action until its timer expires.
+    ScheduledSend {
+        /// Selects a relative delay or an unchanged absolute instant.
+        deadline: OneShotDeadline,
         /// Released on cancellation or transferred to admission when the timer is due.
         action: Action,
     },
@@ -220,7 +217,7 @@ pub(crate) enum Program<Action, C: leaves::EffectLeaves<Action> = leaves::Shared
         /// Keeps its existing structural scope and all unexecuted payloads.
         effect: Box<C::Effect>,
         /// Receives its reducer scope when the actor interprets this wrapper.
-        identity: CancellationIdentity,
+        identity: UnscopedCancellationIdentity,
         /// Cancels earlier matching generations before registering this one.
         cancel_in_flight: bool,
     },
@@ -231,6 +228,16 @@ pub(crate) enum Program<Action, C: leaves::EffectLeaves<Action> = leaves::Shared
         /// Owns the typed key and registration-time coexistence or replacement policy.
         declaration: operation::OperationDeclaration,
     },
+}
+
+/// Selects how one boxed leaf begins runtime execution.
+pub(crate) enum RuntimeLeaf<Action, C: leaves::EffectLeaves<Action> = leaves::SharedEffects> {
+    /// Defers factory invocation until managed work starts polling.
+    Run(C::Run),
+    /// Defers work that needs live authority when routing its typed failure.
+    Fallible(C::FallibleRun),
+    /// Owns an existing future that can produce one action.
+    Future(C::Future),
 }
 
 impl<Action> Effect<Action> {
@@ -344,7 +351,7 @@ impl<Action> Effect<Action> {
         Fut: Future<Output = Option<Action>> + Send + 'static,
     {
         Self {
-            program: Program::<Action>::Future(Box::pin(future)),
+            program: Program::Runtime(RuntimeLeaf::<Action>::Future(Box::pin(future))),
             scope: None,
         }
     }
@@ -364,7 +371,9 @@ impl<Action> Effect<Action> {
         Fut: Future<Output = ()> + Send + 'static,
     {
         Self {
-            program: Program::<Action>::Run(Box::new(move |sender| Box::pin(operation(sender)))),
+            program: Program::Runtime(RuntimeLeaf::<Action>::Run(Box::new(move |sender| {
+                Box::pin(operation(sender))
+            }))),
             scope: None,
         }
     }
@@ -391,7 +400,7 @@ impl<Action> Effect<Action> {
         ID: Hash + Eq + Send + Sync + 'static,
     {
         Self {
-            program: Program::Cancel(CancellationIdentity::local(id)),
+            program: Program::Cancel(UnscopedCancellationIdentity::new(id)),
             scope: None,
         }
     }
@@ -399,7 +408,10 @@ impl<Action> Effect<Action> {
     /// Sends one action no earlier than `duration` after commit.
     pub fn send_after(duration: Duration, action: Action) -> Self {
         Self {
-            program: Program::SendAfter { duration, action },
+            program: Program::ScheduledSend {
+                deadline: OneShotDeadline::After(duration),
+                action,
+            },
             scope: None,
         }
     }
@@ -428,7 +440,10 @@ impl<Action> Effect<Action> {
     /// ```
     pub fn send_at(deadline: MonotonicInstant, action: Action) -> Self {
         Self {
-            program: Program::SendAt { deadline, action },
+            program: Program::ScheduledSend {
+                deadline: OneShotDeadline::At(deadline),
+                action,
+            },
             scope: None,
         }
     }
@@ -516,7 +531,7 @@ impl<Action> Effect<Action> {
         Self {
             program: Program::Cancellable {
                 effect: Box::new(self),
-                identity: CancellationIdentity::local(id),
+                identity: UnscopedCancellationIdentity::new(id),
                 cancel_in_flight: false,
             },
             scope: None,
@@ -535,7 +550,7 @@ impl<Action> Effect<Action> {
         Self {
             program: Program::Cancellable {
                 effect: Box::new(self),
-                identity: CancellationIdentity::local(id),
+                identity: UnscopedCancellationIdentity::new(id),
                 cancel_in_flight: true,
             },
             scope: None,
@@ -555,9 +570,9 @@ impl<Action> fmt::Debug for Effect<Action> {
             Program::None => f.write_str("Effect::None"),
             Program::Dismiss(_) => f.write_str("Effect::Dismiss"),
             Program::Send(_) => f.write_str("Effect::Send"),
-            Program::Run(_) => f.write_str("Effect::Run"),
-            Program::FallibleRun(_) => f.write_str("Effect::FallibleRun"),
-            Program::Future(_) => f.write_str("Effect::Future"),
+            Program::Runtime(RuntimeLeaf::Run(_)) => f.write_str("Effect::Run"),
+            Program::Runtime(RuntimeLeaf::Fallible(_)) => f.write_str("Effect::FallibleRun"),
+            Program::Runtime(RuntimeLeaf::Future(_)) => f.write_str("Effect::Future"),
             Program::Merge(effects) => write!(f, "Effect::Merge({})", effects.len()),
             Program::Concatenate(effects) => {
                 write!(f, "Effect::Concatenate({})", effects.len())
@@ -567,8 +582,10 @@ impl<Action> fmt::Debug for Effect<Action> {
             Program::WithoutInheritedCancellation(_) => {
                 f.write_str("Effect::WithoutInheritedCancellation")
             }
-            Program::SendAfter { .. } => f.write_str("Effect::SendAfter"),
-            Program::SendAt { .. } => f.write_str("Effect::SendAt"),
+            Program::ScheduledSend { deadline, .. } => f.write_str(match deadline {
+                OneShotDeadline::After(_) => "Effect::SendAfter",
+                OneShotDeadline::At(_) => "Effect::SendAt",
+            }),
             Program::Interval { .. } => f.write_str("Effect::Interval"),
             Program::Cancellable {
                 cancel_in_flight: true,

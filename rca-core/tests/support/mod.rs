@@ -212,6 +212,7 @@ impl Drop for ManualRuntime {
     }
 }
 
+/// Checks the manual clock and task disposal outside the queue lock.
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -219,7 +220,9 @@ mod tests {
 
     /// Records whether a future's destructor can acquire the queue lock.
     struct QueueDropProbe {
+        /// Keeps the queue alive until the disposal check completes.
         shared: Arc<Shared>,
+        /// Reports whether destruction occurred outside the queue lock.
         unlocked: Arc<AtomicBool>,
     }
 

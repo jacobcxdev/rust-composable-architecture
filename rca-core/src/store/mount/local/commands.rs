@@ -22,6 +22,7 @@ use crate::store::ingress::CommandIngress;
 use crate::store::lifecycle::Lifecycle;
 use crate::store::local::Local;
 use crate::store::local::{LocalFuture as RuntimeFuture, LocalReply};
+use crate::store::mailbox;
 use crate::store::mount::{Binding, MountDeclaration, closed, validate};
 use crate::store::mounted::{InputClass, MountedApply, MountedCall, scope_ended};
 use crate::store::scope::{ScopeAuthority, ScopeRegistry, ScopeToken, ScopeTransitionBatch};
@@ -322,10 +323,10 @@ impl<R: 'static, A: 'static, C: 'static, X: 'static> CommandEndpoint<C> for Endp
             },
         ) {
             Ok(()) => Ok(()),
-            Err(async_channel::TrySendError::Full((_, _, request, _, _))) => {
+            Err(mailbox::TrySendError::Full((_, _, request, _, _))) => {
                 Err(TryAdmission::Full(request))
             }
-            Err(async_channel::TrySendError::Closed((_, _, request, _, _))) => {
+            Err(mailbox::TrySendError::Disconnected((_, _, request, _, _))) => {
                 Err(TryAdmission::Rejected {
                     request,
                     error: closed(),

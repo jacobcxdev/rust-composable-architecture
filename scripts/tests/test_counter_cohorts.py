@@ -46,7 +46,7 @@ class FrozenProtocolVersionTests(unittest.TestCase):
         )
         for name, load, validate, historical_hash in protocols:
             versions = []
-            for version, toolchain in ((1, "1.98.0"), (2, "1.99.0")):
+            for version, toolchain in ((1, "1.98.0"), (2, "1.99.0"), (3, "1.100.0")):
                 with self.subTest(name=name, version=version):
                     path = PROTOCOL.with_name(f"composable-{name}-protocol-v{version}.json")
                     protocol = load(path)
@@ -59,10 +59,17 @@ class FrozenProtocolVersionTests(unittest.TestCase):
                     with self.assertRaises(ValueError):
                         validate(altered)
             self.assertEqual(validate(versions[0]), validate(versions[1]))
+            self.assertEqual(validate(versions[1]), validate(versions[2]))
             self.assertEqual(
                 {key: value for key, value in versions[0].items()
                  if key not in ("schema", "rust_toolchain", "strip_version")},
                 {key: value for key, value in versions[1].items()
+                 if key not in ("schema", "rust_toolchain", "strip_version")},
+            )
+            self.assertEqual(
+                {key: value for key, value in versions[1].items()
+                 if key not in ("schema", "rust_toolchain", "strip_version")},
+                {key: value for key, value in versions[2].items()
                  if key not in ("schema", "rust_toolchain", "strip_version")},
             )
 

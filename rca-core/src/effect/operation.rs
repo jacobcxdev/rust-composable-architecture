@@ -14,10 +14,13 @@ use std::sync::Arc;
 use std::task::{Context, Poll};
 
 use event_listener::EventListener;
+use triomphe::ThinArc;
 
-use super::CancellationIdentity;
-use super::lineage::{LineageState, LineageWork};
+use super::UnscopedCancellationIdentity;
+use super::lineage::{ControlWake, LineageState, NamedWork};
+use super::registry::{GenerationToken, TaskId, TaskRegistry};
 use crate::TaskAccessReason;
+use crate::store::scope::ScopeToken;
 
 /// Chooses how a named declaration treats earlier matching generations.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -32,12 +35,42 @@ pub enum OperationPolicy {
 #[derive(Hash, Eq, PartialEq)]
 struct NamedKey<K>(K);
 
-/// Retains a named identity and its registration-time replacement policy.
+/// Borrows the resources needed to start a named generation.
+pub(crate) struct OperationStart<'a> {
+    /// Registers the new generation and cancels replaced work.
+    pub(crate) registry: &'a mut TaskRegistry,
+    /// Wakes the actor when the last owner releases work.
+    pub(crate) control: &'a Arc<ControlWake>,
+    /// Supplies named ancestors for the new work.
+    pub(crate) ancestry: &'a OperationAncestry,
+    /// Qualifies the key for the installed scope.
+    pub(crate) scope: ScopeToken,
+    /// Reports replacement before the new generation enters the registry.
+    #[cfg(feature = "diagnostics")]
+    pub(crate) diagnostics: Option<crate::diagnostics::LifecycleCall<'a>>,
+}
+
+/// Owns a new generation and the actor's outstanding timer cleanup.
+pub(crate) struct StartedOperation {
+    /// Identifies the generation for later compiler holds.
+    pub(crate) token: GenerationToken,
+    /// Supplies the named ancestry for work declared within this generation.
+    pub(crate) ancestry: OperationAncestry,
+    /// Keeps registration alive until the actor registers the declared work.
+    pub(crate) registration: OperationRegistration,
+    /// Identifies old actor timers whose payloads still need to be dropped.
+    pub(crate) cancelled_timers: Vec<TaskId>,
+}
+
+/// Selects the named registration code without depending on the Store's types.
+type StartOperation = fn(UnscopedCancellationIdentity, &mut OperationStart<'_>) -> StartedOperation;
+
+/// Retains a named key and the function that starts its generation.
 pub(crate) struct OperationDeclaration {
     /// Type-separated key whose scope is supplied by the registering actor.
-    pub(crate) identity: CancellationIdentity,
-    /// Determines whether earlier matching generations receive cancellation requests.
-    pub(crate) policy: OperationPolicy,
+    identity: UnscopedCancellationIdentity,
+    /// Starts work according to the policy that the constructor selected.
+    start: StartOperation,
 }
 
 impl OperationDeclaration {
@@ -47,17 +80,58 @@ impl OperationDeclaration {
         K: Hash + Eq + Send + Sync + 'static,
     {
         Self {
-            identity: Self::identity(key),
-            policy,
+            identity: UnscopedCancellationIdentity::new(NamedKey(key)),
+            start: match policy {
+                OperationPolicy::Coexist => start_operation::<false>,
+                OperationPolicy::Replace => start_operation::<true>,
+            },
         }
     }
 
+    /// Starts this named declaration without changing timer storage.
+    pub(crate) fn start(self, resources: &mut OperationStart<'_>) -> StartedOperation {
+        (self.start)(self.identity, resources)
+    }
+
     /// Creates the same named-key namespace for declarations and observation handles.
-    pub(crate) fn identity<K>(key: K) -> CancellationIdentity
+    pub(crate) fn identity<K>(key: K) -> UnscopedCancellationIdentity
     where
         K: Hash + Eq + Send + Sync + 'static,
     {
-        CancellationIdentity::local(NamedKey(key))
+        UnscopedCancellationIdentity::new(NamedKey(key))
+    }
+}
+
+/// Registers one named generation and returns any timers that replacement cancelled.
+fn start_operation<const REPLACE: bool>(
+    identity: UnscopedCancellationIdentity,
+    resources: &mut OperationStart<'_>,
+) -> StartedOperation {
+    let completion = LineageState::new(Arc::downgrade(resources.control));
+    let registration = OperationRegistration::new(Arc::clone(&completion));
+    let ancestry = resources.ancestry.with_generation(Arc::clone(&completion));
+    let identity = identity.in_scope(resources.scope);
+    let cancelled_timers = if REPLACE {
+        let cancelled = resources.registry.cancel_identity(&identity);
+        #[cfg(feature = "diagnostics")]
+        if let Some(diagnostics) = resources.diagnostics.as_mut() {
+            diagnostics.emit(crate::diagnostics::LifecycleKind::CancellationRequested {
+                cause: crate::diagnostics::CancellationCause::Replacement,
+                scope: Some(resources.scope.diagnostic_id()),
+            });
+        }
+        cancelled
+    } else {
+        Vec::new()
+    };
+    let token = resources
+        .registry
+        .register_named_generation(identity, completion);
+    StartedOperation {
+        token,
+        ancestry,
+        registration,
+        cancelled_timers,
     }
 }
 
@@ -258,9 +332,41 @@ impl fmt::Debug for CancellingOperationWait {
 
 /// Shares immutable named ancestry without allocating for ordinary unnamed work.
 #[derive(Clone, Default)]
-pub(crate) struct OperationAncestry(Option<Arc<[Arc<LineageState>]>>);
+pub(crate) struct OperationAncestry(Option<ThinArc<(), Arc<LineageState>>>);
+
+/// Supplies existing ancestors and one moved generation with an exact length.
+struct ExtendedAncestry<'a> {
+    /// Parent generations, visited in their original order.
+    parents: std::slice::Iter<'a, Arc<LineageState>>,
+    /// New generation, moved only after all parents have been cloned.
+    tail: Option<Arc<LineageState>>,
+}
+
+impl Iterator for ExtendedAncestry<'_> {
+    type Item = Arc<LineageState>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.parents.next().cloned().or_else(|| self.tail.take())
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let len = self.len();
+        (len, Some(len))
+    }
+}
+
+impl ExactSizeIterator for ExtendedAncestry<'_> {
+    fn len(&self) -> usize {
+        self.parents.len() + usize::from(self.tail.is_some())
+    }
+}
 
 impl OperationAncestry {
+    /// Borrows generations in their original outer-to-inner order.
+    fn as_slice(&self) -> &[Arc<LineageState>] {
+        self.0.as_ref().map_or(&[], |ancestors| &ancestors.slice)
+    }
+
     /// Identifies the unnamed representation, which retains no ancestry allocation.
     pub(crate) fn is_empty(&self) -> bool {
         self.0.is_none()
@@ -268,25 +374,22 @@ impl OperationAncestry {
 
     /// Appends one generation while preserving the parent's immutable ancestry.
     pub(crate) fn with_generation(&self, generation: Arc<LineageState>) -> Self {
-        let ancestors = self.0.as_deref().unwrap_or_default();
-        let mut generations = Vec::with_capacity(ancestors.len() + 1);
-        generations.extend_from_slice(ancestors);
-        generations.push(generation);
-        Self(Some(generations.into()))
+        // Only standard Arc values are cloned. Construction cannot call user
+        // code or panic partway through ThinArc's exact-length iterator.
+        let items = ExtendedAncestry {
+            parents: self.as_slice().iter(),
+            tail: Some(generation),
+        };
+        Self(Some(ThinArc::from_header_and_iter((), items)))
     }
 
     /// Reserves each ancestor while its registration or existing work keeps it live.
     pub(crate) fn retain_work(&self) -> OperationWork {
         OperationWork {
             _leases: self
-                .0
-                .as_deref()
-                .unwrap_or_default()
+                .as_slice()
                 .iter()
-                .map(|lineage| NamedWork {
-                    _work: lineage.add_work(),
-                    _notification: NamedRelease(Arc::clone(lineage)),
-                })
+                .map(LineageState::add_named_work)
                 .collect(),
         }
     }
@@ -297,8 +400,8 @@ impl OperationAncestry {
     pub(crate) fn try_retain_work(
         &self,
     ) -> Result<OperationWork, (TaskAccessReason, OperationWork)> {
-        let mut leases = Vec::with_capacity(self.0.as_deref().unwrap_or_default().len());
-        for lineage in self.0.as_deref().unwrap_or_default() {
+        let mut leases = Vec::with_capacity(self.as_slice().len());
+        for lineage in self.as_slice() {
             // Return partial ownership on rejection: the caller must destroy its
             // concrete payload before releasing even a partially acquired set.
             let Some(work) = lineage.try_add_work() else {
@@ -307,10 +410,7 @@ impl OperationAncestry {
                     OperationWork { _leases: leases },
                 ));
             };
-            leases.push(NamedWork {
-                _work: work,
-                _notification: NamedRelease(Arc::clone(lineage)),
-            });
+            leases.push(work);
         }
 
         Ok(OperationWork { _leases: leases })
@@ -325,6 +425,7 @@ impl OperationAncestry {
         captured.iter().any(|lineage| {
             !lineage.is_finished()
                 && ancestors
+                    .slice
                     .iter()
                     .any(|ancestor| Arc::ptr_eq(lineage, ancestor))
         })
@@ -334,48 +435,26 @@ impl OperationAncestry {
 /// Owns named-ancestor leases released after the caller's concrete payload.
 #[derive(Default)]
 pub(crate) struct OperationWork {
-    /// Empty for unnamed work; each entry releases its lease before notifying control.
+    /// Holds no entries for unnamed work.
     _leases: Vec<NamedWork>,
-}
-
-/// Orders causal release before actor notification, including during unwinding.
-struct NamedWork {
-    /// First field: drops causal ownership before its terminal notifier.
-    _work: LineageWork,
-    /// Runs after the lease even if a completion-listener waker panics during release.
-    _notification: NamedRelease,
-}
-
-/// Notifies actor control when the preceding release made the lineage terminal.
-struct NamedRelease(Arc<LineageState>);
-
-impl Drop for NamedRelease {
-    fn drop(&mut self) {
-        self.0.notify_control_if_finished();
-    }
 }
 
 /// Releases the initial named-generation hold before notifying actor control.
 pub(crate) struct OperationRegistration {
-    /// Registration hold ended by this guard's destructor, before field drop glue.
+    /// Keeps the lineage alive until release and notification finish.
     lineage: Arc<LineageState>,
-    /// Runs even when completion wakes a panicking listener during guard destruction.
-    _notification: NamedRelease,
 }
 
 impl OperationRegistration {
     /// Takes responsibility for ending the lineage's initial registration hold once.
     pub(crate) fn new(lineage: Arc<LineageState>) -> Self {
-        Self {
-            _notification: NamedRelease(Arc::clone(&lineage)),
-            lineage,
-        }
+        Self { lineage }
     }
 }
 
 impl Drop for OperationRegistration {
     fn drop(&mut self) {
-        self.lineage.finish_registration();
+        self.lineage.finish_named_work();
     }
 }
 
@@ -468,11 +547,42 @@ mod tests {
         ManagedPoll, OperationAncestry, OperationDeclaration, OperationPolicy,
         OperationRegistration, OperationWait, SelfWait,
     };
-    use crate::effect::CancellationIdentity;
+    use crate::effect::UnscopedCancellationIdentity;
     use crate::effect::lineage::{ControlWake, LineageState};
 
     fn context() -> Context<'static> {
         Context::from_waker(Waker::noop())
+    }
+
+    /// Keeps exact lengths and ownership through parents, the moved tail and exhaustion.
+    #[test]
+    fn extended_ancestry_reports_exact_remaining_length() {
+        let control = ControlWake::new();
+        let parents: Vec<_> = (0..2)
+            .map(|_| LineageState::new(Arc::downgrade(&control)))
+            .collect();
+        let tail = LineageState::new(Arc::downgrade(&control));
+        let tail_identity = Arc::as_ptr(&tail);
+        let mut items = super::ExtendedAncestry {
+            parents: parents.iter(),
+            tail: Some(tail),
+        };
+
+        for (index, parent) in parents.iter().enumerate() {
+            let remaining = 3 - index;
+            assert_eq!(items.len(), remaining);
+            assert_eq!(items.size_hint(), (remaining, Some(remaining)));
+            assert!(Arc::ptr_eq(&items.next().unwrap(), parent));
+        }
+        assert_eq!(items.len(), 1);
+        let tail = items.next().unwrap();
+        assert_eq!(Arc::as_ptr(&tail), tail_identity);
+        assert_eq!(Arc::strong_count(&tail), 1);
+        for _ in 0..2 {
+            assert_eq!(items.len(), 0);
+            assert_eq!(items.size_hint(), (0, Some(0)));
+            assert!(items.next().is_none());
+        }
     }
 
     #[test]
@@ -592,9 +702,12 @@ mod tests {
     #[test]
     fn named_identity_cannot_cancel_an_ordinary_equal_key() {
         let named = OperationDeclaration::new(7_u8, OperationPolicy::Coexist);
-        assert_ne!(named.identity, CancellationIdentity::local(7_u8));
-        assert_eq!(named.identity, OperationDeclaration::identity(7_u8));
-        assert_ne!(named.identity, OperationDeclaration::identity(7_u16));
+        let (_lifecycle, scopes) = crate::store::scope::ScopeRegistry::for_test();
+        let scope = scopes.root();
+        let named = named.identity.in_scope(scope);
+        assert_ne!(named, UnscopedCancellationIdentity::new(7_u8).in_scope(scope));
+        assert_eq!(named, OperationDeclaration::identity(7_u8).in_scope(scope));
+        assert_ne!(named, OperationDeclaration::identity(7_u16).in_scope(scope));
     }
 
     #[test]

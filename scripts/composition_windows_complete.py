@@ -11,6 +11,8 @@ import composition_performance as evidence
 
 POLICY_SHA256 = "9fa4576d8324fd2aa6720f66cb56baba3717cd5f4523bcc1538e8a5ecb3df381"
 METHOD = "composition-windows-complete-v2"
+RUST100_POLICY_SHA256 = "2797c3ed8965fe31373031e700a6ce8b17e74287fd8de52a5fd9a448fe8af51b"
+RUST100_METHOD = "composition-windows-complete-v3"
 
 
 def _digest(value):
@@ -20,13 +22,17 @@ def _digest(value):
 def load_policy(path):
     """Reject changed rules rather than accepting limits chosen after capture."""
     path = Path(path)
-    if path.is_symlink() or evidence._sha256(path) != POLICY_SHA256:
+    if path.is_symlink() or evidence._sha256(path) not in (POLICY_SHA256, RUST100_POLICY_SHA256):
         raise ValueError("Windows complete policy hash differs from the frozen rules")
     return json.loads(path.read_text(encoding="utf-8"))
 
 
 def _validate_policy(policy):
-    path = Path(__file__).resolve().parents[1] / "docs/performance/composition/composition-windows-complete-v2.json"
+    name = {METHOD: "composition-windows-complete-v2.json",
+            RUST100_METHOD: "composition-windows-complete-v3.json"}.get(policy.get("method_version"))
+    if name is None:
+        raise ValueError("Windows complete policy method is unsupported")
+    path = Path(__file__).resolve().parents[1] / "docs/performance/composition" / name
     if policy != load_policy(path):
         raise ValueError("Windows complete policy differs from the frozen rules")
 
@@ -38,11 +44,12 @@ def _hash(value):
 def _observations(budget, timing, raw):
     """Bind native measurements to the paired subject, source and workload set."""
     metadata = timing["metadata"]
-    evidence._validate_protocol_pair_metadata(metadata, evidence.WINDOWS_METHOD)
-    if (timing.get("method_version") != evidence.WINDOWS_METHOD
-            or timing.get("protocol_sha256") != evidence.WINDOWS_PROTOCOL_SHA256
+    evidence._validate_protocol_pair_metadata(metadata, timing.get("method_version"))
+    if (not evidence.is_windows_protocol(timing)
+            or metadata.get("method_version") != timing.get("method_version")
+            or timing.get("protocol_sha256") != evidence._protocol_sha256(timing)
             or timing.get("runner") != evidence.WINDOWS_RUNNER
-            or timing.get("toolchain") != evidence.WINDOWS_TOOLCHAIN
+            or timing.get("toolchain") != evidence.expected_toolchain(timing)
             or timing.get("mode") != metadata["mode"]
             or timing.get("role") != metadata["subject_role"]
             or timing.get("revision") != metadata["subject_revision"]):
@@ -122,8 +129,10 @@ def _observations(budget, timing, raw):
 def seal_reference(policy, budget_path, timing_report, raw_observation):
     """Derive new native limits only from the pinned A/A subject arm."""
     _validate_policy(policy)
+    if timing_report.get("protocol_sha256") != policy["paired_protocol_sha256"]:
+        raise ValueError("Windows complete policy belongs to another paired protocol")
     if (timing_report.get("mode") != "reference-reference-aa"
-            or timing_report.get("revision") != evidence.REFERENCE_REVISION
+            or timing_report.get("revision") != policy["reference_revision"]
             or timing_report.get("role") != "reference-b"):
         raise ValueError("Windows limits require reference-only A/A observations")
     budget = evidence.validate_budget_document(Path(budget_path))
@@ -155,8 +164,9 @@ def seal_reference(policy, budget_path, timing_report, raw_observation):
                             for sample in row["process_values"]]}
         for row in timing_report["rows"]
     ]
-    return {"schema": "composition-windows-reference-limits-v1", "policy_sha256": POLICY_SHA256,
-            "reference_revision": evidence.REFERENCE_REVISION,
+    policy_hash = RUST100_POLICY_SHA256 if policy["method_version"] == RUST100_METHOD else POLICY_SHA256
+    return {"schema": "composition-windows-reference-limits-v1", "policy_sha256": policy_hash,
+            "reference_revision": policy["reference_revision"],
             "capture_sha256": timing_report["metadata"]["capture_sha256"],
             "reference_timing": reference_timing, "reference_raw": raw_observation, "rows": rows}
 
@@ -173,6 +183,8 @@ def evaluate(policy, budget_path, timing_report, raw_observation, baseline):
            for field in ("platform", "target", "os_version", "os_build")):
         raise ValueError("Windows baseline belongs to another host")
     budget = evidence.validate_budget_document(Path(budget_path))
+    if timing_report.get("protocol_sha256") != policy["paired_protocol_sha256"]:
+        raise ValueError("Windows complete policy belongs to another paired protocol")
     values = _observations(budget, timing_report, raw_observation)
     rows = []
     for row in baseline["rows"]:
@@ -180,7 +192,8 @@ def evaluate(policy, budget_path, timing_report, raw_observation, baseline):
         rows.append({**row, "measured_value": value,
                      "passed": evidence._passes(value, row["absolute_budget"], row["direction"])})
     failed = [row for row in rows if not row["passed"]]
-    return {"schema_version": 1, "method_version": METHOD, "policy_sha256": POLICY_SHA256,
+    return {"schema_version": 1, "method_version": policy["method_version"],
+            "policy_sha256": baseline["policy_sha256"],
             "qualification_scope": "windows-complete", "mac_absolute_qualified": False,
             "mode": timing_report["mode"], "subject_revision": timing_report["revision"],
             "reference_only": timing_report["mode"] == "reference-reference-aa",

@@ -21,10 +21,10 @@ allocation-measurement = []
 diagnostics = []
 futures-stream = ["dep:futures-core"]
 local = []
-test-util = []
+test-util = ["dep:async-channel"]
 
 [dependencies]
-async-channel.workspace = true
+async-channel = { workspace = true, optional = true }
 crossbeam-utils = { version = "0.8.22", default-features = false }
 event-listener.workspace = true
 futures-channel.workspace = true
@@ -33,8 +33,10 @@ futures-util.workspace = true
 indexmap.workspace = true
 parking_lot = "0.12.5"
 pin-project-lite = "0.2.17"
+triomphe.workspace = true
 
 [dev-dependencies]
+async-channel.workspace = true
 rca-macros = { path = "../rca-macros", version = "=0.1.0" }
 divan.workspace = true
 concurrent-queue = { workspace = true, features = ["loom"] }

@@ -9,6 +9,8 @@ use super::{
     Shared, TaskStatus, TimerProvenance,
 };
 use crate::ActionTask;
+use crate::effect::UnscopedCancellationIdentity;
+use crate::store::command::ActionInput;
 
 /// Checks timer command allocations and the lifetime of its causal work.
 ///
@@ -136,6 +138,74 @@ pub(crate) fn timer_command_avoids_discarded_reply_allocation() {
     // The real timer constructor must not allocate a discarded reply.
     assert_eq!(released.total_blocks - before.total_blocks, 0);
     assert_eq!(released.total_bytes - before.total_bytes, 0);
+
+    assert_keyed_timer_provenance_budget();
+}
+
+/// Checks that timer and command provenance reuse the task's generation storage.
+fn assert_keyed_timer_provenance_budget() {
+    let (mut actor, _ingress) = launch_actor(
+        Effect::none(),
+        Runtime::new(LaunchDriver {
+            tasks: Arc::default(),
+            panic_after: usize::MAX,
+        }),
+    );
+    let scope = actor.scopes.root();
+    let allocations = [1, 16].map(|width| {
+        let identities: Vec<_> = (0..width)
+            .map(|key| UnscopedCancellationIdentity::new(key).in_scope(scope))
+            .collect();
+        let generations: Vec<_> = identities
+            .iter()
+            .map(|identity| actor.registry.register_generation(identity.clone()))
+            .collect();
+        let lineage = LineageState::new(Arc::downgrade(&actor.control));
+        let prepared = actor.registry.prepare(scope, Arc::clone(&lineage), &generations);
+        let id = prepared.id();
+        let profiler = dhat::Profiler::builder().testing().build();
+        let before = dhat::HeapStats::get();
+        let timer = TimerProvenance {
+            scope,
+            lineage: Arc::clone(&lineage),
+            task: prepared.sender_token(),
+            generations: prepared.generation_tokens(),
+            operations: prepared.operation_ancestry(),
+        };
+        let timer_ready = dhat::HeapStats::get();
+        let command = Actor::<(), ()>::timer_action_command((), &timer);
+        let command_ready = dhat::HeapStats::get();
+        drop(profiler);
+
+        actor.registry.register_actor(prepared);
+        lineage.finish_registration();
+        let ActionInput::Ready { provenance, .. } = command.input else {
+            panic!("timer must submit a ready action");
+        };
+        assert_eq!(provenance.generations().len(), width);
+        assert!(timer.is_live());
+        assert!(provenance.is_live());
+        actor.registry.cancel_identity(&identities[width - 1]);
+        let terminal = actor.registry.process_control().terminal;
+        assert_eq!(terminal.len(), 1);
+        assert_eq!((terminal[0].id, terminal[0].status), (id, TaskStatus::Cancelled));
+        assert!(!provenance.is_live());
+        assert!(!timer.is_live());
+        assert!(lineage.is_finished());
+        for generation in generations {
+            actor.registry.release_generation(&generation);
+        }
+
+        let timer_blocks = timer_ready.total_blocks - before.total_blocks;
+        let command_blocks = command_ready.total_blocks - timer_ready.total_blocks;
+        println!("{width} generations: timer copied {timer_blocks} blocks, command copied {command_blocks} blocks");
+        (timer_blocks, command_blocks)
+    });
+    assert_eq!(
+        allocations,
+        [(0, 0); 2],
+        "keyed provenance allocated copies"
+    );
 }
 
 /// Checks warm real timer batches reuse storage without retaining payloads.
@@ -151,6 +221,7 @@ fn assert_reused_timer_batch_budget() {
     );
     let profiler = dhat::Profiler::builder().testing().build();
     let mut costs = [(0, 0); 4];
+    let mut registration = [(0, 0, 0); 4];
     for (index, width) in [super::TIMER_BATCH_LIMIT, 1, 8, super::TIMER_BATCH_LIMIT]
         .into_iter()
         .enumerate()
@@ -159,6 +230,7 @@ fn assert_reused_timer_batch_budget() {
         let mut lineage = None;
         let mut generations = Vec::new();
         let mut launches = Launches::default();
+        let before_registration = dhat::HeapStats::get();
         for _ in 0..width {
             actor.transaction_parts().compile_effect(
                 Effect::from_parts(super::Program::Wait(std::time::Duration::ZERO), None),
@@ -175,9 +247,14 @@ fn assert_reused_timer_batch_budget() {
         }
         lineage.as_ref().unwrap().finish_registration();
         assert!(launches.into_iter().next().is_none());
-        assert_eq!(actor.task_timers.len(), width);
+        assert_eq!(actor.timers.len(), width);
 
         let before = dhat::HeapStats::get();
+        registration[index] = (
+            before.total_blocks - before_registration.total_blocks,
+            before.total_bytes - before_registration.total_bytes,
+            before.curr_bytes - before_registration.curr_bytes,
+        );
         assert!(futures_executor::block_on(actor.process_timer_batch()));
         let after = dhat::HeapStats::get();
         costs[index] = (
@@ -185,7 +262,6 @@ fn assert_reused_timer_batch_budget() {
             after.total_bytes - before.total_bytes,
         );
         assert!(actor.timers.is_empty());
-        assert!(actor.task_timers.is_empty());
         assert!(actor.due_timers.is_empty());
         assert_eq!(actor.due_timers.capacity(), super::TIMER_BATCH_LIMIT);
         let turn = actor.process_control();
@@ -198,6 +274,7 @@ fn assert_reused_timer_batch_budget() {
     drop(ingress);
     let released = dhat::HeapStats::get();
     drop(profiler);
+    eprintln!("timer registration blocks/requested/live bytes={registration:?}");
     eprintln!("timer batch blocks/bytes={costs:?} retained_buffer_bytes={retained_bytes}");
     assert_eq!(&costs[1..], &[(0, 0); 3]);
     assert_eq!(released.curr_blocks, 0);

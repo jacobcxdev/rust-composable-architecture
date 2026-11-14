@@ -9,10 +9,9 @@ use std::sync::Arc;
 use std::sync::Weak;
 
 use super::ActionTask;
-use crate::ShutdownError;
 use crate::effect::lineage::LineageState;
 use crate::effect::operation::{OperationAncestry, OperationWork};
-use crate::effect::registry::{GenerationToken, TaskCompletion};
+use crate::effect::registry::{GenerationToken, TaskCompletion, TaskGenerations};
 use crate::observation::wait::WaitCancellation;
 use crate::store::scope::{HandleRegistrationCommandCore, HandleScope, ScopeToken};
 
@@ -183,7 +182,7 @@ pub(crate) enum Provenance {
         /// Weak authority prevents queued commands from extending a finished task.
         task: Weak<TaskCompletion>,
         /// Immutable cancellation generations captured when the task was registered.
-        generations: Box<[GenerationToken]>,
+        generations: TaskGenerations,
         /// Named-operation ancestry used when admitting descendant work.
         operations: OperationAncestry,
     },
@@ -216,7 +215,7 @@ impl Provenance {
     pub(crate) fn generations(&self) -> &[GenerationToken] {
         match self {
             Self::External { .. } => &[],
-            Self::Effect { generations, .. } => generations,
+            Self::Effect { generations, .. } => generations.as_slice(),
         }
     }
 
@@ -252,7 +251,7 @@ impl Provenance {
             } => {
                 !lineage.is_cancelled()
                     && task.upgrade().is_some_and(|task| task.is_running())
-                    && generations.iter().all(GenerationToken::is_live)
+                    && generations.as_slice().iter().all(GenerationToken::is_live)
             }
         }
     }
@@ -268,8 +267,6 @@ pub(crate) enum Command<
     Action,
     C: super::carriers::Carriers<State, Action> = super::carriers::Shared,
 > {
-    /// Reconciles installed structure without a user action.
-    Structural,
     /// Acquires a currently installed endpoint without invoking its handler.
     Acquire(Box<C::Acquire>),
     /// Performs an ordered structural read over installed state.
@@ -619,7 +616,7 @@ impl<Action> ActionCommand<Action> {
         scope: ScopeToken,
         lineage: Arc<LineageState>,
         task: Weak<TaskCompletion>,
-        generations: Box<[GenerationToken]>,
+        generations: TaskGenerations,
         operations: OperationAncestry,
         operation_work: OperationWork,
     ) -> Self {
@@ -680,8 +677,8 @@ impl<Action> ActionCommand<Action> {
 
 /// Selects how teardown reports completion after releasing actor-owned resources.
 pub(crate) enum TerminalReply<Callback: ?Sized> {
-    /// Reports shutdown success or failure without returning state.
-    Shutdown(async_channel::Sender<Result<(), ShutdownError>>),
+    /// Acknowledges graceful shutdown without returning state.
+    Shutdown(futures_channel::oneshot::Sender<()>),
     /// Receives the final owned state; dropping an unprocessed command skips it.
     State(Box<Callback>),
 }
@@ -839,7 +836,7 @@ mod reply_contract_tests {
             scope,
             LineageState::new(Weak::new()),
             Weak::new(),
-            Box::default(),
+            TaskGenerations::default(),
             operations,
             operation_work,
         );

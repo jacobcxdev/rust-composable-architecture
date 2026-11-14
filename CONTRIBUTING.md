@@ -59,15 +59,15 @@ its separate protected environment.
 
 The repository pins Rust, rustfmt, Clippy and `rust-src` through `rust-toolchain.toml`.
 Compiler snapshots need `rust-src` for standard-library source excerpts.
-The current toolchain is Rust 1.99.0. System installations of Cargo or rustc can
+The current toolchain is Rust 1.100.0. System installations of Cargo or rustc can
 bypass rustup and ignore this file. Put the pinned tools first in `PATH`.
 Select the compiler and documentation generator by absolute path, including when a compiler wrapper is active.
 
 ```sh
-export PATH="$(dirname "$(rustup which --toolchain 1.99.0 cargo)"):$PATH"
-export RUSTC="$(rustup which --toolchain 1.99.0 rustc)"
-export RUSTDOC="$(rustup which --toolchain 1.99.0 rustdoc)"
-rustup run 1.99.0 rustc --version
+export PATH="$(dirname "$(rustup which --toolchain 1.100.0 cargo)"):$PATH"
+export RUSTC="$(rustup which --toolchain 1.100.0 rustc)"
+export RUSTDOC="$(rustup which --toolchain 1.100.0 rustdoc)"
+rustup run 1.100.0 rustc --version
 python3 scripts/check_rust_format.py
 ```
 
@@ -193,7 +193,7 @@ tests, so documentation checks cover the production library.
 For a focused all-features check, run:
 
 ```sh
-rustup run 1.99.0 cargo clippy --locked --workspace --all-features --lib -- -D warnings -D missing_docs -D clippy::missing_docs_in_private_items
+rustup run 1.100.0 cargo clippy --locked --workspace --all-features --lib -- -D warnings -D missing_docs -D clippy::missing_docs_in_private_items
 ```
 
 CI checks every combination of each library's features, using cargo-hack 0.6.45.
@@ -207,7 +207,7 @@ development dependencies. Keep `--locked`; do not add `--no-dev-deps`, which
 rewrites manifests and requires a different lockfile.
 
 ```sh
-rustup run 1.99.0 cargo hack clippy --locked --workspace --exclude rca-size-probe --feature-powerset --lib -- -D warnings -D missing_docs -D clippy::missing_docs_in_private_items
+rustup run 1.100.0 cargo hack clippy --locked --workspace --exclude rca-size-probe --feature-powerset --lib -- -D warnings -D missing_docs -D clippy::missing_docs_in_private_items
 ```
 
 These feature checks do not replace the platform, transport or Loom checks.
@@ -246,14 +246,14 @@ The independent consumer fixtures run Cargo offline with their own lockfiles.
 Before the workspace tests, download those dependencies:
 
 ```sh
-rustup run 1.99.0 cargo fetch --locked --manifest-path rca-core/tests/fixtures/modular-dependencies/Cargo.toml
-rustup run 1.99.0 cargo fetch --locked --manifest-path rca-core/tests/fixtures/rc07-owned-snapshot/Cargo.toml
-rustup run 1.99.0 cargo test --locked --workspace --all-features
-rustup run 1.99.0 cargo test --locked --workspace --all-features --doc
+rustup run 1.100.0 cargo fetch --locked --manifest-path rca-core/tests/fixtures/modular-dependencies/Cargo.toml
+rustup run 1.100.0 cargo fetch --locked --manifest-path rca-core/tests/fixtures/rc07-owned-snapshot/Cargo.toml
+rustup run 1.100.0 cargo test --locked --workspace --all-features
+rustup run 1.100.0 cargo test --locked --workspace --all-features --doc
 export RUSTDOCFLAGS='-D warnings'
-rustup run 1.99.0 cargo doc --locked -p futures-core --no-deps
-rustup run 1.99.0 cargo doc --locked -p rca-event-listener --all-features --no-deps
-rustup run 1.99.0 cargo doc --locked --workspace --all-features --no-deps
+rustup run 1.100.0 cargo doc --locked -p futures-core --no-deps
+rustup run 1.100.0 cargo doc --locked -p rca-event-listener --all-features --no-deps
+rustup run 1.100.0 cargo doc --locked --workspace --all-features --no-deps
 ```
 
 Start with focused checks during development. Before completion, run checks for the
@@ -313,7 +313,7 @@ Successful capture alone does not establish positive overflow-branch counters
 or execution of the no-std abort and drop bodies.
 Release review must check those source-bound records and retain any zeros or missing mappings.
 
-The capture uses Rust 1.99.0 and its matching LLVM tools. Dependency build outputs
+The capture uses Rust 1.100.0 and its matching LLVM tools. Dependency build outputs
 are cached separately for each group. CI rebuilds workspace crates. Each artefact
 records source and tool hashes, Cargo arguments, compiler configuration, test output,
 executable objects, raw profiles and the LLVM export. Failed captures retain their available evidence.
@@ -375,7 +375,7 @@ It requires `cargo-bloat` 0.12.1 in the checkout's local tool directory.
 From the repository root, install that prerequisite before running the suite:
 
 ```sh
-rustup run 1.99.0 cargo install cargo-bloat --version 0.12.1 --locked --root target/task4-tools
+rustup run 1.100.0 cargo install cargo-bloat --version 0.12.1 --locked --root target/task4-tools
 PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s scripts/tests
 ```
 

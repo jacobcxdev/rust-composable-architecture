@@ -188,18 +188,34 @@ impl LineageState {
     /// Keep that ownership through this call. Metadata references alone do not
     /// prevent completion. Late admissions must use [`Self::try_add_work`] instead.
     pub(crate) fn add_work(self: &Arc<Self>) -> LineageWork {
-        let previous = self.pending.fetch_add(1, Ordering::AcqRel);
-        debug_assert!(previous > 0, "terminal lineage cannot accept work");
-        LineageWork {
-            lineage: Arc::clone(self),
-        }
+        Arc::clone(self).into_work()
     }
 
-    /// Acquires a lease only if a concurrent final release has not won.
+    /// Acquires a work lease with an owned lineage reference.
+    ///
+    /// The caller must already own unfinished work, as in [`Self::add_work`].
+    pub(crate) fn into_work(self: Arc<Self>) -> LineageWork {
+        self.add_work_hold();
+        LineageWork { lineage: self }
+    }
+
+    /// Acquires a named lease while an existing hold keeps the lineage live.
+    pub(crate) fn add_named_work(self: &Arc<Self>) -> NamedWork {
+        self.add_work_hold();
+        NamedWork(Arc::clone(self))
+    }
+
+    /// Increments the pending count when the caller owns a live hold.
+    fn add_work_hold(&self) {
+        let previous = self.pending.fetch_add(1, Ordering::AcqRel);
+        debug_assert!(previous > 0, "terminal lineage cannot accept work");
+    }
+
+    /// Acquires a named lease only if the lineage still has live work.
     ///
     /// A cancelled lineage can still own work. This method tracks that ownership;
     /// callers check cancellation authority separately. A zero count never revives.
-    pub(crate) fn try_add_work(self: &Arc<Self>) -> Option<LineageWork> {
+    pub(crate) fn try_add_work(self: &Arc<Self>) -> Option<NamedWork> {
         let mut pending = self.pending.load(Ordering::Acquire);
         while pending != 0 {
             match self.pending.compare_exchange_weak(
@@ -208,11 +224,7 @@ impl LineageState {
                 Ordering::AcqRel,
                 Ordering::Acquire,
             ) {
-                Ok(_) => {
-                    return Some(LineageWork {
-                        lineage: Arc::clone(self),
-                    });
-                }
+                Ok(_) => return Some(NamedWork(Arc::clone(self))),
                 Err(current) => pending = current,
             }
         }
@@ -223,6 +235,28 @@ impl LineageState {
     ///
     /// The registering owner calls this exactly once before completion can occur.
     pub(crate) fn finish_registration(&self) {
+        self.complete_work();
+    }
+
+    /// Releases a named hold and requests retirement after terminal completion.
+    pub(crate) fn finish_named_work(&self) {
+        /// Notifies actor control even if a completion listener panics.
+        struct NotifyControl<'a>(
+            /// Borrows the lineage that the releasing owner still holds.
+            &'a LineageState,
+        );
+
+        impl Drop for NotifyControl<'_> {
+            fn drop(&mut self) {
+                if self.0.is_finished()
+                    && let Some(control) = self.0.control.upgrade()
+                {
+                    control.notify();
+                }
+            }
+        }
+
+        let _notify = NotifyControl(self);
         self.complete_work();
     }
 
@@ -264,17 +298,6 @@ impl LineageState {
     /// Reads permanent completion after the final registration or work hold ended.
     pub(crate) fn is_finished(&self) -> bool {
         self.terminal.load(Ordering::Acquire)
-    }
-
-    /// Requests named-generation retirement after its final work release completes.
-    ///
-    /// Named-release guards call this after the lease, including during unwinding.
-    pub(crate) fn notify_control_if_finished(&self) {
-        if self.is_finished()
-            && let Some(control) = self.control.upgrade()
-        {
-            control.notify();
-        }
     }
 
     /// Polls completion with caller-owned listener storage for this lineage alone.
@@ -339,9 +362,28 @@ pub(crate) struct LineageWork {
     lineage: Arc<LineageState>,
 }
 
+impl LineageWork {
+    /// Borrows the cancellation state without acquiring another lease.
+    pub(crate) fn lineage(&self) -> &LineageState {
+        &self.lineage
+    }
+}
+
 impl Drop for LineageWork {
     fn drop(&mut self) {
         self.lineage.complete_work();
+    }
+}
+
+/// Owns one named hold and requests retirement after terminal completion.
+pub(crate) struct NamedWork(
+    /// Keeps the lineage alive until release and notification finish.
+    Arc<LineageState>,
+);
+
+impl Drop for NamedWork {
+    fn drop(&mut self) {
+        self.0.finish_named_work();
     }
 }
 

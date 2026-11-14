@@ -33,12 +33,12 @@ Upstream has no repository lockfile at the pinned revision. Each fixture freezes
 its own lockfile. This is a new dependency resolution, not a reconstruction of
 the captured MCMaitreD graph. Record the resolved graph and differences from the
 captured consumer before attributing performance changes to architecture.
-Use Rust, Cargo and rustdoc 1.99.0, empty compiler wrappers and locked builds.
+Use Rust, Cargo and rustdoc 1.100.0, empty compiler wrappers and locked builds.
 Fixture locks must not change the product workspace lock or package versions.
-The v2 protocols use Rust 1.99.0 for both engines. Their workloads, schedules and
-limits match v1. Retain v1 captures with their original Rust 1.98 identities;
-do not combine their results with a new capture. The toolchain change does not
-require another run of the failed upstream baseline.
+The v3 protocols use Rust 1.100.0 for both engines. Their workloads, schedules and
+limits match v1 and v2. Retain v1 and v2 captures with their original Rust 1.98
+and 1.99 identities. Do not combine their results with a new capture. The
+toolchain change does not require another run of the failed upstream baseline.
 
 ## First common workload
 
@@ -136,7 +136,7 @@ only after successful process exit and strict field/type/engine validation.
 For example, an instrumentation smoke check uses:
 
 ```sh
-rustup run 1.99.0 cargo run --locked --manifest-path tests/composable-counter/candidate/Cargo.toml -- --measure-lifecycle
+rustup run 1.100.0 cargo run --locked --manifest-path tests/composable-counter/candidate/Cargo.toml -- --measure-lifecycle
 ```
 
 The existing adapters define host ownership: current RCA owns a current-thread
@@ -152,7 +152,7 @@ comparative evidence.
 
 ### Frozen lifecycle cohort analysis
 
-The separate [lifecycle protocol](composable-counter-lifecycle-protocol-v2.json)
+The separate [lifecycle protocol](composable-counter-lifecycle-protocol-v3.json)
 predeclares two engine-specific A/A cohorts and one candidate comparison,
 each with 24 pairs, balanced 12 per execution order. Each invocation constructs
 a cold adapter and performs one complete lifecycle; there is no warm-up. The
@@ -190,7 +190,7 @@ Implementation tests do not establish a successful native comparative run.
 
 ### Frozen counter cohort analysis
 
-The [counter protocol](composable-counter-protocol-v2.json) freezes three cohorts:
+The [counter protocol](composable-counter-protocol-v3.json) freezes three cohorts:
 upstream/upstream and RCA/RCA A/A controls, plus RCA/upstream.
 Each has 24 paired processes, balanced across execution order by a fixed seed.
 The evaluator admits every complete raw work ledger before calculating p50,
@@ -223,7 +223,7 @@ Run once from a clean checkout after independent review. Do not reuse an output
 name or retry a failed/noisy programme without a new documented pre-observation
 decision. Upstream dependencies remain pinned by the fixture manifests and
 locks. Four fresh release targets supply independent A/B builds,
-then the same binaries serve A/A and comparisons. Builds use Rust 1.99.0,
+then the same binaries serve A/A and comparisons. Builds use Rust 1.100.0,
 default features, native aarch64-apple-darwin, jobs 1, incremental off, opt-level 3,
 16 codegen units, no LTO/debug assertions/overflow checks/debug info/stripping,
 and unwind panic behaviour. Builds use a fresh private Cargo home and neutral
@@ -245,7 +245,7 @@ cryptographic defence against a malicious local operator rewriting all receipts.
 
 ### Counter allocation capture
 
-The frozen `composable-counter-allocation-protocol-v2.json` runs three cycles.
+The frozen `composable-counter-allocation-protocol-v3.json` runs three cycles.
 Each cycle runs upstream Composable and current RCA using fresh build A, then
 reverses that order using fresh build B: six observations per engine, twelve
 processes in total. Cargo metadata and all four release builds enable `allocation-measurement`;
@@ -327,12 +327,12 @@ These requirements do not change the crate's deployment floor.
 The [ready-future fixture](../../tests/composable-stream/README.md#ready-future-allocation-instrumentation)
 runs 64 serial native future effects. RCA's causal finish is stronger than
 upstream result acknowledgement; the allocation report keeps that difference
-visible. Its [protocol](composable-ready-future-allocation-protocol-v2.json)
+visible. Its [protocol](composable-ready-future-allocation-protocol-v3.json)
 runs three forward/reverse cycles with two independent builds per engine and
 six observations per engine. The initial 20 and checked 44 operations do not
 establish steady state. Run `--mode ready-future-allocation-cohorts`.
 
-The [common-outcome protocol](composable-common-outcome-allocation-protocol-v2.json)
+The [common-outcome protocol](composable-common-outcome-allocation-protocol-v3.json)
 uses result/drop notices and an effect-free checkpoint for each of 64 operations.
 It records the whole lifetime from before host construction through host teardown
 and release of the probes. Run `--mode common-outcome-allocation-cohorts`.

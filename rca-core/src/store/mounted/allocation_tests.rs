@@ -11,7 +11,7 @@ use super::{
 };
 #[cfg(feature = "local")]
 use super::{LocalCall, LocalInstalled, LocalNode, LocalRoute, local};
-use crate::effect::CancellationIdentity;
+use crate::effect::UnscopedCancellationIdentity;
 use crate::effect::leaves::EffectLeaves;
 use crate::effect::lineage::{ControlWake, LineageState};
 use crate::effect::registry::{PreparedTask, TaskRegistry};
@@ -85,7 +85,9 @@ fn registration_cost<F: Future<Output = ()>>(
         let mut registry = TaskRegistry::new(Arc::clone(&control));
         let lineage = LineageState::new(Arc::downgrade(&control));
         let generations: Vec<_> = (0..depth)
-            .map(|id| registry.register_generation(CancellationIdentity::local(id).in_scope(scope)))
+            .map(|id| {
+                registry.register_generation(UnscopedCancellationIdentity::new(id).in_scope(scope))
+            })
             .collect();
         let prepared = registry.prepare(scope, Arc::clone(&lineage), &generations);
         let provenance = Provenance::Effect {

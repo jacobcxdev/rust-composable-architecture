@@ -111,7 +111,15 @@ impl<R: 'static, A: 'static> MountedWork<R, A, Local> for RootWork<R, A> {
         origin: WorkOrigin<'_>,
         launches: &mut Launches<crate::local::RuntimeFuture>,
     ) {
-        crate::store::transaction::register_root_work(self.0, parts, origin, launches);
+        crate::store::transaction::register_root_work(
+            crate::feature::RootWork::new(
+                self.0,
+                <Local as crate::store::carriers::Execution<R, A>>::ROOT_REGISTRAR,
+            ),
+            parts,
+            origin,
+            launches,
+        );
     }
 }
 

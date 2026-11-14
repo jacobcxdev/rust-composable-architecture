@@ -200,14 +200,14 @@ class WindowsRunnerTests(unittest.TestCase):
 
     def test_current_tools_select_exact_199_without_capture_tool_on_windows(self):
         versions = {
-            "cargo": "cargo 1.99.0 (5f94df478 2026-08-27)",
-            "rustc": "rustc 1.99.0 (b940084d7 2026-09-28)",
-            "rustdoc": "rustdoc 1.99.0 (b940084d7 2026-09-28)",
+            "cargo": "cargo 1.100.0 (3acc79c0c 2026-11-05)",
+            "rustc": "rustc 1.100.0 (0ef1bc386 2026-11-09)",
+            "rustdoc": "rustdoc 1.100.0 (0ef1bc386 2026-11-09)",
         }
 
         def read(command, **_kwargs):
             if command[0] == "rustup":
-                self.assertEqual(command[1:4], ["which", "--toolchain", "1.99.0"])
+                self.assertEqual(command[1:4], ["which", "--toolchain", "1.100.0"])
                 return f"C:/pinned/{command[-1]}.exe"
             return versions[Path(command[0]).stem]
 
@@ -218,9 +218,11 @@ class WindowsRunnerTests(unittest.TestCase):
             environment, _tools = runner.tool_environment(include_capture_tool=False)
             self.assertEqual(environment["PATH"], str(Path("C:/pinned")) + ";C:/Windows")
             capture_tool.assert_not_called()
-            versions["rustdoc"] = "rustdoc 1.98.0 (88d9e12ae 2026-08-18)"
-            with self.assertRaisesRegex(ValueError, "1.99.0"):
-                runner.tool_environment(include_capture_tool=False)
+            for previous in ("rustdoc 1.99.0 (b940084d7 2026-09-28)",
+                             "rustdoc 1.98.0 (88d9e12ae 2026-08-18)"):
+                versions["rustdoc"] = previous
+                with self.subTest(previous=previous), self.assertRaisesRegex(ValueError, "1.100.0"):
+                    runner.tool_environment(include_capture_tool=False)
 
     def test_windows_cli_selects_existing_interleaved_driver(self):
         with patch.object(sys, "argv", ["runner", "--platform", "windows", "output", "reference"]), \
@@ -405,7 +407,7 @@ class WindowsRunnerTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmp:
             directory = Path(tmp)
-            manifest = {"protocol_sha256": evidence.WINDOWS_PROTOCOL_SHA256,
+            manifest = {"protocol_sha256": evidence.RUST100_WINDOWS_PROTOCOL_SHA256,
                         "controller": {"revision": "1" * 40}, "host": {"identity": "Windows"},
                         "modes": {}, "schedule": [
                             {"block": block, "mode": mode} for block in range(1, 21)

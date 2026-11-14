@@ -55,7 +55,7 @@ fn options(attributes: &[Attribute], location: Location) -> syn::Result<Options>
         .filter(|attribute| path_is_ident(attribute.path(), "snapshot"))
     {
         attribute.parse_nested_meta(|meta| {
-            let key = meta.path.get_ident().map(canonical_ident).unwrap_or_default();
+            let key = meta.path.get_ident().map_or_default(canonical_ident);
             if !seen.insert(key.clone()) {
                 return Err(meta.error(format!("duplicate snapshot option `{key}`")));
             }
@@ -303,9 +303,7 @@ pub(crate) fn expand(input: &DeriveInput) -> syn::Result<TokenStream> {
                     .ident
                     .as_ref()
                     .map_or_else(|| index.to_string(), canonical_ident);
-                let variant_name = variant
-                    .map(|v| format!("{}::", v.ident))
-                    .unwrap_or_default();
+                let variant_name = variant.map_or_default(|v| format!("{}::", v.ident));
                 omission_docs.push(format!(
                     "Omitted `{variant_name}{field_name}`: {}",
                     reason.value()

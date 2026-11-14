@@ -398,13 +398,10 @@ pub(crate) fn bind_dismiss<Action>(
         }
         Program::None
         | Program::Send(_)
-        | Program::Run(_)
-        | Program::FallibleRun(_)
-        | Program::Future(_)
+        | Program::Runtime(_)
         | Program::Cancel(_)
         | Program::Wait(_)
-        | Program::SendAfter { .. }
-        | Program::SendAt { .. }
+        | Program::ScheduledSend { .. }
         | Program::Interval { .. } => {}
     }
 }

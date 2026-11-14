@@ -32,8 +32,9 @@ class WindowsPerformanceTests(unittest.TestCase):
             "reference": {"revision": "d" * 40, "tree": "e" * 40, "lock_sha256": "f" * 64,
                           "manifest_sha256": "4" * 64, "original_harness_sha256": "5" * 64},
             "harness_sha256": hashlib.sha256((SCRIPT.parents[1] / "rca-tokio/benches/qualification.rs").read_bytes()).hexdigest(),
+            "harness_module_sha256": hashlib.sha256((SCRIPT.parents[1] / "rca-tokio/benches/qualification/shutdown.rs").read_bytes()).hexdigest(),
             "scenario_manifest_sha256": hashlib.sha256((SCRIPT.parents[1] / "docs/performance/scenarios.txt").read_bytes()).hexdigest(),
-            "toolchain": {"rustc": "rustc 1.99.0 (pinned)", "cargo": "cargo 1.99.0 (pinned)",
+            "toolchain": {"rustc": "rustc 1.100.0 (pinned)", "cargo": "cargo 1.100.0 (pinned)",
                           "target": "x86_64-pc-windows-msvc", "rustc_commit": "6" * 40},
             "binaries": {f"{role}_{mode}": {"sha256": "7" * 64}
                          for role in ("candidate", "reference") for mode in ("normal", "allocation")},
@@ -85,9 +86,18 @@ class WindowsPerformanceTests(unittest.TestCase):
         return value
 
     def measurement(self, scenario="query/multi", samples=10000, operations=10000):
-        return {"scenario": scenario, "samples": samples, "operations": operations,
-                "throughput_per_second": 100.0, "latency_ns": {"p50": 10, "p95": 20, "p99": 30},
-                "allocations": 0, "allocated_bytes": 0, "task_wakes": 1, "peak_bytes": 0}
+        value = {"scenario": scenario, "samples": samples, "operations": operations,
+                 "throughput_per_second": 100.0, "latency_ns": {"p50": 10, "p95": 20, "p99": 30},
+                 "allocations": 0, "allocated_bytes": 0, "task_wakes": 1, "peak_bytes": 0}
+        limit = {"shutdown/abortive/live/1": 1, "shutdown/abortive/live/8": 8,
+                 "shutdown/abortive/burst/8": 8, "shutdown/abortive/burst/64": 64}.get(scenario)
+        if limit is not None:
+            batches = samples + min(samples, 20)
+            value["shutdown_lifetime"] = dict(
+                live_limit=limit, maximum_unfinished=limit, batches=batches,
+                spawned=limit * batches, dropped=limit * batches,
+                unfinished=0, maximum_batch_end_unfinished=0)
+        return value
 
     def counters(self):
         return {"QueryProcessCycleTime": 123, "UserTime100ns": 3, "KernelTime100ns": 4,
@@ -103,6 +113,7 @@ class WindowsPerformanceTests(unittest.TestCase):
                         "Cargo.lock": f'# {role}\n[[package]]\nname = "rca-tokio"\ndependencies = [\n "rca-test",\n]\n'.encode(),
                         "rca-tokio/Cargo.toml": f"# {role}\n[dev-dependencies]\nrca-test.workspace = true\n".encode(),
                         "rca-tokio/benches/qualification.rs": common_harness,
+                        "rca-tokio/benches/qualification/shutdown.rs": (SCRIPT.parents[1] / "rca-tokio/benches/qualification/shutdown.rs").read_bytes(),
                         "rca-core/src/lib.rs": f"{role} production source".encode()}
             metadata[role].update(manifest_sha256=hashlib.sha256(original["Cargo.toml"]).hexdigest(),
                                   lock_sha256=hashlib.sha256(original["Cargo.lock"]).hexdigest(),
@@ -156,6 +167,50 @@ class WindowsPerformanceTests(unittest.TestCase):
         for scenario, (samples, units) in expected.items():
             self.assertEqual(self.runner.allocation_samples(scenario), samples)
             self.assertEqual(self.runner.operations_per_sample(scenario), units)
+
+    def test_bounded_shutdown_requires_exact_operations_and_lifetime_evidence(self):
+        for scenario, limit in (("shutdown/abortive/live/1", 1), ("shutdown/abortive/live/8", 8),
+                                ("shutdown/abortive/burst/8", 8), ("shutdown/abortive/burst/64", 64)):
+            self.assertEqual(self.runner.allocation_samples(scenario), 500)
+            self.assertEqual(self.runner.operations_per_sample(scenario), limit)
+            for samples, mode in ((10000, "normal"), (500, "allocation"), (1, "normal")):
+                value = self.measurement(scenario, samples, samples * limit)
+                batches = samples + min(samples, 20)
+                value["shutdown_lifetime"] = dict(
+                    live_limit=limit, maximum_unfinished=limit, batches=batches,
+                    spawned=limit * batches, dropped=limit * batches,
+                    unfinished=0, maximum_batch_end_unfinished=0)
+                if mode == "allocation":
+                    value.update(allocations=2, allocated_bytes=32, peak_bytes=16)
+                self.runner.validate_measurement(value, scenario, samples, mode)
+                for field, bad in (("live_limit", limit + 1), ("maximum_unfinished", limit + 1),
+                                   ("maximum_unfinished", limit - 1), ("spawned", limit * batches - 1),
+                                   ("dropped", limit * batches - 1), ("unfinished", 1),
+                                   ("maximum_batch_end_unfinished", 1), ("batches", batches - 1),
+                                   ("unfinished", False), ("spawned", float(limit * batches))):
+                    broken = copy.deepcopy(value)
+                    broken["shutdown_lifetime"][field] = bad
+                    with self.subTest(scenario=scenario, mode=mode, field=field, bad=bad), self.assertRaises(ValueError):
+                        self.runner.validate_measurement(broken, scenario, samples, mode)
+                for field in (None, *value["shutdown_lifetime"]):
+                    broken = copy.deepcopy(value)
+                    if field is None:
+                        del broken["shutdown_lifetime"]
+                    else:
+                        del broken["shutdown_lifetime"][field]
+                    with self.subTest(scenario=scenario, missing=field), self.assertRaises(ValueError):
+                        self.runner.validate_measurement(broken, scenario, samples, mode)
+                broken = copy.deepcopy(value)
+                broken["shutdown_lifetime"]["unrecognised"] = 0
+                with self.assertRaises(ValueError):
+                    self.runner.validate_measurement(broken, scenario, samples, mode)
+
+    def test_legacy_rows_cannot_claim_bounded_shutdown_lifetimes(self):
+        for scenario in ("shutdown/abortive", "shutdown/graceful", "query/multi"):
+            value = self.measurement(scenario)
+            value["shutdown_lifetime"] = None
+            with self.subTest(scenario=scenario), self.assertRaises(ValueError):
+                self.runner.validate_measurement(value, scenario, 10000, "normal")
 
     def test_measurement_rejects_wrong_counts_and_invalid_metrics(self):
         for changes in ({"samples": 9999}, {"operations": 1}, {"scenario": "effect/async"},
@@ -331,11 +386,11 @@ class WindowsPerformanceTests(unittest.TestCase):
         process.assert_not_called()
         self.assertFalse((self.root / "result/complete.json").exists())
 
-    def test_split_capture_runs_all_fifty_rows_with_their_exact_binary_roles(self):
+    def test_split_capture_runs_all_rows_with_their_exact_binary_roles(self):
         binaries, metadata = self.capture_inputs()
         scenarios = self.runner.load_scenarios()
         native = [name for name in scenarios if not name.startswith("deterministic/")]
-        self.assertEqual(len(native), 44)
+        self.assertEqual(len(native), 48)
         calls = []
 
         def process(command, stem, env, *args):
@@ -360,8 +415,8 @@ class WindowsPerformanceTests(unittest.TestCase):
                 patch.object(self.runner, "run_process", side_effect=process):
             result = self.runner.capture(binaries, metadata, self.root / "split", 1)
         self.assertEqual([row["scenario"] for row in result["rows"]], scenarios)
-        self.assertEqual([row["configuration"] for row in result["rows"]], ["native"] * 44 + ["deterministic"] * 6)
-        self.assertEqual(len(calls), 8 + 50 * 32)
+        self.assertEqual([row["configuration"] for row in result["rows"]], ["native"] * 48 + ["deterministic"] * 6)
+        self.assertEqual(len(calls), 8 + 54 * 32)
         for row in result["rows"]:
             self.assertEqual(len(row["pairs"]["normal"]), 10)
             self.assertEqual(len(row["pairs"]["allocation"]), 6)
@@ -370,7 +425,7 @@ class WindowsPerformanceTests(unittest.TestCase):
                     for role in ("candidate", "reference"):
                         self.assertEqual(pair[role]["configuration"], row["configuration"])
         complete = json.loads((self.root / "split/complete.json").read_text())
-        self.assertEqual(complete["rows"], 50)
+        self.assertEqual(complete["rows"], 54)
 
     def test_split_metadata_rejects_feature_and_source_role_confusion(self):
         def command(value, key="candidate_normal"):
@@ -468,7 +523,7 @@ class WindowsPerformanceTests(unittest.TestCase):
         self.assertFalse(b'if scenario.starts_with("deterministic/")' in native["rca-tokio/benches/qualification.rs"],
                          "the original scenario membership check already rejects unsupported rows")
         self.assertEqual(hashlib.sha256(native["rca-tokio/benches/qualification.rs"]).hexdigest(),
-                         "85fff1f0fc6f66a04cb8a76e1793a750e90e2fb30375cd66b679a68e27f06c47")
+                         "a64f68ad3a849929fb9f23e420215c5254b793ff81cfb0dce8434df74faf0f0e")
         self.assertEqual(native["rca-tokio/Cargo.toml"], original["rca-tokio/Cargo.toml"].replace(b"rca-test.workspace = true\n", b""))
         self.assertEqual(native["Cargo.lock"].count(b' "rca-test",\n'), original["Cargo.lock"].count(b' "rca-test",\n') - 1)
         for relative in original:
@@ -476,6 +531,32 @@ class WindowsPerformanceTests(unittest.TestCase):
             broken[relative] = b"missing required staging input"
             with self.subTest(relative=relative), self.assertRaises(ValueError):
                 self.runner.native_staged_files(broken)
+
+    def test_common_shutdown_module_requires_its_own_source_binding(self):
+        for mutation in ("missing", "different", "changed-file"):
+            with self.subTest(mutation=mutation), tempfile.TemporaryDirectory() as directory:
+                self.root = Path(directory)
+                _, metadata = self.capture_inputs()
+                source = json.loads(metadata.read_text())
+                if mutation == "missing":
+                    del source["harness_module_sha256"]
+                    with self.assertRaisesRegex(ValueError, "metadata"):
+                        self.runner.validate_metadata(source)
+                    continue
+                if mutation == "different":
+                    source["harness_module_sha256"] = "0" * 64
+                else:
+                    binary = source["binaries"]["candidate_normal"]
+                    relative = "rca-tokio/benches/qualification/shutdown.rs"
+                    module = Path(binary["source_root"]) / relative
+                    module.write_text("changed shutdown workload")
+                    manifest = Path(binary["source_manifest"])
+                    inventory = json.loads(manifest.read_text())
+                    inventory[relative] = hashlib.sha256(module.read_bytes()).hexdigest()
+                    manifest.write_text(json.dumps(inventory))
+                    binary["source_manifest_sha256"] = hashlib.sha256(manifest.read_bytes()).hexdigest()
+                with self.assertRaisesRegex(ValueError, "does not bind.*shutdown"):
+                    self.runner.validate_staged_sources(source)
 
     def test_native_staging_rejects_other_edits_inside_an_allowed_file(self):
         _, metadata = self.capture_inputs()
@@ -549,11 +630,11 @@ class WindowsPerformanceTests(unittest.TestCase):
             with self.assertRaises(subprocess.CalledProcessError):
                 self.runner.capture(binaries, metadata, self.root / "partial", 1)
         self.assertEqual(attempts[-1], ("reference_deterministic_normal", "deterministic/ready/1"))
-        self.assertEqual(len(attempts), 44 * 32 + 1)
+        self.assertEqual(len(attempts), 48 * 32 + 1)
         failure = json.loads((self.root / "partial/failure.json").read_text())
-        self.assertEqual(failure["completed_rows"], 44)
+        self.assertEqual(failure["completed_rows"], 48)
         self.assertFalse(failure["complete"])
-        self.assertEqual(len(list((self.root / "partial/raw").glob("completed-row-*.json"))), 44)
+        self.assertEqual(len(list((self.root / "partial/raw").glob("completed-row-*.json"))), 48)
         for name in ("complete.json", "candidate.json", "reference.json"):
             self.assertFalse((self.root / "partial" / name).exists())
 
@@ -634,6 +715,8 @@ class WindowsPerformanceTests(unittest.TestCase):
     def test_metadata_rejects_missing_identity_and_wrong_toolchain(self):
         for mutate in (lambda value: value.pop("harness_sha256"),
                        lambda value: value["candidate"].update(revision="short"),
+                       lambda value: value["toolchain"].update(rustc="rustc 1.99.0 (pinned)"),
+                       lambda value: value["toolchain"].update(cargo="cargo 1.99.0 (pinned)"),
                        lambda value: value["toolchain"].update(rustc="rustc 1.98.0 (pinned)"),
                        lambda value: value["toolchain"].update(cargo="cargo 1.98.0 (pinned)")):
             value = self.metadata()

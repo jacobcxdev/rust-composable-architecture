@@ -37,7 +37,8 @@ class WindowsSupportTests(unittest.TestCase):
     def inputs(self):
         source = self.root / "source"
         source.mkdir()
-        for name in ("Cargo.toml", "Cargo.lock", "rca-tokio/benches/qualification.rs", "docs/performance/scenarios.txt"):
+        for name in ("Cargo.toml", "Cargo.lock", "rca-tokio/benches/qualification.rs",
+                     "rca-tokio/benches/qualification/shutdown.rs", "docs/performance/scenarios.txt"):
             path = source / name
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(name)
@@ -60,13 +61,14 @@ class WindowsSupportTests(unittest.TestCase):
             "reference": {"revision": "d" * 40, "tree": "e" * 40, "lock_sha256": "f" * 64,
                           "manifest_sha256": "1" * 64, "original_harness_sha256": "2" * 64},
             "harness_sha256": manifest["rca-tokio/benches/qualification.rs"],
+            "harness_module_sha256": manifest["rca-tokio/benches/qualification/shutdown.rs"],
             "scenario_manifest_sha256": manifest["docs/performance/scenarios.txt"],
             "candidate_source_manifest_sha256": self.capture.file_record(manifest_path)["sha256"],
-            "toolchain": {"rustc": "rustc 1.99.0 (pinned)", "cargo": "cargo 1.99.0 (pinned)",
+            "toolchain": {"rustc": "rustc 1.100.0 (pinned)", "cargo": "cargo 1.100.0 (pinned)",
                           "target": "x86_64-pc-windows-msvc", "rustc_commit": "3" * 40},
             "binaries": binaries, "build_exit_code": 0, "profile_environment": {},
             "input_hashes": {record["path"]: record["sha256"] for record in tools.values()},
-            "post_build_source_verification": {"candidate": {"files": 4, "exact_manifest_match": True}},
+            "post_build_source_verification": {"candidate": {"files": 5, "exact_manifest_match": True}},
         }
         return SimpleNamespace(source=source, source_manifest=manifest_path,
                                metadata=self.write_json("metadata.json", metadata),
@@ -117,7 +119,7 @@ class WindowsSupportTests(unittest.TestCase):
         metadata["binaries"]["candidate_normal"]["sha256"] = self.capture.file_record(args.candidate_normal)["sha256"]
         metadata["toolchain"]["rustc"] = "rustc 1.98.0 (pinned)"
         args.metadata.write_text(json.dumps(metadata))
-        with self.assertRaisesRegex(ValueError, "pinned Rust 1.99.0"):
+        with self.assertRaisesRegex(ValueError, "pinned Rust 1.100.0"):
             self.validate(args)
 
     def test_changed_tool_is_not_accepted_from_a_rewritten_descriptor(self):
@@ -162,7 +164,7 @@ class WindowsSupportTests(unittest.TestCase):
         self.assertEqual(env["CARGO_BUILD_JOBS"], "1")
         self.assertEqual(env["RUSTC_WRAPPER"], "")
         self.assertEqual(env["RUSTC"], "C:\\tools\\rustc.exe")
-        self.assertEqual(env["RUSTUP_TOOLCHAIN"], "1.99.0")
+        self.assertEqual(env["RUSTUP_TOOLCHAIN"], "1.100.0")
         self.assertTrue(env["PATH"].endswith("tools"))
         self.assertEqual(env["CARGO_TARGET_DIR"], str(self.root))
 

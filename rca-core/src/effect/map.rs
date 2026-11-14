@@ -3,7 +3,7 @@
 use std::sync::Arc;
 
 use super::leaves::{EffectLeaves, EffectValue, SharedEffects};
-use super::{Effect, EffectSender, Program, Run};
+use super::{Effect, EffectSender, Program, Run, RuntimeLeaf};
 
 /// Converts owned actions without requiring either action type to be `Send`.
 type ActionMap<Source, Mapped> = dyn Fn(Source) -> Mapped + Send + Sync + 'static;
@@ -90,11 +90,7 @@ where
         Program::Send(action) => Program::Send(map(action)),
         Program::Cancel(identity) => Program::Cancel(identity),
         Program::Wait(duration) => Program::Wait(duration),
-        Program::SendAfter { duration, action } => Program::SendAfter {
-            duration,
-            action: map(action),
-        },
-        Program::SendAt { deadline, action } => Program::SendAt {
+        Program::ScheduledSend { deadline, action } => Program::ScheduledSend {
             deadline,
             action: map(action),
         },
@@ -181,9 +177,11 @@ where
         Program::None => Program::None,
         Program::Dismiss(target) => Program::Dismiss(target),
         Program::Send(action) => Program::Send(map.action(action)),
-        Program::Run(operation) => Program::Run(map.run(operation)),
-        Program::FallibleRun(operation) => Program::FallibleRun(map.fallible(operation)),
-        Program::Future(future) => Program::Future(map.future(future)),
+        Program::Runtime(leaf) => Program::Runtime(match leaf {
+            RuntimeLeaf::Run(operation) => RuntimeLeaf::Run(map.run(operation)),
+            RuntimeLeaf::Fallible(operation) => RuntimeLeaf::Fallible(map.fallible(operation)),
+            RuntimeLeaf::Future(future) => RuntimeLeaf::Future(map.future(future)),
+        }),
         Program::Merge(effects) => Program::Merge(
             effects
                 .into_iter()
@@ -201,11 +199,7 @@ where
         Program::WithoutInheritedCancellation(effect) => Program::WithoutInheritedCancellation(
             Box::new(map_program::<Source, Mapped, C, D, M>(*effect, map)),
         ),
-        Program::SendAfter { duration, action } => Program::SendAfter {
-            duration,
-            action: map.action(action),
-        },
-        Program::SendAt { deadline, action } => Program::SendAt {
+        Program::ScheduledSend { deadline, action } => Program::ScheduledSend {
             deadline,
             action: map.action(action),
         },
@@ -260,6 +254,7 @@ mod tests {
     use super::*;
     use crate::MonotonicInstant;
     use crate::composition::DismissTarget;
+    use crate::effect::OneShotDeadline;
     use crate::store::scope::ScopeRegistry;
 
     struct DropCount(Arc<AtomicUsize>);
@@ -297,8 +292,8 @@ mod tests {
                 (0, Program::Send(3)) => {}
                 (
                     1,
-                    Program::SendAfter {
-                        duration: actual,
+                    Program::ScheduledSend {
+                        deadline: OneShotDeadline::After(actual),
                         action: 3,
                     },
                 ) => {
@@ -306,8 +301,8 @@ mod tests {
                 }
                 (
                     2,
-                    Program::SendAt {
-                        deadline: actual,
+                    Program::ScheduledSend {
+                        deadline: OneShotDeadline::At(actual),
                         action: 3,
                     },
                 ) => {
@@ -517,7 +512,7 @@ mod tests {
         assert_eq!(promotions.load(Ordering::Relaxed), 1);
         assert_eq!(drops.load(Ordering::Relaxed), 0);
         assert!(matches!(&mapped.program, Program::Merge(children)
-            if children.len() == 1 && matches!(children[0].program, Program::Run(_))));
+            if children.len() == 1 && matches!(children[0].program, Program::Runtime(RuntimeLeaf::Run(_)))));
         drop(mapped);
         assert_eq!(drops.load(Ordering::Relaxed), 1);
     }
@@ -688,10 +683,22 @@ mod tests {
 
             match (index, program) {
                 (0, Program::Send(3)) => {}
-                (1, Program::SendAfter { duration: actual, action: 3 }) => {
+                (
+                    1,
+                    Program::ScheduledSend {
+                        deadline: OneShotDeadline::After(actual),
+                        action: 3,
+                    },
+                ) => {
                     assert_eq!(actual, duration);
                 }
-                (2, Program::SendAt { deadline: actual, action: 3 }) => {
+                (
+                    2,
+                    Program::ScheduledSend {
+                        deadline: OneShotDeadline::At(actual),
+                        action: 3,
+                    },
+                ) => {
                     assert_eq!(actual, deadline);
                 }
                 _ => panic!("local mapping must preserve effect kind and mapped payload"),

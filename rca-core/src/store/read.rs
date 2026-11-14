@@ -205,7 +205,7 @@ mod tests {
         let state = Rc::new(7_usize);
         let mut handles: HandleRegistryCore<dyn HandleSelector<Rc<usize>>> =
             HandleRegistryCore::new();
-        let (reply, receive) = async_channel::bounded(1);
+        let (reply, mut receive) = futures_channel::oneshot::channel();
         handles.register(
             &state,
             HandleRegistrationCommandCore {
@@ -216,7 +216,7 @@ mod tests {
                 reply,
             },
         );
-        let handle = receive.try_recv().unwrap().unwrap();
+        let handle = receive.try_recv().unwrap().unwrap().unwrap();
         let calls = Rc::new(Cell::new(0));
         let counted = Rc::clone(&calls);
         let owner = std::thread::current().id();

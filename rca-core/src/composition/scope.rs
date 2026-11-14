@@ -500,7 +500,7 @@ mod tests {
         assert_eq!(extraction_calls.get(), 1);
         assert_eq!(Rc::strong_count(&value), 1);
         assert!(effect.scope.is_some());
-        let super::Program::Future(future) = effect.program else {
+        let super::Program::Runtime(crate::effect::RuntimeLeaf::Future(future)) = effect.program else {
             panic!("the scoped output retains its deferred mapping");
         };
         let output = futures_executor::block_on(future).unwrap();

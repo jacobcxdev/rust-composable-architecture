@@ -163,7 +163,7 @@ mod tests {
         let mut handles: HandleRegistryCore<dyn HandleSelector<[Rc<usize>; 2]>> =
             HandleRegistryCore::new();
         let handle_signal = HandleSignal::new(Weak::new());
-        let (reply, receive) = async_channel::bounded(1);
+        let (reply, mut receive) = futures_channel::oneshot::channel();
         let mut state = [Rc::new(7), Rc::new(8)];
         handles.register(
             &state,
@@ -176,7 +176,7 @@ mod tests {
                 reply,
             },
         );
-        let handle = receive.try_recv().unwrap().unwrap();
+        let handle = receive.try_recv().unwrap().unwrap().unwrap();
         let projections = Rc::new(Cell::new(0));
         let projected = Rc::clone(&projections);
         let selector = CheckedSelector::new(move |_: &[Rc<usize>; 2], selected| {

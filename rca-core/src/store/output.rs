@@ -552,7 +552,9 @@ struct RootHandler<R, A, O> {
     registration: Option<FrozenRegistration>,
 }
 
-impl<R, A, O> OutputHandler<R, A, O, Shared> for RootHandler<R, A, O> {
+impl<R: Send + 'static, A: Send + 'static, O> OutputHandler<R, A, O, Shared>
+    for RootHandler<R, A, O>
+{
     fn freeze(&mut self, scopes: &ScopeRegistry, source: ScopeToken) -> Option<usize> {
         let distance = scopes.ancestor_distance(source, scopes.root())?;
         self.registration = Some(FrozenRegistration {
@@ -576,7 +578,13 @@ impl<R, A, O> OutputHandler<R, A, O, Shared> for RootHandler<R, A, O> {
     ) -> Result<(OutputFlow<O>, Batch<R, A, Shared>), (O, TaskAccessError)> {
         let mut context = FeatureContext::new(context);
         let flow = (self.handler)(root, value, &mut context);
-        Ok((flow, Batch::Root(context.into_work())))
+        Ok((
+            flow,
+            Batch::Root(crate::feature::RootWork::new(
+                context.into_work(),
+                <Shared as super::carriers::Execution<R, A>>::ROOT_REGISTRAR,
+            )),
+        ))
     }
 }
 

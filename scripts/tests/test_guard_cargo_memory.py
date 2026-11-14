@@ -396,7 +396,7 @@ class GuardTests(unittest.TestCase):
             (tool_directory / tool).touch()
             (tool_directory / tool).chmod(0o700)
         def resolve(command, **kwargs):
-            self.assertEqual(command[:4], ["rustup", "which", "--toolchain", "1.99.0"])
+            self.assertEqual(command[:4], ["rustup", "which", "--toolchain", "1.100.0"])
             return str(tool_directory / command[-1]) + "\n"
         with patch.object(self.guard.subprocess, "check_output", side_effect=resolve):
             command, env = self.guard.cargo_command(["test", "--locked"], {
@@ -470,7 +470,7 @@ class GuardTests(unittest.TestCase):
         self.assertEqual(environment["RUSTC_WRAPPER"], "")
         self.assertEqual(environment["RUSTC_WORKSPACE_WRAPPER"], "")
         receipt = json.loads(receipt_path.read_text())
-        self.assertEqual(receipt["toolchain"], "1.99.0")
+        self.assertEqual(receipt["toolchain"], "1.100.0")
         self.assertEqual(receipt["entrypoint"], "qualify-performance")
         for role, argument in (("candidate", arguments[0]), ("reference", arguments[2])):
             self.assertEqual(receipt["qualification_outputs"][role], {
@@ -570,7 +570,7 @@ class GuardTests(unittest.TestCase):
             result = json.loads(receipt.read_text())
             self.assertEqual(result["reason"], "memory-limit")
             self.assertTrue(result["cleanup_complete"])
-            self.assertEqual(result["toolchain"], "1.99.0")
+            self.assertEqual(result["toolchain"], "1.100.0")
             saved = receipt.read_bytes()
             with patch.object(self.guard.subprocess, "Popen") as start:
                 with self.assertRaises(FileExistsError):

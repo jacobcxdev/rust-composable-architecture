@@ -610,8 +610,7 @@ impl<State, F: CaptureFamily> DeclaredCaptures<State, F> {
                 .pending
                 .get_mut()
                 .as_mut()
-                .map(|pending| std::mem::take(&mut pending.expected))
-                .unwrap_or_default(),
+                .map_or_default(|pending| std::mem::take(&mut pending.expected)),
         }
     }
 

@@ -7,6 +7,7 @@
 //! User callback panics propagate. Registry teardown still closes remaining
 //! signals when one consumer wake unwinds; another panic during unwinding aborts.
 
+use crate::store::mailbox;
 use std::any::Any;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -108,7 +109,7 @@ macro_rules! root_take {
                 self.reply = Some(reply);
                 match ingress.try_send(super::Command::<State, Action, $family>::Observation(self)) {
                     Ok(()) => TakeFuture::Receiving { receive },
-                    Err(async_channel::TrySendError::Full(command)) => {
+                    Err(mailbox::TrySendError::Full(command)) => {
                         TakeFuture::<Value, $family>::Deferred(Box::pin(async move {
                             ingress
                                 .send(command)
@@ -117,7 +118,7 @@ macro_rules! root_take {
                             receive.await.map_err(|_closed| crate::StoreStopped::new())
                         }))
                     }
-                    Err(async_channel::TrySendError::Closed(_)) => TakeFuture::Closed,
+                    Err(mailbox::TrySendError::Disconnected(_)) => TakeFuture::Closed,
                 }
             }
         }

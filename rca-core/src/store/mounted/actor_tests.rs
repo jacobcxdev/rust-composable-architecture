@@ -265,7 +265,9 @@ fn fixture() -> (
 /// Processes exactly one admitted command and registers its actual returned work.
 fn dispatch(actor: &mut Actor<State, RootAction>) {
     let command = actor.receiver.try_recv().unwrap();
-    let turn = futures_executor::block_on(actor.process_command(command));
+    let turn = actor.process_command(command);
+    #[cfg(feature = "test-util")]
+    let turn = futures_executor::block_on(turn);
     assert!(actor.launch(turn));
 }
 
@@ -562,10 +564,10 @@ fn reducer_unwind_releases_node_before_context_cleanup_and_reply_wake() {
     assert!(send.as_mut().poll(&mut cx).is_pending());
     let command = actor.receiver.try_recv().unwrap();
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        // The test-util dispatcher is async; the ordinary dispatcher
-        // computes its Ready<Turn> synchronously. Catch both entry points.
-        let mut processing = Box::pin(actor.process_command(command));
-        processing.as_mut().poll(&mut cx)
+        let turn = actor.process_command(command);
+        #[cfg(feature = "test-util")]
+        let turn = std::pin::pin!(turn).as_mut().poll(&mut cx);
+        drop(turn);
     }));
     let error = result.err().expect("the mounted reducer must panic");
     assert_eq!(panic_message(&*error), "mounted reducer panic");

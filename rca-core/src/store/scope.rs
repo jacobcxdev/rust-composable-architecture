@@ -278,10 +278,11 @@ struct ScopeRecord {
     mount: MountRecord,
 }
 
-/// Deduplicates departed tokens while preserving first-seen retirement order.
+/// Deduplicates departed tokens and preserves their order for diagnostics.
 #[derive(Debug)]
 pub(crate) struct ScopeTransitionBatch {
-    /// Retains ordered departures for diagnostics and transaction reconciliation.
+    /// Records first-seen order for lifecycle reports.
+    #[cfg(feature = "diagnostics")]
     invalidated: Vec<ScopeToken>,
     /// Creates randomised membership storage only after an actual departure.
     membership: Option<HashSet<ScopeToken>>,
@@ -292,6 +293,7 @@ impl Default for ScopeTransitionBatch {
     #[inline]
     fn default() -> Self {
         Self {
+            #[cfg(feature = "diagnostics")]
             invalidated: Vec::new(),
             membership: None,
         }
@@ -302,13 +304,13 @@ impl ScopeTransitionBatch {
     /// Appends each newly departed incarnation once, in the supplied order.
     pub(crate) fn extend(&mut self, tokens: impl IntoIterator<Item = ScopeToken>) {
         for token in tokens {
-            if self
-                .membership
-                .get_or_insert_with(HashSet::new)
-                .insert(token)
-            {
+            let membership = self.membership.get_or_insert_with(HashSet::new);
+            #[cfg(feature = "diagnostics")]
+            if membership.insert(token) {
                 self.invalidated.push(token);
             }
+            #[cfg(not(feature = "diagnostics"))]
+            membership.insert(token);
         }
     }
 
@@ -321,7 +323,7 @@ impl ScopeTransitionBatch {
 
     /// Reports whether reconciliation has any structural departures to process.
     pub(crate) fn is_empty(&self) -> bool {
-        self.invalidated.is_empty()
+        self.membership.as_ref().is_none_or(HashSet::is_empty)
     }
 
     /// Visits each departure once in the order first recorded.
@@ -566,7 +568,7 @@ pub(crate) struct HandleRegistrationCommandCore<Selector: ?Sized> {
     /// Connects the caller's acquisition guard to actor-side cancellation checks.
     pub(crate) signal: Arc<HandleSignal>,
     /// Transfers a live handle, or reports that acquisition found no valid child.
-    pub(crate) reply: async_channel::Sender<Result<HandleScope, ()>>,
+    pub(crate) reply: futures_channel::oneshot::Sender<Result<HandleScope, ()>>,
 }
 
 /// Retains the original identity and selector while callers own a live signal.
@@ -681,12 +683,12 @@ impl<Selector: ?Sized> HandleRegistryCore<Selector> {
         } = command;
         if signal.is_cancelled() {
             signal.end();
-            let _ = reply.try_send(Err(()));
+            let _ = reply.send(Err(()));
             return;
         }
         let Some(current) = identity.acquire(state) else {
             signal.end();
-            let _ = reply.try_send(Err(()));
+            let _ = reply.send(Err(()));
             return;
         };
 
@@ -708,7 +710,7 @@ impl<Selector: ?Sized> HandleRegistryCore<Selector> {
             },
         );
         debug_assert!(previous.is_none(), "scoped handle ID must be unique");
-        if reply.try_send(Ok(handle)).is_err() {
+        if reply.send(Ok(handle)).is_err() {
             signal.end();
             self.registrations.remove(&id);
         }
@@ -1268,6 +1270,26 @@ impl ScopeRegistry {
             .expect("scope token ID space exhausted");
         let token = ScopeToken(encoded);
         self.next_token = encoded.get();
+        self.install_mount(
+            site,
+            fingerprint,
+            collision_head,
+            token,
+            identity.into_owned(),
+        )
+    }
+
+    /// Installs a fresh mount after typed identity lookup finds no match.
+    #[cold]
+    fn install_mount(
+        &mut self,
+        site: MountSite,
+        fingerprint: IdentityFingerprint,
+        collision_head: ScopeToken,
+        token: ScopeToken,
+        identity: OwnedScopeIdentity,
+    ) -> MountOutcome {
+        let parent = site.parent;
         let previous = self.records.insert(
             token,
             ScopeRecord {
@@ -1281,7 +1303,7 @@ impl ScopeRegistry {
                     fingerprint,
                     previous_collision: self.root,
                     next_collision: collision_head,
-                    identity: OwnedScopeIdentity::from_identity(identity),
+                    identity,
                 },
             },
         );
@@ -1385,9 +1407,9 @@ impl ScopeRegistry {
     pub(crate) fn invalidate_outputs(&self, transitions: &ScopeTransitionBatch) {
         debug_assert!(
             transitions
-                .invalidated
-                .iter()
-                .all(|token| !self.is_current(*token)),
+                .membership
+                .as_ref()
+                .is_none_or(|tokens| tokens.iter().all(|token| !self.is_current(*token))),
             "departed scopes must reject outputs before resource cancellation"
         );
     }
@@ -1617,7 +1639,7 @@ mod tests {
             let drops = Arc::new(Mutex::new(Vec::new()));
             let recorded = Arc::clone(&drops);
             let mut registry = HandleRegistry::new();
-            let (reply, receive) = async_channel::bounded(1);
+            let (reply, mut receive) = futures_channel::oneshot::channel();
             registry.register(
                 &7,
                 HandleRegistrationCommand {
@@ -1635,7 +1657,7 @@ mod tests {
                     reply,
                 },
             );
-            let handle = receive.try_recv().unwrap().unwrap();
+            let handle = receive.try_recv().unwrap().unwrap().unwrap();
             assert!(drops.lock().unwrap().is_empty());
             match path {
                 Path::Checked => assert!(
@@ -2424,7 +2446,8 @@ mod tests {
         transitions.extend(departed);
         transitions.extend([parent, sibling, child, sibling, parent]);
 
-        assert_eq!(transitions.invalidated, [child, parent, sibling]);
+        #[cfg(feature = "diagnostics")]
+        assert!(transitions.iter().eq([child, parent, sibling]));
         assert_eq!(transitions.membership.as_ref().unwrap().len(), 3);
         for token in [child, parent, sibling] {
             assert!(transitions.contains(token));
@@ -2777,6 +2800,9 @@ pub(crate) use allocation_tests::{
     node_identity_allocates_once_per_visited_slot_and_not_on_warm_reuse,
 };
 
+#[cfg(all(test, feature = "allocation-measurement", not(feature = "diagnostics")))]
+pub(crate) use allocation_tests::retirement_without_diagnostics_allocates_only_membership;
+
 #[cfg(all(test, feature = "allocation-measurement"))]
 mod allocation_tests {
     //! Measures actual registry ownership phases in isolated allocation children.
@@ -2784,6 +2810,30 @@ mod allocation_tests {
     use std::sync::Arc;
 
     use super::{ScopeIdentity, ScopeNodeId, ScopeRegistry, ScopeSlot};
+
+    /// Measures retirement bookkeeping without a diagnostics observer.
+    #[cfg(not(feature = "diagnostics"))]
+    pub(crate) fn retirement_without_diagnostics_allocates_only_membership() {
+        const NAME: &str = "store::scope::allocation_tests::retirement_without_diagnostics_allocates_only_membership";
+        if crate::allocation_test::run_in_child(NAME) {
+            return;
+        }
+
+        let (_lifecycle, mut scopes) = ScopeRegistry::for_test();
+        let root = scopes.root();
+        let token = scopes.mount(root, ScopeNodeId::new(), ScopeIdentity::unit());
+        let departed = scopes.leave(token);
+        let mut transitions = super::ScopeTransitionBatch::default();
+        let profiler = dhat::Profiler::builder().testing().build();
+        let before = dhat::HeapStats::get();
+        transitions.extend(departed);
+        let after = dhat::HeapStats::get();
+        drop(profiler);
+
+        assert!(transitions.contains(token));
+        assert!(!transitions.contains(root));
+        assert_eq!(after.total_blocks - before.total_blocks, 1);
+    }
 
     /// Selects the existing exported harness case, not this helper's module path.
     #[cfg(feature = "allocation-measurement")]

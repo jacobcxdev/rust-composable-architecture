@@ -6,7 +6,7 @@ use std::panic::Location;
 
 use futures_util::future::AbortHandle;
 
-use super::{Effect, EffectSender, Program};
+use super::{Effect, EffectSender, Program, RuntimeLeaf};
 use crate::issue::{IssueDelivery, OperationReport};
 use crate::store::command::Provenance;
 use crate::{Issue, IssueReporter, RuntimeFuture};
@@ -85,7 +85,7 @@ impl<Action: 'static> Effect<Action> {
         HandlerFuture: Future<Output = ()> + Send + 'static,
     {
         Self {
-            program: Program::<Action>::FallibleRun(Box::new(
+            program: Program::Runtime(RuntimeLeaf::<Action>::Fallible(Box::new(
                 move |sender, provenance, cancellation| {
                     Box::pin(async move {
                         let next = handle_result(
@@ -102,7 +102,7 @@ impl<Action: 'static> Effect<Action> {
                         }
                     })
                 },
-            )),
+            ))),
             scope: None,
         }
     }
@@ -156,7 +156,7 @@ impl<Action: 'static> Effect<Action> {
     {
         let location = Location::caller();
         Self {
-            program: Program::<Action>::FallibleRun(Box::new(
+            program: Program::Runtime(RuntimeLeaf::<Action>::Fallible(Box::new(
                 move |sender, provenance, cancellation| {
                     Box::pin(async move {
                         report_result(
@@ -170,7 +170,7 @@ impl<Action: 'static> Effect<Action> {
                         );
                     })
                 },
-            )),
+            ))),
             scope: None,
         }
     }

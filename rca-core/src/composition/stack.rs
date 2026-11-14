@@ -806,7 +806,7 @@ mod tests {
         assert_eq!(children.len(), 1);
         let child = children.pop().unwrap();
         assert!(child.scope.is_some());
-        let crate::effect::Program::Future(future) = child.program else {
+        let crate::effect::Program::Runtime(crate::effect::RuntimeLeaf::Future(future)) = child.program else {
             panic!("the nonempty mapped child future must remain deferred");
         };
         let Some(StackAction::Element {

@@ -13,13 +13,14 @@ mod support;
 
 use std::cell::Cell;
 use std::hash::{Hash, Hasher};
+use std::pin::Pin;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::task::{Context, Poll, Waker};
 
 use rca_core::{
-    ActionPath, Effect, OptionalStatePath, ReduceContext, Reducer, RuntimeFuture, ScopedStore,
-    StatePath, Store,
+    ActionPath, Effect, OptionalStatePath, PredicateWaitOutcome, ReduceContext, Reducer,
+    RuntimeFuture, ScopedStore, StatePath, Store,
 };
 
 #[global_allocator]
@@ -227,6 +228,47 @@ fn string_identity_costs() -> ([(u64, u64, usize); 3], usize) {
     (costs, clones.load(Ordering::Acquire))
 }
 
+/// Measures ordinary and owned scoped admission after the mailbox is warm.
+fn async_admission_costs(
+    child: &ScopedStore<ChildState, ChildAction>,
+    actor: &mut RuntimeFuture,
+    context: &mut Context<'_>,
+    embeddings: &AtomicUsize,
+) -> [(u64, u64); 2] {
+    let initial_embeddings = embeddings.load(Ordering::Acquire);
+    let mut send = std::pin::pin!(child.send(ChildAction(Cell::new(0))));
+    let before_send = dhat::HeapStats::get();
+    assert!(send.as_mut().poll(context).is_pending());
+    let after_send = dhat::HeapStats::get();
+    assert!(actor.as_mut().poll(context).is_pending());
+    let Poll::Ready(Ok(task)) = send.as_mut().poll(context) else {
+        panic!("actor must acknowledge the scoped send");
+    };
+    assert!(task.is_finished());
+    assert_eq!(embeddings.load(Ordering::Acquire), initial_embeddings + 1);
+
+    let mut wait = child.send_and_wait_while(ChildAction(Cell::new(0)), |_| {
+        panic!("cancelled send must not register its predicate");
+    });
+    let before_wait = dhat::HeapStats::get();
+    assert!(Pin::new(&mut wait).poll(context).is_pending());
+    let after_wait = dhat::HeapStats::get();
+    wait.cancel();
+    assert!(actor.as_mut().poll(context).is_pending());
+    assert_eq!(
+        Pin::new(&mut wait).poll(context),
+        Poll::Ready(PredicateWaitOutcome::Cancelled),
+    );
+    assert_eq!(embeddings.load(Ordering::Acquire), initial_embeddings + 1);
+
+    [(before_send, after_send), (before_wait, after_wait)].map(|(before, after)| {
+        (
+            after.total_blocks - before.total_blocks,
+            after.total_bytes - before.total_bytes,
+        )
+    })
+}
+
 /// Checks that scoped admission reuses its embedding without per-send closures.
 #[expect(
     clippy::too_many_lines,
@@ -355,6 +397,8 @@ fn scoped_admission_reuses_embedding_without_allocating_a_per_send_closure() {
             RootAction::Optional(ChildAction(Cell::new(0)))
         });
     let (string_costs, string_clones) = string_identity_costs();
+    let required_async = async_admission_costs(&required, &mut actor, &mut context, &embeddings);
+    let optional_async = async_admission_costs(&optional, &mut actor, &mut context, &embeddings);
     drop(profiler);
 
     let shutdown = store.shutdown_into_state();
@@ -367,7 +411,7 @@ fn scoped_admission_reuses_embedding_without_allocating_a_per_send_closure() {
     let state = state.expect("clean shutdown");
     assert_eq!(state.required.total, 18);
     assert_eq!(state.optional.expect("child remains present").total, 18);
-    assert_eq!(embeddings.load(Ordering::Acquire), 6);
+    assert_eq!(embeddings.load(Ordering::Acquire), 8);
 
     // Bytes are diagnostic only: do not freeze allocator or private layouts.
     // Identified construction includes actor registration and mailbox waiting.
@@ -393,6 +437,12 @@ fn scoped_admission_reuses_embedding_without_allocating_a_per_send_closure() {
         "scoped admission: required_blocks={} required_bytes={} identified_optional_blocks={} identified_optional_bytes={}",
         admission_blocks[0], admission_bytes[0], admission_blocks[1], admission_bytes[1],
     );
+    for (route, [send, wait]) in [("required", required_async), ("identified", optional_async)] {
+        eprintln!(
+            "scoped async admission {route}: send_blocks={} send_bytes={} wait_blocks={} wait_bytes={}",
+            send.0, send.1, wait.0, wait.1,
+        );
+    }
     for (identity, costs) in [("u64", publication_costs), ("String", string_costs)] {
         let base_blocks = costs[0].0;
         assert!(

@@ -29,6 +29,7 @@ use crate::effect::lineage::LineageState;
 use crate::effect::operation::OperationWork;
 use crate::effect::registry::{GenerationToken, PreparedTask, TaskRegistry};
 use crate::feature::{Work, WorkItem};
+use crate::store::mailbox;
 use crate::{ActionTask, Feature, FeatureContext, ReduceContext};
 use parking_lot::Mutex;
 use std::collections::VecDeque;
@@ -1450,7 +1451,7 @@ where
         }
     }
 
-    fn operation(&self, identity: crate::effect::CancellationIdentity) -> crate::Operation {
+    fn operation(&self, identity: crate::effect::UnscopedCancellationIdentity) -> crate::Operation {
         crate::Operation::from_frozen_identity(
             Weak::clone(&self.route.ingress),
             self.provenance.clone(),
@@ -1526,7 +1527,7 @@ where
                     )
                         as Box<<Shared as Carriers<R, A>>::Mounted>),
                 };
-            if let Err(async_channel::SendError((command, _, _, operation_work))) = ingress
+            if let Err(mailbox::SendError((command, _, _, operation_work))) = ingress
                 .send_map(
                     (command, provenance, authority, operation_work),
                     |(command, provenance, authority, operation_work)| match command {
@@ -1614,7 +1615,7 @@ where
                 return;
             };
             let authority = route.authority.clone();
-            if let Err(async_channel::SendError((_, request, _, _, _))) = ingress
+            if let Err(mailbox::SendError((_, request, _, _, _))) = ingress
                 .send_map(
                     (route, request, mapper, authority, class),
                     |(route, input, mapper, authority, class)| Command::Mounted {
@@ -1672,10 +1673,10 @@ where
             },
         ) {
             Ok(()) => Ok(()),
-            Err(async_channel::TrySendError::Full((_, request, _, _, _))) => {
+            Err(mailbox::TrySendError::Full((_, request, _, _, _))) => {
                 Err(TryAdmission::Full(request))
             }
-            Err(async_channel::TrySendError::Closed((_, request, _, _, _))) => {
+            Err(mailbox::TrySendError::Disconnected((_, request, _, _, _))) => {
                 Err(TryAdmission::Rejected {
                     request,
                     error: TaskAccessError::new(
@@ -2111,10 +2112,10 @@ where
         let command = self.command(action, reply, provenance.clone(), operation_work);
         match ingress.try_send(command) {
             Ok(()) => crate::effect::EffectSendFuture::Receiving(receive),
-            Err(async_channel::TrySendError::Closed(_)) => {
+            Err(mailbox::TrySendError::Disconnected(_)) => {
                 crate::effect::EffectSendFuture::StoreStopped
             }
-            Err(async_channel::TrySendError::Full(command)) => {
+            Err(mailbox::TrySendError::Full(command)) => {
                 crate::effect::EffectSendFuture::Admitting(Box::pin(async move {
                     ingress
                         .send(command)
@@ -2738,7 +2739,10 @@ where
         }
     }
 
-    fn operation(&self, identity: crate::effect::CancellationIdentity) -> crate::local::Operation {
+    fn operation(
+        &self,
+        identity: crate::effect::UnscopedCancellationIdentity,
+    ) -> crate::local::Operation {
         crate::local::Operation::from_frozen_identity(
             Weak::clone(&self.route.ingress),
             self.provenance.clone(),
@@ -2806,7 +2810,7 @@ where
                         as Box<<local::Local as Carriers<R, A>>::Mounted>,
                 ),
             };
-            if let Err(async_channel::SendError((command, _, _, operation_work))) = ingress
+            if let Err(mailbox::SendError((command, _, _, operation_work))) = ingress
                 .send_map(
                     (command, provenance, authority, operation_work),
                     |(command, provenance, authority, operation_work)| match command {
@@ -3088,10 +3092,10 @@ where
         let command = self.command(action, reply, provenance.clone(), operation_work);
         match ingress.try_send(command) {
             Ok(()) => crate::effect::EffectSendFuture::Receiving(receive),
-            Err(async_channel::TrySendError::Closed(_)) => {
+            Err(mailbox::TrySendError::Disconnected(_)) => {
                 crate::effect::EffectSendFuture::StoreStopped
             }
-            Err(async_channel::TrySendError::Full(command)) => {
+            Err(mailbox::TrySendError::Full(command)) => {
                 crate::effect::EffectSendFuture::Admitting(Box::pin(async move {
                     ingress
                         .send(command)

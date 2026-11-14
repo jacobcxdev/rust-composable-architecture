@@ -107,7 +107,7 @@ mod combine;
 mod dependency;
 mod ephemeral;
 mod keyed;
-pub(crate) use keyed::{CollectionStamp, EntryStamp};
+pub(crate) use keyed::{BorrowedEntryStamp, CollectionStamp, EntryStamp};
 mod lifecycle;
 mod missing_child;
 mod on_change;

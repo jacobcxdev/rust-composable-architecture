@@ -1140,6 +1140,49 @@ class InterleavedProtocolTests(unittest.TestCase):
 
 
 class CurrentMacProtocolTests(unittest.TestCase):
+    def test_rust100_release_baseline_rejects_historical_control_revisions(self):
+        baseline = "ab99e19ca772086f11e0a855f840f5cf9fae5d7f"
+        self.assertEqual((REPO_ROOT / "docs/performance/baseline-revision.txt").read_text(), baseline + "\n")
+        self.assertEqual(composition_performance._sha256(REPO_ROOT / "docs/performance/baseline-Cargo.lock"),
+                         "bc0f177612b16bd45c5436138f05808a6df34c689c65e542e004757503afed18")
+        for method in (composition_performance.RUST100_METHOD, composition_performance.RUST100_WINDOWS_METHOD):
+            metadata = dict(mode="reference-reference-aa", subject_role="reference-b", control_role="reference-a",
+                            subject_revision=baseline, control_revision=baseline, os_version="27.0",
+                            os_build="26A428", capture_sha256="a" * 64, memory_watchdog_sha256=WATCHDOG_SHA256)
+            if method == composition_performance.RUST100_WINDOWS_METHOD:
+                metadata.update(platform="windows", target="x86_64-pc-windows-msvc",
+                                os_version="10.0.26100", os_build="26100")
+            composition_performance._validate_protocol_pair_metadata(metadata, method)
+            for old in (composition_performance.REFERENCE_REVISION, "f9e150b7a6eb5a4d3b695966e0563da94c39c0e1"):
+                with self.subTest(method=method, revision=old), self.assertRaisesRegex(ValueError, "reference"):
+                    composition_performance._validate_protocol_pair_metadata(
+                        {**metadata, "subject_revision": old, "control_revision": old}, method)
+
+    def test_rust100_protocols_change_only_method_toolchain_and_release_baseline(self):
+        directory = REPO_ROOT / "docs/performance/composition"
+        for old, new in (("composition-protocol-v8.json", "composition-protocol-v9.json"),
+                         ("composition-windows-paired-v2.json", "composition-windows-paired-v3.json")):
+            with self.subTest(protocol=new):
+                previous = composition_performance.load_protocol(directory / old)
+                current = composition_performance.load_protocol(directory / new)
+                self.assertEqual(current["reference_revision"], "ab99e19ca772086f11e0a855f840f5cf9fae5d7f")
+                current = json.loads(json.dumps(current))
+                current["reference_revision"] = previous["reference_revision"]
+                if "reference_only_source" in current["absolute_compatibility"]:
+                    self.assertEqual(current["absolute_compatibility"]["reference_only_source"],
+                                     "ab99e19ca772086f11e0a855f840f5cf9fae5d7f")
+                    current["absolute_compatibility"]["reference_only_source"] = previous["absolute_compatibility"]["reference_only_source"]
+                self.assertEqual(
+                    {key: value for key, value in previous.items()
+                     if key not in ("method_version", "toolchain")},
+                    {key: value for key, value in current.items()
+                     if key not in ("method_version", "toolchain")},
+                )
+                self.assertEqual(composition_performance.expected_tool_versions(current),
+                                 composition_performance.RUST100_TOOL_VERSIONS)
+                self.assertEqual(composition_performance.expected_tool_versions(previous),
+                                 composition_performance.CURRENT_TOOL_VERSIONS)
+
     def test_v8_requires_the_combined_capture_and_exact_protocol_bytes(self):
         from types import SimpleNamespace
         path = REPO_ROOT / "docs/performance/composition/composition-protocol-v8.json"

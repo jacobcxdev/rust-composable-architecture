@@ -8,6 +8,7 @@ mod weak;
 #[doc(inline)]
 pub use weak::WeakScopedStore;
 
+use crate::store::mailbox;
 use std::any::Any;
 use std::fmt;
 use std::hash::Hash;
@@ -703,7 +704,7 @@ where
 {
     let signal = HandleSignal::new(Arc::downgrade(&store.ingress.control));
     let mut guard = HandleRegistrationGuard::new(Arc::clone(&signal));
-    let (reply, receive) = async_channel::bounded(1);
+    let (reply, receive) = futures_channel::oneshot::channel();
     store
         .ingress
         .send(Command::RegisterHandle(HandleRegistrationCommand {
@@ -713,7 +714,7 @@ where
         }))
         .await
         .map_err(|_closed| ScopedStoreEnded::store_stopped(crate::StoreStopped::new()))?;
-    let handle = match receive.recv().await {
+    let handle = match receive.await {
         Ok(Ok(handle)) => handle,
         Ok(Err(())) => return Err(ScopedStoreEnded::scope_ended()),
         Err(_closed) => {
@@ -801,7 +802,7 @@ where
     ) -> ScopedFuture<Result<ActionTask, ScopedStoreEnded>> {
         let store = self.store.clone();
         let embed = Arc::clone(&self.embed);
-        Box::pin(async move { send_owned_scoped(&store, action, embed, None, cancellation).await })
+        Box::pin(send_owned_scoped(store, action, embed, None, cancellation))
     }
 
     fn wait_terminal(&self) -> WaitTerminal {
@@ -820,10 +821,10 @@ where
             |(action, reply)| Command::Action(ActionCommand::scoped_boxed(action, reply, None)),
         ) {
             Ok(()) => Ok(ActionReceipt::new(receive)),
-            Err(async_channel::TrySendError::Full((action, _reply))) => {
+            Err(mailbox::TrySendError::Full((action, _reply))) => {
                 Err(TryScopedSendError::full(action.into_inner().action))
             }
-            Err(async_channel::TrySendError::Closed((action, _reply))) => Err(
+            Err(mailbox::TrySendError::Disconnected((action, _reply))) => Err(
                 TryScopedSendError::store_stopped(action.into_inner().action),
             ),
         }
@@ -918,9 +919,13 @@ where
         let store = self.store.clone();
         let embed = Arc::clone(&self.embed);
         let handle = self.handle.clone();
-        Box::pin(async move {
-            send_owned_scoped(&store, action, embed, Some(handle), cancellation).await
-        })
+        Box::pin(send_owned_scoped(
+            store,
+            action,
+            embed,
+            Some(handle),
+            cancellation,
+        ))
     }
 
     fn wait_terminal(&self) -> WaitTerminal {
@@ -957,10 +962,10 @@ where
             },
         ) {
             Ok(()) => Ok(ActionReceipt::new(receive)),
-            Err(async_channel::TrySendError::Full((action, _reply, _handle))) => {
+            Err(mailbox::TrySendError::Full((action, _reply, _handle))) => {
                 Err(TryScopedSendError::full(action.into_inner().action))
             }
-            Err(async_channel::TrySendError::Closed((action, _reply, _handle))) => Err(
+            Err(mailbox::TrySendError::Disconnected((action, _reply, _handle))) => Err(
                 TryScopedSendError::store_stopped(action.into_inner().action),
             ),
         }
@@ -1065,21 +1070,19 @@ where
                     .upgrade()
                     .ok_or_else(crate::StoreStopped::new)?;
                 let (command, receive) = new_take(id);
-                match weak_handle.as_ref() {
+                let command = match weak_handle.as_ref() {
                     Some(handle) => {
                         let Some(scope) = handle.upgrade() else {
                             return Ok(TakeReply::Closed);
                         };
-                        ingress
-                            .send(Command::ScopedObservation { scope, command })
-                            .await
-                            .map_err(|_closed| crate::StoreStopped::new())?;
+                        Command::ScopedObservation { scope, command }
                     }
-                    None => ingress
-                        .send(Command::Observation(command))
-                        .await
-                        .map_err(|_closed| crate::StoreStopped::new())?,
-                }
+                    None => Command::Observation(command),
+                };
+                ingress
+                    .send(command)
+                    .await
+                    .map_err(|_closed| crate::StoreStopped::new())?;
                 match receive.await {
                     Ok(reply) => Ok(reply),
                     Err(_closed)
@@ -1104,9 +1107,9 @@ where
     })
 }
 
-/// Submits scoped work whose causal cancellation belongs to an owned predicate wait.
+/// Submits an owned scoped action and waits for its commit.
 async fn send_owned_scoped<State, Action, ChildAction, Embed>(
-    store: &Store<State, Action>,
+    store: Store<State, Action>,
     action: ChildAction,
     embed: Arc<Embed>,
     handle: Option<HandleScope>,
@@ -1120,12 +1123,14 @@ where
         return Err(ScopedStoreEnded::scope_ended());
     }
     let (reply, receive) = crate::store::command::commit_channel();
+    let command = ActionCommand::scoped(action, reply, embed, handle);
+    let command = Command::OwnedAction(Box::new(OwnedActionCommand {
+        command,
+        cancellation,
+    }));
     store
         .ingress
-        .send(Command::OwnedAction(Box::new(OwnedActionCommand {
-            command: ActionCommand::scoped(action, reply, embed, handle),
-            cancellation,
-        })))
+        .send(command)
         .await
         .map_err(|_closed| ScopedStoreEnded::store_stopped(crate::StoreStopped::new()))?;
     match receive.await {
@@ -1168,7 +1173,7 @@ mod tests {
         let selected = Arc::clone(&selections);
         let capture = Arc::new(());
         let capture_weak = Arc::downgrade(&capture);
-        let (reply, receive) = async_channel::bounded(1);
+        let (reply, mut receive) = futures_channel::oneshot::channel();
         let mut registry = HandleRegistry::new();
         registry.register(
             &(),
@@ -1182,7 +1187,6 @@ mod tests {
                 reply,
             },
         );
-        assert_eq!(receive.len(), 1, "the real acknowledgement retains its handle");
         assert_eq!(selections.load(Ordering::Relaxed), 1);
         assert!(capture_weak.upgrade().is_some());
         assert!(!signal_weak.upgrade().unwrap().is_ended());
@@ -1196,7 +1200,8 @@ mod tests {
 
         let handle = receive
             .try_recv()
-            .expect("the acknowledged handle remains queued")
+            .expect("the reply was sent")
+            .expect("the acknowledged handle remains available")
             .expect("the registration was initially accepted");
         assert!(handle.is_ended());
         drop(handle);

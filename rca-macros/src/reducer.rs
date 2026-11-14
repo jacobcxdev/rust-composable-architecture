@@ -251,8 +251,7 @@ fn implementation(
         .generics
         .where_clause
         .as_ref()
-        .map(|clause| clause.predicates.clone())
-        .unwrap_or_default();
+        .map_or_default(|clause| clause.predicates.clone());
     if !predicates.is_empty() && !predicates.trailing_punct() {
         predicates.push_punct(syn::token::Comma::default());
     }

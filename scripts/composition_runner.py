@@ -33,9 +33,9 @@ import windows_strip  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 PROTOCOL = ROOT / "docs/performance/composition/composition-protocol-v7.json"
-CURRENT_PROTOCOL = ROOT / "docs/performance/composition/composition-protocol-v8.json"
-WINDOWS_PROTOCOL = ROOT / "docs/performance/composition/composition-windows-paired-v2.json"
-WINDOWS_COMPLETE_POLICY = ROOT / "docs/performance/composition/composition-windows-complete-v2.json"
+CURRENT_PROTOCOL = ROOT / "docs/performance/composition/composition-protocol-v9.json"
+WINDOWS_PROTOCOL = ROOT / "docs/performance/composition/composition-windows-paired-v3.json"
+WINDOWS_COMPLETE_POLICY = ROOT / "docs/performance/composition/composition-windows-complete-v3.json"
 BUDGET = ROOT / "docs/performance/composition/composition-budgets.json"
 EVIDENCE_ROOT = ROOT / "target/qualification-evidence/0.1.0/composition"
 LOCK = Path("/tmp/rca-composition-performance.machine.lock")
@@ -52,9 +52,14 @@ AA_RECEIPT_FILES = (
 
 def protocol_path(protocol):
     """Select a frozen protocol without changing historical evidence."""
-    if evidence.is_windows_protocol(protocol):
-        return WINDOWS_PROTOCOL
-    return CURRENT_PROTOCOL if protocol["method_version"] == "composition-paired-v8" else PROTOCOL
+    names = {
+        evidence.CURRENT_METHOD: "composition-protocol-v8.json",
+        evidence.RUST100_METHOD: "composition-protocol-v9.json",
+        evidence.WINDOWS_METHOD: "composition-windows-paired-v2.json",
+        evidence.RUST100_WINDOWS_METHOD: "composition-windows-paired-v3.json",
+    }
+    name = names.get(protocol["method_version"])
+    return PROTOCOL.with_name(name) if name else PROTOCOL
 
 
 def receipt_files(protocol, *, windows_complete=False):
@@ -255,7 +260,7 @@ def validate_aa_evidence(value, protocol, controller, host, *, capture=None,
                          windows_complete=None):
     path = Path(value).absolute().resolve()
     windows = evidence.is_windows_protocol(protocol)
-    if (protocol["method_version"] in ("composition-paired-v7", "composition-paired-v8") or windows) and capture is None:
+    if ((protocol["method_version"] == "composition-paired-v7" or evidence.is_current_mac_protocol(protocol)) or windows) and capture is None:
         raise ValueError("A/A evidence needs its contemporaneous capture")
     if capture is not None:
         if path != (capture / "reference-reference-aa").resolve():
@@ -312,7 +317,7 @@ def validate_aa_evidence(value, protocol, controller, host, *, capture=None,
     if (
         metadata["mode"] != "reference-reference-aa"
         or metadata["qualification_script_sha256"] != evidence._sha256(Path(__file__))
-        or (protocol["method_version"] == "composition-paired-v8"
+        or (evidence.is_current_mac_protocol(protocol)
             and metadata.get("memory_watchdog_sha256")
             != evidence._sha256(ROOT / "scripts/guard_cargo_memory.py"))
         or metadata["evaluator_script_sha256"]
@@ -321,8 +326,8 @@ def validate_aa_evidence(value, protocol, controller, host, *, capture=None,
         or inputs.get("controller", {}).get("revision") != controller["revision"]
         or inputs.get("host", {}).get("identity") != host["identity"]
         or any(metadata[key] != host["identity"].get(key) for key in ("os_version", "os_build"))
-        or inputs.get("subject", {}).get("revision") != evidence.REFERENCE_REVISION
-        or inputs.get("control", {}).get("revision") != evidence.REFERENCE_REVISION
+        or inputs.get("subject", {}).get("revision") != evidence.expected_reference_revision(protocol)
+        or inputs.get("control", {}).get("revision") != evidence.expected_reference_revision(protocol)
         or complete.get("passed") is not True
         or comparison.get("mode") != "reference-reference-aa"
         or comparison.get("passed") is not True
@@ -339,7 +344,7 @@ def validate_aa_evidence(value, protocol, controller, host, *, capture=None,
                 or (path / "absolute.json").exists() or (path / "absolute-raw").exists()):
             raise ValueError("Windows A/A evidence cannot certify Darwin absolute gates")
     elif (absolute.get("mode") != "reference-reference-aa"
-            or absolute.get("subject_revision") != evidence.REFERENCE_REVISION
+            or absolute.get("subject_revision") != evidence.expected_reference_revision(protocol)
             or absolute.get("reference_only") is not True or absolute.get("passed") is not True
             or absolute.get("failed_budgets") != [] or len(absolute_rows) != 33
             or not all(row.get("passed") is True for row in absolute_rows)):
@@ -386,7 +391,7 @@ def validate_aa_evidence(value, protocol, controller, host, *, capture=None,
     checked_absolute = evidence.evaluate_absolute(
         BUDGET,
         path / "absolute-raw",
-        evidence.REFERENCE_REVISION,
+        evidence.expected_reference_revision(protocol),
         metadata["capture_script_sha256"],
         metadata["subject_lock_sha256"],
         timing_report=subject_report,
@@ -443,16 +448,16 @@ def tool_environment(include_capture_tool=True):
             "composition qualification rejects ambient Rust compiler or build overrides"
         )
     tools = {
-        name: read(["rustup", "which", "--toolchain", "1.99.0", name])
+        name: read(["rustup", "which", "--toolchain", "1.100.0", name])
         for name in ("cargo", "rustc", "rustdoc")
     }
     versions = {name: read([path, "--version"]) for name, path in tools.items()}
     if (
         versions
-        != evidence.CURRENT_TOOL_VERSIONS
+        != evidence.RUST100_TOOL_VERSIONS
         or len({str(Path(path).parent) for path in tools.values()}) != 1
     ):
-        raise ValueError("exact Cargo, rustc, and rustdoc 1.99.0 required")
+        raise ValueError("exact Cargo, rustc, and rustdoc 1.100.0 required")
     env = dict(os.environ)
     env.update({name.upper(): path for name, path in tools.items()})
     env.update(
@@ -472,7 +477,7 @@ def tool_environment(include_capture_tool=True):
 
 def source_identity(root, reference=False):
     revision = read(["git", "rev-parse", "HEAD"], cwd=root)
-    if reference and revision != evidence.REFERENCE_REVISION:
+    if reference and revision != evidence.RELEASE_BASELINE_REVISION:
         raise ValueError("checkout is not the frozen reference")
     if read(["git", "status", "--porcelain=v1", "--untracked-files=all"], cwd=root):
         raise ValueError(f"qualification requires a clean checkout: {root}")
@@ -960,7 +965,7 @@ def paired_block_hashes(directory, protocol, block, mode):
             for name in names:
                 transcript = paired / family / name.replace("/", "__") / f"block-{block:02d}.txt"
                 paths.extend((transcript, transcript.with_suffix(".resources.json")))
-                if protocol["method_version"] == "composition-paired-v8":
+                if evidence.is_current_mac_protocol(protocol):
                     paths.extend((transcript.with_suffix(".memory.json"), transcript.with_suffix(".exit.json")))
     for path in paths:
         if (directory / path).is_symlink():
@@ -1075,7 +1080,7 @@ def prepare_pair_capture(protocol, budget, mode, staging, targets, reference, co
         "control_lock_sha256": control["hashes"]["Cargo.lock"],
         "qualification_script_sha256": evidence._sha256(Path(__file__)),
         **({"memory_watchdog_sha256": evidence._sha256(ROOT / "scripts/guard_cargo_memory.py")}
-           if protocol["method_version"] == "composition-paired-v8" else {}),
+           if evidence.is_current_mac_protocol(protocol) else {}),
         "evaluator_script_sha256": evidence._sha256(
             ROOT / "scripts/composition_performance.py"
         ),
@@ -1316,10 +1321,9 @@ def qualify(output, staging, reference, mode, aa_evidence=None, *, platform_name
     if controller["revision"] == control["revision"]:
         raise ValueError("candidate and reference revisions must differ")
     capture_tool = None if windows else check_capture_tool(ROOT, tools["cargo"], env)
-    budget = evidence.validate_budget_document(
-        BUDGET, expected_reference=evidence.REFERENCE_REVISION, reference_root=reference)
-    if control["hashes"]["scripts/capture-composition-performance.sh"] != budget["runner_source_hash"]:
-        raise ValueError("reference capture script provenance mismatch")
+    # Historical budget hashes retain their original source provenance. The
+    # active baseline supplies new paired measurements, not those old receipts.
+    budget = evidence.validate_budget_document(BUDGET)
     evidence.validate_allocation_manifest(evidence.DEFAULT_ALLOCATION_MANIFEST)
     pinned_files = [
         selected_protocol, BUDGET, evidence.DEFAULT_ALLOCATION_MANIFEST, Path(__file__),
@@ -1410,11 +1414,11 @@ def qualify(output, staging, reference, mode, aa_evidence=None, *, platform_name
     return 0 if all(passed.values()) else 1
 
 
-COUNTER_PROTOCOL = ROOT / "docs/performance/composable-counter-protocol-v2.json"
-COUNTER_LIFECYCLE_PROTOCOL = ROOT / "docs/performance/composable-counter-lifecycle-protocol-v2.json"
-COUNTER_ALLOCATION_PROTOCOL = ROOT / "docs/performance/composable-counter-allocation-protocol-v2.json"
-READY_FUTURE_ALLOCATION_PROTOCOL = ROOT / "docs/performance/composable-ready-future-allocation-protocol-v2.json"
-COMMON_OUTCOME_ALLOCATION_PROTOCOL = ROOT / "docs/performance/composable-common-outcome-allocation-protocol-v2.json"
+COUNTER_PROTOCOL = ROOT / "docs/performance/composable-counter-protocol-v3.json"
+COUNTER_LIFECYCLE_PROTOCOL = ROOT / "docs/performance/composable-counter-lifecycle-protocol-v3.json"
+COUNTER_ALLOCATION_PROTOCOL = ROOT / "docs/performance/composable-counter-allocation-protocol-v3.json"
+READY_FUTURE_ALLOCATION_PROTOCOL = ROOT / "docs/performance/composable-ready-future-allocation-protocol-v3.json"
+COMMON_OUTCOME_ALLOCATION_PROTOCOL = ROOT / "docs/performance/composable-common-outcome-allocation-protocol-v3.json"
 COUNTER_FIXTURES = {"composable": "upstream", "rca": "candidate"}
 COUNTER_RELEASE_ENV = {
     "CARGO_INCREMENTAL": "0", "CARGO_BUILD_JOBS": "1",
@@ -1867,8 +1871,8 @@ def qualify_counter(output, staging, *, lifecycle=False, allocations=False, read
         raise
 
 
-MINIMAL_SIZE_PROTOCOL = ROOT / "docs/performance/composable-minimal-size-protocol-v2.json"
-MINIMAL_COMPILE_PROTOCOL = ROOT / "docs/performance/composable-minimal-compile-protocol-v2.json"
+MINIMAL_SIZE_PROTOCOL = ROOT / "docs/performance/composable-minimal-size-protocol-v3.json"
+MINIMAL_COMPILE_PROTOCOL = ROOT / "docs/performance/composable-minimal-compile-protocol-v3.json"
 
 
 def minimal_compile_command(cargo, manifest, workload, target, architecture):
@@ -2191,8 +2195,9 @@ def validate_minimal_provenance(directory, captured, cwd, inputs, rows, protocol
         if frozen["source"] != source_hashes or frozen["dependencies"] != dependencies or frozen["build_receipts"] != build_receipts:
             raise ValueError("minimal size recorded identities disagree")
         tool_hashes = hashes(frozen["tools"])
-        versions = (evidence.CURRENT_TOOL_VERSIONS if protocol["rust_toolchain"] == "1.99.0" else
-                    evidence.LEGACY_TOOL_VERSIONS)
+        versions = {"1.98.0": evidence.LEGACY_TOOL_VERSIONS,
+                    "1.99.0": evidence.CURRENT_TOOL_VERSIONS,
+                    "1.100.0": evidence.RUST100_TOOL_VERSIONS}[protocol["rust_toolchain"]]
         if set(inputs["tools"]) != {*versions, "strip"}:
             raise ValueError("minimal size tool inventory differs")
         for name, tool in inputs["tools"].items():

@@ -27,7 +27,7 @@ Six blocks each run both workloads against both engines: 24 measured commands,
 six observations per engine and workload. Forward and reverse engine orders each
 appear three times. Odd blocks run check before release. Even blocks reverse that
 workload order. Both workloads use the same engine order within a block. The
-[protocol](composable-minimal-compile-protocol-v2.json) and its exact hashes fix
+[protocol](composable-minimal-compile-protocol-v3.json) and its exact hashes fix
 this schedule; archived three-engine captures cannot satisfy it.
 
 - Check: `cargo check --locked --offline --bin minimal-counter --target aarch64-apple-darwin -j 1`.

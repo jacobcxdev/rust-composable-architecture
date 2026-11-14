@@ -10,7 +10,7 @@ use super::{
     Arc, Batch, Binding, BorrowPath, Carriers, Command, Lifecycle, MountDeclaration, MountPosition,
     OnceLock, ScopeRegistry, ScopeToken, ScopeTransitionBatch, with_payload,
 };
-use crate::composition::{CollectionStamp, EntryStamp};
+use crate::composition::{BorrowedEntryStamp, CollectionStamp, EntryStamp};
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 
@@ -74,7 +74,7 @@ impl<R, A, C: Carriers<R, A>, P: BorrowPath<R>, K, S, M> Collection<R, A, C, P, 
 )]
 fn retain_current_subtrees<R, A, C: Carriers<R, A>>(
     old: Vec<Box<C::Mount>>,
-    wanted: &HashSet<EntryStamp>,
+    wanted: &HashSet<BorrowedEntryStamp<'_>>,
     scopes: &mut ScopeRegistry,
     transitions: &mut ScopeTransitionBatch,
     #[cfg(feature = "diagnostics")] mut lifecycle: Option<crate::diagnostics::LifecycleCall<'_>>,
@@ -89,7 +89,7 @@ fn retain_current_subtrees<R, A, C: Carriers<R, A>>(
             .entry_stamp
             .expect("collection interval starts with an entry")
             .clone();
-        let keep = wanted.contains(&stamp)
+        let keep = wanted.contains(&stamp.as_borrowed())
             && entry
                 .installed_scope()
                 .is_some_and(|token| scopes.is_current(token));
@@ -212,15 +212,7 @@ where
                 .completed
                 .as_ref()
                 .is_some_and(|old| old.matches(stamp))
-                && !retire_descendants
-                    .inspect()
-                    .iter()
-                    .filter(|owner| owner.depth() == self.depth + 1)
-                    .any(|owner| {
-                        owner
-                            .installed_scope()
-                            .is_none_or(|token| !scopes.is_current(token))
-                    })
+                && !retire_descendants.has_inactive_direct_child(scopes)
             {
                 return;
             }
@@ -280,8 +272,8 @@ where
                 let middle = old.split_off(start);
                 (old, middle, suffix)
             };
-            // Retaining the lineage allocation prevents ABA; equality/hash use
-            // only its allocation identity and the immutable entry revision.
+            // The immutable collection borrow retains the lineage throughout
+            // reconciliation, so membership needs no additional Arc owners.
             #[expect(
                 clippy::mutable_key_type,
                 reason = "EntryStamp hashes allocation identity and immutable revision, not its lineage atomic"
@@ -290,7 +282,7 @@ where
                 .entry_stamps()
                 .skip(prefix_count)
                 .take(middle_count)
-                .map(|(_, stamp)| stamp.to_owned())
+                .map(|(_, stamp)| stamp)
                 .collect();
             #[expect(
                 clippy::mutable_key_type,

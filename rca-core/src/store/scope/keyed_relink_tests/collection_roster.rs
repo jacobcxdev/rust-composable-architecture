@@ -202,7 +202,10 @@ fn two_collections_optional_and_legacy_slots_follow_one_actual_parent_projection
         3,
         "one newly constructed Feature, retained caches not rebuilt"
     );
-    assert_eq!(transitions.invalidated, [b3]);
+    assert!(transitions.contains(b3));
+    assert_eq!(transitions.membership.as_ref().unwrap().len(), 1);
+    #[cfg(feature = "diagnostics")]
+    assert!(transitions.iter().eq([b3]));
     for (token, node, authority) in identities {
         assert_eq!(scopes.records[&token].mount.node, node);
         assert!(scopes.accepts(&authority));

@@ -24,7 +24,7 @@ Seven no-effect operations are not representative of every headless workload.
 
 ## Frozen capture contract
 
-The [size protocol](composable-minimal-size-protocol-v2.json) fixes Rust 1.99.0,
+The [size protocol](composable-minimal-size-protocol-v3.json) fixes Rust 1.100.0,
 the `aarch64-apple-darwin` target, an explicit release profile, one Cargo job and
 disabled incremental compilation. Its current byte and document hashes are
 checked by the evaluator; archived three-engine captures are not valid inputs.

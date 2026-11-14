@@ -102,6 +102,31 @@ impl<R: Reducer> Reducer for Combine<Vec<R>> {
     }
 }
 
+/// Retains effects until every tuple member returns normally.
+///
+/// A later reducer panic drops earlier operands in reverse construction order.
+/// Normal completion transfers the children in their original forward order.
+struct TupleEffects<Action> {
+    /// Owns the returned effects without a second inline array.
+    effects: Vec<Effect<Action>>,
+}
+
+impl<Action> TupleEffects<Action> {
+    /// Transfers completed children without applying construction-failure cleanup.
+    fn finish(mut self) -> Effect<Action> {
+        let effects = std::mem::take(&mut self.effects);
+        crate::effect::leaves::finish_merge::<Action, crate::effect::leaves::SharedEffects>(effects)
+    }
+}
+
+impl<Action> Drop for TupleEffects<Action> {
+    fn drop(&mut self) {
+        while let Some(effect) = self.effects.pop() {
+            drop(effect);
+        }
+    }
+}
+
 /// Implements each tuple width without erasing member types or cloning actions.
 macro_rules! impl_combine {
     ($first_index:tt => $first:ident $(, $index:tt => $reducer:ident)*) => {
@@ -119,10 +144,25 @@ macro_rules! impl_combine {
                 action: &Self::Action,
                 context: &mut ReduceContext<'_>,
             ) -> Effect<Self::Action> {
-                Effect::merge([
+                let count = [$first_index, $($index),*].len();
+                let mut pending = TupleEffects { effects: Vec::new() };
+                crate::effect::leaves::append_merge::<Self::Action, crate::effect::leaves::SharedEffects>(
+                    &mut pending.effects,
                     self.reducers.$first_index.reduce(state, action, context),
-                    $(self.reducers.$index.reduce(state, action, context),)*
-                ])
+                    || {
+                        let remaining = count - 1 - $first_index;
+                        (remaining, Some(remaining))
+                    },
+                );
+                $(crate::effect::leaves::append_merge::<Self::Action, crate::effect::leaves::SharedEffects>(
+                    &mut pending.effects,
+                    self.reducers.$index.reduce(state, action, context),
+                    || {
+                        let remaining = count - 1 - $index;
+                        (remaining, Some(remaining))
+                    },
+                );)*
+                pending.finish()
             }
         }
     };
@@ -523,10 +563,10 @@ mod tests {
             panic!("deferred vector children must produce a merge");
         };
         let mut effects = effects.into_iter();
-        let Program::Future(mut first) = effects.next().expect("first effect").program else {
+        let Program::Runtime(crate::effect::RuntimeLeaf::Future(mut first)) = effects.next().expect("first effect").program else {
             panic!("first effect must retain its future");
         };
-        let Program::Future(mut second) = effects.next().expect("second effect").program else {
+        let Program::Runtime(crate::effect::RuntimeLeaf::Future(mut second)) = effects.next().expect("second effect").program else {
             panic!("second effect must retain its future");
         };
         assert!(effects.next().is_none());
@@ -546,21 +586,22 @@ mod tests {
     }
 
     #[test]
-    fn tuple_and_vector_panics_stop_later_members_and_drop_pending_effects() {
+    fn tuple_and_vector_preserve_effect_drop_order_and_stop_after_panic() {
         use std::sync::Arc;
         use std::sync::atomic::{AtomicUsize, Ordering};
 
-        struct DropProbe(Arc<AtomicUsize>);
+        struct DropProbe(u8, Arc<std::sync::Mutex<Vec<u8>>>);
 
         impl Drop for DropProbe {
             fn drop(&mut self) {
-                self.0.fetch_add(1, Ordering::SeqCst);
+                self.1.lock().unwrap().push(self.0);
             }
         }
 
         struct Member {
             position: u8,
-            drops: Arc<AtomicUsize>,
+            panic_at: u8,
+            drops: Arc<std::sync::Mutex<Vec<u8>>>,
             polls: Arc<AtomicUsize>,
         }
 
@@ -575,9 +616,9 @@ mod tests {
                 _: &mut ReduceContext<'_>,
             ) -> Effect<()> {
                 state.push(self.position);
-                assert_ne!(self.position, 2, "second member panics after mutation");
+                assert_ne!(self.position, self.panic_at, "member panics after mutation");
 
-                let probe = DropProbe(Arc::clone(&self.drops));
+                let probe = DropProbe(self.position, Arc::clone(&self.drops));
                 let polls = Arc::clone(&self.polls);
 
                 Effect::future(async move {
@@ -589,41 +630,60 @@ mod tests {
         }
 
         for vector in [false, true] {
-            let drops = Arc::new(AtomicUsize::new(0));
-            let polls = Arc::new(AtomicUsize::new(0));
-            let member = |position| Member {
-                position,
-                drops: Arc::clone(&drops),
-                polls: Arc::clone(&polls),
-            };
+            for panic_at in [0, 2, 3] {
+                let drops = Arc::new(std::sync::Mutex::new(Vec::new()));
+                let polls = Arc::new(AtomicUsize::new(0));
+                let member = |position| Member {
+                    position,
+                    panic_at,
+                    drops: Arc::clone(&drops),
+                    polls: Arc::clone(&polls),
+                };
 
-            let mut reducer: Box<dyn Reducer<State = Vec<u8>, Action = ()>> = if vector {
-                Box::new(combine(vec![member(1), member(2), member(3)]))
-            } else {
-                Box::new(combine((member(1), member(2), member(3))))
-            };
-            let mut state = Vec::new();
-            let mut dependencies = DependencyValues::new();
-            let (_scopes_lifecycle, mut scopes) = ScopeRegistry::for_test();
-            let mut context_transitions = crate::store::scope::ScopeTransitionBatch::default();
-            let mut context = ReduceContext::new(
-                &mut dependencies,
-                MonotonicInstant::ZERO,
-                &mut scopes,
-                &mut context_transitions,
-            );
+                let mut reducer: Box<dyn Reducer<State = Vec<u8>, Action = ()>> = if vector {
+                    Box::new(combine(vec![member(1), member(2), member(3), member(4)]))
+                } else {
+                    Box::new(combine((member(1), member(2), member(3), member(4))))
+                };
+                let mut state = Vec::new();
+                let mut dependencies = DependencyValues::new();
+                let (_scopes_lifecycle, mut scopes) = ScopeRegistry::for_test();
+                let mut context_transitions = crate::store::scope::ScopeTransitionBatch::default();
+                let mut context = ReduceContext::new(
+                    &mut dependencies,
+                    MonotonicInstant::ZERO,
+                    &mut scopes,
+                    &mut context_transitions,
+                );
 
-            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                reducer.reduce(&mut state, &(), &mut context)
-            }));
+                let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    reducer.reduce(&mut state, &(), &mut context)
+                }));
 
-            result.as_ref().expect_err("a member panic must propagate");
-            assert_eq!(state, [1, 2], "vector={vector}");
-            assert_eq!(polls.load(Ordering::SeqCst), 0, "vector={vector}");
-            assert_eq!(drops.load(Ordering::SeqCst), 1, "vector={vector}");
+                if panic_at == 0 {
+                    drop(result.expect("all members return without a panic"));
+                } else {
+                    result.as_ref().expect_err("a member panic must propagate");
+                }
+                let last = if panic_at == 0 { 4 } else { panic_at };
+                assert_eq!(
+                    state,
+                    (1..=last).collect::<Vec<_>>(),
+                    "vector={vector} panic_at={panic_at}"
+                );
+                assert_eq!(polls.load(Ordering::SeqCst), 0, "vector={vector}");
+                let mut expected: Vec<_> = (1..=if panic_at == 0 { 4 } else { panic_at - 1 }).collect();
+                if panic_at != 0 && !vector {
+                    expected.reverse();
+                }
+                assert_eq!(
+                    *drops.lock().unwrap(),
+                    expected,
+                    "vector={vector} panic_at={panic_at}"
+                );
+            }
         }
     }
-
 }
 }
 

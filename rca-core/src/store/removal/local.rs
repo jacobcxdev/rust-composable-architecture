@@ -15,6 +15,7 @@ use crate::store::carriers::Carriers;
 use crate::store::command::Command;
 use crate::store::ingress::CommandIngress;
 use crate::store::local::Local;
+use crate::store::mailbox;
 use crate::store::mounted::{MountedApply, MountedCall};
 use crate::store::output::{
     OutputSource,
@@ -540,7 +541,7 @@ impl<R: 'static, A: 'static, S: 'static, T: 'static, X: 'static, P: OwnedField<S
                     return;
                 }
             };
-            if let Err(async_channel::SendError((call, _, _, work))) = ingress
+            if let Err(mailbox::SendError((call, _, _, work))) = ingress
                 .send_map(
                     (call, parent.provenance, parent.authority, work),
                     |(call, provenance, authority, operation_work)| Command::Mounted {
