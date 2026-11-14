@@ -360,7 +360,7 @@ fn mounted_command_rejection_preserves_unmapped_payload_and_queued_work() {
             CommandRejection::TransportClosed,
             CommandRejection::Full,
         ] {
-            let runtime = crate::test_support::ManualRuntime::new();
+            let runtime = Driver::default();
             let maps = Arc::new(AtomicUsize::new(0));
             let reductions = Arc::new(AtomicUsize::new(0));
             let drops = Arc::new(AtomicUsize::new(0));
@@ -392,7 +392,7 @@ fn mounted_command_rejection_preserves_unmapped_payload_and_queued_work() {
                     *state.as_mut().unwrap() += action;
                     Effect::none()
                 }),
-                runtime.runtime(),
+                Runtime::new(runtime.clone()),
             )
             .mailbox_capacity(1)
             .mount_with_command(descriptor, {
@@ -403,7 +403,8 @@ fn mounted_command_rejection_preserves_unmapped_payload_and_queued_work() {
                 }
             });
             let store = builder.build().unwrap();
-            let mut actor = runtime.take_only_queued_task();
+            assert_eq!(runtime.tasks.lock().unwrap().len(), 1);
+            let mut actor = runtime.tasks.lock().unwrap().pop().unwrap();
             let mut context = Context::from_waker(Waker::noop());
             assert!(actor.as_mut().poll(&mut context).is_pending());
             let mut acquire = Box::pin(store.command_port(&site));
@@ -505,7 +506,7 @@ fn mounted_command_rejection_preserves_unmapped_payload_and_queued_work() {
             assert_eq!(maps.load(Ordering::SeqCst), 0);
             assert_eq!(reductions.load(Ordering::SeqCst), 0);
             assert_eq!(drops.load(Ordering::SeqCst), 1);
-            assert_eq!(runtime.spawn_count(), 1);
+            assert!(runtime.tasks.lock().unwrap().is_empty());
         }
     }
 }
