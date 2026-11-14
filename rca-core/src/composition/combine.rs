@@ -290,6 +290,44 @@ mod tests {
     }
 
     #[test]
+    fn singleton_tuple_preserves_its_effect_and_exact_noop_behaviour() {
+        let mut reducer = combine((OrderFirst,));
+        let mut state = OrderState {
+            action_addresses: Vec::new(),
+            calls: Vec::new(),
+        };
+        let mut dependencies = DependencyValues::new();
+        let (_scopes_lifecycle, mut scopes) = ScopeRegistry::for_test();
+        let mut transitions = crate::store::scope::ScopeTransitionBatch::default();
+        let mut context = ReduceContext::new(
+            &mut dependencies,
+            MonotonicInstant::ZERO,
+            &mut scopes,
+            &mut transitions,
+        );
+        assert!(state.calls.is_empty(), "construction does not reduce");
+        let action = OrderAction::Run(vec![1]);
+        let effect = reducer.reduce(&mut state, &action, &mut context);
+        assert_eq!(state.calls, ["first"]);
+        assert_eq!(state.action_addresses, [std::ptr::from_ref(&action).addr()]);
+        let Program::Merge(effects) = effect.program else {
+            panic!("a singleton retains the merge wrapper around its child");
+        };
+        let mut effects = effects.into_iter();
+        assert!(matches!(
+            effects.next().map(|effect| effect.program),
+            Some(Program::Send(OrderAction::Output(1)))
+        ));
+        assert!(effects.next().is_none());
+
+        let noop = reducer.reduce(&mut state, &OrderAction::Output(9), &mut context);
+        assert!(matches!(noop.program, Program::None));
+        assert_eq!(state.calls, ["first"]);
+        assert_eq!(state.action_addresses, [std::ptr::from_ref(&action).addr()]);
+        assert!(transitions.is_empty());
+    }
+
+    #[test]
     fn merge_discards_none_children_without_reordering() {
         let effect = Effect::merge([
             Effect::none(),
@@ -521,6 +559,79 @@ mod tests {
                 Some(OrderAction::Output(output))
             })
         }
+    }
+
+    #[test]
+    fn tuple_with_leading_none_keeps_later_effects_lazy_and_in_declaration_order() {
+        use std::sync::atomic::Ordering;
+        use std::task::{Context, Poll};
+
+        let (first_send, first_receive) = futures_channel::oneshot::channel();
+        let (second_send, second_receive) = futures_channel::oneshot::channel();
+        let starts = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let none = crate::Reduce::new(
+            |state: &mut Vec<u8>, _: &OrderAction, _: &mut ReduceContext<'_>| {
+                state.push(0);
+                Effect::none()
+            },
+        );
+        let mut reducer = combine((
+            none,
+            DeferredReducer {
+                output: 1,
+                gate: Some(first_receive),
+                starts: std::sync::Arc::clone(&starts),
+            },
+            DeferredReducer {
+                output: 2,
+                gate: Some(second_receive),
+                starts: std::sync::Arc::clone(&starts),
+            },
+        ));
+        let mut state = Vec::new();
+        let action = OrderAction::Run(vec![1]);
+        let mut dependencies = DependencyValues::new();
+        let (_scopes_lifecycle, mut scopes) = ScopeRegistry::for_test();
+        let mut transitions = crate::store::scope::ScopeTransitionBatch::default();
+        let mut context = ReduceContext::new(
+            &mut dependencies,
+            MonotonicInstant::ZERO,
+            &mut scopes,
+            &mut transitions,
+        );
+        assert_eq!(starts.load(Ordering::SeqCst), 0);
+        let effect = reducer.reduce(&mut state, &action, &mut context);
+        assert_eq!(state, [0, 1, 2]);
+        assert_eq!(starts.load(Ordering::SeqCst), 0);
+        let Program::Merge(effects) = effect.program else {
+            panic!("later nonempty effects retain their merge wrapper");
+        };
+        let mut effects = effects.into_iter();
+        let Program::Runtime(crate::effect::RuntimeLeaf::Future(mut first)) =
+            effects.next().expect("first declared future").program
+        else {
+            panic!("the no-op does not occupy an effect position");
+        };
+        let Program::Runtime(crate::effect::RuntimeLeaf::Future(mut second)) =
+            effects.next().expect("second declared future").program
+        else {
+            panic!("the later future retains its declaration position");
+        };
+        assert!(effects.next().is_none());
+        let mut poll_context = Context::from_waker(futures_util::task::noop_waker_ref());
+        assert!(first.as_mut().poll(&mut poll_context).is_pending());
+        second_send.send(()).expect("the second future owns its gate");
+        assert!(matches!(
+            second.as_mut().poll(&mut poll_context),
+            Poll::Ready(Some(OrderAction::Output(2)))
+        ));
+        first_send.send(()).expect("the first future owns its gate");
+        assert!(matches!(
+            first.as_mut().poll(&mut poll_context),
+            Poll::Ready(Some(OrderAction::Output(1)))
+        ));
+        assert_eq!(starts.load(Ordering::SeqCst), 2);
+        assert!(transitions.is_empty());
     }
 
     #[test]

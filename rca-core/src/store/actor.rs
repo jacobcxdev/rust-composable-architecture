@@ -162,6 +162,36 @@ ordinary_test_items! {
         }
 
         #[test]
+        fn dense_reservation_classifies_only_fresh_large_batches_and_keeps_order() {
+            for inline in [false, true] {
+                let mut launches = Launches::default();
+                if inline {
+                    launches.push(0);
+                }
+                assert!(!launches.reserve_dense(7, || {
+                    panic!("small batch is not classified");
+                }));
+                assert!(!launches.reserve_dense(8, || false));
+                assert_eq!(launches.rest.capacity(), 0);
+                assert!(launches.reserve_dense(8, || true));
+                let capacity = launches.rest.capacity();
+                assert_eq!(capacity, 8 - usize::from(!inline));
+                assert!(!launches.reserve_dense(8, || {
+                    panic!("allocated batch is not classified");
+                }));
+                assert_eq!(launches.rest.capacity(), capacity);
+                for value in usize::from(inline)..usize::from(inline) + 8 {
+                    launches.push(value);
+                }
+                assert_eq!(launches.rest.capacity(), capacity);
+                assert_eq!(
+                    launches.into_iter().collect::<Vec<_>>(),
+                    (0..8 + usize::from(inline)).collect::<Vec<_>>()
+                );
+            }
+        }
+
+        #[test]
         fn launches_stay_lazy_and_preserve_order_across_promotion() {
             for count in [0, 1, 2, 5] {
                 let dropped = Arc::new(Mutex::new(Vec::new()));
@@ -1943,6 +1973,89 @@ ordinary_test_items! {
         use crate::store::observation::new_registration;
         use crate::store::scope::{ScopeIdentity, ScopeSlot, ScopeTransitionBatch};
         use crate::{ActionTask, MonotonicInstant, Reducer, RuntimeDriver};
+
+        #[test]
+        fn startup_stops_when_initial_spawn_closes_admission_before_retained_head() {
+            struct ClosingDriver {
+                launch: LaunchDriver,
+                ingress: Arc<std::sync::Mutex<Option<Weak<Ingress<(), ()>>>>>,
+            }
+            impl fmt::Debug for ClosingDriver {
+                fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                    f.debug_struct("ClosingDriver").finish_non_exhaustive()
+                }
+            }
+            impl RuntimeDriver for ClosingDriver {
+                fn spawn(&self, task: RuntimeFuture) {
+                    self.launch.spawn(task);
+                    self.ingress
+                        .lock()
+                        .unwrap()
+                        .as_ref()
+                        .unwrap()
+                        .upgrade()
+                        .unwrap()
+                        .close();
+                }
+                fn now(&self) -> MonotonicInstant {
+                    self.launch.now()
+                }
+                fn sleep_until(&self, deadline: MonotonicInstant) -> RuntimeFuture {
+                    self.launch.sleep_until(deadline)
+                }
+                fn yield_now(&self) -> RuntimeFuture {
+                    self.launch.yield_now()
+                }
+            }
+
+            let tasks = Arc::new(std::sync::Mutex::new(Vec::new()));
+            let endpoint = Arc::new(std::sync::Mutex::new(None));
+            let (mut actor, ingress) = launch_actor(
+                Effect::none(),
+                Runtime::new(ClosingDriver {
+                    launch: LaunchDriver {
+                        tasks: Arc::clone(&tasks),
+                        panic_after: usize::MAX,
+                    },
+                    ingress: Arc::clone(&endpoint),
+                }),
+            );
+            *endpoint.lock().unwrap() = Some(Arc::downgrade(&ingress));
+            let mount = crate::OptionalMount::new(
+                |state: &()| Some(state),
+                |state: &mut ()| Some(state),
+                |_| Some(crate::MountIdentity {
+                    key: (),
+                    replacement: 0,
+                    configuration: 0,
+                }),
+                |_| crate::Reduce::new(
+                    |(): &mut (), (): &(), _: &mut ReduceContext<'_>| Effect::none(),
+                ),
+            )
+            .on_initial(|_| (), |_, _| crate::Task::<(), ()>::run(|_| async {}));
+            let (owner, _) = super::super::mount::attach(mount);
+            actor.attach_mounts(vec![owner]);
+            let (reply, mut receive) = crate::store::command::commit_channel();
+            ingress
+                .try_send(Command::Action(ActionCommand::external((), reply)))
+                .unwrap();
+
+            assert!(actor.run_loop().now_or_never().is_some());
+            assert!(actor.receiver.is_closed());
+            assert_eq!(
+                actor.commit_version, 1,
+                "only structural installation commits"
+            );
+            assert_eq!(
+                tasks.lock().unwrap().len(), 1,
+                "initial work transfers without a poll"
+            );
+            assert!(matches!(
+                receive.try_recv(),
+                Ok(Some(Err(CommitError::StoreClosed)))
+            ));
+        }
 
         /// Keeps production timer processing free of storage for impossible suspension.
         #[cfg(not(feature = "test-util"))]

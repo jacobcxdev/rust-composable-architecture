@@ -97,8 +97,8 @@ impl TrackedFuture {
 impl Future for TrackedFuture {
     type Output = ();
 
-    fn poll(self: std::pin::Pin<&mut Self>, context: &mut Context<'_>) -> Poll<()> {
-        self.get_mut().inner.as_mut().poll(context)
+    fn poll(self: std::pin::Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {
+        self.get_mut().inner.as_mut().poll(cx)
     }
 }
 

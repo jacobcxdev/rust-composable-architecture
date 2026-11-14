@@ -35,6 +35,9 @@ jobs:
 
             - name: Restore Cargo cache
               uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+              with:
+                  cache-on-failure: true
+                  cache-all-crates: false
 
             - name: Test formatting source selection
               env:
@@ -67,7 +70,7 @@ jobs:
                   python3 -m unittest scripts.tests.test_composition_runner.RunnerTests -k interleaved -k recorded_load -k busy_monitor -k prepared_modes -k candidate_cli -k absolute_capture
 
             - name: Lint all targets and features
-              run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+              run: cargo clippy --keep-going --workspace --all-targets --all-features -- -D warnings
 
             - name: Check standalone profiling tools
               env:

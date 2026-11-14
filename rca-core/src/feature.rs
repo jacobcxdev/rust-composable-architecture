@@ -606,6 +606,35 @@ mod tests {
     }
 
     #[test]
+    fn root_effect_visits_preserve_inline_effect_and_skip_single_task() {
+        let mut empty = RootWork::<usize, usize, ()>::new(Work::default(), ());
+        empty.for_each_effect(|_| panic!("empty work has no effect"));
+        assert!(empty.is_empty());
+
+        let mut work = Work::default();
+        work.push(WorkItem::Effect(3));
+        let mut effect = RootWork::<usize, usize, ()>::new(work, ());
+        let mut visits = 0;
+        effect.for_each_effect(|value| {
+            visits += 1;
+            *value += 4;
+        });
+        assert_eq!(visits, 1);
+        assert!(matches!(effect, RootWork::Effect(7)));
+
+        let mut work = Work::default();
+        work.push(WorkItem::Task(9));
+        let mut task = RootWork::<usize, usize, ()>::new(work, ());
+        task.for_each_effect(|_| panic!("a task is not an effect"));
+        let RootWork::Full { work, .. } = task else {
+            panic!("a task retains typed registration");
+        };
+        let mut items = work.into_iter();
+        assert!(matches!(items.next(), Some(WorkItem::Task(9))));
+        assert!(items.next().is_none());
+    }
+
+    #[test]
     fn root_work_preserves_spill_storage_and_ordered_panic_cleanup() {
         use std::cell::RefCell;
         use std::panic::{AssertUnwindSafe, catch_unwind};

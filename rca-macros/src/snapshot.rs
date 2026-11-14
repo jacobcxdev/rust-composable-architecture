@@ -374,12 +374,7 @@ pub(crate) fn expand(input: &DeriveInput) -> syn::Result<TokenStream> {
     let output = if let Some(output) = opts.name {
         output
     } else {
-        let mut output = syn::parse_str::<Ident>(&format!("{}Snapshot", canonical_ident(name)))
-            .map_err(|_parse_error| {
-                syn::Error::new_spanned(name, "Snapshot cannot derive a valid companion name")
-            })?;
-        output.set_span(name.span());
-        output
+        Ident::new(&format!("{canonical_name}Snapshot"), name.span())
     };
     let all_fields: Vec<_> = shapes.iter().flat_map(|s| &s.captured).collect();
     let parameters: Vec<_> = all_fields.iter().map(|f| &f.parameter).collect();
@@ -895,6 +890,10 @@ mod tests {
     fn invalid_snapshot_options_report_their_own_diagnostics() {
         for (source, expected) in [
             ("#[snapshot(name)] struct Source;", "expected `=`"),
+            (
+                "#[snapshot(name = \"History\")] struct Source;",
+                "expected identifier",
+            ),
             ("#[snapshot(into)] struct Source;", "expected `=`"),
             (
                 "#[snapshot(into = \"History\")] struct Source;",
@@ -905,7 +904,15 @@ mod tests {
                 "expected `=`",
             ),
             (
+                "struct Source { #[snapshot(with = \"capture\", value = String)] value: usize }",
+                "expected identifier",
+            ),
+            (
                 "struct Source { #[snapshot(value)] value: usize }",
+                "expected `=`",
+            ),
+            (
+                "struct Source { #[snapshot(omit)] value: usize }",
                 "expected `=`",
             ),
             (
@@ -923,6 +930,14 @@ mod tests {
             (
                 "#[snapshot(name = One, into = Output)] struct Source { value: usize }",
                 "snapshot `name` and `into` are mutually exclusive",
+            ),
+            (
+                "#[snapshot(with = capture)] struct Source;",
+                "expected snapshot item option `name` or `into`",
+            ),
+            (
+                "struct Source { #[snapshot(name = History)] value: usize }",
+                "expected snapshot field option `with`, `value`, `omit` or `redact`",
             ),
             (
                 "struct Source { #[snapshot(omit = \"reason\", with = capture, value = usize)] value: usize }",
@@ -956,6 +971,65 @@ mod tests {
                 .map(|error| error.to_string())
                 .collect::<Vec<_>>();
             assert_eq!(errors, [expected], "{source}");
+        }
+    }
+
+    #[test]
+    fn custom_capture_rejects_an_unparseable_value_type() {
+        let input = syn::parse_quote! {
+            struct Source {
+                #[snapshot(with = capture, value = 7)]
+                value: usize,
+            }
+        };
+        let errors = super::expand(&input)
+            .expect_err("a custom capture requires a Rust value type")
+            .into_iter()
+            .map(|error| error.to_string())
+            .collect::<Vec<_>>();
+        assert_eq!(errors.len(), 1);
+        assert!(errors[0].starts_with("expected one of:"), "{errors:?}");
+    }
+
+    #[test]
+    fn union_storage_is_rejected_before_companion_generation() {
+        let input = syn::parse_quote! {
+            union Source {
+                value: usize,
+            }
+        };
+        assert_eq!(
+            super::expand(&input)
+                .expect_err("unions have no active field to capture")
+                .to_string(),
+            "Snapshot cannot be derived for unions",
+        );
+    }
+
+    #[test]
+    fn default_companion_names_preserve_raw_and_unicode_source_identifiers() {
+        for (source, expected) in [
+            ("struct r#type;", "typeSnapshot"),
+            ("struct Δ;", "ΔSnapshot"),
+            ("struct _Source;", "_SourceSnapshot"),
+        ] {
+            let input = syn::parse_str(source).expect("valid source identifier");
+            let syntax: syn::File = syn::parse2(super::expand(&input).expect("valid companion"))
+                .expect("parseable expansion");
+            let syn::Item::Struct(companion) = &syntax.items[0] else {
+                panic!("expected a companion struct");
+            };
+            assert_eq!(companion.ident, expected, "{source}");
+            assert!(companion.fields.is_empty());
+            let associated = snapshot_impl(&syntax)
+                .items
+                .iter()
+                .find_map(|item| match item {
+                    syn::ImplItem::Type(item) => Some(item),
+                    _ => None,
+                })
+                .expect("captured value type exists");
+            assert_eq!(associated.ty.to_token_stream().to_string(), expected);
         }
     }
 

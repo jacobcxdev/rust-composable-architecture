@@ -1160,6 +1160,235 @@ mod tests {
     use crate::test_support as support;
     use crate::{Effect, Reduce, Store};
 
+    /// Records disposal without requiring a clone of the owned input.
+    struct AdmissionPayload {
+        value: Box<usize>,
+        drops: Arc<AtomicUsize>,
+    }
+
+    impl Drop for AdmissionPayload {
+        fn drop(&mut self) {
+            self.drops.fetch_add(1, Ordering::SeqCst);
+        }
+    }
+
+    /// Retains the real actor separately from its registered child authority.
+    struct AdmissionFixture {
+        store: Store<usize, Option<AdmissionPayload>>,
+        child: super::ScopedStore<usize, AdmissionPayload>,
+        actor: crate::RuntimeFuture,
+        embeddings: Arc<AtomicUsize>,
+        reductions: Arc<AtomicUsize>,
+    }
+
+    /// Registers one identity whose replacement is an ordered root action.
+    fn admission_fixture(capacity: usize) -> AdmissionFixture {
+        let runtime = support::ManualRuntime::new();
+        let reductions = Arc::new(AtomicUsize::new(0));
+        let reduced = Arc::clone(&reductions);
+        let store = Store::builder(
+            7,
+            Reduce::new(move |state: &mut usize, action: &Option<AdmissionPayload>, _| {
+                if let Some(action) = action {
+                    reduced.fetch_add(*action.value, Ordering::SeqCst);
+                } else {
+                    *state += 1;
+                }
+                Effect::none()
+            }),
+            runtime.runtime(),
+        )
+        .mailbox_capacity(capacity)
+        .build()
+        .unwrap();
+        let embeddings = Arc::new(AtomicUsize::new(0));
+        let embedded = Arc::clone(&embeddings);
+        let mut registration = Box::pin(super::registered_scope::<_, _, usize, _, _>(
+            &store,
+            Box::new(super::TypedHandleSelector::new(|state: &usize| {
+                Some((super::ScopeIdentity::new(*state), state))
+            })),
+            Arc::new(super::ScopedActionEmbed::new(move |action| {
+                embedded.fetch_add(1, Ordering::SeqCst);
+                Some(action)
+            })),
+        ));
+        let mut actor = runtime.take_only_queued_task();
+        let mut context = Context::from_waker(std::task::Waker::noop());
+        assert!(registration.as_mut().poll(&mut context).is_pending());
+        assert!(actor.as_mut().poll(&mut context).is_pending());
+        let Poll::Ready(Ok(child)) = registration.as_mut().poll(&mut context) else {
+            panic!("the actor must acknowledge the registered child");
+        };
+        drop(registration);
+        assert_eq!(runtime.spawn_count(), 1);
+        AdmissionFixture {
+            store,
+            child,
+            actor,
+            embeddings,
+            reductions,
+        }
+    }
+
+    #[test]
+    fn closed_ingress_rejects_scoped_registration_without_entering_selectors() {
+        let runtime = support::ManualRuntime::new();
+        let store = Store::new(
+            7,
+            Reduce::new(|_: &mut usize, (): &(), _| Effect::none()),
+            runtime.runtime(),
+        );
+        let actor = runtime.take_only_queued_task();
+        assert!(store.ingress.close());
+        assert!(!store.is_closed(), "actor teardown has not run");
+        let selections = Arc::new(AtomicUsize::new(0));
+        let selected = Arc::clone(&selections);
+        let capture = Arc::new(());
+        let weak_capture = Arc::downgrade(&capture);
+        let registration = super::registered_scope::<_, _, usize, (), _>(
+            &store,
+            Box::new(super::TypedHandleSelector::new(move |state: &usize| {
+                std::hint::black_box(&capture);
+                selected.fetch_add(1, Ordering::SeqCst);
+                Some((super::ScopeIdentity::unit(), state))
+            })),
+            Arc::new(super::ScopedActionEmbed::new(|()| ())),
+        );
+        let error = registration.now_or_never().unwrap().unwrap_err();
+        assert!(error.is_store_stopped());
+        assert_eq!(selections.load(Ordering::SeqCst), 0);
+        assert!(weak_capture.upgrade().is_none());
+
+        let selected = Arc::clone(&selections);
+        let capture = Arc::new(());
+        let weak_capture = Arc::downgrade(&capture);
+        let observation = register_erased_observation(
+            store.clone(),
+            move |state: &usize| {
+                std::hint::black_box(&capture);
+                selected.fetch_add(1, Ordering::SeqCst);
+                Box::new(*state) as ErasedValue
+            },
+            PublishPolicy::always(),
+            None,
+        );
+        let Some(Err(error)) = observation.now_or_never() else {
+            panic!("closed transport must reject observation registration immediately");
+        };
+        assert!(error.is_store_stopped());
+        assert_eq!(selections.load(Ordering::SeqCst), 0);
+        assert!(weak_capture.upgrade().is_none());
+        drop(actor);
+        assert!(store.is_closed());
+        assert_eq!(runtime.spawn_count(), 1);
+    }
+
+    #[test]
+    fn registered_try_send_preserves_input_on_full_or_closed_transport() {
+        for close_transport in [false, true] {
+            let AdmissionFixture {
+                store,
+                child,
+                mut actor,
+                embeddings,
+                reductions,
+            } = admission_fixture(1);
+            let queued = if close_transport {
+                assert!(store.ingress.close());
+                assert!(
+                    !store.is_closed(),
+                    "registered authority remains live before teardown"
+                );
+                None
+            } else {
+                Some(store.try_send(None).unwrap())
+            };
+            let drops = Arc::new(AtomicUsize::new(0));
+            let payload = AdmissionPayload {
+                value: Box::new(31),
+                drops: Arc::clone(&drops),
+            };
+            let identity = (&raw const *payload.value).addr();
+            let error = child.try_send(payload).unwrap_err();
+            assert_eq!(error.is_store_stopped(), close_transport);
+            assert_eq!(error.is_full(), !close_transport);
+            assert!(!error.is_scope_ended());
+            assert_eq!((&raw const *error.action().value).addr(), identity);
+            let returned = error.into_action();
+            assert_eq!(*returned.value, 31);
+            assert_eq!(embeddings.load(Ordering::SeqCst), 0);
+            assert_eq!(reductions.load(Ordering::SeqCst), 0);
+            assert_eq!(drops.load(Ordering::SeqCst), 0);
+            drop(returned);
+            assert_eq!(drops.load(Ordering::SeqCst), 1);
+
+            if let Some(queued) = queued {
+                let mut context = Context::from_waker(std::task::Waker::noop());
+                assert!(actor.as_mut().poll(&mut context).is_pending());
+                assert!(queued.finish().now_or_never().unwrap().unwrap().is_finished());
+                let mut read = Box::pin(store.read(|state| *state));
+                assert!(read.as_mut().poll(&mut context).is_pending());
+                assert!(actor.as_mut().poll(&mut context).is_pending());
+                assert!(matches!(read.as_mut().poll(&mut context), Poll::Ready(Ok(8))));
+            }
+            drop(actor);
+            assert!(store.is_closed());
+            assert_eq!(embeddings.load(Ordering::SeqCst), 0);
+            assert_eq!(reductions.load(Ordering::SeqCst), 0);
+            assert_eq!(drops.load(Ordering::SeqCst), 1);
+        }
+    }
+
+    #[test]
+    fn owned_scoped_send_rejects_closed_transport_or_preceding_replacement() {
+        for close_transport in [false, true] {
+            let AdmissionFixture {
+                store,
+                child,
+                mut actor,
+                embeddings,
+                reductions,
+            } = admission_fixture(2);
+            let queued = if close_transport {
+                assert!(store.ingress.close());
+                None
+            } else {
+                Some(store.try_send(None).unwrap())
+            };
+            let drops = Arc::new(AtomicUsize::new(0));
+            let mut send = child.driver.send_owned(
+                AdmissionPayload {
+                    value: Box::new(37),
+                    drops: Arc::clone(&drops),
+                },
+                Arc::new(super::WaitCancellation::default()),
+            );
+            let mut context = Context::from_waker(std::task::Waker::noop());
+            if !close_transport {
+                assert!(send.as_mut().poll(&mut context).is_pending());
+                assert_eq!(drops.load(Ordering::SeqCst), 0);
+                assert!(actor.as_mut().poll(&mut context).is_pending());
+            }
+            let Poll::Ready(Err(error)) = send.as_mut().poll(&mut context) else {
+                panic!("owned input must fail at its ordered admission or lifetime boundary");
+            };
+            assert_eq!(error.is_store_stopped(), close_transport);
+            assert_eq!(error.is_scope_ended(), !close_transport);
+            assert_eq!(embeddings.load(Ordering::SeqCst), 0);
+            assert_eq!(reductions.load(Ordering::SeqCst), 0);
+            assert_eq!(drops.load(Ordering::SeqCst), 1);
+            drop(send);
+            assert_eq!(drops.load(Ordering::SeqCst), 1);
+            if let Some(queued) = queued {
+                assert!(queued.finish().now_or_never().unwrap().unwrap().is_finished());
+                assert!(!store.is_closed());
+            }
+            drop(actor);
+            assert!(store.is_closed());
+        }
+    }
+
     #[test]
     fn cancelled_handle_ack_is_retired_without_reselecting() {
         use super::{HandleRegistrationCommand, HandleRegistrationGuard, HandleSignal, ScopeIdentity};

@@ -659,6 +659,7 @@ mod tests {
         let future_capture = payload();
         let interval_capture = payload();
         let cases = [
+            (Effect::none(), "Effect::None", 0),
             (Effect::send(payload()), "Effect::Send", 1),
             (
                 Effect::run(move |_| async move {

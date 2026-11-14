@@ -497,6 +497,179 @@ impl Drop for CountDrop {
 }
 
 #[test]
+fn dense_merge_keeps_factories_lazy_across_generation_and_leaf_classification() {
+    for kind in 0..5 {
+        let mut host = counter_host();
+        let scope = host.scopes.root();
+        let started = Arc::new(AtomicUsize::new(0));
+        let dropped = Arc::new(AtomicUsize::new(0));
+        let effects = (0..8).map(|index| {
+            if index == 0 && kind == 2 {
+                return crate::Effect::send(7);
+            }
+            if index == 0 && kind == 4 {
+                return crate::Effect::send_after(std::time::Duration::from_secs(1), 9);
+            }
+            let capture = CountDrop(Arc::clone(&dropped));
+            let started = Arc::clone(&started);
+            let effect = crate::Effect::run(move |_| {
+                started.fetch_add(1, Ordering::SeqCst);
+                async move { drop(capture) }
+            });
+            if index == 0 && kind == 3 {
+                effect.in_scope(scope)
+            } else {
+                effect
+            }
+        });
+        let effect = crate::Effect::merge(effects);
+        let effect = if kind == 0 {
+            effect.cancellable("dense-batch")
+        } else {
+            effect
+        };
+        let mut lineage = None;
+        let mut generations = Vec::new();
+        let operations = OperationAncestry::default();
+        let mut launches = Launches::default();
+        host.parts().compile_effect(
+            effect,
+            WorkOrigin {
+                scope,
+                lineage: &mut lineage,
+                generations: &mut generations,
+                operations: &operations,
+                inherited_generations: 0,
+                group: None,
+            },
+            &mut launches,
+        );
+        let lineage = lineage.expect("each batch owns registered work");
+        lineage.finish_registration();
+        let task = crate::ActionTask::live(lineage);
+        assert!(
+            generations.is_empty(),
+            "the generation bracket closes after registration"
+        );
+        assert_eq!(started.load(Ordering::SeqCst), 0);
+        assert_eq!(dropped.load(Ordering::SeqCst), 0);
+        assert_eq!(host.timers.len(), usize::from(kind == 4));
+        assert!(!task.is_finished());
+        let launches: Vec<_> = launches.into_iter().collect();
+        assert_eq!(launches.len(), 8 - usize::from(kind == 4));
+        drop(launches);
+        assert_eq!(started.load(Ordering::SeqCst), 0);
+        assert_eq!(
+            dropped.load(Ordering::SeqCst),
+            8 - usize::from(kind == 2 || kind == 4)
+        );
+        task.cancel();
+        assert!(host.collect().into_iter().next().is_none());
+        assert!(task.is_finished());
+        assert!(host.timers.is_empty());
+        assert_eq!((host.state, host.version), (0, 0));
+    }
+}
+
+#[test]
+fn pruning_retired_suffix_completes_its_root_wait_once_before_harvest() {
+    use crate::store::scope::{ScopeIdentity, ScopeSlot};
+
+    let mut host = counter_host();
+    let scope = host.scopes.root();
+    let node = ScopeRegistry::node(&mut ScopeSlot::new());
+    let child = host.scopes.mount(scope, node, ScopeIdentity::unit());
+    let effect = crate::Effect::concatenate([crate::Effect::send(99).in_scope(child)])
+        .delay(std::time::Duration::from_secs(1));
+    let mut lineage = None;
+    let mut generations = Vec::new();
+    let operations = OperationAncestry::default();
+    let mut launches = Launches::default();
+    host.parts().compile_effect(
+        effect,
+        WorkOrigin {
+            scope,
+            lineage: &mut lineage,
+            generations: &mut generations,
+            operations: &operations,
+            inherited_generations: 0,
+            group: None,
+        },
+        &mut launches,
+    );
+    let lineage = lineage.expect("the delay owns a root lineage");
+    lineage.finish_registration();
+    let task = crate::ActionTask::live(lineage);
+    assert!(launches.into_iter().next().is_none());
+    let wait = *host.sequence_waits.values().next().unwrap();
+    assert!(host.registry.task_is_running(wait));
+    host.parts().prune_deferred_scopes();
+    assert_eq!(host.timers.len(), 1);
+    assert!(host.registry.task_is_running(wait));
+
+    host.scopes.leave(child);
+    host.parts().prune_deferred_scopes();
+    assert!(host.timers.is_empty());
+    assert!(!host.registry.task_is_running(wait));
+    assert!(
+        !task.is_finished(),
+        "terminal harvest still owns the work lease"
+    );
+    host.parts().prune_deferred_scopes();
+    assert!(host.collect().into_iter().next().is_none());
+    assert!(task.is_finished());
+    assert!(host.sequences.is_empty());
+    assert!(host.sequence_waits.is_empty());
+    assert!(host.task_groups.is_empty());
+    assert_eq!((host.state, host.version), (0, 0));
+}
+
+#[test]
+fn admitted_named_request_rejects_root_closure_without_mutating_revision() {
+    let mut host = counter_host();
+    let operation = crate::store::operation::Operation::root(
+        Weak::clone(&host.weak),
+        Arc::downgrade(&host.lifecycle),
+        "closed-operation",
+    );
+    let mut status = Box::pin(operation.status());
+    let mut context = Context::from_waker(Waker::noop());
+    assert!(status.as_mut().poll(&mut context).is_pending());
+    host.lifecycle
+        .close(super::super::lifecycle::CloseState::Abortive);
+    let turn = host.next();
+    assert!(turn.flow);
+    assert!(turn.launches.into_iter().next().is_none());
+    let Poll::Ready(Err(error)) = status.as_mut().poll(&mut context) else {
+        panic!("the admitted request reports closed root authority");
+    };
+    assert_eq!(error.reason(), TaskAccessReason::StoreClosed);
+    assert_eq!(error.progress(), TaskProgress::NotStarted);
+    assert_eq!((host.state, host.version), (0, 0));
+}
+
+#[test]
+fn effect_admission_to_closed_mailbox_releases_original_action_once() {
+    let host = Host::<(), CountDrop, Shared>::new(
+        (),
+        Box::new(crate::Reduce::new(
+            |(): &mut (), _: &CountDrop, _: &mut ReduceContext<'_>| crate::Effect::none(),
+        )),
+    );
+    let dropped = Arc::new(AtomicUsize::new(0));
+    host.ingress.close();
+    let admission = admit_effect_action(
+        &host.weak,
+        &Provenance::External { handle: None },
+        CountDrop(Arc::clone(&dropped)),
+    );
+    assert!(matches!(admission, EffectAdmission::Stopped));
+    assert_eq!(dropped.load(Ordering::SeqCst), 1);
+    assert!(host.receiver.try_recv().is_err());
+    assert_eq!(host.version, 0);
+}
+
+#[test]
 fn typed_admission_is_lazy_wake_driven_and_receiver_drop_does_not_cancel_update() {
     let mut host = counter_host();
     let context = host.context();

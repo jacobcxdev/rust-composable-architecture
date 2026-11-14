@@ -74,6 +74,8 @@ enum RootAction {
 enum ChildAction {
     Start,
     Push(u8),
+    ExportSender(Arc<Mutex<Option<crate::EffectSender<ChildAction>>>>),
+    Captured(Capture),
     Retire,
     RetireNested,
     Panic(GuardProbe),
@@ -118,6 +120,17 @@ impl Feature for Child {
     ) {
         match action {
             ChildAction::Push(value) => state.push(*value),
+            ChildAction::ExportSender(export) => {
+                let export = Arc::clone(export);
+                context.effect(Effect::run(move |sender| async move {
+                    *export.lock().unwrap() = Some(sender);
+                    std::future::pending().await
+                }));
+            }
+            ChildAction::Captured(capture) => {
+                let _ = capture;
+                panic!("cancelled input must not enter the child reducer");
+            }
             ChildAction::Notify => {
                 context
                     .reducer_context()
@@ -269,6 +282,232 @@ fn dispatch(actor: &mut Actor<State, RootAction>) {
     #[cfg(feature = "test-util")]
     let turn = futures_executor::block_on(turn);
     assert!(actor.launch(turn));
+}
+
+#[test]
+fn retained_mounted_effect_sender_rejects_cancelled_provenance_before_admission() {
+    let (mut actor, _ingress, child, driver, _, drops, _) = fixture();
+    let export = Arc::new(Mutex::new(None));
+    let mut context = Context::from_waker(Waker::noop());
+    let mut start = Box::pin(child.send(ChildAction::ExportSender(Arc::clone(&export))));
+    assert!(start.as_mut().poll(&mut context).is_pending());
+    dispatch(&mut actor);
+    let Poll::Ready(Ok(task)) = start.as_mut().poll(&mut context) else {
+        panic!("the child must commit before its effect starts");
+    };
+    drop(start);
+    let mut effect = driver.tasks.lock().unwrap().pop().unwrap();
+    assert!(effect.as_mut().poll(&mut context).is_pending());
+    let sender = export.lock().unwrap().take().unwrap();
+    assert!(!task.is_finished());
+    task.cancel();
+
+    let mut send = Box::pin(sender.send(ChildAction::Captured(Capture(Arc::clone(&drops)))));
+    let Poll::Ready(Err(error)) = send.as_mut().poll(&mut context) else {
+        panic!("the retained sender must reject its cancelled provenance");
+    };
+    assert!(error.is_cancelled());
+    assert_eq!(drops.load(Ordering::SeqCst), 1);
+    assert!(matches!(
+        actor.receiver.try_recv(),
+        Err(mailbox::TryRecvError::Empty)
+    ));
+    assert_eq!(
+        actor.state.as_ref().unwrap().child.as_deref(),
+        Some([].as_slice())
+    );
+    drop(send);
+    assert_eq!(drops.load(Ordering::SeqCst), 1);
+    let turn = actor.process_control();
+    assert!(actor.launch(turn));
+    assert!(effect.as_mut().poll(&mut context).is_ready());
+    drop(effect);
+    let turn = actor.process_control();
+    assert!(actor.launch(turn));
+    assert!(task.is_finished());
+    assert!(task.is_cancelled());
+    assert!(driver.tasks.lock().unwrap().is_empty());
+}
+
+/// Keeps an unmapped command's identity and destruction observable.
+struct RoutingPayload {
+    value: Box<usize>,
+    drops: Arc<AtomicUsize>,
+}
+
+impl Drop for RoutingPayload {
+    fn drop(&mut self) {
+        self.drops.fetch_add(1, Ordering::SeqCst);
+    }
+}
+
+#[derive(Clone, Copy)]
+enum CommandRejection {
+    AuthorityEnded,
+    TransportClosed,
+    Full,
+}
+
+#[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "one mounted command compares the finite authority, transport and capacity schedules"
+)]
+fn mounted_command_rejection_preserves_unmapped_payload_and_queued_work() {
+    for asynchronous in [false, true] {
+        for rejection in [
+            CommandRejection::AuthorityEnded,
+            CommandRejection::TransportClosed,
+            CommandRejection::Full,
+        ] {
+            let runtime = crate::test_support::ManualRuntime::new();
+            let maps = Arc::new(AtomicUsize::new(0));
+            let reductions = Arc::new(AtomicUsize::new(0));
+            let drops = Arc::new(AtomicUsize::new(0));
+            let descriptor = crate::OptionalMount::new(
+                Option::as_ref,
+                Option::as_mut,
+                |state: &Option<usize>| {
+                    state.as_ref().map(|_| crate::MountIdentity {
+                        key: (),
+                        replacement: 0,
+                        configuration: 0,
+                    })
+                },
+                {
+                    let reductions = Arc::clone(&reductions);
+                    move |_| {
+                        let reductions = Arc::clone(&reductions);
+                        Reduce::new(move |state: &mut usize, action: &RoutingPayload, _| {
+                            reductions.fetch_add(1, Ordering::SeqCst);
+                            *state += *action.value;
+                            Effect::none()
+                        })
+                    }
+                },
+            );
+            let (builder, mount, site) = crate::Store::builder(
+                Some(0),
+                Reduce::new(|state: &mut Option<usize>, action: &usize, _| {
+                    *state.as_mut().unwrap() += action;
+                    Effect::none()
+                }),
+                runtime.runtime(),
+            )
+            .mailbox_capacity(1)
+            .mount_with_command(descriptor, {
+                let maps = Arc::clone(&maps);
+                move |command: RoutingPayload| {
+                    maps.fetch_add(1, Ordering::SeqCst);
+                    command
+                }
+            });
+            let store = builder.build().unwrap();
+            let mut actor = runtime.take_only_queued_task();
+            let mut context = Context::from_waker(Waker::noop());
+            assert!(actor.as_mut().poll(&mut context).is_pending());
+            let mut acquire = Box::pin(store.command_port(&site));
+            assert!(acquire.as_mut().poll(&mut context).is_pending());
+            assert!(actor.as_mut().poll(&mut context).is_pending());
+            let Poll::Ready(Ok(Some(port))) = acquire.as_mut().poll(&mut context) else {
+                panic!("the real mounted declaration must provide its command port");
+            };
+            drop(acquire);
+            drop((mount, site));
+            let mut actor = Some(actor);
+            let queued = if matches!(rejection, CommandRejection::Full) {
+                Some(store.try_send(3).unwrap())
+            } else {
+                None
+            };
+            match rejection {
+                CommandRejection::AuthorityEnded => drop(actor.take()),
+                CommandRejection::TransportClosed => assert!(store.ingress.close()),
+                CommandRejection::Full => {}
+            }
+            let payload = RoutingPayload {
+                value: Box::new(29),
+                drops: Arc::clone(&drops),
+            };
+            let identity = (&raw const *payload.value).addr();
+            let returned = if asynchronous {
+                let mut send = Box::pin(port.send(payload));
+                if matches!(rejection, CommandRejection::Full) {
+                    assert!(send.as_mut().poll(&mut context).is_pending());
+                    assert_eq!(maps.load(Ordering::SeqCst), 0);
+                    assert_eq!(drops.load(Ordering::SeqCst), 0);
+                    assert!(store.ingress.close());
+                }
+                let Poll::Ready(Err(crate::TaskSendError::Rejected { action, error })) =
+                    send.as_mut().poll(&mut context)
+                else {
+                    panic!("failed asynchronous admission must return the original command");
+                };
+                assert_eq!(error.reason(), crate::TaskAccessReason::StoreClosed);
+                assert_eq!(error.progress(), crate::TaskProgress::NotStarted);
+                action
+            } else {
+                match port.try_send(payload) {
+                    Err(crate::TryCommandError::Full(command)) => {
+                        assert!(matches!(rejection, CommandRejection::Full));
+                        command
+                    }
+                    Err(crate::TryCommandError::Rejected { command, error }) => {
+                        assert!(!matches!(rejection, CommandRejection::Full));
+                        assert_eq!(error.reason(), crate::TaskAccessReason::StoreClosed);
+                        assert_eq!(error.progress(), crate::TaskProgress::NotStarted);
+                        command
+                    }
+                    Ok(_) => panic!("failed immediate admission must not return a receipt"),
+                }
+            };
+            assert_eq!((&raw const *returned.value).addr(), identity);
+            assert_eq!(*returned.value, 29);
+            assert_eq!(maps.load(Ordering::SeqCst), 0);
+            assert_eq!(reductions.load(Ordering::SeqCst), 0);
+            assert_eq!(drops.load(Ordering::SeqCst), 0);
+            drop(returned);
+            assert_eq!(drops.load(Ordering::SeqCst), 1);
+
+            if matches!(rejection, CommandRejection::Full) && !asynchronous {
+                assert!(
+                    actor
+                        .as_mut()
+                        .unwrap()
+                        .as_mut()
+                        .poll(&mut context)
+                        .is_pending()
+                );
+                let mut committed = Box::pin(queued.unwrap().finish());
+                let Poll::Ready(Ok(task)) = committed.as_mut().poll(&mut context) else {
+                    panic!("a rejected command must leave the earlier queued action intact");
+                };
+                assert!(task.is_finished());
+                let mut read = Box::pin(store.read(|state| *state));
+                assert!(read.as_mut().poll(&mut context).is_pending());
+                assert!(
+                    actor
+                        .as_mut()
+                        .unwrap()
+                        .as_mut()
+                        .poll(&mut context)
+                        .is_pending()
+                );
+                assert!(matches!(
+                    read.as_mut().poll(&mut context),
+                    Poll::Ready(Ok(Some(3)))
+                ));
+            } else {
+                drop(queued);
+            }
+            drop(actor);
+            assert!(store.is_closed());
+            assert_eq!(maps.load(Ordering::SeqCst), 0);
+            assert_eq!(reductions.load(Ordering::SeqCst), 0);
+            assert_eq!(drops.load(Ordering::SeqCst), 1);
+            assert_eq!(runtime.spawn_count(), 1);
+        }
+    }
 }
 
 #[test]
