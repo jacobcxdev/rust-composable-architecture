@@ -2051,10 +2051,9 @@ ordinary_test_items! {
                 tasks.lock().unwrap().len(), 1,
                 "initial work transfers without a poll"
             );
-            assert!(matches!(
-                receive.try_recv(),
-                Ok(Some(Err(CommitError::Cancelled)))
-            ));
+            receive
+                .try_recv()
+                .expect_err("closed ingress drops the uncommitted acknowledgement");
         }
 
         /// Keeps production timer processing free of storage for impossible suspension.
