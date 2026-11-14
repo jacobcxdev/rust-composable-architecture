@@ -2053,7 +2053,7 @@ ordinary_test_items! {
             );
             assert!(matches!(
                 receive.try_recv(),
-                Ok(Some(Err(CommitError::StoreClosed)))
+                Ok(Some(Err(CommitError::Cancelled)))
             ));
         }
 
