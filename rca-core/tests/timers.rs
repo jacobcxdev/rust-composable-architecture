@@ -1727,12 +1727,23 @@ fn earlier_deadline_replaces_wake_without_parallel_sleep() {
             .await
             .expect("earlier timer commit");
         runtime.wait_for_sleep_calls(2);
-        VirtualRuntime::wait_until(|| runtime.active_sleeps() == 1);
+        let earlier_deadline = MonotonicInstant::from_elapsed(Duration::from_secs(1));
+        // Construction can precede registration. Check the replacement and its
+        // registration count together, not an old sleep before it is dropped.
+        VirtualRuntime::wait_until(|| {
+            let sleepers = runtime.shared.sleepers.lock().expect("sleeper lock");
+            if !sleepers
+                .values()
+                .any(|sleeper| sleeper.deadline == earlier_deadline)
+            {
+                return false;
+            }
+            assert_eq!(sleepers.len(), 1);
+            assert_eq!(runtime.max_active_sleeps(), 1);
+            true
+        });
 
-        assert_eq!(runtime.active_sleeps(), 1);
-        assert_eq!(runtime.max_active_sleeps(), 1);
-
-        runtime.advance_to(MonotonicInstant::from_elapsed(Duration::from_secs(1)));
+        runtime.advance_to(earlier_deadline);
         earlier.finish().await;
         later.cancel();
         later.finish().await;

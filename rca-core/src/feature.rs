@@ -547,9 +547,7 @@ mod tests {
                             .issue_reporter()
                             .report(crate::Issue::new("tag", "observed"))
                             .unwrap();
-                        if mode == 2 {
-                            panic!("reducer panic");
-                        }
+                        assert!(mode != 2, "reducer panic");
                         if mode == 0 {
                             Effect::none()
                         } else {

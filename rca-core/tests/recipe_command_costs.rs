@@ -412,8 +412,8 @@ mod collection_retention {
             driver.finish(store.shutdown()).unwrap();
             drop(store);
             driver.turn();
-            for kind in 0..3 {
-                assert_eq!(counts.dropped[kind].load(Ordering::Relaxed), 4);
+            for dropped in &counts.dropped {
+                assert_eq!(dropped.load(Ordering::Relaxed), 4);
             }
         }
     }

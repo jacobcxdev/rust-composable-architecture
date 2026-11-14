@@ -3489,10 +3489,10 @@ impl<S, A> ReduceDriver<S, A> for LegacyDriver<S, A> {
         mut context: ReduceContext<'_>,
     ) -> crate::feature::RootWork<Self::Effect, Self::Task, Self::RootRegistrar> {
         let effect = self.0.reduce(state, action, &mut context);
-        if !matches!(effect.program, Program::None) {
-            crate::feature::RootWork::Effect(effect)
-        } else {
+        if matches!(effect.program, Program::None) {
             crate::feature::RootWork::Empty
+        } else {
+            crate::feature::RootWork::Effect(effect)
         }
     }
 }

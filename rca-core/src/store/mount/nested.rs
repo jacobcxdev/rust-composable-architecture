@@ -720,7 +720,7 @@ mod tests {
 
         fn reconcile(
             &self,
-            _: &(),
+            (): &(),
             _: &mut ScopeRegistry,
             _: &mut ScopeTransitionBatch,
             _: &mut Vec<Box<<Shared as Carriers<(), ()>>::Node>>,

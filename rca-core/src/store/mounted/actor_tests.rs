@@ -569,7 +569,7 @@ fn reducer_unwind_releases_node_before_context_cleanup_and_reply_wake() {
         let turn = std::pin::pin!(turn).as_mut().poll(&mut cx);
         drop(turn);
     }));
-    let error = result.err().expect("the mounted reducer must panic");
+    let error = result.expect_err("the mounted reducer must panic");
     assert_eq!(panic_message(&*error), "mounted reducer panic");
     assert_eq!(
         probe.calls.load(Ordering::SeqCst),
