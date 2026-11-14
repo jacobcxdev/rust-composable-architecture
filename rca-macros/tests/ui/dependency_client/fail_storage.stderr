@@ -1,0 +1,41 @@
+error: dependency client endpoints require `Arc<dyn Fn(...) -> Return + Send + Sync>`; whole-field aliases are unsupported
+ --> tests/ui/dependency_client/fail_storage.rs:7:5
+  |
+7 |     call: Endpoint,
+  |     ^^^^^^^^^^^^^^
+
+error: dependency client endpoints require `Arc<dyn Fn(...) -> Return + Send + Sync>`; whole-field aliases are unsupported
+  --> tests/ui/dependency_client/fail_storage.rs:11:5
+   |
+11 |     call: Box<dyn Fn() + Send + Sync>,
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error: dependency client endpoints require `Arc<dyn Fn(...) -> Return + Send + Sync>`; whole-field aliases are unsupported
+  --> tests/ui/dependency_client/fail_storage.rs:15:5
+   |
+15 |     call: Arc<u8>,
+   |     ^^^^^^^^^^^^^
+
+error: dependency client endpoints require `Arc<dyn Fn(...) -> Return + Send + Sync>`; whole-field aliases are unsupported
+  --> tests/ui/dependency_client/fail_storage.rs:19:5
+   |
+19 |     call: Arc<dyn FnMut() + Send + Sync>,
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error: dependency client endpoints require `Arc<dyn Fn(...) -> Return + Send + Sync>`; whole-field aliases are unsupported
+  --> tests/ui/dependency_client/fail_storage.rs:23:5
+   |
+23 |     call: Arc<dyn FnOnce() + Send + Sync>,
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error: dependency client endpoints require `Arc<dyn Fn(...) -> Return + Send + Sync>`; whole-field aliases are unsupported
+  --> tests/ui/dependency_client/fail_storage.rs:27:5
+   |
+27 |     call: Arc<dyn Fn() + Sync>,
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error: dependency client endpoints require `Arc<dyn Fn(...) -> Return + Send + Sync>`; whole-field aliases are unsupported
+  --> tests/ui/dependency_client/fail_storage.rs:31:5
+   |
+31 |     call: Arc<dyn Fn() + Send>,
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^

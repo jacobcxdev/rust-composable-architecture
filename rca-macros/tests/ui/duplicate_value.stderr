@@ -1,0 +1,5 @@
+error: duplicate `value` option
+ --> tests/ui/duplicate_value.rs:4:26
+  |
+4 | #[dependency(value = u8, value = u16, live = 1)]
+  |                          ^^^^^

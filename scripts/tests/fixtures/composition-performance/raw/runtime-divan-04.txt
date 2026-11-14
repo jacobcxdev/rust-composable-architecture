@@ -1,0 +1,345 @@
+Timer precision: 41 ns
+composition                           fastest       │ slowest       │ median        │ mean          │ samples │ iters
+├─ case_hit                           6.624 µs      │ 26.95 µs      │ 7.27 µs       │ 7.987 µs      │ 50      │ 50
+│                                     150.9 Kitem/s │ 37.09 Kitem/s │ 137.5 Kitem/s │ 125.2 Kitem/s │         │
+├─ case_miss                          6.458 µs      │ 9.54 µs       │ 6.916 µs      │ 7.257 µs      │ 50      │ 50
+│                                     154.8 Kitem/s │ 104.8 Kitem/s │ 144.5 Kitem/s │ 137.7 Kitem/s │         │
+├─ case_switch                        7.457 µs      │ 13.45 µs      │ 8.687 µs      │ 9.034 µs      │ 50      │ 50
+│                                     134 Kitem/s   │ 74.3 Kitem/s  │ 115.1 Kitem/s │ 110.6 Kitem/s │         │
+├─ combine_arity                                    │               │               │               │         │
+│  ├─ 1                               6.374 µs      │ 10.58 µs      │ 7.02 µs       │ 7.218 µs      │ 50      │ 50
+│  │                                  156.8 Kitem/s │ 94.49 Kitem/s │ 142.4 Kitem/s │ 138.5 Kitem/s │         │
+│  ├─ 2                               6.332 µs      │ 24.87 µs      │ 7.916 µs      │ 8.459 µs      │ 50      │ 50
+│  │                                  157.9 Kitem/s │ 40.2 Kitem/s  │ 126.3 Kitem/s │ 118.2 Kitem/s │         │
+│  ├─ 3                               6.332 µs      │ 33.49 µs      │ 7.062 µs      │ 8.259 µs      │ 50      │ 50
+│  │                                  157.9 Kitem/s │ 29.85 Kitem/s │ 141.5 Kitem/s │ 121 Kitem/s   │         │
+│  ├─ 4                               6.207 µs      │ 18.33 µs      │ 6.478 µs      │ 7.15 µs       │ 50      │ 50
+│  │                                  161 Kitem/s   │ 54.54 Kitem/s │ 154.3 Kitem/s │ 139.8 Kitem/s │         │
+│  ├─ 5                               6.29 µs       │ 9.832 µs      │ 6.77 µs       │ 7.193 µs      │ 50      │ 50
+│  │                                  158.9 Kitem/s │ 101.7 Kitem/s │ 147.6 Kitem/s │ 139 Kitem/s   │         │
+│  ├─ 6                               6.333 µs      │ 12.91 µs      │ 7.166 µs      │ 7.513 µs      │ 50      │ 50
+│  │                                  157.8 Kitem/s │ 77.41 Kitem/s │ 139.5 Kitem/s │ 133 Kitem/s   │         │
+│  ├─ 7                               6.457 µs      │ 10.49 µs      │ 6.999 µs      │ 7.151 µs      │ 50      │ 50
+│  │                                  154.8 Kitem/s │ 95.24 Kitem/s │ 142.8 Kitem/s │ 139.8 Kitem/s │         │
+│  ├─ 8                               6.166 µs      │ 8.707 µs      │ 6.541 µs      │ 6.759 µs      │ 50      │ 50
+│  │                                  162.1 Kitem/s │ 114.8 Kitem/s │ 152.8 Kitem/s │ 147.9 Kitem/s │         │
+│  ├─ 9                               6.083 µs      │ 10.62 µs      │ 6.708 µs      │ 6.94 µs       │ 50      │ 50
+│  │                                  164.3 Kitem/s │ 94.12 Kitem/s │ 149 Kitem/s   │ 144 Kitem/s   │         │
+│  ├─ 10                              6.291 µs      │ 7.791 µs      │ 6.666 µs      │ 6.709 µs      │ 50      │ 50
+│  │                                  158.9 Kitem/s │ 128.3 Kitem/s │ 149.9 Kitem/s │ 149 Kitem/s   │         │
+│  ├─ 11                              6.374 µs      │ 8.249 µs      │ 7.062 µs      │ 7.112 µs      │ 50      │ 50
+│  │                                  156.8 Kitem/s │ 121.2 Kitem/s │ 141.5 Kitem/s │ 140.5 Kitem/s │         │
+│  ╰─ 12                              6.29 µs       │ 9.791 µs      │ 6.832 µs      │ 7.023 µs      │ 50      │ 50
+│                                     158.9 Kitem/s │ 102.1 Kitem/s │ 146.3 Kitem/s │ 142.3 Kitem/s │         │
+├─ dependency_lookup                                │               │               │               │         │
+│  ├─ 0                               6.333 µs      │ 9.207 µs      │ 6.791 µs      │ 7.014 µs      │ 50      │ 50
+│  ├─ 1                               6.082 µs      │ 8.082 µs      │ 6.624 µs      │ 6.753 µs      │ 50      │ 50
+│  ├─ 4                               6.207 µs      │ 10.62 µs      │ 6.604 µs      │ 6.906 µs      │ 50      │ 50
+│  ╰─ 16                              6.207 µs      │ 12.29 µs      │ 6.791 µs      │ 7.167 µs      │ 50      │ 50
+├─ descendant_cancellation                          │               │               │               │         │
+│  ├─ 1                               5.999 µs      │ 26.74 µs      │ 8.208 µs      │ 9.511 µs      │ 50      │ 50
+│  │                                  166.6 Kitem/s │ 37.38 Kitem/s │ 121.8 Kitem/s │ 105.1 Kitem/s │         │
+│  ├─ 100                             19.45 µs      │ 56.87 µs      │ 29.85 µs      │ 30.77 µs      │ 50      │ 50
+│  │                                  51.39 Kitem/s │ 17.58 Kitem/s │ 33.49 Kitem/s │ 32.49 Kitem/s │         │
+│  ╰─ 10000                           215.9 µs      │ 2.338 ms      │ 250.6 µs      │ 321.6 µs      │ 50      │ 50
+│                                     4.629 Kitem/s │ 427.5 item/s  │ 3.989 Kitem/s │ 3.108 Kitem/s │         │
+├─ direct                                           │               │               │               │         │
+│  ├─ 1                               5.207 µs      │ 16.74 µs      │ 8.853 µs      │ 8.959 µs      │ 50      │ 50
+│  │                                  192 Kitem/s   │ 59.7 Kitem/s  │ 112.9 Kitem/s │ 111.6 Kitem/s │         │
+│  ├─ 4                               5.582 µs      │ 13.54 µs      │ 8.374 µs      │ 8.81 µs       │ 50      │ 50
+│  │                                  179.1 Kitem/s │ 73.85 Kitem/s │ 119.4 Kitem/s │ 113.5 Kitem/s │         │
+│  ╰─ 16                              5.415 µs      │ 13.45 µs      │ 8.27 µs       │ 8.553 µs      │ 50      │ 50
+│                                     184.6 Kitem/s │ 74.3 Kitem/s  │ 120.9 Kitem/s │ 116.9 Kitem/s │         │
+├─ effect_map_depth                                 │               │               │               │         │
+│  ├─ 1                               10.7 µs       │ 28.66 µs      │ 21.45 µs      │ 20.35 µs      │ 50      │ 50
+│  │                                  93.39 Kitem/s │ 34.88 Kitem/s │ 46.6 Kitem/s  │ 49.12 Kitem/s │         │
+│  ├─ 4                               10.12 µs      │ 34.41 µs      │ 20.16 µs      │ 19.15 µs      │ 50      │ 50
+│  │                                  98.76 Kitem/s │ 29.05 Kitem/s │ 49.58 Kitem/s │ 52.19 Kitem/s │         │
+│  ╰─ 16                              12.7 µs       │ 31.08 µs      │ 21.81 µs      │ 20.24 µs      │ 50      │ 50
+│                                     78.69 Kitem/s │ 32.17 Kitem/s │ 45.84 Kitem/s │ 49.38 Kitem/s │         │
+├─ effect_map_output_rate                           │               │               │               │         │
+│  ├─ 1                               10.33 µs      │ 47.58 µs      │ 21.93 µs      │ 21.07 µs      │ 50      │ 50
+│  │                                  96.77 Kitem/s │ 21.01 Kitem/s │ 45.58 Kitem/s │ 47.45 Kitem/s │         │
+│  ├─ 16                              39.79 µs      │ 86.62 µs      │ 50.7 µs       │ 53.96 µs      │ 50      │ 50
+│  │                                  402 Kitem/s   │ 184.7 Kitem/s │ 315.5 Kitem/s │ 296.4 Kitem/s │         │
+│  ╰─ 256                             458.1 µs      │ 847.7 µs      │ 511.9 µs      │ 541.5 µs      │ 50      │ 50
+│                                     558.7 Kitem/s │ 301.9 Kitem/s │ 500 Kitem/s   │ 472.6 Kitem/s │         │
+├─ keyed_initial_mount                              │               │               │               │         │
+│  ├─ 10                              14.33 µs      │ 21.12 µs      │ 20.2 µs       │ 18.17 µs      │ 5       │ 5
+│  ├─ 1000                            315.9 µs      │ 357.5 µs      │ 320.7 µs      │ 327.1 µs      │ 5       │ 5
+│  ╰─ 100000                          33.05 ms      │ 36.79 ms      │ 35.49 ms      │ 35.49 ms      │ 5       │ 5
+├─ keyed_matching_route                             │               │               │               │         │
+│  ├─ 10                              5.082 µs      │ 15.04 µs      │ 8.437 µs      │ 8.97 µs       │ 50      │ 50
+│  │                                  196.7 Kitem/s │ 66.48 Kitem/s │ 118.5 Kitem/s │ 111.4 Kitem/s │         │
+│  ├─ 1000                            5.29 µs       │ 12.33 µs      │ 7.082 µs      │ 7.488 µs      │ 50      │ 50
+│  │                                  189 Kitem/s   │ 81.08 Kitem/s │ 141.1 Kitem/s │ 133.5 Kitem/s │         │
+│  ╰─ 100000                          5.166 µs      │ 27.08 µs      │ 8.208 µs      │ 9.262 µs      │ 50      │ 50
+│                                     193.5 Kitem/s │ 36.92 Kitem/s │ 121.8 Kitem/s │ 107.9 Kitem/s │         │
+├─ keyed_one_removal_cancellation                   │               │               │               │         │
+│  ├─ 10                              11.66 µs      │ 19.83 µs      │ 15.41 µs      │ 15.15 µs      │ 10      │ 10
+│  │                                  85.72 Kitem/s │ 50.41 Kitem/s │ 64.86 Kitem/s │ 65.97 Kitem/s │         │
+│  ├─ 1000                            26.45 µs      │ 50.74 µs      │ 34.43 µs      │ 35.51 µs      │ 10      │ 10
+│  │                                  37.79 Kitem/s │ 19.7 Kitem/s  │ 29.03 Kitem/s │ 28.15 Kitem/s │         │
+│  ╰─ 100000                          2.631 ms      │ 3.588 ms      │ 3.013 ms      │ 3.006 ms      │ 10      │ 10
+│                                     380 item/s    │ 278.6 item/s  │ 331.8 item/s  │ 332.6 item/s  │         │
+├─ keyed_remove_1_000_active_entries                │               │               │               │         │
+│  ├─ 1000                            219 µs        │ 587.8 µs      │ 226.3 µs      │ 261.4 µs      │ 10      │ 10
+│  │                                  4.565 Mitem/s │ 1.701 Mitem/s │ 4.418 Mitem/s │ 3.824 Mitem/s │         │
+│  ╰─ 100000                          3.035 ms      │ 3.67 ms       │ 3.356 ms      │ 3.311 ms      │ 10      │ 10
+│                                     329.3 Kitem/s │ 272.4 Kitem/s │ 297.9 Kitem/s │ 302 Kitem/s   │         │
+├─ keyed_two_output_id_mapping                      │               │               │               │         │
+│  ├─ 10                              13.62 µs      │ 37.29 µs      │ 26.93 µs      │ 25.91 µs      │ 50      │ 50
+│  │                                  146.7 Kitem/s │ 53.63 Kitem/s │ 74.24 Kitem/s │ 77.17 Kitem/s │         │
+│  ├─ 1000                            11.83 µs      │ 29.12 µs      │ 22.6 µs       │ 20.96 µs      │ 50      │ 50
+│  │                                  169 Kitem/s   │ 68.67 Kitem/s │ 88.47 Kitem/s │ 95.38 Kitem/s │         │
+│  ╰─ 100000                          12.12 µs      │ 41.66 µs      │ 25.62 µs      │ 25.18 µs      │ 50      │ 50
+│                                     164.9 Kitem/s │ 47.99 Kitem/s │ 78.04 Kitem/s │ 79.39 Kitem/s │         │
+├─ keyed_unrelated_reconciliation                   │               │               │               │         │
+│  ├─ 10                              6.582 µs      │ 14.45 µs      │ 8.166 µs      │ 8.464 µs      │ 50      │ 50
+│  │                                  151.9 Kitem/s │ 69.16 Kitem/s │ 122.4 Kitem/s │ 118.1 Kitem/s │         │
+│  ├─ 1000                            5.666 µs      │ 12.79 µs      │ 8.02 µs       │ 8.194 µs      │ 50      │ 50
+│  │                                  176.4 Kitem/s │ 78.17 Kitem/s │ 124.6 Kitem/s │ 122 Kitem/s   │         │
+│  ╰─ 100000                          5.249 µs      │ 42.87 µs      │ 8.895 µs      │ 10.21 µs      │ 50      │ 50
+│                                     190.4 Kitem/s │ 23.32 Kitem/s │ 112.4 Kitem/s │ 97.84 Kitem/s │         │
+├─ map_none                           1.572 ns      │ 2.203 ns      │ 1.593 ns      │ 1.657 ns      │ 100     │ 204800
+├─ matching_scope                                   │               │               │               │         │
+│  ├─ 1                               4.999 µs      │ 11.83 µs      │ 7.145 µs      │ 7.639 µs      │ 50      │ 50
+│  │                                  200 Kitem/s   │ 84.51 Kitem/s │ 139.9 Kitem/s │ 130.8 Kitem/s │         │
+│  ├─ 4                               5.708 µs      │ 11.74 µs      │ 7.645 µs      │ 7.905 µs      │ 50      │ 50
+│  │                                  175.1 Kitem/s │ 85.1 Kitem/s  │ 130.7 Kitem/s │ 126.4 Kitem/s │         │
+│  ╰─ 16                              7.665 µs      │ 11.33 µs      │ 9.687 µs      │ 9.376 µs      │ 50      │ 50
+│                                     130.4 Kitem/s │ 88.24 Kitem/s │ 103.2 Kitem/s │ 106.6 Kitem/s │         │
+├─ nonmatching_scope                                │               │               │               │         │
+│  ├─ 1                               5.207 µs      │ 13.29 µs      │ 7.937 µs      │ 7.695 µs      │ 50      │ 50
+│  │                                  192 Kitem/s   │ 75.24 Kitem/s │ 125.9 Kitem/s │ 129.9 Kitem/s │         │
+│  ├─ 4                               5.457 µs      │ 12.45 µs      │ 7.624 µs      │ 7.876 µs      │ 50      │ 50
+│  │                                  183.2 Kitem/s │ 80.26 Kitem/s │ 131.1 Kitem/s │ 126.9 Kitem/s │         │
+│  ╰─ 16                              7.79 µs       │ 11.74 µs      │ 9.812 µs      │ 9.526 µs      │ 50      │ 50
+│                                     128.3 Kitem/s │ 85.1 Kitem/s  │ 101.9 Kitem/s │ 104.9 Kitem/s │         │
+├─ optional_enter                     7.624 µs      │ 16.62 µs      │ 11.16 µs      │ 10.85 µs      │ 50      │ 50
+│                                     131.1 Kitem/s │ 60.15 Kitem/s │ 89.55 Kitem/s │ 92.14 Kitem/s │         │
+├─ optional_hit                       5.249 µs      │ 11.74 µs      │ 8.02 µs       │ 8.008 µs      │ 50      │ 50
+│                                     190.4 Kitem/s │ 85.1 Kitem/s  │ 124.6 Kitem/s │ 124.8 Kitem/s │         │
+├─ optional_leave                     7.499 µs      │ 16.04 µs      │ 10.91 µs      │ 10.86 µs      │ 50      │ 50
+│                                     133.3 Kitem/s │ 62.33 Kitem/s │ 91.61 Kitem/s │ 92.01 Kitem/s │         │
+├─ optional_miss                      6.791 µs      │ 13.7 µs       │ 8.478 µs      │ 9.224 µs      │ 50      │ 50
+│                                     147.2 Kitem/s │ 72.94 Kitem/s │ 117.9 Kitem/s │ 108.4 Kitem/s │         │
+├─ scoped_concurrent_senders_32       161 µs        │ 544.3 µs      │ 252.6 µs      │ 271.3 µs      │ 50      │ 50
+│                                     198.6 Kitem/s │ 58.78 Kitem/s │ 126.6 Kitem/s │ 117.9 Kitem/s │         │
+├─ scoped_handle_construction                       │               │               │               │         │
+│  ├─ 1                               6.874 µs      │ 10.91 µs      │ 9.957 µs      │ 9.024 µs      │ 5       │ 5
+│  │                                  145.4 Kitem/s │ 91.6 Kitem/s  │ 100.4 Kitem/s │ 110.8 Kitem/s │         │
+│  ├─ 100                             827 µs        │ 1.035 ms      │ 879.3 µs      │ 900.7 µs      │ 5       │ 5
+│  │                                  120.9 Kitem/s │ 96.53 Kitem/s │ 113.7 Kitem/s │ 111 Kitem/s   │         │
+│  ╰─ 10000                           279.4 ms      │ 283 ms        │ 281.2 ms      │ 281.2 ms      │ 2       │ 2
+│                                     35.78 Kitem/s │ 35.32 Kitem/s │ 35.55 Kitem/s │ 35.55 Kitem/s │         │
+├─ scoped_invalidation                6.749 µs      │ 15.54 µs      │ 10.02 µs      │ 9.935 µs      │ 50      │ 50
+│                                     148.1 Kitem/s │ 64.34 Kitem/s │ 99.79 Kitem/s │ 100.6 Kitem/s │         │
+├─ scoped_keyed_construction          5.457 µs      │ 11.54 µs      │ 7.479 µs      │ 7.457 µs      │ 50      │ 50
+│                                     183.2 Kitem/s │ 86.64 Kitem/s │ 133.7 Kitem/s │ 134 Kitem/s   │         │
+├─ scoped_observation_coalescing                    │               │               │               │         │
+│  ├─ 1                               17.04 µs      │ 17.66 µs      │ 17.41 µs      │ 17.38 µs      │ 5       │ 5
+│  │                                  58.67 Kitem/s │ 56.6 Kitem/s  │ 57.41 Kitem/s │ 57.52 Kitem/s │         │
+│  ├─ 100                             749.9 µs      │ 853.5 µs      │ 795.7 µs      │ 797.9 µs      │ 5       │ 5
+│  │                                  133.3 Kitem/s │ 117.1 Kitem/s │ 125.6 Kitem/s │ 125.3 Kitem/s │         │
+│  ╰─ 10000                           73.16 ms      │ 84.83 ms      │ 81.12 ms      │ 79.86 ms      │ 5       │ 5
+│                                     136.6 Kitem/s │ 117.8 Kitem/s │ 123.2 Kitem/s │ 125.2 Kitem/s │         │
+├─ scoped_observation_construction                  │               │               │               │         │
+│  ├─ 1                               5.207 µs      │ 9.04 µs       │ 7.082 µs      │ 6.941 µs      │ 5       │ 5
+│  │                                  192 Kitem/s   │ 110.6 Kitem/s │ 141.1 Kitem/s │ 144 Kitem/s   │         │
+│  ├─ 100                             831.7 µs      │ 998.7 µs      │ 866.6 µs      │ 895.4 µs      │ 5       │ 5
+│  │                                  120.2 Kitem/s │ 100.1 Kitem/s │ 115.3 Kitem/s │ 111.6 Kitem/s │         │
+│  ╰─ 10000                           223.8 ms      │ 236.7 ms      │ 232.1 ms      │ 230.9 ms      │ 3       │ 3
+│                                     44.66 Kitem/s │ 42.24 Kitem/s │ 43.06 Kitem/s │ 43.3 Kitem/s  │         │
+├─ scoped_observe_always              12.62 µs      │ 35.7 µs       │ 16.6 µs       │ 17.28 µs      │ 50      │ 50
+│                                     79.2 Kitem/s  │ 28 Kitem/s    │ 60.22 Kitem/s │ 57.84 Kitem/s │         │
+├─ scoped_observe_distinct_equal      7.249 µs      │ 11.66 µs      │ 7.895 µs      │ 8.036 µs      │ 50      │ 50
+│                                     137.9 Kitem/s │ 85.72 Kitem/s │ 126.6 Kitem/s │ 124.4 Kitem/s │         │
+├─ scoped_observe_distinct_non_equal  14.99 µs      │ 22.49 µs      │ 15.95 µs      │ 16.29 µs      │ 50      │ 50
+│                                     66.66 Kitem/s │ 44.44 Kitem/s │ 62.66 Kitem/s │ 61.35 Kitem/s │         │
+├─ scoped_optional_construction       5.666 µs      │ 11.08 µs      │ 7.478 µs      │ 7.678 µs      │ 50      │ 50
+│                                     176.4 Kitem/s │ 90.22 Kitem/s │ 133.7 Kitem/s │ 130.2 Kitem/s │         │
+├─ scoped_read                        5.582 µs      │ 12.2 µs       │ 7.999 µs      │ 8.102 µs      │ 50      │ 50
+│                                     179.1 Kitem/s │ 81.91 Kitem/s │ 125 Kitem/s   │ 123.4 Kitem/s │         │
+├─ scoped_required_construction       29.66 ns      │ 36.18 ns      │ 29.99 ns      │ 30.2 ns       │ 50      │ 6400
+│                                     33.7 Mitem/s  │ 27.63 Mitem/s │ 33.34 Mitem/s │ 33.11 Mitem/s │         │
+├─ scoped_send                        7.124 µs      │ 20.2 µs       │ 9.416 µs      │ 9.922 µs      │ 50      │ 50
+│                                     140.3 Kitem/s │ 49.48 Kitem/s │ 106.1 Kitem/s │ 100.7 Kitem/s │         │
+├─ scoped_try_send                    5.665 µs      │ 11.74 µs      │ 8.416 µs      │ 8.725 µs      │ 50      │ 50
+│                                     176.5 Kitem/s │ 85.1 Kitem/s  │ 118.8 Kitem/s │ 114.6 Kitem/s │         │
+├─ scoped_try_send_full               249.7 ns      │ 338.2 ns      │ 254.9 ns      │ 263.1 ns      │ 50      │ 800
+│                                     4.004 Mitem/s │ 2.956 Mitem/s │ 3.922 Mitem/s │ 3.8 Mitem/s   │         │
+├─ scoped_try_send_recovery           13.41 µs      │ 21.58 µs      │ 15.79 µs      │ 16.09 µs      │ 50      │ 50
+│                                     74.53 Kitem/s │ 46.33 Kitem/s │ 63.32 Kitem/s │ 62.13 Kitem/s │         │
+├─ indexmap_control                                 │               │               │               │         │
+│  ├─ clear                                         │               │               │               │         │
+│  │  ├─ 10                           0 ns          │ 62.22 ns      │ 10.09 ns      │ 11.3 ns       │ 10      │ 40
+│  │  │                               inf item/s    │ 16.07 Mitem/s │ 99.04 Mitem/s │ 88.44 Mitem/s │         │
+│  │  ├─ 1000                         30.97 ns      │ 41.47 ns      │ 30.97 ns      │ 33.04 ns      │ 10      │ 40
+│  │  │                               32.28 Mitem/s │ 24.11 Mitem/s │ 32.28 Mitem/s │ 30.26 Mitem/s │         │
+│  │  ╰─ 100000                       1.614 µs      │ 3.145 µs      │ 2.515 µs      │ 2.438 µs      │ 10      │ 40
+│  │                                  619.3 Kitem/s │ 317.9 Kitem/s │ 397.5 Kitem/s │ 410.1 Kitem/s │         │
+│  ├─ insert                                        │               │               │               │         │
+│  │  ├─ 10                           30.97 ns      │ 41.47 ns      │ 36.09 ns      │ 36.17 ns      │ 10      │ 40
+│  │  │                               32.28 Mitem/s │ 24.11 Mitem/s │ 27.7 Mitem/s  │ 27.64 Mitem/s │         │
+│  │  ├─ 1000                         30.97 ns      │ 41.47 ns      │ 41.47 ns      │ 40.34 ns      │ 10      │ 40
+│  │  │                               32.28 Mitem/s │ 24.11 Mitem/s │ 24.11 Mitem/s │ 24.78 Mitem/s │         │
+│  │  ╰─ 100000                       30.97 ns      │ 1.343 µs      │ 62.22 ns      │ 199.7 ns      │ 10      │ 40
+│  │                                  32.28 Mitem/s │ 744.3 Kitem/s │ 16.07 Mitem/s │ 5.006 Mitem/s │         │
+│  ├─ lookup                                        │               │               │               │         │
+│  │  ├─ 10                           7.167 ns      │ 7.411 ns      │ 7.289 ns      │ 7.293 ns      │ 50      │ 51200
+│  │  │                               139.5 Mitem/s │ 134.9 Mitem/s │ 137.1 Mitem/s │ 137.1 Mitem/s │         │
+│  │  ├─ 1000                         7.167 ns      │ 7.37 ns       │ 7.249 ns      │ 7.252 ns      │ 50      │ 51200
+│  │  │                               139.5 Mitem/s │ 135.6 Mitem/s │ 137.9 Mitem/s │ 137.8 Mitem/s │         │
+│  │  ╰─ 100000                       7.045 ns      │ 15.46 ns      │ 7.126 ns      │ 7.372 ns      │ 50      │ 51200
+│  │                                  141.9 Mitem/s │ 64.64 Mitem/s │ 140.3 Mitem/s │ 135.6 Mitem/s │         │
+│  ├─ move_last_to_first                            │               │               │               │         │
+│  │  ├─ 10                           30.97 ns      │ 114.2 ns      │ 41.22 ns      │ 45.49 ns      │ 10      │ 40
+│  │  │                               32.28 Mitem/s │ 8.754 Mitem/s │ 24.25 Mitem/s │ 21.97 Mitem/s │         │
+│  │  ├─ 1000                         2.614 µs      │ 3.52 µs       │ 2.718 µs      │ 2.863 µs      │ 10      │ 40
+│  │  │                               382.5 Kitem/s │ 284 Kitem/s   │ 367.8 Kitem/s │ 349.2 Kitem/s │         │
+│  │  ╰─ 100000                       196.2 µs      │ 318.9 µs      │ 225.7 µs      │ 233.4 µs      │ 10      │ 40
+│  │                                  5.094 Kitem/s │ 3.135 Kitem/s │ 4.428 Kitem/s │ 4.282 Kitem/s │         │
+│  ├─ ordered_remove                                │               │               │               │         │
+│  │  ├─ 10                           20.72 ns      │ 103.7 ns      │ 41.47 ns      │ 49.74 ns      │ 10      │ 40
+│  │  │                               48.26 Mitem/s │ 9.641 Mitem/s │ 24.11 Mitem/s │ 20.1 Mitem/s  │         │
+│  │  ├─ 1000                         759.9 ns      │ 895.7 ns      │ 827.8 ns      │ 829.9 ns      │ 10      │ 40
+│  │  │                               1.315 Mitem/s │ 1.116 Mitem/s │ 1.207 Mitem/s │ 1.204 Mitem/s │         │
+│  │  ╰─ 100000                       191 µs        │ 330.5 µs      │ 263.6 µs      │ 259 µs        │ 10      │ 40
+│  │                                  5.234 Kitem/s │ 3.025 Kitem/s │ 3.793 Kitem/s │ 3.86 Kitem/s  │         │
+│  ╰─ swap_remove                                   │               │               │               │         │
+│     ├─ 10                           20.47 ns      │ 62.22 ns      │ 30.97 ns      │ 29.92 ns      │ 10      │ 40
+│     │                               48.84 Mitem/s │ 16.07 Mitem/s │ 32.28 Mitem/s │ 33.42 Mitem/s │         │
+│     ├─ 1000                         30.97 ns      │ 41.47 ns      │ 41.22 ns      │ 38.24 ns      │ 10      │ 40
+│     │                               32.28 Mitem/s │ 24.11 Mitem/s │ 24.25 Mitem/s │ 26.14 Mitem/s │         │
+│     ╰─ 100000                       135.2 ns      │ 1.603 µs      │ 442.4 ns      │ 558 ns        │ 10      │ 40
+│                                     7.395 Mitem/s │ 623.4 Kitem/s │ 2.26 Mitem/s  │ 1.791 Mitem/s │         │
+├─ keyed_state_collection                           │               │               │               │         │
+│  ├─ clear                                         │               │               │               │         │
+│  │  ├─ 10                           9.971 ns      │ 30.97 ns      │ 10.22 ns      │ 12.22 ns      │ 10      │ 40
+│  │  │                               100.2 Mitem/s │ 32.28 Mitem/s │ 97.83 Mitem/s │ 81.82 Mitem/s │         │
+│  │  ├─ 1000                         30.97 ns      │ 41.47 ns      │ 30.97 ns      │ 33.07 ns      │ 10      │ 40
+│  │  │                               32.28 Mitem/s │ 24.11 Mitem/s │ 32.28 Mitem/s │ 30.23 Mitem/s │         │
+│  │  ╰─ 100000                       1.614 µs      │ 3.509 µs      │ 1.78 µs       │ 2.162 µs      │ 10      │ 40
+│  │                                  619.4 Kitem/s │ 284.9 Kitem/s │ 561.4 Kitem/s │ 462.4 Kitem/s │         │
+│  ├─ insert                                        │               │               │               │         │
+│  │  ├─ 10                           20.47 ns      │ 41.22 ns      │ 30.97 ns      │ 30.92 ns      │ 10      │ 40
+│  │  │                               48.84 Mitem/s │ 24.25 Mitem/s │ 32.28 Mitem/s │ 32.34 Mitem/s │         │
+│  │  ├─ 1000                         20.47 ns      │ 83.22 ns      │ 30.97 ns      │ 39.32 ns      │ 10      │ 40
+│  │  │                               48.84 Mitem/s │ 12.01 Mitem/s │ 32.28 Mitem/s │ 25.43 Mitem/s │         │
+│  │  ╰─ 100000                       41.22 ns      │ 1.208 µs      │ 171.7 ns      │ 394.5 ns      │ 10      │ 40
+│  │                                  24.25 Mitem/s │ 827.6 Kitem/s │ 5.823 Mitem/s │ 2.534 Mitem/s │         │
+│  ├─ lookup                                        │               │               │               │         │
+│  │  ├─ 10                           8.181 ns      │ 17.62 ns      │ 8.51 ns       │ 8.793 ns      │ 50      │ 12800
+│  │  │                               122.2 Mitem/s │ 56.73 Mitem/s │ 117.5 Mitem/s │ 113.7 Mitem/s │         │
+│  │  ├─ 1000                         8.265 ns      │ 17.37 ns      │ 8.347 ns      │ 8.737 ns      │ 50      │ 25600
+│  │  │                               120.9 Mitem/s │ 57.54 Mitem/s │ 119.8 Mitem/s │ 114.4 Mitem/s │         │
+│  │  ╰─ 100000                       8.265 ns      │ 12.82 ns      │ 8.429 ns      │ 8.664 ns      │ 50      │ 25600
+│  │                                  120.9 Mitem/s │ 77.99 Mitem/s │ 118.6 Mitem/s │ 115.4 Mitem/s │         │
+│  ├─ move_last_to_first                            │               │               │               │         │
+│  │  ├─ 10                           30.97 ns      │ 72.72 ns      │ 41.34 ns      │ 45.54 ns      │ 10      │ 40
+│  │  │                               32.28 Mitem/s │ 13.75 Mitem/s │ 24.18 Mitem/s │ 21.95 Mitem/s │         │
+│  │  ├─ 1000                         2.645 µs      │ 2.749 µs      │ 2.687 µs      │ 2.69 µs       │ 10      │ 40
+│  │  │                               378 Kitem/s   │ 363.6 Kitem/s │ 372.1 Kitem/s │ 371.6 Kitem/s │         │
+│  │  ╰─ 100000                       199.8 µs      │ 273.8 µs      │ 218.9 µs      │ 233.8 µs      │ 10      │ 40
+│  │                                  5.004 Kitem/s │ 3.651 Kitem/s │ 4.567 Kitem/s │ 4.275 Kitem/s │         │
+│  ├─ ordered_remove                                │               │               │               │         │
+│  │  ├─ 10                           41.22 ns      │ 103.7 ns      │ 57.09 ns      │ 58.02 ns      │ 10      │ 40
+│  │  │                               24.25 Mitem/s │ 9.641 Mitem/s │ 17.51 Mitem/s │ 17.23 Mitem/s │         │
+│  │  ├─ 1000                         843.4 ns      │ 978.7 ns      │ 853.9 ns      │ 873.6 ns      │ 10      │ 40
+│  │  │                               1.185 Mitem/s │ 1.021 Mitem/s │ 1.17 Mitem/s  │ 1.144 Mitem/s │         │
+│  │  ╰─ 100000                       230.6 µs      │ 361.3 µs      │ 259.3 µs      │ 270.9 µs      │ 10      │ 40
+│  │                                  4.336 Kitem/s │ 2.767 Kitem/s │ 3.855 Kitem/s │ 3.691 Kitem/s │         │
+│  ╰─ swap_remove                                   │               │               │               │         │
+│     ├─ 10                           20.72 ns      │ 62.22 ns      │ 30.97 ns      │ 36.19 ns      │ 10      │ 40
+│     │                               48.26 Mitem/s │ 16.07 Mitem/s │ 32.28 Mitem/s │ 27.62 Mitem/s │         │
+│     ├─ 1000                         30.97 ns      │ 51.72 ns      │ 41.47 ns      │ 42.42 ns      │ 10      │ 40
+│     │                               32.28 Mitem/s │ 19.33 Mitem/s │ 24.11 Mitem/s │ 23.57 Mitem/s │         │
+│     ╰─ 100000                       114.2 ns      │ 1.395 µs      │ 447.5 ns      │ 623.6 ns      │ 10      │ 40
+│                                     8.754 Mitem/s │ 716.6 Kitem/s │ 2.234 Mitem/s │ 1.603 Mitem/s │         │
+├─ vec_btreemap_control                             │               │               │               │         │
+│  ├─ clear                                         │               │               │               │         │
+│  │  ├─ 10                           20.47 ns      │ 134.9 ns      │ 25.84 ns      │ 36.17 ns      │ 10      │ 40
+│  │  │                               48.84 Mitem/s │ 7.408 Mitem/s │ 38.69 Mitem/s │ 27.64 Mitem/s │         │
+│  │  ├─ 1000                         2.603 µs      │ 2.843 µs      │ 2.64 µs       │ 2.658 µs      │ 10      │ 40
+│  │  │                               384 Kitem/s   │ 351.6 Kitem/s │ 378.7 Kitem/s │ 376.2 Kitem/s │         │
+│  │  ╰─ 100000                       263.9 µs      │ 807.2 µs      │ 307.4 µs      │ 360.2 µs      │ 10      │ 40
+│  │                                  3.788 Kitem/s │ 1.238 Kitem/s │ 3.252 Kitem/s │ 2.775 Kitem/s │         │
+│  ├─ insert                                        │               │               │               │         │
+│  │  ├─ 10                           0 ns          │ 62.22 ns      │ 10.22 ns      │ 14.34 ns      │ 10      │ 40
+│  │  │                               inf item/s    │ 16.07 Mitem/s │ 97.83 Mitem/s │ 69.69 Mitem/s │         │
+│  │  ├─ 1000                         10.22 ns      │ 51.97 ns      │ 20.47 ns      │ 22.64 ns      │ 10      │ 40
+│  │  │                               97.83 Mitem/s │ 19.24 Mitem/s │ 48.84 Mitem/s │ 44.15 Mitem/s │         │
+│  │  ╰─ 100000                       218.4 ns      │ 1.76 µs       │ 588.3 ns      │ 854.9 ns      │ 10      │ 40
+│  │                                  4.577 Mitem/s │ 568.1 Kitem/s │ 1.699 Mitem/s │ 1.169 Mitem/s │         │
+│  ├─ lookup                                        │               │               │               │         │
+│  │  ├─ 10                           2.406 ns      │ 9.527 ns      │ 2.447 ns      │ 2.682 ns      │ 50      │ 102400
+│  │  │                               415.6 Mitem/s │ 104.9 Mitem/s │ 408.6 Mitem/s │ 372.8 Mitem/s │         │
+│  │  ├─ 1000                         7.453 ns      │ 7.859 ns      │ 7.615 ns      │ 7.624 ns      │ 50      │ 25600
+│  │  │                               134.1 Mitem/s │ 127.2 Mitem/s │ 131.3 Mitem/s │ 131.1 Mitem/s │         │
+│  │  ╰─ 100000                       11.52 ns      │ 12.09 ns      │ 11.92 ns      │ 11.89 ns      │ 50      │ 25600
+│  │                                  86.79 Mitem/s │ 82.69 Mitem/s │ 83.83 Mitem/s │ 84.06 Mitem/s │         │
+│  ├─ move_last_to_first                            │               │               │               │         │
+│  │  ├─ 10                           41.22 ns      │ 124.7 ns      │ 51.84 ns      │ 60.12 ns      │ 10      │ 40
+│  │  │                               24.25 Mitem/s │ 8.017 Mitem/s │ 19.28 Mitem/s │ 16.63 Mitem/s │         │
+│  │  ├─ 1000                         9.718 µs      │ 20.95 µs      │ 9.749 µs      │ 11.24 µs      │ 10      │ 40
+│  │  │                               102.8 Kitem/s │ 47.71 Kitem/s │ 102.5 Kitem/s │ 88.93 Kitem/s │         │
+│  │  ╰─ 100000                       3.365 ms      │ 3.528 ms      │ 3.416 ms      │ 3.423 ms      │ 10      │ 40
+│  │                                  297.1 item/s  │ 283.4 item/s  │ 292.7 item/s  │ 292 item/s    │         │
+│  ├─ ordered_remove                                │               │               │               │         │
+│  │  ├─ 10                           30.97 ns      │ 135.2 ns      │ 41.47 ns      │ 46.64 ns      │ 10      │ 40
+│  │  │                               32.28 Mitem/s │ 7.395 Mitem/s │ 24.11 Mitem/s │ 21.43 Mitem/s │         │
+│  │  ├─ 1000                         4.968 µs      │ 9.707 µs      │ 5.057 µs      │ 5.654 µs      │ 10      │ 40
+│  │  │                               201.2 Kitem/s │ 103 Kitem/s   │ 197.7 Kitem/s │ 176.8 Kitem/s │         │
+│  │  ╰─ 100000                       1.646 ms      │ 1.882 ms      │ 1.728 ms      │ 1.731 ms      │ 10      │ 40
+│  │                                  607.5 item/s  │ 531.2 item/s  │ 578.6 item/s  │ 577.4 item/s  │         │
+│  ╰─ swap_remove                                   │               │               │               │         │
+│     ├─ 10                           20.47 ns      │ 93.47 ns      │ 20.47 ns      │ 28.87 ns      │ 10      │ 40
+│     │                               48.84 Mitem/s │ 10.69 Mitem/s │ 48.84 Mitem/s │ 34.63 Mitem/s │         │
+│     ├─ 1000                         30.97 ns      │ 93.47 ns      │ 41.34 ns      │ 43.47 ns      │ 10      │ 40
+│     │                               32.28 Mitem/s │ 10.69 Mitem/s │ 24.18 Mitem/s │ 23 Mitem/s    │         │
+│     ╰─ 100000                       509.9 ns      │ 1.905 µs      │ 905.9 ns      │ 1.034 µs      │ 10      │ 40
+│                                     1.96 Mitem/s  │ 524.6 Kitem/s │ 1.103 Mitem/s │ 967 Kitem/s   │         │
+╰─ vec_hashmap_control                              │               │               │               │         │
+   ├─ clear                                         │               │               │               │         │
+   │  ├─ 10                           0 ns          │ 20.72 ns      │ 9.971 ns      │ 9.126 ns      │ 10      │ 40
+   │  │                               inf item/s    │ 48.26 Mitem/s │ 100.2 Mitem/s │ 109.5 Mitem/s │         │
+   │  ├─ 1000                         30.97 ns      │ 51.72 ns      │ 30.97 ns      │ 34.07 ns      │ 10      │ 40
+   │  │                               32.28 Mitem/s │ 19.33 Mitem/s │ 32.28 Mitem/s │ 29.35 Mitem/s │         │
+   │  ╰─ 100000                       1.603 µs      │ 2.551 µs      │ 1.775 µs      │ 1.933 µs      │ 10      │ 40
+   │                                  623.4 Kitem/s │ 391.8 Kitem/s │ 563.1 Kitem/s │ 517.3 Kitem/s │         │
+   ├─ insert                                        │               │               │               │         │
+   │  ├─ 10                           20.47 ns      │ 41.47 ns      │ 30.97 ns      │ 29.92 ns      │ 10      │ 40
+   │  │                               48.84 Mitem/s │ 24.11 Mitem/s │ 32.28 Mitem/s │ 33.42 Mitem/s │         │
+   │  ├─ 1000                         20.47 ns      │ 51.72 ns      │ 30.97 ns      │ 33.07 ns      │ 10      │ 40
+   │  │                               48.84 Mitem/s │ 19.33 Mitem/s │ 32.28 Mitem/s │ 30.23 Mitem/s │         │
+   │  ╰─ 100000                       30.97 ns      │ 572.7 ns      │ 88.34 ns      │ 134 ns        │ 10      │ 40
+   │                                  32.28 Mitem/s │ 1.746 Mitem/s │ 11.31 Mitem/s │ 7.457 Mitem/s │         │
+   ├─ lookup                                        │               │               │               │         │
+   │  ├─ 10                           7.492 ns      │ 7.777 ns      │ 7.574 ns      │ 7.597 ns      │ 50      │ 51200
+   │  │                               133.4 Mitem/s │ 128.5 Mitem/s │ 132 Mitem/s   │ 131.6 Mitem/s │         │
+   │  ├─ 1000                         7.289 ns      │ 7.777 ns      │ 7.411 ns      │ 7.422 ns      │ 50      │ 51200
+   │  │                               137.1 Mitem/s │ 128.5 Mitem/s │ 134.9 Mitem/s │ 134.7 Mitem/s │         │
+   │  ╰─ 100000                       7.492 ns      │ 7.615 ns      │ 7.533 ns      │ 7.548 ns      │ 50      │ 51200
+   │                                  133.4 Mitem/s │ 131.3 Mitem/s │ 132.7 Mitem/s │ 132.4 Mitem/s │         │
+   ├─ move_last_to_first                            │               │               │               │         │
+   │  ├─ 10                           62.22 ns      │ 93.47 ns      │ 67.47 ns      │ 71.64 ns      │ 10      │ 40
+   │  │                               16.07 Mitem/s │ 10.69 Mitem/s │ 14.82 Mitem/s │ 13.95 Mitem/s │         │
+   │  ├─ 1000                         6.666 µs      │ 7.176 µs      │ 6.713 µs      │ 6.763 µs      │ 10      │ 40
+   │  │                               150 Kitem/s   │ 139.3 Kitem/s │ 148.9 Kitem/s │ 147.8 Kitem/s │         │
+   │  ╰─ 100000                       942.9 µs      │ 1.296 ms      │ 1.136 ms      │ 1.129 ms      │ 10      │ 40
+   │                                  1.06 Kitem/s  │ 771 item/s    │ 880 item/s    │ 885.1 item/s  │         │
+   ├─ ordered_remove                                │               │               │               │         │
+   │  ├─ 10                           51.72 ns      │ 114.2 ns      │ 51.97 ns      │ 61.17 ns      │ 10      │ 40
+   │  │                               19.33 Mitem/s │ 8.754 Mitem/s │ 19.24 Mitem/s │ 16.34 Mitem/s │         │
+   │  ├─ 1000                         3.447 µs      │ 4.572 µs      │ 3.484 µs      │ 3.6 µs        │ 10      │ 40
+   │  │                               290 Kitem/s   │ 218.6 Kitem/s │ 287 Kitem/s   │ 277.7 Kitem/s │         │
+   │  ╰─ 100000                       536.9 µs      │ 812.1 µs      │ 652.3 µs      │ 656.5 µs      │ 10      │ 40
+   │                                  1.862 Kitem/s │ 1.231 Kitem/s │ 1.532 Kitem/s │ 1.523 Kitem/s │         │
+   ╰─ swap_remove                                   │               │               │               │         │
+      ├─ 10                           30.97 ns      │ 83.22 ns      │ 51.72 ns      │ 51.82 ns      │ 10      │ 40
+      │                               32.28 Mitem/s │ 12.01 Mitem/s │ 19.33 Mitem/s │ 19.29 Mitem/s │         │
+      ├─ 1000                         41.22 ns      │ 72.72 ns      │ 51.97 ns      │ 53.89 ns      │ 10      │ 40
+      │                               24.25 Mitem/s │ 13.75 Mitem/s │ 19.24 Mitem/s │ 18.55 Mitem/s │         │
+      ╰─ 100000                       114.4 ns      │ 426.9 ns      │ 207.9 ns      │ 236.2 ns      │ 10      │ 40
+                                      8.735 Mitem/s │ 2.342 Mitem/s │ 4.808 Mitem/s │ 4.232 Mitem/s │         │

@@ -1,0 +1,5 @@
+error: DependencyKey can only be derived for a unit struct
+ --> tests/ui/tuple_fields.rs:5:19
+  |
+5 | struct TupleFields(u8);
+  |                   ^^^^

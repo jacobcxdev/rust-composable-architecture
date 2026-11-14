@@ -1,0 +1,17 @@
+error[E0277]: the trait bound `WrongKeyed<u8, u8>: KeyedActionPayload` is not satisfied
+ --> tests/ui/action_paths/fail_keyed_mismatch.rs:7:10
+  |
+7 | #[derive(ActionPaths)]
+  |          ^^^^^^^^^^^ unsatisfied trait bound
+  |
+help: the trait `KeyedActionPayload` is not implemented for `WrongKeyed<u8, u8>`
+ --> tests/ui/action_paths/fail_keyed_mismatch.rs:5:1
+  |
+5 | struct WrongKeyed<Id, Child>(Id, Child);
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+help: the trait `KeyedActionPayload` is implemented for `KeyedAction<Id, Action>`
+ --> $WORKSPACE/rca-core/src/composition/keyed.rs
+  |
+  | impl<Id, Action> KeyedActionPayload for KeyedAction<Id, Action> {
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  = note: this error originates in the derive macro `ActionPaths` (in Nightly builds, run with -Z macro-backtrace for more info)

@@ -1,0 +1,5 @@
+error: duplicate `policy` selection
+ --> tests/ui/reducer/fail_conflicting_policy.rs:5:34
+  |
+5 |     case(data, policy = ignored, policy = ephemeral, action = empty),
+  |                                  ^^^^^^

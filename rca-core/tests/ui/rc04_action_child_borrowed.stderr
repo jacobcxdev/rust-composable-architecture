@@ -1,0 +1,17 @@
+error[E0521]: borrowed data escapes outside of function
+  --> tests/ui/rc04_action_child_borrowed.rs:18:13
+   |
+ 8 | fn check<'s>(action: &'s str, context: &mut ReduceContext<'_>) {
+   |          --  ------ `action` is a reference that is only valid in the function body
+   |          |
+   |          lifetime `'s` defined here
+...
+18 |     let _ = Reducer::reduce(&mut reducer, &mut 0, &(), context);
+   |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |             |
+   |             `action` escapes the function body here
+   |             argument requires that `'s` must outlive `'static`
+   |
+   = note: requirement occurs because of a mutable reference to `ScopeIdentified<u64, (), Reduce<u64, (), {closure@$DIR/tests/ui/rc04_action_child_borrowed.rs:12:21: 12:45}>, Reduce<u64, &str, {closure@$DIR/tests/ui/rc04_action_child_borrowed.rs:9:33: 9:62}>, StatePath<u64, u64, {closure@$DIR/tests/ui/rc04_action_child_borrowed.rs:13:24: 13:33}, {closure@$DIR/tests/ui/rc04_action_child_borrowed.rs:13:37: 13:50}>, ActionPath<(), &str, for<'a> fn(&'a ()) -> Option<&'a &str> {extract::<'_>}, for<'a> fn(&'a str) {embed}>, {closure@$DIR/tests/ui/rc04_action_child_borrowed.rs:15:9: 15:18}, u64>`
+   = note: mutable references are invariant over their type parameter
+   = help: see <https://doc.rust-lang.org/nomicon/subtyping.html> for more information about variance

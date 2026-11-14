@@ -1,0 +1,10 @@
+error[E0499]: cannot borrow `*s` as mutable more than once at a time
+  --> tests/ui/shared_keyed_overlapping_split.rs:37:43
+   |
+37 |         |s: &mut KeyedState<u8, u64>| (s, s),
+   |             -                         ----^-
+   |             |                         ||  |
+   |             |                         ||  second mutable borrow occurs here
+   |             |                         |first mutable borrow occurs here
+   |             |                         returning this value requires that `*s` is borrowed for `'1`
+   |             let's call the lifetime of this reference `'1`

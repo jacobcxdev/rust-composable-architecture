@@ -1,0 +1,23 @@
+error: selection only supports cfg attributes
+ --> tests/ui/reducer/fail_selection_attributes.rs:2:5
+  |
+2 |     #[allow(dead_code)]
+  |     ^^^^^^^^^^^^^^^^^^^
+
+error: domain and body selections cannot be conditional
+  --> tests/ui/reducer/fail_selection_attributes.rs:11:5
+   |
+11 |     state(empty),
+   |     ^^^^^
+
+error: domain and body selections cannot be conditional
+  --> tests/ui/reducer/fail_selection_attributes.rs:20:5
+   |
+20 |     action(empty),
+   |     ^^^^^^
+
+error: domain and body selections cannot be conditional
+  --> tests/ui/reducer/fail_selection_attributes.rs:29:5
+   |
+29 |     body(generated),
+   |     ^^^^

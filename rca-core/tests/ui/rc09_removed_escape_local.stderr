@@ -1,0 +1,16 @@
+error[E0521]: borrowed data escapes outside of closure
+ --> tests/ui/rc09_removed_escape.rs
+  |
+  |           |_, removed, context| {
+  |               -------
+  |               |
+  |               `removed` is a reference that is only valid in the closure body
+  |               has type `rca_core::RemovedChild<'1, u32>`
+  |               context.task(Task::run(move |_| async move {
+  |  __________________________^
+  | |                 drop(removed);
+  | |             }));
+  | |              ^
+  | |              |
+  | |______________`removed` escapes the closure body here
+  |                argument requires that `'1` must outlive `'static`

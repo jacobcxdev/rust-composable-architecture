@@ -1,0 +1,5 @@
+error: child selection has no matching child declaration
+ --> tests/ui/reducer/fail_undeclared_child.rs:2:54
+  |
+2 |     state(generated(struct State { #[reducer(child = missing)] value: _ })),
+  |                                                      ^^^^^^^

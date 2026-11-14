@@ -1,0 +1,5 @@
+error: ActionPaths can only be derived for an enum
+ --> tests/ui/action_paths/fail_union.rs:6:7
+  |
+6 | union Action {
+  |       ^^^^^^

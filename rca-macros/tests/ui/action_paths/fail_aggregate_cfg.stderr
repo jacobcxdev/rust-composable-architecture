@@ -1,0 +1,8 @@
+error[E0599]: no associated function or constant named `pair` found for struct `ActionPaths` in the current scope
+  --> tests/ui/action_paths/fail_aggregate_cfg.rs:11:26
+   |
+ 3 | #[derive(ActionPaths)]
+   |          ----------- associated function or constant `pair` not found for this struct
+...
+11 |     let _ = ActionPaths::pair();
+   |                          ^^^^ associated function or constant not found in `ActionPaths`

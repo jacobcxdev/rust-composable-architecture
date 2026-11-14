@@ -1,0 +1,4 @@
+[workspace]
+members = ["interface", "provider", "consumer"]
+default-members = ["consumer"]
+resolver = "3"

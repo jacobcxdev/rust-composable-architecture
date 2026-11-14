@@ -1,0 +1,19 @@
+error[E0521]: borrowed data escapes outside of method
+  --> tests/ui/shared_private_borrow_escape.rs:14:9
+   |
+ 9 |           state: &mut u64,
+   |           -----  - let's call the lifetime of this reference `'1`
+   |           |
+   |           `state` is a reference that is only valid in the method body
+...
+14 | /         Effect::run(move |_| async move {
+15 | |             *state += 1;
+16 | |         })
+   | |          ^
+   | |          |
+   | |__________`state` escapes the method body here
+   |            argument requires that `'1` must outlive `'static`
+   |
+   = note: requirement occurs because of a mutable reference to `u64`
+   = note: mutable references are invariant over their type parameter
+   = help: see <https://doc.rust-lang.org/nomicon/subtyping.html> for more information about variance

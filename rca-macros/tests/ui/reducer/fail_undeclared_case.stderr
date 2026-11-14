@@ -1,0 +1,5 @@
+error: case selection has no matching case declaration
+ --> tests/ui/reducer/fail_undeclared_case.rs:2:62
+  |
+2 |     state(generated(enum MissingCaseState { #[reducer(case = missing)] Item })),
+  |                                                              ^^^^^^^

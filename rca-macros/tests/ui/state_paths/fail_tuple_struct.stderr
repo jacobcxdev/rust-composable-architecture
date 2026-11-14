@@ -1,0 +1,5 @@
+error: StatePaths can only derive paths from named struct fields
+ --> tests/ui/state_paths/fail_tuple_struct.rs:4:18
+  |
+4 | struct TupleState(u8);
+  |                  ^^^^

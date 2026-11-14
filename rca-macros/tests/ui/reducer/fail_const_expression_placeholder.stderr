@@ -1,0 +1,5 @@
+error: selected payload requires exactly one explicit `_` associated-type placeholder
+ --> tests/ui/reducer/fail_const_expression_placeholder.rs:4:16
+  |
+4 |         value: [u8; { let count: _ = 2usize; count }],
+  |                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^

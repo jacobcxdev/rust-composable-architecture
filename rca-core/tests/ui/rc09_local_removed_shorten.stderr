@@ -1,0 +1,14 @@
+error: lifetime may not live long enough
+ --> tests/ui/rc09_local_removed_shorten.rs:4:5
+  |
+3 | fn shorten<'long: 'short, 'short>(removed: RemovedChild<'long, u32>) -> RemovedChild<'short, u32> {
+  |            -----          ------ lifetime `'short` defined here
+  |            |
+  |            lifetime `'long` defined here
+4 |     removed
+  |     ^^^^^^^ function was supposed to return data with lifetime `'long` but it is returning data with lifetime `'short`
+  |
+  = help: consider adding the following bound: `'short: 'long`
+  = note: requirement occurs because of the type `rca_core::local::RemovedChild<'_, u32>`, which makes the generic argument `'_` invariant
+  = note: the struct `rca_core::local::RemovedChild<'turn, T>` is invariant over the parameter `'turn`
+  = help: see <https://doc.rust-lang.org/nomicon/subtyping.html> for more information about variance

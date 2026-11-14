@@ -1,0 +1,5 @@
+error: StatePaths enum variants only support #[rca(skip)]
+ --> tests/ui/state_paths/fail_enum_payload.rs:6:5
+  |
+6 |     Unit,
+  |     ^^^^

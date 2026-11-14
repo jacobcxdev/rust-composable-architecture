@@ -1,0 +1,17 @@
+error[E0373]: closure may outlive the current function, but it borrows `capture`, which is owned by the current function
+  --> tests/ui/rc04_composed_store_borrowed.rs:11:13
+   |
+11 |             |s: &u64| {
+   |             ^^^^^^^^^ may outlive borrowed value `capture`
+12 |                 capture.fetch_add(1, Ordering::Relaxed);
+   |                 ------- `capture` is borrowed here
+   |
+note: function requires argument type to outlive `'static`
+  --> tests/ui/rc04_composed_store_borrowed.rs:22:13
+   |
+22 |     let _ = Store::new(0, reducer, runtime);
+   |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+help: to force the closure to take ownership of `capture` (and any other referenced variables), use the `move` keyword
+   |
+11 |             move |s: &u64| {
+   |             ++++

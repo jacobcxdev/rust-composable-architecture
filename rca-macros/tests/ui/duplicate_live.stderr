@@ -1,0 +1,5 @@
+error: duplicate `live` option
+ --> tests/ui/duplicate_live.rs:4:36
+  |
+4 | #[dependency(value = u8, live = 1, live = 2)]
+  |                                    ^^^^

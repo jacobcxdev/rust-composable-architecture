@@ -1,0 +1,8 @@
+error[E0599]: no associated function or constant named `pair` found for struct `StatePaths` in the current scope
+  --> tests/ui/state_paths/fail_aggregate_cfg.rs:11:25
+   |
+ 3 | #[derive(StatePaths)]
+   |          ---------- associated function or constant `pair` not found for this struct
+...
+11 |     let _ = StatePaths::pair();
+   |                         ^^^^ associated function or constant not found in `StatePaths`

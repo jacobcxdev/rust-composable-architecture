@@ -1,0 +1,36 @@
+error[E0277]: the trait bound `Capture: Clone` is not satisfied in `{closure@$DIR/tests/ui/rc04_mapper_non_clone.rs:12:13: 12:21}`
+ --> tests/ui/rc04_mapper_non_clone.rs
+  |
+  |             move |a| {
+  |             -------- within this `{closure@$DIR/tests/ui/rc04_mapper_non_clone.rs:12:13: 12:21}`
+...
+  |     let _ = Reducer::reduce(&mut reducer, &mut 0, &(), context);
+  |             --------------- ^^^^^^^^^^^^ unsatisfied trait bound
+  |             |
+  |             required by a bound introduced by this call
+  |
+  = help: within `{closure@$DIR/tests/ui/rc04_mapper_non_clone.rs:12:13: 12:21}`, the trait `Clone` is not implemented for `Capture`
+help: the trait `rca_core::Reducer` is conditionally implemented for `ScopeIdentified<ParentState, ParentAction, Parent, Child, StatePath<ParentState, ChildState, Get, GetMut>, ActionPath<ParentAction, ChildAction, Extract, Embed>, Identity, Id>`
+ --> src/composition/scope.rs
+  |
+  | / impl<
+  | |     ParentState,
+  | |     ParentAction,
+  | |     Parent,
+... |
+  | |     Embed: Fn(ChildAction) -> ParentAction + Clone + Send + Sync + 'static,
+  | |                                              ----- unsatisfied requirement introduced here: `{closure@$DIR/tests/ui/rc04_mapper_non_clone.rs:12:13: 12:21}: Clone`
+  | |     Identity: for<'a> Fn(&'a ChildState) -> &'a Id,
+  | |     Id: Eq + core::hash::Hash + Clone + Send + Sync + 'static,
+  | |______________________________________________________________^
+note: required because it's used within this closure
+ --> tests/ui/rc04_mapper_non_clone.rs
+  |
+  |             move |a| {
+  |             ^^^^^^^^
+  = note: required for `ScopeIdentified<u64, (), rca_core::Reduce<u64, (), {closure@$DIR/tests/ui/rc04_mapper_non_clone.rs:8:21: 8:45}>, rca_core::Reduce<u64, (), {closure@$DIR/tests/ui/rc04_mapper_non_clone.rs:18:21: 18:45}>, StatePath<u64, u64, {closure@$DIR/tests/ui/rc04_mapper_non_clone.rs:9:24: 9:33}, {closure@$DIR/tests/ui/rc04_mapper_non_clone.rs:9:37: 9:50}>, ActionPath<(), (), {closure@$DIR/tests/ui/rc04_mapper_non_clone.rs:11:13: 11:21}, {closure@$DIR/tests/ui/rc04_mapper_non_clone.rs:12:13: 12:21}>, {closure@$DIR/tests/ui/rc04_mapper_non_clone.rs:17:9: 17:18}, u64>` to implement `rca_core::Reducer`
+help: consider annotating `Capture` with `#[derive(Clone)]`
+  |
+1 + #[derive(Clone)]
+2 | struct Capture(u64);
+  |

@@ -1,0 +1,11 @@
+error[E0603]: struct `Client` is private
+ --> tests/ui/dependency_client/fail_d39_private.rs:8:21
+  |
+8 |     let _ = domain::Client::test_value();
+  |                     ^^^^^^ private struct
+  |
+note: the struct `Client` is defined here
+ --> tests/ui/dependency_client/fail_d39_private.rs:4:5
+  |
+4 |     struct Client {}
+  |     ^^^^^^^^^^^^^

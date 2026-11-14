@@ -1,0 +1,15 @@
+error[E0277]: `Rc<()>` cannot be sent between threads safely
+  --> tests/ui/non_send_action.rs:24:13
+   |
+24 |     let _ = Store::new((), Bad, runtime);
+   |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `Rc<()>` cannot be sent between threads safely
+   |
+   = help: the trait `Send` is not implemented for `Rc<()>`
+note: required by a bound in `Store::<State, Action>::new`
+  --> src/store/mod.rs
+   |
+   |     pub fn new<F>(state: State, feature: F, runtime: Runtime) -> Self
+   |            --- required by a bound in this associated function
+...
+   |         Action: Send + 'static,
+   |                 ^^^^ required by this bound in `Store::<State, Action>::new`

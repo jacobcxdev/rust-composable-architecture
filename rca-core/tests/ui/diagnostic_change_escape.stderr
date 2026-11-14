@@ -1,0 +1,14 @@
+error[E0521]: borrowed data escapes outside of closure
+  --> tests/ui/diagnostic_change_escape.rs:19:13
+   |
+15 |     let escaped: Arc<Mutex<Vec<Change<'static, (), usize>>>> = Arc::new(Mutex::new(Vec::new()));
+   |         ------- `escaped` declared here, outside of the closure body
+...
+18 |         move |change| {
+   |               ------ `change` is a reference that is only valid in the closure body
+19 |             escaped.lock().unwrap().push(change);
+   |             ^^^^^^^^^^^^^^ `change` escapes the closure body here
+   |
+   = note: requirement occurs because of the type `std::sync::Mutex<Vec<Change<'_, (), usize>>>`, which makes the generic argument `Vec<Change<'_, (), usize>>` invariant
+   = note: the struct `std::sync::Mutex<T>` is invariant over the parameter `T`
+   = help: see <https://doc.rust-lang.org/nomicon/subtyping.html> for more information about variance

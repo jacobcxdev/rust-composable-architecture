@@ -1,0 +1,11 @@
+[package]
+name = "renamed-core-dependency-clients"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[workspace]
+
+[dependencies]
+renamed-core = { package = "rca-core", path = "../../../../rca-core" }
+renamed-macros = { package = "rca-macros", path = "../../.." }

@@ -1,0 +1,7 @@
+error: unexpected end of input, missing explicit action selection
+ --> tests/ui/reducer/fail_missing_action.rs:1:1
+  |
+1 | #[rca_macros::reducer(state(supplied(())), body(generated))]
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: this error originates in the attribute macro `rca_macros::reducer` (in Nightly builds, run with -Z macro-backtrace for more info)

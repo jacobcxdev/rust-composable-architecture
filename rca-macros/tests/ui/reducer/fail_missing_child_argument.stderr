@@ -1,0 +1,5 @@
+error: binding needs 1 typed parameters and no return annotation
+ --> tests/ui/reducer/fail_missing_child_argument.rs:4:49
+  |
+4 |         state = missing, action = missing, bind(fn bind_child()),
+  |                                                 ^^^^^^^^^^^^^^^

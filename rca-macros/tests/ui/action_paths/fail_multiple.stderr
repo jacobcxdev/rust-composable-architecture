@@ -1,0 +1,5 @@
+error: #[rca(keyed)] requires one KeyedAction payload
+ --> tests/ui/action_paths/fail_multiple.rs:8:5
+  |
+8 |     Multiple(u8, u16),
+  |     ^^^^^^^^

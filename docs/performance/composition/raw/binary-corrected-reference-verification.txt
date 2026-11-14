@@ -1,0 +1,184 @@
+HEAD=b9eb6e732d2b0cf6ce3cd7255a5958781587af6c
+STATUS=clean
+START_UTC=2026-09-29T03:12:01Z
+DYLD_LIBRARY_PATH=/Users/jacob/.rustup/toolchains/1.98.0-aarch64-apple-darwin/lib
+OBJCOPY=/Users/jacob/.rustup/toolchains/1.98.0-aarch64-apple-darwin/lib/rustlib/aarch64-apple-darwin/lib/../bin/rust-objcopy
+cargo 1.98.0 (797e8a9bc 2026-08-05)
+rustc 1.98.0 (88d9e12ae 2026-08-18)
+llvm-objcopy, compatible with GNU objcopy
+LLVM (http://llvm.org/):
+  LLVM version 22.1.8-rust-1.98.0-stable
+  Optimized build.
+ProductName:		macOS
+ProductVersion:		27.0
+BuildVersion:		26A428
+2a33db64275eb96857f2a65eb9a431e6a9aa6df3010254dd6bd35019c426058e  Cargo.toml
+1e7a857eabc52708f66a4cf33855928f92b48d0c092d5e25dbe4cd040a610cdd  Cargo.lock
+4a556d3b7a36bf6737ede85fabf4c4e1e711f4e146771484f9dd93f35fe2bb7c  benches/compile/Cargo.toml
+64221665ad201029a2f906c877398f10d63adc7ef904e208f421184f31e628df  benches/compile/Cargo.lock
+aeb86c148a6fbe77b644099332fc0afdc97ffdf713d98720262c6800392b59a8  benches/compile/direct/src/main.rs
+f0282a578e08abc6a3e4a8befcb586cfab936d4b4a5003147b386db3238ee87f  benches/compile/composed-manual/src/main.rs
+f2db9afb146d356d86768c0e61c02fc86e45bbac5c482dce01a62769af962155  benches/compile/composed-macro/src/main.rs
+41c09ed7b184344159f71635681db80ca1058ad8c63e913f540537e72c925b1c  benches/compile/scoped/src/main.rs
+fafea4747480eff1ed7455e277cf2a40b1883aea743921a7d6ba908e4a9a2890  examples/composition-search/src/main.rs
+f01c41068fda817e0bab7e6b5544a48c9f77fce7cc031763049030062074631f  examples/composition-search/tests/app.rs
++ env CARGO_TARGET_DIR=/Users/jacob/.codex/worktrees/rca-runtime-foundation/target/binaries-reference-corrected/fixtures /Users/jacob/.rustup/toolchains/1.98.0-aarch64-apple-darwin/bin/cargo build --manifest-path benches/compile/Cargo.toml --workspace --release --locked -j 1
+   Compiling proc-macro2 v1.0.107
+   Compiling unicode-ident v1.0.24
+   Compiling quote v1.0.47
+   Compiling pin-project-lite v0.2.17
+   Compiling syn v3.0.4
+   Compiling crossbeam-utils v0.8.22
+   Compiling parking v2.2.1
+   Compiling futures-core v0.3.34
+   Compiling event-listener v5.4.2
+   Compiling futures-macro v0.3.34
+   Compiling futures-task v0.3.34
+   Compiling slab v0.4.12
+   Compiling futures-util v0.3.34
+   Compiling concurrent-queue v2.5.0
+   Compiling event-listener-strategy v0.5.4
+   Compiling rca-core v0.8.0-alpha.1 (/Users/jacob/.codex/worktrees/rca-composition-reference-20260923/rca-core)
+warning: stripping debug info with `rust-objcopy` failed: signal: 6 (SIGABRT)
+  |
+  = note: dyld[44703]: Library not loaded: @rpath/libLLVM.dylib
+            Referenced from: <AC0D75A8-23BF-301F-B7CE-3E5CC0C1BC06> /Users/jacob/.rustup/toolchains/1.98.0-aarch64-apple-darwin/lib/rustlib/aarch64-apple-darwin/bin/rust-objcopy
+            Reason: tried: '/Users/jacob/.rustup/toolchains/1.98.0-aarch64-apple-darwin/lib/rustlib/aarch64-apple-darwin/bin/../lib/libLLVM.dylib' (no such file), '/Users/jacob/.rustup/toolchains/1.98.0-aarch64-apple-darwin/lib/rustlib/aarch64-apple-darwin/bin/../lib/libLLVM.dylib' (no such file), '/Users/jacob/.codex/worktrees/rca-runtime-foundation/target/binaries-reference-corrected/fixtures/release/deps/libLLVM.dylib' (no such file), '/Users/jacob/lib/libLLVM.dylib' (no such file), '/usr/local/lib/libLLVM.dylib' (no such file), '/usr/lib/libLLVM.dylib' (no such file, not in dyld cache)
+          
+
+warning: `rca-core` (build script) generated 1 warning
+   Compiling hashbrown v0.17.1
+   Compiling equivalent v1.0.2
+   Compiling indexmap v2.14.1
+   Compiling async-channel v2.5.0
+   Compiling winnow v1.0.4
+   Compiling toml_parser v1.1.3+spec-1.1.0
+   Compiling futures-executor v0.3.34
+   Compiling toml_datetime v1.1.1+spec-1.1.0
+   Compiling toml_edit v0.25.13+spec-1.1.0
+   Compiling rca-compile-fixture-support v0.0.0 (/Users/jacob/.codex/worktrees/rca-composition-reference-20260923/benches/compile/support)
+   Compiling proc-macro-crate v3.5.0
+   Compiling heck v0.5.0
+   Compiling rca-macros v0.8.0-alpha.1 (/Users/jacob/.codex/worktrees/rca-composition-reference-20260923/rca-macros)
+warning: stripping debug info with `rust-objcopy` failed: signal: 6 (SIGABRT)
+  |
+  = note: dyld[44841]: Library not loaded: @rpath/libLLVM.dylib
+            Referenced from: <AC0D75A8-23BF-301F-B7CE-3E5CC0C1BC06> /Users/jacob/.rustup/toolchains/1.98.0-aarch64-apple-darwin/lib/rustlib/aarch64-apple-darwin/bin/rust-objcopy
+            Reason: tried: '/Users/jacob/.rustup/toolchains/1.98.0-aarch64-apple-darwin/lib/rustlib/aarch64-apple-darwin/bin/../lib/libLLVM.dylib' (no such file), '/Users/jacob/.rustup/toolchains/1.98.0-aarch64-apple-darwin/lib/rustlib/aarch64-apple-darwin/bin/../lib/libLLVM.dylib' (no such file), '/Users/jacob/.codex/worktrees/rca-runtime-foundation/target/binaries-reference-corrected/fixtures/release/deps/libLLVM.dylib' (no such file), '/Users/jacob/lib/libLLVM.dylib' (no such file), '/usr/local/lib/libLLVM.dylib' (no such file), '/usr/lib/libLLVM.dylib' (no such file, not in dyld cache)
+          
+
+warning: `rca-macros` (lib) generated 1 warning
+   Compiling rust-composable-architecture v0.8.0-alpha.1 (/Users/jacob/.codex/worktrees/rca-composition-reference-20260923/rca)
+   Compiling rca-compile-composed-macro v0.0.0 (/Users/jacob/.codex/worktrees/rca-composition-reference-20260923/benches/compile/composed-macro)
+warning: stripping debug info with `rust-objcopy` failed: signal: 6 (SIGABRT)
+  |
+  = note: dyld[44937]: Library not loaded: @rpath/libLLVM.dylib
+            Referenced from: <AC0D75A8-23BF-301F-B7CE-3E5CC0C1BC06> /Users/jacob/.rustup/toolchains/1.98.0-aarch64-apple-darwin/lib/rustlib/aarch64-apple-darwin/bin/rust-objcopy
+            Reason: tried: '/Users/jacob/.rustup/toolchains/1.98.0-aarch64-apple-darwin/lib/rustlib/aarch64-apple-darwin/bin/../lib/libLLVM.dylib' (no such file), '/Users/jacob/.rustup/toolchains/1.98.0-aarch64-apple-darwin/lib/rustlib/aarch64-apple-darwin/bin/../lib/libLLVM.dylib' (no such file), '/Users/jacob/.codex/worktrees/rca-runtime-foundation/target/binaries-reference-corrected/fixtures/release/deps/libLLVM.dylib' (no such file), '/Users/jacob/lib/libLLVM.dylib' (no such file), '/usr/local/lib/libLLVM.dylib' (no such file), '/usr/lib/libLLVM.dylib' (no such file, not in dyld cache)
+          
+
+warning: `rca-compile-composed-macro` (bin "rca-compile-composed-macro") generated 1 warning
+   Compiling rca-compile-scoped v0.0.0 (/Users/jacob/.codex/worktrees/rca-composition-reference-20260923/benches/compile/scoped)
+warning: stripping debug info with `rust-objcopy` failed: signal: 6 (SIGABRT)
+  |
+  = note: dyld[45032]: Library not loaded: @rpath/libLLVM.dylib
+            Referenced from: <AC0D75A8-23BF-301F-B7CE-3E5CC0C1BC06> /Users/jacob/.rustup/toolchains/1.98.0-aarch64-apple-darwin/lib/rustlib/aarch64-apple-darwin/bin/rust-objcopy
+            Reason: tried: '/Users/jacob/.rustup/toolchains/1.98.0-aarch64-apple-darwin/lib/rustlib/aarch64-apple-darwin/bin/../lib/libLLVM.dylib' (no such file), '/Users/jacob/.rustup/toolchains/1.98.0-aarch64-apple-darwin/lib/rustlib/aarch64-apple-darwin/bin/../lib/libLLVM.dylib' (no such file), '/Users/jacob/.codex/worktrees/rca-runtime-foundation/target/binaries-reference-corrected/fixtures/release/deps/libLLVM.dylib' (no such file), '/Users/jacob/lib/libLLVM.dylib' (no such file), '/usr/local/lib/libLLVM.dylib' (no such file), '/usr/lib/libLLVM.dylib' (no such file, not in dyld cache)
+          
+
+warning: `rca-compile-scoped` (bin "rca-compile-scoped") generated 1 warning
+   Compiling rca-compile-direct v0.0.0 (/Users/jacob/.codex/worktrees/rca-composition-reference-20260923/benches/compile/direct)
+warning: stripping debug info with `rust-objcopy` failed: signal: 6 (SIGABRT)
+  |
+  = note: dyld[45087]: Library not loaded: @rpath/libLLVM.dylib
+            Referenced from: <AC0D75A8-23BF-301F-B7CE-3E5CC0C1BC06> /Users/jacob/.rustup/toolchains/1.98.0-aarch64-apple-darwin/lib/rustlib/aarch64-apple-darwin/bin/rust-objcopy
+            Reason: tried: '/Users/jacob/.rustup/toolchains/1.98.0-aarch64-apple-darwin/lib/rustlib/aarch64-apple-darwin/bin/../lib/libLLVM.dylib' (no such file), '/Users/jacob/.rustup/toolchains/1.98.0-aarch64-apple-darwin/lib/rustlib/aarch64-apple-darwin/bin/../lib/libLLVM.dylib' (no such file), '/Users/jacob/.codex/worktrees/rca-runtime-foundation/target/binaries-reference-corrected/fixtures/release/deps/libLLVM.dylib' (no such file), '/Users/jacob/lib/libLLVM.dylib' (no such file), '/usr/local/lib/libLLVM.dylib' (no such file), '/usr/lib/libLLVM.dylib' (no such file, not in dyld cache)
+          
+
+warning: `rca-compile-direct` (bin "rca-compile-direct") generated 1 warning
+   Compiling rca-compile-composed-manual v0.0.0 (/Users/jacob/.codex/worktrees/rca-composition-reference-20260923/benches/compile/composed-manual)
+warning: stripping debug info with `rust-objcopy` failed: signal: 6 (SIGABRT)
+  |
+  = note: dyld[45122]: Library not loaded: @rpath/libLLVM.dylib
+            Referenced from: <AC0D75A8-23BF-301F-B7CE-3E5CC0C1BC06> /Users/jacob/.rustup/toolchains/1.98.0-aarch64-apple-darwin/lib/rustlib/aarch64-apple-darwin/bin/rust-objcopy
+            Reason: tried: '/Users/jacob/.rustup/toolchains/1.98.0-aarch64-apple-darwin/lib/rustlib/aarch64-apple-darwin/bin/../lib/libLLVM.dylib' (no such file), '/Users/jacob/.rustup/toolchains/1.98.0-aarch64-apple-darwin/lib/rustlib/aarch64-apple-darwin/bin/../lib/libLLVM.dylib' (no such file), '/Users/jacob/.codex/worktrees/rca-runtime-foundation/target/binaries-reference-corrected/fixtures/release/deps/libLLVM.dylib' (no such file), '/Users/jacob/lib/libLLVM.dylib' (no such file), '/usr/local/lib/libLLVM.dylib' (no such file), '/usr/lib/libLLVM.dylib' (no such file, not in dyld cache)
+          
+
+warning: `rca-compile-composed-manual` (bin "rca-compile-composed-manual") generated 1 warning
+    Finished `release` profile [optimized] target(s) in 26.43s
++ env CARGO_TARGET_DIR=/Users/jacob/.codex/worktrees/rca-runtime-foundation/target/binaries-reference-corrected/root /Users/jacob/.rustup/toolchains/1.98.0-aarch64-apple-darwin/bin/cargo build -p rca-example-composition-search --release --locked -j 1
+   Compiling proc-macro2 v1.0.107
+   Compiling unicode-ident v1.0.24
+   Compiling pin-project-lite v0.2.17
+   Compiling quote v1.0.47
+   Compiling crossbeam-utils v0.8.22
+   Compiling parking v2.2.1
+   Compiling event-listener v5.4.2
+   Compiling syn v3.0.4
+   Compiling futures-core v0.3.34
+   Compiling equivalent v1.0.2
+   Compiling hashbrown v0.17.1
+   Compiling winnow v1.0.4
+   Compiling toml_parser v1.1.3+spec-1.1.0
+   Compiling indexmap v2.14.1
+   Compiling concurrent-queue v2.5.0
+   Compiling event-listener-strategy v0.5.4
+   Compiling slab v0.4.12
+   Compiling futures-task v0.3.34
+   Compiling toml_datetime v1.1.1+spec-1.1.0
+   Compiling rca-core v0.8.0-alpha.1 (/Users/jacob/.codex/worktrees/rca-composition-reference-20260923/rca-core)
+warning: stripping debug info with `rust-objcopy` failed: signal: 6 (SIGABRT)
+  |
+  = note: dyld[45214]: Library not loaded: @rpath/libLLVM.dylib
+            Referenced from: <AC0D75A8-23BF-301F-B7CE-3E5CC0C1BC06> /Users/jacob/.rustup/toolchains/1.98.0-aarch64-apple-darwin/lib/rustlib/aarch64-apple-darwin/bin/rust-objcopy
+            Reason: tried: '/Users/jacob/.rustup/toolchains/1.98.0-aarch64-apple-darwin/lib/rustlib/aarch64-apple-darwin/bin/../lib/libLLVM.dylib' (no such file), '/Users/jacob/.rustup/toolchains/1.98.0-aarch64-apple-darwin/lib/rustlib/aarch64-apple-darwin/bin/../lib/libLLVM.dylib' (no such file), '/Users/jacob/.codex/worktrees/rca-runtime-foundation/target/binaries-reference-corrected/root/release/deps/libLLVM.dylib' (no such file), '/Users/jacob/lib/libLLVM.dylib' (no such file), '/usr/local/lib/libLLVM.dylib' (no such file), '/usr/lib/libLLVM.dylib' (no such file, not in dyld cache)
+          
+
+warning: `rca-core` (build script) generated 1 warning
+   Compiling toml_edit v0.25.13+spec-1.1.0
+   Compiling futures-util v0.3.34
+   Compiling async-channel v2.5.0
+   Compiling tokio-macros v2.7.2
+   Compiling tokio v1.53.1
+   Compiling proc-macro-crate v3.5.0
+   Compiling heck v0.5.0
+   Compiling rca-macros v0.8.0-alpha.1 (/Users/jacob/.codex/worktrees/rca-composition-reference-20260923/rca-macros)
+warning: stripping debug info with `rust-objcopy` failed: signal: 6 (SIGABRT)
+  |
+  = note: dyld[45334]: Library not loaded: @rpath/libLLVM.dylib
+            Referenced from: <AC0D75A8-23BF-301F-B7CE-3E5CC0C1BC06> /Users/jacob/.rustup/toolchains/1.98.0-aarch64-apple-darwin/lib/rustlib/aarch64-apple-darwin/bin/rust-objcopy
+            Reason: tried: '/Users/jacob/.rustup/toolchains/1.98.0-aarch64-apple-darwin/lib/rustlib/aarch64-apple-darwin/bin/../lib/libLLVM.dylib' (no such file), '/Users/jacob/.rustup/toolchains/1.98.0-aarch64-apple-darwin/lib/rustlib/aarch64-apple-darwin/bin/../lib/libLLVM.dylib' (no such file), '/Users/jacob/.codex/worktrees/rca-runtime-foundation/target/binaries-reference-corrected/root/release/deps/libLLVM.dylib' (no such file), '/Users/jacob/lib/libLLVM.dylib' (no such file), '/usr/local/lib/libLLVM.dylib' (no such file), '/usr/lib/libLLVM.dylib' (no such file, not in dyld cache)
+          
+
+warning: `rca-macros` (lib) generated 1 warning
+   Compiling rca-tokio v0.8.0-alpha.1 (/Users/jacob/.codex/worktrees/rca-composition-reference-20260923/rca-tokio)
+   Compiling rust-composable-architecture v0.8.0-alpha.1 (/Users/jacob/.codex/worktrees/rca-composition-reference-20260923/rca)
+   Compiling rca-example-composition-search v0.0.0 (/Users/jacob/.codex/worktrees/rca-composition-reference-20260923/examples/composition-search)
+warning: stripping debug info with `rust-objcopy` failed: signal: 6 (SIGABRT)
+  |
+  = note: dyld[45413]: Library not loaded: @rpath/libLLVM.dylib
+            Referenced from: <AC0D75A8-23BF-301F-B7CE-3E5CC0C1BC06> /Users/jacob/.rustup/toolchains/1.98.0-aarch64-apple-darwin/lib/rustlib/aarch64-apple-darwin/bin/rust-objcopy
+            Reason: tried: '/Users/jacob/.rustup/toolchains/1.98.0-aarch64-apple-darwin/lib/rustlib/aarch64-apple-darwin/bin/../lib/libLLVM.dylib' (no such file), '/Users/jacob/.rustup/toolchains/1.98.0-aarch64-apple-darwin/lib/rustlib/aarch64-apple-darwin/bin/../lib/libLLVM.dylib' (no such file), '/Users/jacob/.codex/worktrees/rca-runtime-foundation/target/binaries-reference-corrected/root/release/deps/libLLVM.dylib' (no such file), '/Users/jacob/lib/libLLVM.dylib' (no such file), '/usr/local/lib/libLLVM.dylib' (no such file), '/usr/lib/libLLVM.dylib' (no such file, not in dyld cache)
+          
+
+warning: `rca-example-composition-search` (bin "rca-example-composition-search") generated 1 warning
+    Finished `release` profile [optimized] target(s) in 15.99s
++ env CARGO_TARGET_DIR=/Users/jacob/.codex/worktrees/rca-runtime-foundation/target/binaries-reference-corrected/root /Users/jacob/.rustup/toolchains/1.98.0-aarch64-apple-darwin/bin/cargo test -p rca-example-composition-search --test app --release --locked -j 1 --no-run --message-format=json
+   Compiling rca-core v0.8.0-alpha.1 (/Users/jacob/.codex/worktrees/rca-composition-reference-20260923/rca-core)
+   Compiling rca-tokio v0.8.0-alpha.1 (/Users/jacob/.codex/worktrees/rca-composition-reference-20260923/rca-tokio)
+   Compiling rca-test v0.8.0-alpha.1 (/Users/jacob/.codex/worktrees/rca-composition-reference-20260923/rca-test)
+   Compiling rust-composable-architecture v0.8.0-alpha.1 (/Users/jacob/.codex/worktrees/rca-composition-reference-20260923/rca)
+   Compiling rca-example-composition-search v0.0.0 (/Users/jacob/.codex/worktrees/rca-composition-reference-20260923/examples/composition-search)
+   Compiling futures-executor v0.3.34
+    Finished `release` profile [optimized] target(s) in 20.25s
++ set +x
+STRIP=direct
+STRIP=composed-manual
+STRIP=composed-macro
+STRIP=scoped
+STRIP=deterministic-composition-test
+STRIP=tokio-application
+EXIT=0
+END_HEAD=b9eb6e732d2b0cf6ce3cd7255a5958781587af6c
+END_STATUS=clean
+END_UTC=2026-09-29T03:13:04Z

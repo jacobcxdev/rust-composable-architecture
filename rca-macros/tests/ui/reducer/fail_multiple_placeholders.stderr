@@ -1,0 +1,5 @@
+error: selected payload requires exactly one explicit `_` associated-type placeholder
+ --> tests/ui/reducer/fail_multiple_placeholders.rs:2:69
+  |
+2 |     state(generated(struct State { #[reducer(child = child)] value: (_, _) })),
+  |                                                                     ^^^^^^

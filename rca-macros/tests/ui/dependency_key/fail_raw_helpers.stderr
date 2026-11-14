@@ -1,0 +1,38 @@
+error: DependencyKey can only be derived for a unit struct
+ --> tests/ui/dependency_key/fail_raw_helpers.rs:5:25
+  |
+5 |   struct UnsupportedShape {
+  |  _________________________^
+6 | |     value: u8,
+7 | | }
+  | |_^
+
+error: duplicate `dependency` attribute
+  --> tests/ui/dependency_key/fail_raw_helpers.rs:11:1
+   |
+11 | #[r#dependency(r#value = u8, r#live = 1)]
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error: duplicate `value` option
+  --> tests/ui/dependency_key/fail_raw_helpers.rs:15:26
+   |
+15 | #[dependency(value = u8, r#value = u16, live = 1)]
+   |                          ^^^^^^^
+
+error: duplicate `live` option
+  --> tests/ui/dependency_key/fail_raw_helpers.rs:19:36
+   |
+19 | #[dependency(value = u8, live = 1, r#live = 2)]
+   |                                    ^^^^^^
+
+error: duplicate `test` option
+  --> tests/ui/dependency_key/fail_raw_helpers.rs:23:46
+   |
+23 | #[dependency(value = u8, live = 1, test = 2, r#test = 3)]
+   |                                              ^^^^^^
+
+error: unknown dependency option; expected `value`, `live` or `test`
+  --> tests/ui/dependency_key/fail_raw_helpers.rs:27:26
+   |
+27 | #[dependency(value = u8, r#nested::r#live = 1)]
+   |                          ^^^^^^^^^^^^^^^^

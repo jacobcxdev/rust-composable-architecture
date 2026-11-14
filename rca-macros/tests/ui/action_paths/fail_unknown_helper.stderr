@@ -1,0 +1,5 @@
+error: unknown rca option; expected `keyed` or `skip`
+ --> tests/ui/action_paths/fail_unknown_helper.rs:7:11
+  |
+7 |     #[rca(unknown)]
+  |           ^^^^^^^

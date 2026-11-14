@@ -1,0 +1,5 @@
+error: ephemeral policy requires supplied(action type)
+ --> tests/ui/reducer/fail_empty_ephemeral_action.rs:5:26
+  |
+5 |     case(alert, policy = ephemeral, action = empty),
+  |                          ^^^^^^^^^

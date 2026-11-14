@@ -1,0 +1,10 @@
+[package]
+name = "rca-compile-composed-macro"
+version = "0.0.0"
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+rca = { workspace = true, features = ["macros"] }
+rca-compile-fixture-support.workspace = true

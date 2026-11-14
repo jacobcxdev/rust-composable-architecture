@@ -1,0 +1,15 @@
+error[E0308]: mismatched types
+ --> tests/ui/rc05_wrong_gate.rs:6:27
+  |
+6 |         .transaction_gate(TransactionGate::<String, ()>::new());
+  |          ---------------- ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected `TransactionGate<usize, ()>`, found `TransactionGate<String, ()>`
+  |          |
+  |          arguments to this method are incorrect
+  |
+  = note: expected struct `TransactionGate<usize, ()>`
+             found struct `TransactionGate<String, ()>`
+note: method defined here
+ --> src/store/builder.rs
+  |
+  |     pub fn transaction_gate(
+  |            ^^^^^^^^^^^^^^^^

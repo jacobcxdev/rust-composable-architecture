@@ -1,0 +1,8 @@
+error[E0624]: associated function `child` is private
+  --> tests/ui/state_paths/fail_private_field_visibility.rs:17:34
+   |
+10 |     #[derive(StatePaths)]
+   |              ---------- private associated function defined here
+...
+17 |     let _ = feature::StatePaths::child();
+   |                                  ^^^^^ private associated function

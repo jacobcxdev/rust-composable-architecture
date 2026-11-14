@@ -1,0 +1,6 @@
+---
+source: rca-macros/src/reducers.rs
+assertion_line: 44
+expression: actual.to_string()
+---
+:: rca :: combine ((First , second () ,))

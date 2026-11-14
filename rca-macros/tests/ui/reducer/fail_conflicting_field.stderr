@@ -1,0 +1,5 @@
+error: conflicting or duplicate reducer selection
+ --> tests/ui/reducer/fail_conflicting_field.rs:5:23
+  |
+5 |     #[reducer(reduce, data)]
+  |                       ^^^^

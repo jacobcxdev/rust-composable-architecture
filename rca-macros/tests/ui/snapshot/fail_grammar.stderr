@@ -1,0 +1,83 @@
+error: snapshot `name` and `into` are mutually exclusive
+ --> tests/ui/snapshot/fail_grammar.rs:4:31
+  |
+4 | #[snapshot(name = One, into = Output)]
+  |                               ^^^^^^
+
+error: duplicate snapshot option `name`
+  --> tests/ui/snapshot/fail_grammar.rs:10:26
+   |
+10 | #[snapshot(name = First, name = Second)]
+   |                          ^^^^
+
+error: expected snapshot item option `name` or `into`
+  --> tests/ui/snapshot/fail_grammar.rs:14:12
+   |
+14 | #[snapshot(redact)]
+   |            ^^^^^^
+
+error: expected `=`
+  --> tests/ui/snapshot/fail_grammar.rs:19:20
+   |
+19 |     #[snapshot(omit)]
+   |                    ^
+
+error: snapshot omission requires a non-empty reason
+  --> tests/ui/snapshot/fail_grammar.rs:21:16
+   |
+21 |     #[snapshot(omit = "   ")]
+   |                ^^^^^^^^^^^^
+
+error: snapshot `omit` cannot combine with capture or redaction
+  --> tests/ui/snapshot/fail_grammar.rs:23:23
+   |
+23 |     #[snapshot(omit = "reason", redact)]
+   |                       ^^^^^^^^
+
+error: snapshot `with` and `value` must be supplied together
+  --> tests/ui/snapshot/fail_grammar.rs:25:5
+   |
+25 |     #[snapshot(with = capture)]
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error: snapshot `with` and `value` must be supplied together
+  --> tests/ui/snapshot/fail_grammar.rs:27:5
+   |
+27 |     #[snapshot(value = usize)]
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error: duplicate snapshot option `redact`
+  --> tests/ui/snapshot/fail_grammar.rs:29:24
+   |
+29 |     #[snapshot(redact, redact)]
+   |                        ^^^^^^
+
+error: expected snapshot field option `with`, `value`, `omit` or `redact`
+  --> tests/ui/snapshot/fail_grammar.rs:31:16
+   |
+31 |     #[snapshot(skip)]
+   |                ^^^^
+
+error: expected snapshot field option `with`, `value`, `omit` or `redact`
+  --> tests/ui/snapshot/fail_grammar.rs:33:16
+   |
+33 |     #[snapshot(name = Field)]
+   |                ^^^^
+
+error: snapshot options are not supported on variants; case identity is always captured
+  --> tests/ui/snapshot/fail_grammar.rs:39:16
+   |
+39 |     #[snapshot(omit = "case")]
+   |                ^^^^
+
+error: Snapshot cannot be derived for unions
+  --> tests/ui/snapshot/fail_grammar.rs:44:1
+   |
+44 | union BadUnion {
+   | ^^^^^
+
+error: recursive snapshot capture requires a finite custom capture or manual implementation
+  --> tests/ui/snapshot/fail_grammar.rs:50:22
+   |
+50 |     next: Option<Box<Self>>,
+   |                      ^^^^
