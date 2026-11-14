@@ -324,6 +324,30 @@ mod tests {
         assert!(matches!(noop.program, Program::None));
         assert_eq!(state.calls, ["first"]);
         assert_eq!(state.action_addresses, [std::ptr::from_ref(&action).addr()]);
+
+        state.calls.clear();
+        state.action_addresses.clear();
+        let none = crate::Reduce::new(
+            |state: &mut OrderState, action: &OrderAction, _: &mut ReduceContext<'_>| {
+                state.calls.push("none");
+                state.action_addresses.push(std::ptr::from_ref(action).addr());
+                Effect::none()
+            },
+        );
+        let mut pair = combine((none, OrderFirst));
+        assert!(state.calls.is_empty(), "construction does not reduce");
+        let effect = pair.reduce(&mut state, &action, &mut context);
+        assert_eq!(state.calls, ["none", "first"]);
+        assert_eq!(state.action_addresses, [std::ptr::from_ref(&action).addr(); 2]);
+        let Program::Merge(effects) = effect.program else {
+            panic!("a leading no-op retains the later child's merge wrapper");
+        };
+        let mut effects = effects.into_iter();
+        assert!(matches!(
+            effects.next().map(|effect| effect.program),
+            Some(Program::Send(OrderAction::Output(1)))
+        ));
+        assert!(effects.next().is_none());
         assert!(transitions.is_empty());
     }
 
