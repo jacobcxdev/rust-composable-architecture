@@ -46,7 +46,7 @@ EXPECTED_FEATURES = {
         "diagnostics": [],
         "futures-stream": ["dep:futures-core"],
         "local": [],
-        "test-util": [],
+        "test-util": ["dep:async-channel"],
     },
     "rca-macros": {},
     "rca-persistence": {"default": [], "file": ["dep:tokio", "dep:tempfile"]},
@@ -65,6 +65,17 @@ EXPECTED_FEATURES = {
 
 
 class FixtureValidationTests(unittest.TestCase):
+    def test_packaged_feature_contracts_match_source_manifests(self) -> None:
+        root = pathlib.Path(__file__).resolve().parents[2]
+        for name, expected in package_registry.EXPECTED_FEATURES.items():
+            if name in package_registry.TRANSPORT_PACKAGES:
+                directory = root / "dependencies" / name
+            else:
+                directory = root / ("rca" if name == "rust-composable-architecture" else name)
+            with self.subTest(package=name):
+                manifest = tomllib.loads((directory / "Cargo.toml").read_text(encoding="utf-8"))
+                self.assertEqual(expected, manifest.get("features", {}))
+
     def write_manifest(self, contents: str) -> pathlib.Path:
         directory = tempfile.TemporaryDirectory()
         self.addCleanup(directory.cleanup)

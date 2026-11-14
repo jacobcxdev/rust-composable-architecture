@@ -56,7 +56,7 @@ EXPECTED_FEATURES = {
         "diagnostics": [],
         "futures-stream": ["dep:futures-core"],
         "local": [],
-        "test-util": [],
+        "test-util": ["dep:async-channel"],
     },
     "rca-macros": {},
     "rca-persistence": {"default": [], "file": ["dep:tokio", "dep:tempfile"]},
