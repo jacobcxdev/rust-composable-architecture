@@ -20,7 +20,10 @@ fn concurrent_boundaries_reject_non_send_values() {
     tests.compile_fail("tests/ui/non_send_effect_future.rs");
     #[cfg(feature = "local")]
     tests.compile_fail("tests/ui/non_send_effect_future_local.rs");
+    #[cfg(not(feature = "local"))]
     tests.compile_fail("tests/ui/borrowed_effect_capture.rs");
+    #[cfg(feature = "local")]
+    tests.compile_fail("tests/ui/borrowed_effect_capture_local.rs");
     tests.pass("tests/ui/move_only_send.rs");
     tests.pass("tests/ui/state_extraction_send.rs");
 }
@@ -63,7 +66,10 @@ fn rc04_composition_keeps_retained_and_hosted_boundaries() {
     tests.compile_fail("tests/ui/rc04_action_child_borrowed.rs");
     #[cfg(feature = "local")]
     tests.compile_fail("tests/ui/rc04_action_child_borrowed_local.rs");
+    #[cfg(not(feature = "local"))]
     tests.compile_fail("tests/ui/rc04_action_parent_borrowed.rs");
+    #[cfg(feature = "local")]
+    tests.compile_fail("tests/ui/rc04_action_parent_borrowed_local.rs");
     tests.compile_fail("tests/ui/rc04_mapper_borrowed.rs");
     #[cfg(not(feature = "local"))]
     tests.compile_fail("tests/ui/rc04_mapper_non_send.rs");
@@ -152,8 +158,14 @@ fn shared_scope_accepts_move_only_domains_and_rejects_borrow_escape() {
     let tests = trybuild::TestCases::new();
     tests.pass("tests/ui/shared_move_only.rs");
     tests.compile_fail("tests/ui/shared_overlapping_split.rs");
+    #[cfg(not(feature = "local"))]
     tests.compile_fail("tests/ui/shared_private_borrow_escape.rs");
+    #[cfg(feature = "local")]
+    tests.compile_fail("tests/ui/shared_private_borrow_escape_local.rs");
+    #[cfg(not(feature = "local"))]
     tests.compile_fail("tests/ui/shared_settings_borrow_escape.rs");
+    #[cfg(feature = "local")]
+    tests.compile_fail("tests/ui/shared_settings_borrow_escape_local.rs");
 }
 
 #[test]

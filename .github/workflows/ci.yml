@@ -89,22 +89,29 @@ jobs:
                   cargo test --locked --manifest-path tests/performance-profile/Cargo.toml --bin rca-performance-profile measurement:: -- --test-threads=1
                   cargo test --locked --manifest-path tests/performance-profile/Cargo.toml --features allocations --bin rca-performance-profile measurement:: -- --test-threads=1
 
-            - name: Link workspace binaries with all features
-              # Normal builds do not use the test-only critical-section provider.
-              run: cargo build --locked --workspace --all-features --features critical-section/std
-
-            - name: Test workspace
+            - name: Fetch consumer dependencies
+              id: consumer_dependencies
               # These independent lockfiles can differ from the workspace lockfile.
               # Download their dependencies before the tests run Cargo offline.
               run: |
                   cargo fetch --locked --manifest-path rca-core/tests/fixtures/modular-dependencies/Cargo.toml
                   cargo fetch --locked --manifest-path rca-core/tests/fixtures/rc07-owned-snapshot/Cargo.toml
-                  cargo test --locked --workspace --all-features --no-fail-fast
+
+            - name: Verify legacy compiler contracts without Local
+              # Collect every target's diagnostics before the long workspace suite.
+              run: cargo test --locked -p rca-core --no-default-features --no-fail-fast --test compile --test typed_compile --test removal_compile
 
             - name: Verify compiler contracts without Local
-              run: |
-                  cargo test --locked -p rca-core --no-default-features --test compile --test typed_compile --test removal_compile
-                  cargo test --locked -p rca-core -p rca-test --no-default-features --test compiler_contracts -- --check
+              # A legacy snapshot mismatch must not hide this independent suite.
+              if: ${{ !cancelled() && steps.consumer_dependencies.outcome == 'success' }}
+              run: cargo test --locked -p rca-core -p rca-test --no-default-features --no-fail-fast --test compiler_contracts -- --check
+
+            - name: Link workspace binaries with all features
+              # Normal builds do not use the test-only critical-section provider.
+              run: cargo build --locked --workspace --all-features --features critical-section/std
+
+            - name: Test workspace
+              run: cargo test --locked --workspace --all-features --no-fail-fast
 
             - name: Stress composition reference models
               timeout-minutes: 10

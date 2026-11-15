@@ -12,7 +12,7 @@ error[E0521]: borrowed data escapes outside of function
    |             `action` escapes the function body here
    |             argument requires that `'s` must outlive `'static`
    |
-note: `'static` lifetime requirement from `<ScopeIdentified<ParentState, ParentAction, Parent, Child, StatePath<ParentState, ChildState, Get, GetMut>, ActionPath<ParentAction, ChildAction, Extract, Embed>, Identity, Id> as rca_core::Reducer>::reduce` introduced here
+note: `'static` lifetime requirement from `<ScopeIdentified<ParentState, ParentAction, Parent, Child, StatePath<ParentState, ChildState, Get, GetMut>, ActionPath<ParentAction, ChildAction, Extract, Embed>, Identity, Id> as Reducer>::reduce` introduced here
   --> src/composition/scope.rs
    |
    | impl<

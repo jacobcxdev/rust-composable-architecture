@@ -22,8 +22,8 @@ help: the trait `Reducer` is conditionally implemented for `ScopeIdentified<Pare
    |                                                  |
    |                                                  unsatisfied requirement introduced here: `Id: Sync`
 note: required because it appears within the type `Id`
-  --> tests/ui/rc04_id_non_sync.rs:8:8
+  --> tests/ui/rc04_id_non_sync.rs:8:11
    |
  8 | struct Id(Cell<u64>);
-   |        ^^
+   |           ^^^^^^^^^ required by this field
    = note: required for `ScopeIdentified<Id, (), Reduce<Id, (), {closure@$DIR/tests/ui/rc04_id_non_sync.rs:26:21: 26:44}>, Reduce<Id, (), {closure@$DIR/tests/ui/rc04_id_non_sync.rs:30:21: 30:44}>, StatePath<Id, Id, {closure@$DIR/tests/ui/rc04_id_non_sync.rs:27:24: 27:32}, {closure@$DIR/tests/ui/rc04_id_non_sync.rs:27:36: 27:48}>, ActionPath<(), (), {closure@$DIR/tests/ui/rc04_id_non_sync.rs:28:25: 28:33}, {closure@$DIR/tests/ui/rc04_id_non_sync.rs:28:43: 28:46}>, {closure@$DIR/tests/ui/rc04_id_non_sync.rs:29:9: 29:17}, Id>` to implement `Reducer`
