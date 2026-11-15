@@ -1,14 +1,14 @@
 error[E0521]: borrowed data escapes outside of function
- --> tests/ui/rc05_borrowed_capture.rs:3:13
+ --> tests/ui/rc05_borrowed_capture.rs
   |
-2 |   fn wrong(value: &usize) {
+  |   fn wrong(value: &usize) {
   |            -----  - let's call the lifetime of this reference `'1`
   |            |
   |            `value` is only valid in the function body
-3 |       let _ = Task::<usize, ()>::run(move |_| async move {
+  |       let _ = Task::<usize, ()>::run(move |_| async move {
   |  _____________^
-4 | |         std::hint::black_box(*value);
-5 | |     });
+  | |         std::hint::black_box(*value);
+  | |     });
   | |      ^
   | |      |
   | |______`value` escapes the function body here
