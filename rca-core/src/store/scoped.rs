@@ -1202,8 +1202,8 @@ mod tests {
             let Poll::Ready(Ok(task)) = send.as_mut().poll(&mut context) else {
                 panic!("the actor must acknowledge the required child action");
             };
-            assert!(task.is_finished());
-        }
+            assert!(task.is_finished())
+        };
         let mut read = Box::pin(store.read(Cell::get));
         assert!(read.as_mut().poll(&mut context).is_pending());
         assert!(actor.as_mut().poll(&mut context).is_pending());
