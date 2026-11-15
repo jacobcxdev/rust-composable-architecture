@@ -216,7 +216,7 @@ fn concurrent_producers_and_observers_preserve_exact_work(count: u8) {
         .enable_time()
         .build()
         .expect("build concurrent host");
-    host.block_on(async {
+    let (handler_drops, handled, handler_calls, report_ready) = host.block_on(async {
         tokio::time::timeout(Duration::from_secs(15), async {
             let total = usize::from(count) * 4;
             let report_ready = Arc::new(tokio::sync::Barrier::new(usize::from(count)));
@@ -378,15 +378,20 @@ fn concurrent_producers_and_observers_preserve_exact_work(count: u8) {
             assert_eq!(handler_calls.load(Ordering::SeqCst), 2 * total);
             drop(reporter);
             drop(recorder);
-            assert_eq!(handler_drops.load(Ordering::SeqCst), 1);
-            assert_eq!(Arc::strong_count(&handler_drops), 1);
-            assert_eq!(Arc::strong_count(&handled), 1);
-            assert_eq!(Arc::strong_count(&handler_calls), 1);
-            assert_eq!(Arc::strong_count(&report_ready), 1);
+            (handler_drops, handled, handler_calls, report_ready)
         })
         .await
-        .expect("concurrent progress watchdog");
+        .expect("concurrent progress watchdog")
     });
+
+    // The shutdown reply can precede destruction of Tokio's completed actor future.
+    // Dropping the owning runtime waits for its remaining captures to be released.
+    drop(host);
+    assert_eq!(handler_drops.load(Ordering::SeqCst), 1);
+    assert_eq!(Arc::strong_count(&handler_drops), 1);
+    assert_eq!(Arc::strong_count(&handled), 1);
+    assert_eq!(Arc::strong_count(&handler_calls), 1);
+    assert_eq!(Arc::strong_count(&report_ready), 1);
 }
 
 #[test]
