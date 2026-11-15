@@ -34,8 +34,8 @@ import windows_strip  # noqa: E402
 ROOT = Path(__file__).resolve().parents[1]
 PROTOCOL = ROOT / "docs/performance/composition/composition-protocol-v7.json"
 CURRENT_PROTOCOL = ROOT / "docs/performance/composition/composition-protocol-v9.json"
-WINDOWS_PROTOCOL = ROOT / "docs/performance/composition/composition-windows-paired-v3.json"
-WINDOWS_COMPLETE_POLICY = ROOT / "docs/performance/composition/composition-windows-complete-v3.json"
+WINDOWS_PROTOCOL = ROOT / "docs/performance/composition/composition-windows-paired-v4.json"
+WINDOWS_COMPLETE_POLICY = ROOT / "docs/performance/composition/composition-windows-complete-v4.json"
 BUDGET = ROOT / "docs/performance/composition/composition-budgets.json"
 EVIDENCE_ROOT = ROOT / "target/qualification-evidence/0.1.0/composition"
 LOCK = Path("/tmp/rca-composition-performance.machine.lock")
@@ -57,6 +57,7 @@ def protocol_path(protocol):
         evidence.RUST100_METHOD: "composition-protocol-v9.json",
         evidence.WINDOWS_METHOD: "composition-windows-paired-v2.json",
         evidence.RUST100_WINDOWS_METHOD: "composition-windows-paired-v3.json",
+        evidence.WINDOWS_V4_METHOD: "composition-windows-paired-v4.json",
     }
     name = names.get(protocol["method_version"])
     return PROTOCOL.with_name(name) if name else PROTOCOL
@@ -899,7 +900,7 @@ def execute_pairs(protocol, roots, executables, targets, paired, cargo, env, mon
                         "--bench",
                         "--exact",
                         "composition::" + scenario.replace("/", "::"),
-                        *(protocol["runtime"]["isolated_divan_arguments"]
+                        *(evidence.isolated_divan_arguments(protocol, scenario)
                           if evidence.is_windows_protocol(protocol) else []),
                     ],
                     destination,

@@ -49,8 +49,10 @@ RUST100_TOOL_VERSIONS = {
 }
 RUST100_METHOD = "composition-paired-v9"
 RUST100_WINDOWS_METHOD = "composition-windows-paired-v3"
+WINDOWS_V4_METHOD = "composition-windows-paired-v4"
 RUST100_PROTOCOL_SHA256 = "3b0462407c0d8e3d46731ca0fa78a5386418ced36fab70b33ea3bb8ca523b0a8"
 RUST100_WINDOWS_PROTOCOL_SHA256 = "0675071ac4b8dc3fc5efcb843821ea79535afe148833b3d9f5c68365aecf396c"
+WINDOWS_V4_PROTOCOL_SHA256 = "c2a6e4293fae4a497c64f6cd587b607ba6be17853e6d99d6a8354baf9d36ee67"
 REGRESSION_LIMIT = 1.10
 EXPECTED_DIVAN_ROWS = 153
 EXPECTED_ALLOCATIONS = 47
@@ -73,6 +75,9 @@ WINDOWS_COMPILER_TELEMETRY = {
 }
 WINDOWS_PROTOCOL_SHA256 = "1d76afa9be7bbddb4942b03591e7e42011b4929a33a0714883917b9bcc6719b9"
 WINDOWS_ISOLATED_DIVAN_ARGUMENTS = ["--min-time", "0.5", "--max-time", "0.5"]
+WINDOWS_SCENARIO_DIVAN_ARGUMENTS = {
+    "scoped_concurrent_senders_32": ["--min-time", "2", "--max-time", "2"],
+}
 _INTERLEAVING = {
     "policy": "alternating-mode-first-within-block",
     "blocks": 20,
@@ -819,7 +824,7 @@ def _evaluate_counter_cohorts(cohorts: dict, protocol: dict, plan: list[dict],
 
 def is_windows_protocol(protocol: dict[str, Any]) -> bool:
     """Identify the Windows method without treating it as macOS absolute evidence."""
-    return protocol.get("method_version") in (WINDOWS_METHOD, RUST100_WINDOWS_METHOD)
+    return protocol.get("method_version") in (WINDOWS_METHOD, RUST100_WINDOWS_METHOD, WINDOWS_V4_METHOD)
 
 
 def is_current_mac_protocol(protocol: dict[str, Any]) -> bool:
@@ -834,14 +839,14 @@ def is_current_protocol(protocol: dict[str, Any]) -> bool:
 
 def expected_tool_versions(protocol: dict[str, Any]) -> dict[str, str]:
     """Return the exact native tool versions required by this frozen method."""
-    if protocol.get("method_version") in (RUST100_METHOD, RUST100_WINDOWS_METHOD):
+    if protocol.get("method_version") in (RUST100_METHOD, RUST100_WINDOWS_METHOD, WINDOWS_V4_METHOD):
         return dict(RUST100_TOOL_VERSIONS)
     return dict(CURRENT_TOOL_VERSIONS if is_current_protocol(protocol) else LEGACY_TOOL_VERSIONS)
 
 
 def expected_reference_revision(protocol: dict[str, Any]) -> str:
     """Keep the active release baseline separate from historical budget provenance."""
-    if protocol.get("method_version") in (RUST100_METHOD, RUST100_WINDOWS_METHOD):
+    if protocol.get("method_version") in (RUST100_METHOD, RUST100_WINDOWS_METHOD, WINDOWS_V4_METHOD):
         return RELEASE_BASELINE_REVISION
     return REFERENCE_REVISION
 
@@ -866,6 +871,7 @@ def _protocol_sha256(protocol: dict[str, Any]) -> str:
         WINDOWS_METHOD: WINDOWS_PROTOCOL_SHA256,
         RUST100_METHOD: RUST100_PROTOCOL_SHA256,
         RUST100_WINDOWS_METHOD: RUST100_WINDOWS_PROTOCOL_SHA256,
+        WINDOWS_V4_METHOD: WINDOWS_V4_PROTOCOL_SHA256,
     }
     version = protocol.get("method_version")
     if not isinstance(version, str) or version not in versions:
@@ -933,6 +939,13 @@ def load_protocol(path: pathlib.Path) -> dict[str, Any]:
     if (is_windows_protocol(document)
             and runtime.get("isolated_divan_arguments") != WINDOWS_ISOLATED_DIVAN_ARGUMENTS):
         raise ValueError("Windows isolated sampling arguments differ from the frozen policy")
+    if is_windows_protocol(document):
+        overrides = runtime.get("isolated_divan_arguments_by_scenario")
+        if document["method_version"] == WINDOWS_V4_METHOD:
+            if overrides != WINDOWS_SCENARIO_DIVAN_ARGUMENTS:
+                raise ValueError("Windows scenario sampling arguments differ from the frozen policy")
+        elif "isolated_divan_arguments_by_scenario" in runtime:
+            raise ValueError("Historical Windows sampling arguments cannot have scenario overrides")
     if runtime.get("pairs_per_order_stratum") != 10:
         raise ValueError("composition protocol runtime sample size is invalid")
     if runtime.get("diagnostic_timing_rows") != EXPECTED_DIVAN_ROWS:
@@ -1469,6 +1482,15 @@ def _measurement_suffixes(protocol: dict[str, Any]) -> tuple[str, ...]:
     return suffixes
 
 
+def isolated_divan_arguments(protocol: dict[str, Any], scenario: str) -> list[str]:
+    """Return the frozen duration arguments for one Windows runtime scenario."""
+    if not is_windows_protocol(protocol) or scenario not in protocol["runtime"]["gated_scenarios"]:
+        raise ValueError("Windows runtime scenario is not frozen in the protocol")
+    runtime = protocol["runtime"]
+    return list(runtime.get("isolated_divan_arguments_by_scenario", {}).get(
+        scenario, runtime["isolated_divan_arguments"]))
+
+
 def load_isolated_runtime_pairs(
     subject_directory: pathlib.Path,
     control_directory: pathlib.Path,
@@ -1515,7 +1537,7 @@ def load_isolated_runtime_pairs(
         )
         if is_windows_protocol(protocol):
             expected_arguments = ["--bench", "--exact", "composition::" + scenario.replace("/", "::"),
-                                  *WINDOWS_ISOLATED_DIVAN_ARGUMENTS]
+                                  *isolated_divan_arguments(protocol, scenario)]
             for resources in (subject_resources, control_resources):
                 if resources["process_receipt"].get("divan_arguments") != expected_arguments:
                     raise ValueError("Windows isolated sampling arguments differ from the frozen policy")

@@ -118,6 +118,36 @@ class WindowsCompleteTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "another paired protocol"):
             complete.evaluate(complete.load_policy(POLICY), BUDGET, timing, raw, baseline)
 
+    def test_v4_complete_policy_preserves_limits_and_rejects_v3_timing(self):
+        previous = complete.load_policy(POLICY.with_name("composition-windows-complete-v3.json"))
+        current = complete.load_policy(POLICY.with_name("composition-windows-complete-v4.json"))
+        self.assertEqual(
+            {key: value for key, value in previous.items() if key not in ("method_version", "paired_protocol_sha256")},
+            {key: value for key, value in current.items() if key not in ("method_version", "paired_protocol_sha256")},
+        )
+        self.reference.update(method_version=evidence.WINDOWS_V4_METHOD,
+                              protocol_sha256=evidence.WINDOWS_V4_PROTOCOL_SHA256,
+                              toolchain=evidence.expected_toolchain({"method_version": evidence.WINDOWS_V4_METHOD}),
+                              revision=evidence.RELEASE_BASELINE_REVISION)
+        self.reference["metadata"].update(method_version=evidence.WINDOWS_V4_METHOD,
+                                          subject_revision=evidence.RELEASE_BASELINE_REVISION,
+                                          control_revision=evidence.RELEASE_BASELINE_REVISION)
+        self.raw["subject_revision"] = evidence.RELEASE_BASELINE_REVISION
+        baseline = complete.seal_reference(current, BUDGET, self.reference, self.raw)
+        timing, raw = self.candidate()
+        report = complete.evaluate(current, BUDGET, timing, raw, baseline)
+        self.assertTrue(report["passed"])
+        self.assertEqual(len(report["rows"]), 33)
+        self.assertEqual(report["policy_sha256"], complete.V4_POLICY_SHA256)
+        self.assertEqual(report["method_version"], "composition-windows-complete-v4")
+        with self.assertRaisesRegex(ValueError, "another paired protocol"):
+            complete.seal_reference(previous, BUDGET, self.reference, self.raw)
+        timing["method_version"] = evidence.RUST100_WINDOWS_METHOD
+        timing["protocol_sha256"] = evidence.RUST100_WINDOWS_PROTOCOL_SHA256
+        timing["metadata"]["method_version"] = evidence.RUST100_WINDOWS_METHOD
+        with self.assertRaisesRegex(ValueError, "another paired protocol"):
+            complete.evaluate(current, BUDGET, timing, raw, baseline)
+
     def test_reference_only_limits_keep_all_thirty_three_gates(self):
         baseline = complete.seal_reference(self.policy, BUDGET, self.reference, self.raw)
         timing, raw = self.candidate()

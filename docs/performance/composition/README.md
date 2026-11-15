@@ -1,14 +1,14 @@
 # Composition performance qualification
 
 The [v9 macOS protocol](composition-protocol-v9.json) and
-[complete Windows policy](composition-windows-complete-v3.json) define separate qualification routes.
+[complete Windows policy](composition-windows-complete-v4.json) define separate qualification routes.
 Their workloads, hashes and numerical limits are frozen before capture.
 Complete Windows qualification uses the current release reference.
 The older [macOS absolute budgets](composition-budgets.json) retain their original values and provenance.
 Those older architectural ceilings are not additional release blockers for the current reference.
 This directory contains the methods and historical receipts, not current-candidate captures.
 
-The v9 macOS and v3 Windows methods use Rust 1.100.0. Their workloads,
+The v9 macOS and v4 Windows methods use Rust 1.100.0. Their workloads,
 ordering and acceptance limits match the preceding Rust 1.99 methods.
 The frozen Rust 1.98 and 1.99 protocols and captures retain their original
 identities. A new compiler requires a new matched capture, not relabelled evidence.
@@ -130,20 +130,27 @@ These deletions occur outside measured intervals.
 
 ## Windows paired measurements
 
-The [Windows protocol](composition-windows-paired-v3.json) runs the same 14
+The [Windows protocol](composition-windows-paired-v4.json) runs the same 14
 relative gates on H1 with Rust 1.100.0. It uses the same 20 paired blocks, fixed
 orders, confidence rule and 1.10 limit. Every block contains both comparison
 modes; their first mode alternates. All measurements and their hashes remain in the
 capture, including failures. Windows results do not qualify any of the 33 macOS
 absolute gates.
 
-Version 2 sets both Divan's minimum and maximum sampling time to 0.5 seconds
-for each isolated runtime cell. Collection continues past the workload's sample
-count if needed to reach that duration. The final sample can cross the time
-limit; this is not a process deadline. Sample size and per-operation work stay
-unchanged. Full-benchmark diagnostics retain their workload defaults. Receipts
-record the actual arguments, sample counts and iteration counts. Earlier
-captures keep their original policies. No result is relabelled.
+Versions 2 and 3 set the minimum and maximum Divan sampling time to 0.5 seconds for every isolated runtime cell.
+Version 4 keeps that duration for eight scenarios.
+Only `scoped_concurrent_senders_32` uses two seconds for both limits.
+Before a full capture uses a new sampling policy, its readiness control must pass.
+
+Collection can continue past the workload sample count to reach that duration.
+The final sample can cross the time limit. This limit is not a process deadline.
+For `scoped_concurrent_senders_32`, the two seconds measure workload execution.
+Store and producer-thread setup and cleanup occur outside that measured interval.
+The process can therefore take much more wall time. The fixed process deadline stays unchanged.
+
+Sample size and per-operation work stay unchanged. Full-benchmark diagnostics retain their workload defaults.
+Receipts record the actual arguments, sample counts and iteration counts.
+Earlier captures keep their original policies. No result is relabelled.
 
 From a clean Windows checkout with the exact reference available, run:
 
@@ -175,7 +182,7 @@ diagnostics, not treated as compiler-child totals or instruction counts.
 
 ## Complete Windows qualification
 
-The [complete Windows policy](composition-windows-complete-v3.json) adds native
+The [complete Windows policy](composition-windows-complete-v4.json) adds native
 absolute measurements to the paired protocol above. It does not change that
 protocol or claim that Windows measurements satisfy Mac limits.
 

@@ -17,6 +17,39 @@ import composition_performance as evidence
 
 
 class WindowsRunnerTests(unittest.TestCase):
+    def test_scenario_sampling_applies_to_both_arms_without_changing_compile(self):
+        protocol = evidence.load_protocol(runner.WINDOWS_PROTOCOL)
+        protocol["method_version"] = "composition-windows-paired-v4"
+        protocol["runtime"]["gated_scenarios"] = ["direct/1", "scoped_concurrent_senders_32"]
+        protocol["runtime"]["isolated_divan_arguments_by_scenario"] = {
+            "scoped_concurrent_senders_32": ["--min-time", "2", "--max-time", "2"],
+        }
+        protocol["compile"]["fixtures"] = ["direct"]
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            monitor = Mock()
+            roots = {role: root / role for role in ("subject", "control")}
+            executables = {role: roots[role] / "bench.exe" for role in roots}
+            with patch.object(evidence, "validate_isolated_transcript"):
+                runner.execute_pairs(protocol, roots, executables, root / "targets",
+                                     root / "paired", "cargo", {}, monitor,
+                                     blocks=[(1, "subject-control")])
+            calls = monitor.run.call_args_list
+            self.assertEqual(len(calls), 6)
+            for call, role in zip(calls[:2], ("subject", "control")):
+                self.assertEqual(call.args[0], [
+                    str(executables[role]), "--bench", "--exact", "composition::direct::1",
+                    "--min-time", "0.5", "--max-time", "0.5"])
+            for call, role in zip(calls[2:4], ("subject", "control")):
+                self.assertEqual(call.args[0], [
+                    str(executables[role]), "--bench", "--exact", "composition::scoped_concurrent_senders_32",
+                    "--min-time", "2", "--max-time", "2"])
+            for call, role in zip(calls[4:], ("subject", "control")):
+                self.assertEqual(call.args[0], [
+                    "cargo", "check", "--manifest-path", str(roots[role] / "benches/compile/Cargo.toml"),
+                    "-p", "rca-compile-direct", "--locked", "-j", "1"])
+                self.assertEqual(call.args[3]["CARGO_INCREMENTAL"], "0")
+
     def test_isolated_runtime_adds_time_floor_without_changing_cold_compile(self):
         protocol = evidence.load_protocol(runner.WINDOWS_PROTOCOL)
         protocol["runtime"]["gated_scenarios"] = ["direct/1"]
@@ -407,7 +440,7 @@ class WindowsRunnerTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmp:
             directory = Path(tmp)
-            manifest = {"protocol_sha256": evidence.RUST100_WINDOWS_PROTOCOL_SHA256,
+            manifest = {"protocol_sha256": evidence._sha256(runner.WINDOWS_PROTOCOL),
                         "controller": {"revision": "1" * 40}, "host": {"identity": "Windows"},
                         "modes": {}, "schedule": [
                             {"block": block, "mode": mode} for block in range(1, 21)

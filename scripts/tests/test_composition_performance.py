@@ -1371,6 +1371,97 @@ class MacWatchdogEvidenceTests(unittest.TestCase):
 
 
 class WindowsPairedProtocolTests(unittest.TestCase):
+    def test_v4_sampling_keeps_other_scenarios_and_all_numerical_gates(self):
+        directory = REPO_ROOT / "docs/performance/composition"
+        previous = composition_performance.load_protocol(directory / "composition-windows-paired-v3.json")
+        current = composition_performance.load_protocol(directory / "composition-windows-paired-v4.json")
+        comparable = json.loads(json.dumps(current))
+        comparable["method_version"] = previous["method_version"]
+        comparable["runtime"]["divan_sample_policy"] = previous["runtime"]["divan_sample_policy"]
+        comparable["runtime"].pop("isolated_divan_arguments_by_scenario")
+        self.assertEqual(comparable, previous)
+        for scenario in current["runtime"]["gated_scenarios"]:
+            expected = (["--min-time", "2", "--max-time", "2"]
+                        if scenario == "scoped_concurrent_senders_32" else
+                        ["--min-time", "0.5", "--max-time", "0.5"])
+            self.assertEqual(composition_performance.isolated_divan_arguments(current, scenario), expected)
+        self.assertEqual(composition_performance.expected_tool_versions(current),
+                         composition_performance.RUST100_TOOL_VERSIONS)
+        self.assertEqual(composition_performance.expected_reference_revision(current),
+                         composition_performance.RELEASE_BASELINE_REVISION)
+
+    def test_v4_sampling_rejects_missing_extra_or_changed_override(self):
+        from unittest.mock import patch
+        import copy
+        protocol = composition_performance.load_protocol(
+            REPO_ROOT / "docs/performance/composition/composition-windows-paired-v4.json")
+        bad_values = (None, {}, {"direct/1": ["--min-time", "2", "--max-time", "2"]},
+                      {"scoped_concurrent_senders_32": ["--min-time", "10", "--max-time", "10"]},
+                      {"scoped_concurrent_senders_32": ["--min-time", "2"]},
+                      {"scoped_concurrent_senders_32": ["--min-time", "2", "--max-time", "2", "--sample-size", "100"]},
+                      {"scoped_concurrent_senders_32": ["--min-time", "2", "--max-time", "2"],
+                       "direct/1": ["--min-time", "2", "--max-time", "2"]})
+        with tempfile.TemporaryDirectory() as directory:
+            path = pathlib.Path(directory) / "protocol.json"
+            for override in bad_values:
+                bad = copy.deepcopy(protocol)
+                if override is None:
+                    bad["runtime"].pop("isolated_divan_arguments_by_scenario")
+                else:
+                    bad["runtime"]["isolated_divan_arguments_by_scenario"] = override
+                path.write_text(json.dumps(bad))
+                with self.subTest(override=override), \
+                     patch.object(composition_performance, "_sha256",
+                                  return_value=composition_performance.WINDOWS_V4_PROTOCOL_SHA256), \
+                     self.assertRaisesRegex(ValueError, "sampling arguments"):
+                    composition_performance.load_protocol(path)
+
+    def test_v4_receipts_require_each_scenarios_actual_sampling_arguments(self):
+        protocol = composition_performance.load_protocol(
+            REPO_ROOT / "docs/performance/composition/composition-windows-paired-v4.json")
+        cases = (("direct/1", "composition::direct::1", "0.5", "2"),
+                 ("scoped_concurrent_senders_32", "composition::scoped_concurrent_senders_32", "2", "0.5"))
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            subject, control = root / "subject", root / "control"
+            for scenario, exact, seconds, wrong_seconds in cases:
+                paths = []
+                arguments = ["--bench", "--exact", exact, "--min-time", seconds, "--max-time", seconds]
+                for arm in (subject, control):
+                    for block in range(1, 21):
+                        write_isolated_observation(arm, scenario, block, 100.0)
+                        path = arm / "runtime" / scenario.replace("/", "__") / f"block-{block:02d}.resources.json"
+                        row = self.resources()
+                        row["process_receipt"]["divan_arguments"] = arguments
+                        path.write_text(json.dumps(row))
+                        paths.append(path)
+                self.assertEqual(len(composition_performance.load_isolated_runtime_pairs(
+                    subject, control, scenario, protocol)), 20)
+                bad_arguments = (["--bench", "--exact", exact, "--min-time", wrong_seconds, "--max-time", wrong_seconds],
+                                 arguments[:-2], [*arguments, "--min-time", seconds],
+                                 [*arguments, "--sample-size", "100"])
+                for arguments in bad_arguments:
+                    row = self.resources()
+                    row["process_receipt"]["divan_arguments"] = arguments
+                    paths[0].write_text(json.dumps(row))
+                    with self.subTest(scenario=scenario, arguments=arguments), \
+                         self.assertRaisesRegex(ValueError, "sampling arguments"):
+                        composition_performance.load_isolated_runtime_pairs(subject, control, scenario, protocol)
+
+    def test_legacy_windows_protocol_rejects_scenario_sampling_override(self):
+        from unittest.mock import patch
+        protocol = self.protocol()
+        protocol["runtime"]["isolated_divan_arguments_by_scenario"] = {
+            "scoped_concurrent_senders_32": ["--min-time", "2", "--max-time", "2"],
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            path = pathlib.Path(directory) / "protocol.json"
+            path.write_text(json.dumps(protocol))
+            with patch.object(composition_performance, "_sha256",
+                              return_value=composition_performance.WINDOWS_PROTOCOL_SHA256), \
+                 self.assertRaisesRegex(ValueError, "sampling arguments"):
+                composition_performance.load_protocol(path)
+
     def test_isolated_windows_policy_rejects_missing_or_changed_time_arguments(self):
         from unittest.mock import patch
         import copy
