@@ -1121,3 +1121,64 @@ fn colliding_type_parameter_preserves_absolute_crate_path() {
     assert_ne!(captured, different);
     assert_eq!((captured.item, captured.text.as_str()), (7, "before"));
 }
+
+#[test]
+fn aliased_enum_companions_preserve_named_tuple_and_unit_cases() {
+    #[derive(Snapshot)]
+    enum Choice<ChoiceSnapshot> {
+        Named { value: ChoiceSnapshot },
+        Tuple(ChoiceSnapshot),
+        Unit,
+    }
+
+    let named = Choice::Named { value: 7u8 }.snapshot();
+    let tuple = Choice::Tuple(11u8).snapshot();
+    let unit = Choice::<u8>::Unit.snapshot();
+
+    assert_eq!(named, ChoiceSnapshot::Named { value: 7 });
+    assert_eq!(tuple, ChoiceSnapshot::Tuple(11));
+    assert_eq!(unit, ChoiceSnapshot::Unit);
+    assert_value_contract(&named, "ChoiceSnapshot::Named { value: 7 }");
+    assert_value_contract(&tuple, "ChoiceSnapshot::Tuple(11)");
+    assert_value_contract(&unit, "ChoiceSnapshot::Unit");
+    assert_ne!(named, tuple);
+    assert_ne!(tuple, unit);
+}
+
+#[test]
+fn custom_function_pointer_capture_preserves_callable_source() {
+    fn increment(value: u8) -> u8 {
+        value + 1
+    }
+
+    #[expect(
+        clippy::trivially_copy_pass_by_ref,
+        reason = "snapshot capture callbacks receive the source field by reference"
+    )]
+    fn capture(callback: &fn(u8) -> u8) -> fn(u8) -> u8 {
+        *callback
+    }
+
+    #[derive(Snapshot)]
+    struct Source {
+        #[snapshot(with = capture, value = fn(u8) -> u8)]
+        callback: fn(u8) -> u8,
+    }
+
+    let source = Source {
+        callback: increment,
+    };
+    assert_eq!((source.callback)(2), 3);
+
+    let captured = source.snapshot();
+
+    assert_eq!((captured.callback)(6), 7);
+    assert!(std::ptr::fn_addr_eq(captured.callback, source.callback));
+    let cloned = captured.clone();
+    assert!(std::ptr::fn_addr_eq(cloned.callback, captured.callback));
+    assert_debug_contract(
+        &captured,
+        &format!("SourceSnapshot {{ callback: {:?} }}", source.callback),
+    );
+    assert_eq!((source.callback)(3), 4);
+}

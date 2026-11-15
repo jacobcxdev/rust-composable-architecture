@@ -76,6 +76,49 @@ class CaptureCoverageTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.capture.group_arguments("all")
 
+    def test_all_ordinary_test_store_hosts_are_explicitly_selected(self):
+        expected = {path.stem for path in (SCRIPT.parents[1] / "rca-test/tests").glob("*.rs")}
+        expected -= {"compiler_contracts", "panic_subprocess"}
+        self.assertEqual(len(expected), 86)
+        selected = self.capture.TARGETS["test-store"]
+        self.assertTrue(selected.include_library)
+        self.assertEqual(selected.tests, tuple(sorted(expected)))
+        self.assertEqual(self.capture.group_arguments("test-store"), [
+            "-p", "rca-test", "--features", "local", "--lib",
+            *[item for name in sorted(expected) for item in ("--test", name)],
+        ])
+
+    def test_persistence_capture_selects_private_library_fault_witnesses(self):
+        self.assertTrue(self.capture.TARGETS["persistence-file"].include_library)
+        self.assertEqual(self.capture.group_arguments("persistence-file"), [
+            "-p", "rca-persistence", "--features", "file", "--lib",
+            *[item for name in ("document", "file", "shared_document_session_replacement",
+                               "shared_document", "shared_key_cache", "shared_subscription",
+                               "staged_restoration", "shared_quiescence", "subscription_ownership_contracts")
+              for item in ("--test", name)],
+        ])
+
+    def test_test_store_and_persistence_parsers_require_exact_selected_hosts(self):
+        for group, excluded in (("test-store", ("compiler_contracts", "panic_subprocess")),
+                                ("persistence-file", ("allocation_controls",))):
+            selected = self.capture.TARGETS[group]
+            names = (selected.library, *selected.tests)
+            rows = [self.artifact(name, features=sorted(selected.features), group=group,
+                                  package=selected.directory, library=selected.library) for name in names]
+            target = self.root / "target/coverage" / group
+            with self.subTest(group=group):
+                parsed = self.capture.parse_artifacts("\n".join(map(json.dumps, rows)), self.root, target, group)
+                self.assertEqual([row["target"]["name"] for row in parsed], sorted(names))
+                for bad in (rows[1:], rows + [rows[0]],
+                            [dict(rows[0], features=["foreign-feature"]), *rows[1:]]):
+                    with self.assertRaises(ValueError):
+                        self.capture.parse_artifacts("\n".join(map(json.dumps, bad)), self.root, target, group)
+                for name in excluded:
+                    extra = self.artifact(name, features=sorted(selected.features), group=group,
+                                          package=selected.directory, library=selected.library)
+                    with self.subTest(excluded=name), self.assertRaises(ValueError):
+                        self.capture.parse_artifacts("\n".join(map(json.dumps, [*rows, extra])), self.root, target, group)
+
     def test_environment_prevents_inherited_flags_profiles_wrappers_and_secret_dump(self):
         tools = {name: self.root / "toolchain/bin" / name for name in ("cargo", "rustc", "rustdoc")}
         env = self.capture.capture_environment({
@@ -336,11 +379,8 @@ class CaptureCoverageTests(unittest.TestCase):
                 self.assertEqual(self.capture.host_arguments("core-terminal", ["test"], executable), expected)
 
     def test_test_store_group_selects_local_library_and_unfiltered_integration_hosts(self):
-        names = ("controls", "error_contracts", "snapshot_contracts", "local_test_store",
-                 "output_delivery", "focused_outputs", "conformance_deterministic",
-                 "semantic_checks", "issue_expectations", "snapshot_strategies", "dependency_defaults",
-                 "dependency_scope", "focused_receiving", "test_store", "typed_transactions", "fold_frontier",
-                 "local_runtime", "snapshot_compare", "mismatch_diagnostics")
+        names = sorted(path.stem for path in (SCRIPT.parents[1] / "rca-test/tests").glob("*.rs")
+                       if path.stem not in ("compiler_contracts", "panic_subprocess"))
         self.assertIn("test-store", self.capture.TARGETS)
         self.assertEqual(self.capture.group_arguments("test-store"), [
             "-p", "rca-test", "--features", "local", "--lib",
@@ -376,7 +416,7 @@ class CaptureCoverageTests(unittest.TestCase):
                  "shared_quiescence", "subscription_ownership_contracts")
         self.assertIn("persistence-file", self.capture.TARGETS)
         self.assertEqual(self.capture.group_arguments("persistence-file"), [
-            "-p", "rca-persistence", "--features", "file",
+            "-p", "rca-persistence", "--features", "file", "--lib",
             *[item for name in names for item in ("--test", name)],
         ])
         for name in names:
@@ -493,13 +533,10 @@ class CaptureCoverageTests(unittest.TestCase):
               "diagnostics", "diagnostics_checkpoint", "presentation", "fallible_effect", "fallible_effect_lifecycle",
               "application_clients", "dependency_fixture", "dependency_scope", "issue_stubs", "issue_collector"]),
             ("test-store", "rca-test", "rca_test", ["local"],
-             ["rca_test", "controls", "error_contracts", "snapshot_contracts", "local_test_store",
-              "output_delivery", "focused_outputs", "conformance_deterministic",
-              "semantic_checks", "issue_expectations", "snapshot_strategies", "dependency_defaults",
-              "dependency_scope", "focused_receiving", "test_store", "typed_transactions", "fold_frontier",
-              "local_runtime", "snapshot_compare", "mismatch_diagnostics"]),
+             ["rca_test", *sorted(path.stem for path in (SCRIPT.parents[1] / "rca-test/tests").glob("*.rs")
+                                  if path.stem not in ("compiler_contracts", "panic_subprocess"))]),
             ("persistence-file", "rca-persistence", "rca_persistence", ["default", "file"],
-             ["document", "file", "shared_document_session_replacement",
+             ["rca_persistence", "document", "file", "shared_document_session_replacement",
               "shared_document", "shared_key_cache", "shared_subscription", "staged_restoration",
               "shared_quiescence", "subscription_ownership_contracts"]),
             ("tokio", "rca-tokio", "rca_tokio", [],
@@ -696,6 +733,21 @@ class CaptureCoverageTests(unittest.TestCase):
         names, features = ["rca_core", "store_actor", "local_store"], ["local"]
         options = ["-p", "rca-core", "--no-default-features", "--features", "local",
                    "--lib", "--test", "store_actor", "--test", "local_store"]
+        if group == "test-store":
+            package, package_name, library = "rca-test", "rca-test", "rca_test"
+            ordinary = {path.stem for path in (SCRIPT.parents[1] / "rca-test/tests").glob("*.rs")}
+            names = [library, *sorted(ordinary - {"compiler_contracts", "panic_subprocess"})]
+            features = ["local"]
+            options = ["-p", package_name, "--features", "local", "--lib",
+                       *[item for name in names[1:] for item in ("--test", name)]]
+        if group == "persistence-file":
+            package, package_name, library = "rca-persistence", "rca-persistence", "rca_persistence"
+            names = [library, "document", "file", "shared_document_session_replacement", "shared_document",
+                     "shared_key_cache", "shared_subscription", "staged_restoration", "shared_quiescence",
+                     "subscription_ownership_contracts"]
+            features = ["default", "file"]
+            options = ["-p", package_name, "--features", "file", "--lib",
+                       *[item for name in names[1:] for item in ("--test", name)]]
         if group == "core-terminal":
             names = ["clock_fixtures", "store_actor", "local_store", "effects", "terminal_unwind",
                      "lifecycle", "error_contracts"]
@@ -758,6 +810,12 @@ channel_group = {group!r} in ("channel-overflow-std", "channel-overflow-nostd")
 channel = channel_group and Path(__file__).name.startswith("async_channel-")
 effects = {group!r} == "core-terminal" and Path(__file__).name.startswith("effects-")
 lifecycle = {group!r} == "core-timers-rich" and Path(__file__).name.startswith("lifecycle_registration_window-")
+persistence_library = {group!r} == "persistence-file" and Path(__file__).name.startswith("rca_persistence-")
+if persistence_library:
+    assert sys.argv[1:] == []
+    (raw.parent / "current-child-fixture.profraw").write_bytes(b"runtime profile")
+    if mode == "unexpected-persistence-child-summary":
+        print("test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out")
 if effects:
     assert sys.argv[1:] == ["--nocapture", "--test-threads=1"]
     children = 17 if mode == "missing-effect-child" else (19 if mode == "extra-effect-child" else 18)
@@ -803,7 +861,7 @@ if mode == "tool-change":
         stream.write("\\n# changed\\n")
 if mode != "missing-summary":
     passed = 34 if effects else (5 if lifecycle else (0 if mode == "zero-tests" else 1))
-    ignored = 0 if listener or channel or effects or lifecycle else 1
+    ignored = 0 if listener or channel or effects or lifecycle or {group!r} in ("test-store", "persistence-file") else 1
     if lifecycle and mode == "ignored-lifecycle-parent":
         passed, ignored = 4, 1
     print(f"test result: ok. {{passed}} passed; 0 failed; {{ignored}} ignored; 0 measured; 0 filtered out")
@@ -861,6 +919,42 @@ elif name == "llvm-cov":
 
     def test_channel_std_capture_retains_continuous_profiles_and_checked_outcomes(self):
         self.check_channel_capture("channel-overflow-std")
+
+    def test_test_store_capture_runs_its_complete_ordinary_roster(self):
+        group = "test-store"
+        tools, output = self.capture_fixture(group=group)
+        self.run_capture_fixture(tools, output, group=group)
+        expected = {"rca_test", *self.capture.TARGETS[group].tests}
+        self.assertEqual({host.name for host in (output / "hosts").iterdir()}, expected)
+        self.assertEqual(len(expected), 87)
+        for name in expected:
+            host = output / "hosts" / name
+            self.assertEqual(json.loads((host / "test-summary.json").read_text()),
+                             dict(passed=1, failed=0, ignored=0, measured=0, filtered_out=0))
+            self.assertEqual(len(json.loads((host / "raw-sha256.json").read_text())), 1)
+        self.assertTrue(json.loads((output / "capture.json").read_text())["capture_complete"])
+
+    def test_persistence_library_capture_merges_silent_child_profiles_without_relaxing_summaries(self):
+        group = "persistence-file"
+        tools, output = self.capture_fixture(group=group)
+        self.run_capture_fixture(tools, output, group=group)
+        host = output / "hosts/rca_persistence"
+        self.assertEqual(json.loads((host / "run.argv.json").read_text()),
+                         [json.loads((host / "object.json").read_text())["retained"]])
+        self.assertEqual(json.loads((host / "test-summary.json").read_text()),
+                         dict(passed=1, failed=0, ignored=0, measured=0, filtered_out=0))
+        self.assertEqual(len(json.loads((host / "raw-sha256.json").read_text())), 2)
+        self.assertEqual((host / "runtime.profdata").read_bytes(), b"merged runtime profile")
+        self.assertTrue(json.loads((output / "capture.json").read_text())["capture_complete"])
+
+    def test_persistence_library_capture_rejects_unexpected_child_summaries(self):
+        group = "persistence-file"
+        tools, output = self.capture_fixture("unexpected-persistence-child-summary", group)
+        with self.assertRaises(ValueError):
+            self.run_capture_fixture(tools, output, group=group)
+        receipt = json.loads((output / "capture.json").read_text())
+        self.assertFalse(receipt["capture_complete"])
+        self.assertIn("Expected one successful libtest summary", receipt["error"])
 
     def test_effect_capture_requires_all_eighteen_children_and_parent_profiles(self):
         group = "core-terminal"
@@ -1177,8 +1271,17 @@ elif name == "llvm-cov":
     def macro_capture_fixture(self, positive=True, warning=False):
         """Supply Cargo records and separate fake compiler and runtime profiles."""
         tools, _ = self.capture_fixture()
+        rejection_spec = importlib.util.spec_from_file_location(
+            "fixture_macro_rejections", SCRIPT.with_name("capture_macro_rejections.py"))
+        rejections = importlib.util.module_from_spec(rejection_spec)
+        rejection_spec.loader.exec_module(rejections)
+        for _, source, manifest, _ in rejections.CASES:
+            for relative in (source, manifest + "/Cargo.toml"):
+                destination = self.root / relative
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                destination.write_bytes((SCRIPT.parents[1] / relative).read_bytes())
         macro_source = self.root / "rca-macros/src/lib.rs"
-        macro_source.parent.mkdir(parents=True)
+        macro_source.parent.mkdir(parents=True, exist_ok=True)
         macro_source.write_text("pub fn fixture() {}\n")
         (self.root / "rca-macros/Cargo.toml").write_text(
             '[package]\nname = "rca-macros"\nversion = "0.1.0"\n')
@@ -1193,6 +1296,7 @@ elif name == "llvm-cov":
             name = prefix.name
             output = b""
             stderr = b""
+            returncode = 0
             if name == "build":
                 self.assertEqual(argv[1:-1], ["test", "--locked", "-j1",
                                                 "--message-format=json-render-diagnostics",
@@ -1220,8 +1324,21 @@ elif name == "llvm-cov":
                                 "profile": {"test": False}, "features": [], "fresh": False,
                                 "filenames": [str(library)], "executable": None})
                 output = "\n".join(map(json.dumps, records)).encode()
-                raw = Path(command_env["LLVM_PROFILE_FILE"].replace("%p", "1").replace("%m", "build"))
+                raw = Path(command_env["LLVM_PROFILE_FILE"].replace("%p", "1").replace("%m", "777_0"))
                 raw.write_bytes(b"compiler profile")
+            elif name in {case[0] for case in rejections.CASES}:
+                index, case = next((index, case) for index, case in enumerate(rejections.CASES)
+                                   if case[0] == name)
+                self.assertEqual(Path(argv[-1]), self.root / case[1])
+                self.assertIn("--emit=metadata", argv)
+                self.assertEqual(command_env["CARGO_MANIFEST_DIR"], str(self.root / case[2]))
+                diagnostics = [{"$message_type": "diagnostic", "level": "error", "message": message}
+                               for message in (*case[3], f"aborting due to {len(case[3])} previous errors")]
+                stderr = ("\n".join(map(json.dumps, diagnostics)) + "\n").encode()
+                raw = Path(command_env["LLVM_PROFILE_FILE"].replace("%p", str(index + 11))
+                           .replace("%m", "777_0"))
+                raw.write_bytes(b"compiler profile")
+                returncode = 1
             elif name == "merge":
                 profiles = [Path(item) for item in argv[3:argv.index("-o")]]
                 expected = b"compiler profile" if prefix.parent.name == "macro-object" else b"runtime profile"
@@ -1257,7 +1374,9 @@ elif name == "llvm-cov":
             prefix.with_suffix(".stdout").write_bytes(output)
             prefix.with_suffix(".stderr").write_bytes(stderr)
             self.capture.write_json(prefix.with_suffix(".status.json"),
-                                    {"returncode": 0, "stop_reason": None})
+                                    {"returncode": returncode, "stop_reason": None})
+            if returncode:
+                raise ValueError(f"Command failed; see {prefix}.status.json")
 
         return tools, fake_run, self.root / "target/coverage-evidence/macros"
 
@@ -1271,7 +1390,11 @@ elif name == "llvm-cov":
         self.assertTrue(json.loads((output / "capture.json").read_text())["capture_complete"])
         macro = output / "macro-object"
         self.assertEqual((macro / "build.profdata").read_bytes(), b"merged compiler profile")
-        self.assertEqual(len(json.loads((macro / "raw-sha256.json").read_text())), 1)
+        self.assertEqual(len(json.loads((macro / "raw-sha256.json").read_text())), 4)
+        rejection = json.loads((macro / "rejections/receipt.json").read_text())
+        self.assertTrue(rejection["capture_complete"])
+        self.assertEqual(len(rejection["invocations"]), 3)
+        self.assertTrue(all(record["status"]["returncode"] == 1 for record in rejection["invocations"]))
         self.assertEqual((output / "objects/librca_macros-123abc.so").read_bytes(), b"macro dynamic object")
         self.assertEqual(len(list((output / "hosts").iterdir())), 9)
         build_environment = json.loads((output / "environment.json").read_text())

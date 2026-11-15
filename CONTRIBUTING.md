@@ -281,8 +281,8 @@ change implementation.
 | `core-terminal` | Clocks, Stores, effects, lifecycle, errors and terminal unwind with the rich Core features |
 | `core-services` | Dependencies, application clients, issues, diagnostics, presentation and fallible effects with the rich Core features |
 | `macros` | Macro unit and integration tests, plus compiler-stage profiles from the proc-macro library |
-| `test-store` | Unit tests, controls, dependencies, focused receives, typed transactions, folds, snapshots, diagnostics and runtime conformance with `local` |
-| `persistence-file` | Documents, file backends, restoration, key caches, subscriptions, shared sessions and quiescence with `file` |
+| `test-store` | Unit tests and ordinary native integration tests with `local` |
+| `persistence-file` | Unit and integration tests for documents, file backends, restoration, key caches, subscriptions, shared sessions and quiescence with `file` |
 | `tokio` | Tokio unit tests and host lifecycle, clock and panic tests |
 | `listener-std` | Listener unit and integration tests with the standard-library backend |
 | `listener-critical-section` | Listener unit and integration tests with the critical-section backend, without `std` |
@@ -291,6 +291,10 @@ change implementation.
 | `strategy-std` | Listener strategy unit and integration tests with `std` |
 | `channel-overflow-std` | Channel unit, bounded, unbounded and public-contract tests with default features, including unit-host overflow subprocesses |
 | `channel-overflow-nostd` | The same channel hosts without default features, including unit-host overflow subprocesses |
+
+The `test-store` group excludes the separate compiler-contract and panic-process hosts.
+`compiler_contracts` uses a compiler harness, not libtest.
+`panic_subprocess` has intentional failing and watchdog-killed children; the separate runtime-conformance suite checks their outcomes.
 
 The `persistence-file` group leaves the host-qualified unreadable-file test ignored.
 Its summary records the ignored test; the capture does not claim it ran.
@@ -325,11 +329,17 @@ The `macros` group also retains the proc-macro dynamic library from Cargo's buil
 It exports compiler-stage profiles against that exact library, separately from test runtime profiles.
 The capture fails if any of the eight macro entry functions has no positive source-owned region.
 Passing macro unit tests alone do not prove that compiler-stage entry functions ran.
+The same instrumented library also processes three existing rejection fixtures through direct compiler commands.
+These cover malformed compiler-recovery identifiers and missing application dependencies without another Cargo build.
+Each command must exit naturally with status 1 and the exact expected diagnostics.
+Each command must produce a fresh profile with the original library's module signature.
+Capture retains the commands, environments, source and library hashes, diagnostics and profile records.
+These expected rejections do not satisfy the separate successful-build or macro-entry checks.
 Macro test hosts remove `RUSTC_BOOTSTRAP` and the unstable branch flag from their child compiler environment.
 This preserves stable compiler diagnostics. Their already-built parent binaries and the initial compiler-stage capture retain branch instrumentation.
 Some macro tests run child Cargo and trybuild commands. Their host profile directories can contain
 profiles from compilers with different flags; retain those inputs, but do not count them as
-same-configuration production coverage. The initial build-stage export is the macro-entry check.
+same-configuration production coverage. The separate compiler-stage export is the macro-entry check.
 
 Capture requires Python 3.11 or later, the pinned `llvm-tools-preview` component
 and at least 12 GiB of free disk space.

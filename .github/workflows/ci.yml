@@ -55,7 +55,7 @@ jobs:
             - name: Test coverage capture boundaries
               env:
                   PYTHONDONTWRITEBYTECODE: 1
-              run: python3 -m unittest scripts.tests.test_capture_coverage
+              run: python3 -m unittest scripts.tests.test_capture_coverage scripts.tests.test_capture_macro_rejections
 
             - name: Test performance evidence validation
               env:
@@ -198,9 +198,8 @@ jobs:
                   fi
                   df -h .
 
-            - name: Test capture boundaries
-              run: python3 -m unittest scripts.tests.test_capture_coverage
-
+            # Pure-Python capture tests run once in the required quality job.
+            # Each matrix job still runs the native capture and its guards.
             - name: Capture native coverage evidence
               env:
                   COVERAGE_GROUP: ${{ matrix.group }}

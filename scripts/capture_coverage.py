@@ -8,6 +8,7 @@ import argparse
 from dataclasses import dataclass
 import gzip
 import hashlib
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -123,11 +124,27 @@ TARGETS = {
     "test-store": CaptureGroup(
         "rca-test", "rca-test", "rca_test", frozenset({"local"}),
         ("--features", "local"),
-        ("controls", "error_contracts", "snapshot_contracts", "local_test_store",
-         "output_delivery", "focused_outputs", "conformance_deterministic",
-         "semantic_checks", "issue_expectations", "snapshot_strategies", "dependency_defaults",
-         "dependency_scope", "focused_receiving", "test_store", "typed_transactions", "fold_frontier",
-         "local_runtime", "snapshot_compare", "mismatch_diagnostics"),
+        # Compiler-contract and intentional panic-process hosts have separate qualification.
+        ("absolute_scheduling", "action_task_guard", "actor_cooperative_budget", "admission_ownership_contracts",
+         "api_child_lifetimes", "borrowed_assertions", "bounded_jobs", "cancellation_handoff",
+         "cancellation_key_laws", "capture_costs", "captured_graph", "case_assertions",
+         "changed_reaction_frontier", "client_clock", "clock_provider", "command_frontier",
+         "composition", "conformance_deterministic", "conformance_test_store", "controlled_stream_child_lifetimes",
+         "controlled_stream_contract", "controls", "deadline_draining", "delayed_effects",
+         "dependency_defaults", "dependency_scope", "diagnostic_state", "direct_future", "effect_map",
+         "ephemeral_scopes", "ergonomic_reducers", "error_contracts", "exhaustivity", "external_clients",
+         "focused_outputs", "focused_receiving", "fold_frontier", "host_teardown", "issue_expectations",
+         "issues", "keyed_policy", "legacy_feature_compatibility", "local_removal_origin", "local_runtime",
+         "local_test_store", "mismatch_diagnostics", "missing_children", "mixed_frontier", "mount_startup",
+         "mounted_frontier", "optional_dependencies", "output_delivery", "owned_actions", "owned_snapshots",
+         "owned_timer", "persistence_coordination", "predicate_wait_scopes", "projected_feature_mount",
+         "property_runtime", "public_api", "refresh_all", "removal_origin", "request_deadlines",
+         "scoped_owned_snapshots", "semantic_checks", "session_client_refresh", "shared_composition",
+         "shared_key_cache_scopes", "shared_keyed_composition", "shared_namespaces", "shared_obligations",
+         "shared_parent", "shared_value_scopes", "snapshot_compare", "snapshot_contracts", "snapshot_strategies",
+         "stack_ephemeral_scopes", "stack_predicate_wait", "stack_scopes", "stack_shared_key_cache",
+         "stack_shared_obligations", "state_extraction", "terminal_frontier", "test_store", "throttled_actions",
+         "typed_transactions"),
     ),
     "persistence-file": CaptureGroup(
         "rca-persistence", "rca-persistence", "rca_persistence", frozenset({"default", "file"}),
@@ -135,7 +152,6 @@ TARGETS = {
         ("document", "file", "shared_document_session_replacement",
          "shared_document", "shared_key_cache", "shared_subscription", "staged_restoration",
          "shared_quiescence", "subscription_ownership_contracts"),
-        include_library=False,
     ),
     "tokio": CaptureGroup(
         "rca-tokio", "rca-tokio", "rca_tokio", frozenset(), (),
@@ -579,6 +595,12 @@ def capture(root, group, output):
                 raise ValueError("Retained proc-macro object differs from Cargo artifact")
             write_json(macro / "object.json", {"artifact": macro_record, "original": str(original),
                                                 "retained": str(retained), "sha256": digest(retained)})
+            rejection_spec = importlib.util.spec_from_file_location(
+                "capture_macro_rejections", Path(__file__).with_name("capture_macro_rejections.py"))
+            rejections = importlib.util.module_from_spec(rejection_spec)
+            rejection_spec.loader.exec_module(rejections)
+            rejections.capture_macro_rejections(root, macro, retained, original.parent,
+                                                tools, env, run_command)
             profiles = sorted(build_raw.glob("*.profraw"))
             if not profiles or set(build_raw.iterdir()) != set(profiles) or any(path.is_symlink() for path in profiles):
                 raise ValueError("Missing or unexpected compiler-stage profiles")
