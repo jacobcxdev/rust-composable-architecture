@@ -124,6 +124,94 @@ class RunnerTests(unittest.TestCase):
             self.assertEqual((root / "targets/compile-direct-01-subject/artifact").read_text(), "failed build output")
             self.assertEqual((root / "paired/subject/compile/direct/block-01.txt").read_text(), "compiler failed")
 
+    def qualify_runtime_retention(self, root, failed_mode=None):
+        """Use real publication and cleanup with tiny independently named products."""
+        def prepare(protocol, _budget, mode, staging, targets, *_args):
+            staging.mkdir()
+            (staging / "builds").mkdir()
+            targets.mkdir()
+            executables = {role: targets / f"{role}.exe" for role in ("subject", "control")}
+            for role, path in executables.items():
+                path.write_bytes((mode + ":" + role).encode())
+                path.chmod(0o755)
+            for name in runner.receipt_files(protocol):
+                if name != "metadata.json":
+                    runner.write_json(staging / name, {})
+            return {"mode": mode, "staging": staging, "targets": targets,
+                    "executables": executables, "metadata": {
+                        f"{role}_executable_sha256": evaluator._sha256(path)
+                        for role, path in executables.items()}}
+
+        def execute(_protocol, _captures, _cargo, _env, _monitor, staging):
+            (staging / "blocks.jsonl").write_text("completed measured blocks\n")
+
+        def read(command, **_kwargs):
+            return ("host: x86_64-pc-windows-msvc" if command[-1] == "-vV"
+                    else str(root / "reference"))
+
+        with (
+            patch.object(runner.sys, "platform", "win32"),
+            patch.object(runner, "tool_environment", return_value=(
+                {}, {"cargo": sys.executable, "rustc": sys.executable})),
+            patch.object(runner, "read", side_effect=read),
+            patch.object(runner, "source_identity", side_effect=lambda _root, reference=False: {
+                "revision": ("2" if reference else "1") * 40}),
+            patch.object(runner, "check_windows_compiler_telemetry", return_value={"path": sys.executable}),
+            patch.object(runner, "windows_host", return_value={}),
+            patch.object(runner, "WindowsMonitor"),
+            patch.object(runner, "prepare_pair_capture", side_effect=prepare),
+            patch.object(evaluator, "validate_protocol_sources"),
+            patch.object(runner, "execute_interleaved_pairs", side_effect=execute),
+            patch.object(runner, "finish_pair_capture", side_effect=lambda capture, *_args, **_kwargs:
+                         capture["mode"] != failed_mode),
+            patch.object(runner, "validate_interleaved_capture", side_effect=lambda staging, _protocol:
+                         evaluator._sha256(staging / "capture.json")),
+            patch.object(runner, "check_host_unchanged"),
+            patch.object(runner, "validate_aa_evidence"),
+        ):
+            return runner.qualify(root / "output", root / "staging", root / "reference",
+                                  "candidate-reference", platform_name="windows")
+
+    def test_failed_mode_retains_both_runtime_products_after_target_cleanup(self):
+        for failed_mode in ("candidate-reference", "reference-reference-aa"):
+            with self.subTest(mode=failed_mode), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                self.assertEqual(self.qualify_runtime_retention(root, failed_mode), 1)
+                mode = root / "output" / failed_mode
+                metadata = json.loads((mode / "metadata.json").read_text())
+                retained = mode / "builds/failed-runtime-products"
+                self.assertTrue(retained.is_dir(), "failed runtime products were discarded")
+                self.assertEqual({path.name for path in retained.iterdir()}, {"subject.exe", "control.exe"})
+                for role in ("subject", "control"):
+                    path = retained / f"{role}.exe"
+                    self.assertEqual(path.read_bytes(), (failed_mode + ":" + role).encode())
+                    self.assertEqual(evaluator._sha256(path), metadata[f"{role}_executable_sha256"])
+                    if os.name == "posix":
+                        self.assertTrue(path.stat().st_mode & 0o100, "retained runtime product is not executable")
+                other = "reference-reference-aa" if failed_mode == "candidate-reference" else "candidate-reference"
+                self.assertFalse((root / "output" / other / "builds/failed-runtime-products").exists())
+
+    def test_passing_modes_discard_runtime_products(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.assertEqual(self.qualify_runtime_retention(root), 0)
+            self.assertEqual(list((root / "output").rglob("*.exe")), [])
+
+    def test_failed_runtime_product_copy_rejects_hash_mismatch(self):
+        copy2 = runner.shutil.copy2
+        for corrupted_role in ("subject", "control"):
+            def corrupt(source, destination):
+                if destination.name == corrupted_role + ".exe":
+                    return destination.write_bytes(b"corrupted copy")
+                return copy2(source, destination)
+
+            with self.subTest(role=corrupted_role), tempfile.TemporaryDirectory() as tmp, \
+                    patch.object(runner.shutil, "copy2", side_effect=corrupt):
+                root = Path(tmp)
+                with self.assertRaisesRegex(ValueError, "retained runtime executable hash mismatch"):
+                    self.qualify_runtime_retention(root, "reference-reference-aa")
+                self.assertFalse((root / "output").exists())
+
     def test_cleanup_accepts_only_verified_dead_process_group_after_reaping(self):
         from types import SimpleNamespace
         process = SimpleNamespace(pid=12345, poll=lambda: 0, wait=lambda timeout: 0)

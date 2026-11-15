@@ -1,14 +1,14 @@
 # Composition performance qualification
 
 The [v9 macOS protocol](composition-protocol-v9.json) and
-[complete Windows policy](composition-windows-complete-v4.json) define separate qualification routes.
+[complete Windows policy](composition-windows-complete-v5.json) define separate qualification routes.
 Their workloads, hashes and numerical limits are frozen before capture.
 Complete Windows qualification uses the current release reference.
 The older [macOS absolute budgets](composition-budgets.json) retain their original values and provenance.
 Those older architectural ceilings are not additional release blockers for the current reference.
 This directory contains the methods and historical receipts, not current-candidate captures.
 
-The v9 macOS and v4 Windows methods use Rust 1.100.0. Their workloads,
+The v9 macOS and v5 Windows methods use Rust 1.100.0. Their workloads,
 ordering and acceptance limits match the preceding Rust 1.99 methods.
 The frozen Rust 1.98 and 1.99 protocols and captures retain their original
 identities. A new compiler requires a new matched capture, not relabelled evidence.
@@ -128,9 +128,13 @@ their final hash check completes. After each mode completes all source and binar
 the runner deletes its temporary source and build trees. Receipts and measurements remain.
 These deletions occur outside measured intervals.
 
+If a mode fails its numerical gates, the runner retains both normal runtime binaries in `builds/failed-runtime-products/` before that cleanup.
+The runner checks each retained copy against its executable hash in `metadata.json`.
+Passing modes retain no runtime binaries.
+
 ## Windows paired measurements
 
-The [Windows protocol](composition-windows-paired-v4.json) runs the same 14
+The [Windows protocol](composition-windows-paired-v5.json) runs the same 14
 relative gates on H1 with Rust 1.100.0. It uses the same 20 paired blocks, fixed
 orders, confidence rule and 1.10 limit. Every block contains both comparison
 modes; their first mode alternates. All measurements and their hashes remain in the
@@ -138,9 +142,13 @@ capture, including failures. Windows results do not qualify any of the 33 macOS
 absolute gates.
 
 Versions 2 and 3 set the minimum and maximum Divan sampling time to 0.5 seconds for every isolated runtime cell.
-Version 4 keeps that duration for eight scenarios.
-Only `scoped_concurrent_senders_32` uses two seconds for both limits.
+Version 4 keeps that duration for eight scenarios and uses two seconds for scoped concurrent sends.
+Version 5 uses two seconds for every isolated runtime cell.
+The sample size, work per operation, pair counts, order and acceptance limits do not change.
 Before a full capture uses a new sampling policy, its readiness control must pass.
+That control must use independently built reference products, not two copies of one executable.
+Longer collection does not prove immunity to interference or guarantee that the full control will pass.
+Failed captures retain their original method and result. They supply no rows to a new capture.
 
 Collection can continue past the workload sample count to reach that duration.
 The final sample can cross the time limit. This limit is not a process deadline.
@@ -182,7 +190,7 @@ diagnostics, not treated as compiler-child totals or instruction counts.
 
 ## Complete Windows qualification
 
-The [complete Windows policy](composition-windows-complete-v4.json) adds native
+The [complete Windows policy](composition-windows-complete-v5.json) adds native
 absolute measurements to the paired protocol above. It does not change that
 protocol or claim that Windows measurements satisfy Mac limits.
 
@@ -210,7 +218,7 @@ the same checked compiler-telemetry cleanup as the paired builds. Tests execute
 separately and must exit naturally. All process memory limits remain unchanged.
 
 The retained [v7 protocol](composition-protocol-v7.json) describes historical
-Rust 1.98 measurements. Current commands use Rust 1.99. The old protocol and its
+Rust 1.98 measurements. Current commands use Rust 1.100.0. The old protocol and its
 evidence remain unchanged; they do not qualify the new toolchain.
 
 ## Test inputs are not release evidence

@@ -34,8 +34,8 @@ import windows_strip  # noqa: E402
 ROOT = Path(__file__).resolve().parents[1]
 PROTOCOL = ROOT / "docs/performance/composition/composition-protocol-v7.json"
 CURRENT_PROTOCOL = ROOT / "docs/performance/composition/composition-protocol-v9.json"
-WINDOWS_PROTOCOL = ROOT / "docs/performance/composition/composition-windows-paired-v4.json"
-WINDOWS_COMPLETE_POLICY = ROOT / "docs/performance/composition/composition-windows-complete-v4.json"
+WINDOWS_PROTOCOL = ROOT / "docs/performance/composition/composition-windows-paired-v5.json"
+WINDOWS_COMPLETE_POLICY = ROOT / "docs/performance/composition/composition-windows-complete-v5.json"
 BUDGET = ROOT / "docs/performance/composition/composition-budgets.json"
 EVIDENCE_ROOT = ROOT / "target/qualification-evidence/0.1.0/composition"
 LOCK = Path("/tmp/rca-composition-performance.machine.lock")
@@ -58,6 +58,7 @@ def protocol_path(protocol):
         evidence.WINDOWS_METHOD: "composition-windows-paired-v2.json",
         evidence.RUST100_WINDOWS_METHOD: "composition-windows-paired-v3.json",
         evidence.WINDOWS_V4_METHOD: "composition-windows-paired-v4.json",
+        evidence.WINDOWS_V5_METHOD: "composition-windows-paired-v5.json",
     }
     name = names.get(protocol["method_version"])
     return PROTOCOL.with_name(name) if name else PROTOCOL
@@ -1383,6 +1384,14 @@ def qualify(output, staging, reference, mode, aa_evidence=None, *, platform_name
                         "baseline_path": baseline_path} if windows_complete else {})
             passed[item] = finish_pair_capture(captures[item], protocol, controller, env, monitor,
                                                 **options)
+            if not passed[item]:
+                retained = captures[item]["staging"] / "builds/failed-runtime-products"
+                retained.mkdir()
+                for role, executable in captures[item]["executables"].items():
+                    destination = retained / (role + executable.suffix)
+                    shutil.copy2(executable, destination)
+                    if evidence._sha256(destination) != captures[item]["metadata"][f"{role}_executable_sha256"]:
+                        raise ValueError(f"retained runtime executable hash mismatch: {role}")
             # Final source and executable hashes are complete. No later sample uses this tree.
             shutil.rmtree(captures[item]["targets"])
         if validate_interleaved_capture(staging, protocol) != capture_hash:

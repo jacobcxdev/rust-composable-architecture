@@ -1371,6 +1371,95 @@ class MacWatchdogEvidenceTests(unittest.TestCase):
 
 
 class WindowsPairedProtocolTests(unittest.TestCase):
+    def test_v5_uniform_sampling_changes_only_durations_and_method(self):
+        directory = REPO_ROOT / "docs/performance/composition"
+        path = directory / "composition-windows-paired-v5.json"
+        self.assertTrue(path.is_file(), "The uniform two-second protocol must be frozen separately")
+        previous = composition_performance.load_protocol(directory / "composition-windows-paired-v4.json")
+        current = composition_performance.load_protocol(path)
+        comparable = json.loads(json.dumps(current))
+        comparable["method_version"] = previous["method_version"]
+        comparable["runtime"]["isolated_divan_arguments"] = previous["runtime"]["isolated_divan_arguments"]
+        comparable["runtime"]["isolated_divan_arguments_by_scenario"] = previous["runtime"]["isolated_divan_arguments_by_scenario"]
+        self.assertEqual(comparable, previous)
+        self.assertNotIn("isolated_divan_arguments_by_scenario", current["runtime"])
+        for scenario in current["runtime"]["gated_scenarios"]:
+            self.assertEqual(composition_performance.isolated_divan_arguments(current, scenario),
+                             ["--min-time", "2", "--max-time", "2"])
+        self.assertEqual(composition_performance.expected_tool_versions(current),
+                         composition_performance.RUST100_TOOL_VERSIONS)
+        self.assertEqual(composition_performance.expected_reference_revision(current),
+                         composition_performance.RELEASE_BASELINE_REVISION)
+        self.assertEqual(len(composition_performance.seeded_order_schedule(current)), 20)
+        self.assertEqual(composition_performance.interleaved_mode_order(current, 1),
+                         ("reference-reference-aa", "candidate-reference"))
+
+    def test_v5_sampling_rejects_missing_extra_changed_and_overridden_arguments(self):
+        from unittest.mock import patch
+        import copy
+        protocol = composition_performance.load_protocol(
+            REPO_ROOT / "docs/performance/composition/composition-windows-paired-v5.json")
+        bad_values = (None, [], ["--min-time", "2"],
+                      ["--min-time", "0.5", "--max-time", "0.5"],
+                      ["--min-time", "2", "--max-time", "0.5"],
+                      ["--min-time", "2", "--max-time", "2", "--min-time", "2"],
+                      ["--min-time", "2", "--max-time", "2", "--sample-size", "100"])
+        with tempfile.TemporaryDirectory() as directory:
+            path = pathlib.Path(directory) / "protocol.json"
+            for arguments in bad_values:
+                bad = copy.deepcopy(protocol)
+                if arguments is None:
+                    bad["runtime"].pop("isolated_divan_arguments")
+                else:
+                    bad["runtime"]["isolated_divan_arguments"] = arguments
+                path.write_text(json.dumps(bad))
+                with self.subTest(arguments=arguments), \
+                     patch.object(composition_performance, "_sha256",
+                                  return_value=composition_performance.WINDOWS_V5_PROTOCOL_SHA256), \
+                     self.assertRaisesRegex(ValueError, "sampling arguments"):
+                    composition_performance.load_protocol(path)
+            for overrides in ({}, {"direct/1": ["--min-time", "2", "--max-time", "2"]}):
+                bad = copy.deepcopy(protocol)
+                bad["runtime"]["isolated_divan_arguments_by_scenario"] = overrides
+                path.write_text(json.dumps(bad))
+                with self.subTest(overrides=overrides), \
+                     patch.object(composition_performance, "_sha256",
+                                  return_value=composition_performance.WINDOWS_V5_PROTOCOL_SHA256), \
+                     self.assertRaisesRegex(ValueError, "sampling arguments"):
+                    composition_performance.load_protocol(path)
+
+    def test_v5_receipts_require_uniform_actual_two_second_arguments(self):
+        protocol = composition_performance.load_protocol(
+            REPO_ROOT / "docs/performance/composition/composition-windows-paired-v5.json")
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            subject, control = root / "subject", root / "control"
+            for scenario in protocol["runtime"]["gated_scenarios"]:
+                exact = "composition::" + scenario.replace("/", "::")
+                arguments = ["--bench", "--exact", exact, "--min-time", "2", "--max-time", "2"]
+                paths = []
+                for arm in (subject, control):
+                    for block in range(1, 21):
+                        write_isolated_observation(arm, scenario, block, 100.0)
+                        path = arm / "runtime" / scenario.replace("/", "__") / f"block-{block:02d}.resources.json"
+                        row = self.resources()
+                        row["process_receipt"]["divan_arguments"] = arguments
+                        path.write_text(json.dumps(row))
+                        paths.append(path)
+                self.assertEqual(len(composition_performance.load_isolated_runtime_pairs(
+                    subject, control, scenario, protocol)), 20)
+                invalid = (None, arguments[:-2], [*arguments, "--sample-size", "100"],
+                           [*arguments, "--min-time", "2"],
+                           ["--bench", "--exact", exact, "--min-time", "0.5", "--max-time", "0.5"])
+                for bad_arguments in invalid:
+                    row = self.resources()
+                    if bad_arguments is not None:
+                        row["process_receipt"]["divan_arguments"] = bad_arguments
+                    paths[0].write_text(json.dumps(row))
+                    with self.subTest(scenario=scenario, arguments=bad_arguments), \
+                         self.assertRaisesRegex(ValueError, "sampling arguments"):
+                        composition_performance.load_isolated_runtime_pairs(subject, control, scenario, protocol)
+
     def test_v4_sampling_keeps_other_scenarios_and_all_numerical_gates(self):
         directory = REPO_ROOT / "docs/performance/composition"
         previous = composition_performance.load_protocol(directory / "composition-windows-paired-v3.json")
