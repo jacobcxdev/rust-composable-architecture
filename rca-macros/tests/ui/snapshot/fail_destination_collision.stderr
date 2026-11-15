@@ -1,0 +1,10 @@
+error[E0428]: the name `CollisionSnapshot` is defined multiple times
+ --> tests/ui/snapshot/fail_destination_collision.rs:5:1
+  |
+3 | #[derive(Snapshot)]
+  |          -------- previous definition of the type `CollisionSnapshot` here
+4 | struct Collision;
+5 | struct CollisionSnapshot;
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^ `CollisionSnapshot` redefined here
+  |
+  = note: `CollisionSnapshot` must be defined only once in the type namespace of this module

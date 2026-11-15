@@ -337,6 +337,22 @@ fn fixture_with_panic(panic: bool) -> Fixture {
 
 /// Builds three sibling destinations sharing one slot; only the first can be control input.
 fn fixture_with_mapping(panic: bool, control: bool) -> Fixture {
+    fixture_with_gate(
+        panic,
+        control,
+        #[cfg(feature = "test-util")]
+        None,
+    )
+}
+
+/// Optionally holds real inputs at the inspection frontier after installation.
+fn fixture_with_gate(
+    panic: bool,
+    control: bool,
+    #[cfg(feature = "test-util")] gate: Option<
+        rca_core::testing::TransactionGate<RootState, RootAction>,
+    >,
+) -> Fixture {
     let driver = Driver::default();
     let constructors = Arc::new(AtomicUsize::new(0));
     let state_drops = Arc::new(AtomicUsize::new(0));
@@ -375,7 +391,24 @@ fn fixture_with_mapping(panic: bool, control: bool) -> Fixture {
         mount::<2>(&constructors, &feature_drops),
         mapper(&maps[2], &mapper_drops, &action_drops, panic),
     );
+    #[cfg(feature = "test-util")]
+    let builder = if let Some(gate) = &gate {
+        builder.transaction_gate(gate.clone())
+    } else {
+        builder
+    };
     let store = builder.build().unwrap();
+    #[cfg(feature = "test-util")]
+    if let Some(gate) = &gate {
+        driver.finish(gate.wait_for_pending());
+        let boundary = gate.boundary().unwrap();
+        drop(
+            driver
+                .finish(gate.release_pending_with_receipt().unwrap().finish())
+                .unwrap(),
+        );
+        assert!(gate.acknowledge(boundary));
+    }
     driver.finish(store.ready()).unwrap();
     let sites = [a_commands, b_commands, c_commands];
     let ports = std::array::from_fn(|index| {
@@ -1009,6 +1042,80 @@ fn refresh_and_replacement_require_fresh_ordered_acquisition() {
     assert_eq!(total(&fixture, 0), 14);
     assert_eq!(drops.load(Ordering::SeqCst), 4);
     fixture.close();
+}
+
+#[cfg(feature = "test-util")]
+#[test]
+fn command_inspection_preserves_input_for_foreign_sibling_and_stale_ports() {
+    let gate = rca_core::testing::TransactionGate::new();
+    let fixture = fixture_with_gate(false, false, Some(gate.clone()));
+    let foreign = self::fixture();
+    let mut refresh = Box::pin(fixture.store.send(RootAction::Refresh(0)));
+    assert!(poll(refresh.as_mut()).is_pending());
+    fixture.driver.finish(gate.wait_for_pending());
+    let boundary = gate.boundary().unwrap();
+    drop(
+        fixture
+            .driver
+            .finish(gate.release_pending_with_receipt().unwrap().finish())
+            .unwrap(),
+    );
+    drop(fixture.driver.finish(refresh).unwrap());
+    assert!(gate.acknowledge(boundary));
+    let current = fixture
+        .driver
+        .finish(fixture.store.command_port(&fixture.sites[0]))
+        .unwrap()
+        .unwrap();
+    let drops = Arc::new(AtomicUsize::new(0));
+    let input = Command::new(7, &drops);
+    let identity = input.identity();
+    let mut send = Box::pin(current.send(input));
+    assert!(poll(send.as_mut()).is_pending());
+    fixture.driver.finish(gate.wait_for_pending());
+    let boundary = gate.boundary().unwrap();
+    for invalid in [&foreign.ports[0], &fixture.ports[0]] {
+        let error = gate
+            .inspect_command(invalid, |_| panic!("rejected matcher entered"))
+            .unwrap_err();
+        assert_eq!(error.reason(), TaskAccessReason::ScopeEnded);
+        assert_eq!(error.progress(), TaskProgress::NotStarted);
+        assert_eq!(gate.boundary(), Some(boundary));
+        assert!(poll(send.as_mut()).is_pending());
+    }
+    assert_eq!(
+        gate.inspect_command(&fixture.ports[1], |_| panic!("sibling matcher entered")),
+        Ok(None::<()>)
+    );
+    assert_eq!(
+        gate.inspect_command(&current, Command::identity),
+        Ok(Some(identity))
+    );
+    assert_eq!(drops.load(Ordering::SeqCst), 0);
+    assert_eq!(
+        fixture
+            .maps
+            .each_ref()
+            .map(|calls| calls.load(Ordering::SeqCst)),
+        [0; 3]
+    );
+    assert_eq!(foreign.maps[0].load(Ordering::SeqCst), 0);
+    assert_eq!(gate.boundary(), Some(boundary));
+    assert!(!gate.has_failed_match());
+    drop(
+        fixture
+            .driver
+            .finish(gate.release_pending_with_receipt().unwrap().finish())
+            .unwrap(),
+    );
+    drop(fixture.driver.finish(send).unwrap());
+    assert!(gate.acknowledge(boundary));
+    assert_eq!(total(&fixture, 0), 7);
+    assert_eq!(total(&fixture, 1), 0);
+    assert_eq!(fixture.maps[0].load(Ordering::SeqCst), 1);
+    assert_eq!(drops.load(Ordering::SeqCst), 1);
+    fixture.close();
+    foreign.close();
 }
 
 #[test]

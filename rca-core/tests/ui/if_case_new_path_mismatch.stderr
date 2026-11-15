@@ -14,8 +14,9 @@ note: expected this to be `DetailAction`
 note: required by a bound in `IfCase::<ParentState, ParentAction, Parent, Child, CaseStatePath<ParentState, ChildState, Get, GetMut>, ActionPath<ParentAction, ChildAction, Extract, Embed>>::new`
   --> src/composition/lifecycle.rs
    |
+   | impl<ParentState, ParentAction, Parent, Child, ChildState, ChildAction, Get, GetMut, Extract, Embed>
+...
    |     pub const fn new(
-   |                  --- required by a bound in this associated function
 ...
    |         Child: Reducer<State = ChildState, Action = ChildAction>,
    |                                            ^^^^^^^^^^^^^^^^^^^^ required by this bound in `IfCase::<ParentState, ParentAction, Parent, Child, CaseStatePath<ParentState, ChildState, Get, GetMut>, ActionPath<ParentAction, ChildAction, Extract, Embed>>::new`

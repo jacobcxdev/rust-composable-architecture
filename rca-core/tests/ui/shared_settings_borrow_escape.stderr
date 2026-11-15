@@ -4,7 +4,7 @@ error[E0521]: borrowed data escapes outside of method
 10 |           shared: &mut u64,
    |           ------  - let's call the lifetime of this reference `'1`
    |           |
-   |           `shared` is a reference that is only valid in the method body
+   |           `shared` is only valid in the method body
 ...
 14 | /         Effect::run(move |_| async move {
 15 | |             *shared += 1;
@@ -14,6 +14,17 @@ error[E0521]: borrowed data escapes outside of method
    | |__________`shared` escapes the method body here
    |            argument requires that `'1` must outlive `'static`
    |
+note: `'static` lifetime requirement from `rca_core::Effect::<Action>::run` introduced here
+  --> src/effect/mod.rs
+   |
+   | impl<Action> Effect<Action> {
+...
+   |     pub fn run<F, Fut>(operation: F) -> Self
+   |     where
+   |         F: FnOnce(EffectSender<Action>) -> Fut + Send + 'static,
+   |                                                         ^^^^^^^ lifetime requirement introduced here
+   |         Fut: Future<Output = ()> + Send + 'static,
+   |                                           ^^^^^^^ lifetime requirement introduced here
    = note: requirement occurs because of a mutable reference to `u64`
    = note: mutable references are invariant over their type parameter
    = help: see <https://doc.rust-lang.org/nomicon/subtyping.html> for more information about variance

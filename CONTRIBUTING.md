@@ -271,26 +271,26 @@ change implementation.
 | Group | Selected tests |
 | --- | --- |
 | `core-minimal` | Core unit, actor and Local Store tests with `local`, without `test-util` |
-| `core-rich` | Core unit and integration tests with diagnostics, streams, Local and test support |
-| `core-removal` | Removed-child integration tests with the rich Core features |
-| `core-timers-rich` | Core timer and transaction tests with the rich Core features |
+| `core-rich` | Core unit, mounted access, paths, composition and captured-modification tests with the rich Core features |
+| `core-removal` | Removed-child, stack-removal, missing-child and ephemeral tests with the rich Core features |
+| `core-timers-rich` | Timers, transactions, task receipts, named tasks and Local runtime tests with the rich Core features |
 | `core-timers-minimal` | Core timer and transaction tests with `local` only |
-| `core-reactions` | Shared and Local changed-reaction tests with the rich Core features |
-| `core-fold-commands` | Shared and Local fold and recipe-command integration tests with the rich Core features |
-| `core-observation-operations` | Observation lifecycle, adapters and named-operation integration tests with the rich Core features |
-| `core-terminal` | Clock fixtures, Shared and Local Stores, effects and terminal-unwind integration tests with the rich Core features |
-| `core-services` | Dependency defaults and preparation, issue reporting, diagnostics, presentation and fallible-effect lifecycle tests with the rich Core features |
+| `core-reactions` | Changed reactions, keyed collections, stack and shared-update tests with the rich Core features |
+| `core-fold-commands` | Folds, recipe commands, command ports, input gates and acquisition-admission tests with the rich Core features |
+| `core-observation-operations` | Observations, named operations, shared values, weak handles, captured graphs and owned snapshots with the rich Core features |
+| `core-terminal` | Clocks, Stores, effects, lifecycle, errors and terminal unwind with the rich Core features |
+| `core-services` | Dependencies, application clients, issues, diagnostics, presentation and fallible effects with the rich Core features |
 | `macros` | Macro unit and integration tests, plus compiler-stage profiles from the proc-macro library |
-| `test-store` | TestStore and deterministic-runtime unit tests, plus controls, errors, semantic checks, issue expectations, snapshots, output and runtime-conformance integration tests with `local` |
-| `persistence-file` | Documents, file backends, key caches, subscriptions and shared-session replacement integration tests with `file` |
+| `test-store` | Unit tests, controls, dependencies, focused receives, typed transactions, folds, snapshots, diagnostics and runtime conformance with `local` |
+| `persistence-file` | Documents, file backends, restoration, key caches, subscriptions, shared sessions and quiescence with `file` |
 | `tokio` | Tokio unit tests and host lifecycle, clock and panic tests |
 | `listener-std` | Listener unit and integration tests with the standard-library backend |
 | `listener-critical-section` | Listener unit and integration tests with the critical-section backend, without `std` |
 | `listener-spin` | Listener backend-contention integration test without default features or `critical-section` |
 | `listener-std-critical-section` | Listener public-surface integration tests with default features and `critical-section` |
 | `strategy-std` | Listener strategy unit and integration tests with `std` |
-| `channel-overflow-std` | Channel library unit tests with default features, including overflow subprocesses |
-| `channel-overflow-nostd` | Channel library unit tests without default features, including overflow subprocesses |
+| `channel-overflow-std` | Channel unit, bounded, unbounded and public-contract tests with default features, including unit-host overflow subprocesses |
+| `channel-overflow-nostd` | The same channel hosts without default features, including unit-host overflow subprocesses |
 
 The `persistence-file` group leaves the host-qualified unreadable-file test ignored.
 Its summary records the ignored test; the capture does not claim it ran.
@@ -305,9 +305,11 @@ The two channel-overflow groups require `x86_64-unknown-linux-gnu`. They run the
 full library test host with `--nocapture --test-threads=1`. Only these
 groups add `-C llvm-args=-runtime-counter-relocation` and use the runtime profile
 pattern `current-%p%c.profraw` for continuous counters across intentional aborts.
-Capture requires six profiles: one parent and five boundary children. It checks
+The library host requires six profiles: one parent and five boundary children. Capture checks
 three successful exits and two `SIGABRT` outcomes, and rejects LLVM profiling
 errors or warnings. Expected panic diagnostics remain in the retained output.
+The integration hosts use the same compiler configuration and retain their own profiles.
+They do not run the library's overflow subprocesses.
 These are separate compiler configurations, not benchmark configurations.
 Successful capture alone does not establish positive overflow-branch counters
 or execution of the no-std abort and drop bodies.

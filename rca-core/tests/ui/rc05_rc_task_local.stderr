@@ -12,16 +12,17 @@ error[E0277]: `Rc<i32>` cannot be sent between threads safely
   | |_____^ `Rc<i32>` cannot be sent between threads safely
   |
   = help: within `{closure@$DIR/tests/ui/rc05_rc_task.rs:5:36: 5:44}`, the trait `Send` is not implemented for `Rc<i32>`
-note: required because it's used within this closure
+note: required because `value` is used within this closure
  --> tests/ui/rc05_rc_task.rs
   |
-  |     let _ = Task::<usize, ()>::run(move |_| async move {
-  |                                    ^^^^^^^^
+  |         drop(value);
+  |              ^^^^^
 note: required by a bound in `rca_core::Task::<S, A>::run`
  --> src/store/task_context.rs
   |
+  | impl<S: 'static, A: 'static> Task<S, A> {
+...
   |     pub fn run<F, Fut>(run: F) -> Self
-  |            --- required by a bound in this associated function
   |     where
   |         F: FnOnce(TaskContext<S, A>) -> Fut + Send + 'static,
   |                                               ^^^^ required by this bound in `Task::<S, A>::run`
@@ -44,8 +45,9 @@ note: captured value is not `Send`
 note: required by a bound in `rca_core::Task::<S, A>::run`
  --> src/store/task_context.rs
   |
+  | impl<S: 'static, A: 'static> Task<S, A> {
+...
   |     pub fn run<F, Fut>(run: F) -> Self
-  |            --- required by a bound in this associated function
 ...
   |         Fut: Future<Output = ()> + Send + 'static,
   |                                    ^^^^ required by this bound in `Task::<S, A>::run`

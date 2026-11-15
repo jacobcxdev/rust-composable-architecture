@@ -374,7 +374,13 @@ pub(crate) fn expand(input: &DeriveInput) -> syn::Result<TokenStream> {
     let output = if let Some(output) = opts.name {
         output
     } else {
-        Ident::new(&format!("{canonical_name}Snapshot"), name.span())
+        let mut output = syn::parse_str::<Ident>(&format!("{canonical_name}Snapshot")).map_err(
+            |_parse_error| {
+                syn::Error::new_spanned(name, "Snapshot cannot derive a valid companion name")
+            },
+        )?;
+        output.set_span(name.span());
+        output
     };
     let all_fields: Vec<_> = shapes.iter().flat_map(|s| &s.captured).collect();
     let parameters: Vec<_> = all_fields.iter().map(|f| &f.parameter).collect();

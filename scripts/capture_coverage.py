@@ -49,20 +49,23 @@ TARGETS = {
         ("--features", "diagnostics,futures-stream,local,test-util"),
         ("structural_diagnostics", "mount_acquisition", "local_mount",
          "output_delivery", "local_output_delivery", "scoped_store",
-         "keyed_operations", "shared_key_cache"),
+         "keyed_operations", "shared_key_cache", "captured_modification", "composition",
+         "owned_case_path", "keyed_iterator_contracts"),
     ),
     "core-removal": CaptureGroup(
         "rca-core", "rca-core", "rca_core",
         frozenset({"default", "diagnostics", "futures-stream", "local", "test-util"}),
         ("--features", "diagnostics,futures-stream,local,test-util"),
-        ("removed_child", "local_removed_child"), include_library=False,
+        ("removed_child", "local_removed_child", "stack_removed_child", "local_stack_removed_child",
+         "missing_children", "ephemeral"), include_library=False,
     ),
     "core-timers-rich": CaptureGroup(
         "rca-core", "rca-core", "rca_core",
         frozenset({"default", "diagnostics", "futures-stream", "local", "test-util"}),
         ("--features", "diagnostics,futures-stream,local,test-util"),
         ("timers", "local_clock_timer", "named_operation_timers", "typed_transactions",
-         "assertion_gate", "lifecycle_diagnostics"), include_library=False,
+         "assertion_gate", "lifecycle_diagnostics", "delayed_scope_retirement",
+         "named_operation_tasks", "local_runtime", "action_receipt_lifetime"), include_library=False,
     ),
     "core-timers-minimal": CaptureGroup(
         "rca-core", "rca-core", "rca_core", frozenset({"local"}),
@@ -74,14 +77,16 @@ TARGETS = {
         "rca-core", "rca-core", "rca_core",
         frozenset({"default", "diagnostics", "futures-stream", "local", "test-util"}),
         ("--features", "diagnostics,futures-stream,local,test-util"),
-        ("changed_reactions",), include_library=False,
+        ("changed_reactions", "stack", "keyed", "keyed_batch_position", "shared_update"),
+        include_library=False,
     ),
     "core-fold-commands": CaptureGroup(
         "rca-core", "rca-core", "rca_core",
         frozenset({"default", "diagnostics", "futures-stream", "local", "test-util"}),
         ("--features", "diagnostics,futures-stream,local,test-util"),
         ("fold_local", "fold_gate", "fold_shape", "fold_terminal", "fold_selector_close",
-         "recipe_commands", "recipe_commands_local", "recipe_command_failures"),
+         "recipe_commands", "recipe_commands_local", "recipe_command_failures",
+         "command_port", "local_input_gate", "fold_views", "command_acquisition_admission"),
         include_library=False,
     ),
     "core-observation-operations": CaptureGroup(
@@ -90,20 +95,23 @@ TARGETS = {
         ("--features", "diagnostics,futures-stream,local,test-util"),
         ("observation", "observation_adapters", "observation_scope_lifecycle",
          "observation_waker_lifecycle", "observation_adapter_scopes", "named_operations",
-         "named_operation_races", "local_named_operations"), include_library=False,
+         "named_operation_races", "local_named_operations", "shared_value", "weak_scoped_store",
+         "captured_graph", "owned_snapshot"), include_library=False,
     ),
     "core-terminal": CaptureGroup(
         "rca-core", "rca-core", "rca_core",
         frozenset({"default", "diagnostics", "futures-stream", "local", "test-util"}),
         ("--features", "diagnostics,futures-stream,local,test-util"),
-        ("clock_fixtures", "store_actor", "local_store", "effects", "terminal_unwind"), include_library=False,
+        ("clock_fixtures", "store_actor", "local_store", "effects", "terminal_unwind",
+         "lifecycle", "error_contracts"), include_library=False,
     ),
     "core-services": CaptureGroup(
         "rca-core", "rca-core", "rca_core",
         frozenset({"default", "diagnostics", "futures-stream", "local", "test-util"}),
         ("--features", "diagnostics,futures-stream,local,test-util"),
         ("dependency_defaults", "dependency_preparation", "issue_operations", "issue_contexts",
-         "diagnostics", "diagnostics_checkpoint", "presentation", "fallible_effect", "fallible_effect_lifecycle"),
+         "diagnostics", "diagnostics_checkpoint", "presentation", "fallible_effect", "fallible_effect_lifecycle",
+         "application_clients", "dependency_fixture", "dependency_scope", "issue_stubs", "issue_collector"),
         include_library=False,
     ),
     "macros": CaptureGroup(
@@ -116,13 +124,16 @@ TARGETS = {
         ("--features", "local"),
         ("controls", "error_contracts", "snapshot_contracts", "local_test_store",
          "output_delivery", "focused_outputs", "conformance_deterministic",
-         "semantic_checks", "issue_expectations", "snapshot_strategies"),
+         "semantic_checks", "issue_expectations", "snapshot_strategies", "dependency_defaults",
+         "dependency_scope", "focused_receiving", "test_store", "typed_transactions", "fold_frontier",
+         "local_runtime", "snapshot_compare", "mismatch_diagnostics"),
     ),
     "persistence-file": CaptureGroup(
         "rca-persistence", "rca-persistence", "rca_persistence", frozenset({"default", "file"}),
         ("--features", "file"),
         ("document", "file", "shared_document_session_replacement",
-         "shared_document", "shared_key_cache", "shared_subscription"),
+         "shared_document", "shared_key_cache", "shared_subscription", "staged_restoration",
+         "shared_quiescence", "subscription_ownership_contracts"),
         include_library=False,
     ),
     "tokio": CaptureGroup(
@@ -162,11 +173,11 @@ TARGETS = {
     ),
     "channel-overflow-std": CaptureGroup(
         "rca-async-channel", "dependencies/rca-async-channel", "async_channel",
-        frozenset({"default", "std"}), (), (),
+        frozenset({"default", "std"}), (), ("bounded", "unbounded", "public_contracts"),
     ),
     "channel-overflow-nostd": CaptureGroup(
         "rca-async-channel", "dependencies/rca-async-channel", "async_channel",
-        frozenset(), ("--no-default-features",), (),
+        frozenset(), ("--no-default-features",), ("bounded", "unbounded", "public_contracts"),
     ),
 }
 GIB = 1024 ** 3
@@ -617,7 +628,7 @@ def capture(root, group, output):
             if effect_children and len(profiles) != 19:
                 raise ValueError("Effects host must retain its parent and eighteen child profiles")
             write_json(host / "raw-sha256.json", {path.name: digest(path) for path in profiles})
-            if channel_overflow:
+            if channel_overflow and record["target"]["kind"] == ["lib"]:
                 write_json(host / "overflow-outcomes.json",
                            channel_overflow_outcomes((host / "run.stdout").read_text(),
                                                      (host / "run.stderr").read_text(), host_env, profiles))

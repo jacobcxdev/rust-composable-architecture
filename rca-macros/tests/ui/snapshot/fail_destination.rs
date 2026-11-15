@@ -32,8 +32,4 @@ enum Enum {
     Value,
 }
 
-#[derive(Snapshot)]
-struct Collision;
-struct CollisionSnapshot;
-
 fn main() {}

@@ -16,17 +16,6 @@ error: snapshot `into` supports only named-field source structs; use a manual im
 30 | #[snapshot(into = Output)]
    |                   ^^^^^^
 
-error[E0428]: the name `CollisionSnapshot` is defined multiple times
-  --> tests/ui/snapshot/fail_destination.rs:37:1
-   |
-35 | #[derive(Snapshot)]
-   |          -------- previous definition of the type `CollisionSnapshot` here
-36 | struct Collision;
-37 | struct CollisionSnapshot;
-   | ^^^^^^^^^^^^^^^^^^^^^^^^^ `CollisionSnapshot` redefined here
-   |
-   = note: `CollisionSnapshot` must be defined only once in the type namespace of this module
-
 error[E0063]: missing field `required` in initializer of `Output`
  --> tests/ui/snapshot/fail_destination.rs:7:19
   |

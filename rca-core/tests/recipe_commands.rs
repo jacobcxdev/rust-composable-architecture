@@ -163,6 +163,180 @@ struct Input(Box<Cell<usize>>);
 struct Control(Box<Cell<usize>>);
 
 #[cfg(feature = "test-util")]
+/// Keeps two separately declared command routes under one refreshable root.
+struct InspectionFixture {
+    /// Keeps the endpoint live until the rejection and successful release are checked.
+    store: Store<State, ()>,
+    /// Holds the real command before either mapper can consume it.
+    gate: rca_core::testing::TransactionGate<State, ()>,
+    /// Reacquires current captures without replacing the mapper declarations.
+    sites: [rca_core::CommandSite<State, Input>; 2],
+    /// Retains the original captures across a root configuration refresh.
+    ports: [rca_core::CommandPort<Input>; 2],
+}
+
+#[cfg(feature = "test-util")]
+/// Builds either the inspected actor or its independent, live foreign counterpart.
+fn inspection_fixture(
+    driver: &Driver,
+    maps: &Arc<std::sync::atomic::AtomicUsize>,
+    configuration: &Arc<std::sync::atomic::AtomicU64>,
+) -> InspectionFixture {
+    use std::sync::atomic::Ordering;
+
+    let declared = Arc::new(Mutex::new(None));
+    let export = Arc::clone(&declared);
+    let mapped = Arc::clone(maps);
+    let revision = Arc::clone(configuration);
+    let descriptor = OptionalMount::new(
+        |state: &State| state.child.as_ref(),
+        |state: &mut State| state.child.as_mut(),
+        |state: &State| {
+            state.child.map(|_| MountIdentity {
+                key: (),
+                replacement: 0,
+                configuration: 0,
+            })
+        },
+        |_| Child(Cell::new(0)),
+    );
+    let root = rca_core::Reduce::new(
+        |_: &mut State, (): &(), _: &mut rca_core::ReduceContext<'_>| rca_core::Effect::none(),
+    );
+    let (builder, _) = rca_core::RootMount::new(root)
+        .configuration(move |_| revision.load(Ordering::SeqCst))
+        .builder(
+            State {
+                child: Some(3),
+                replacement: 0,
+            },
+            Runtime::new(driver.clone()),
+        )
+        .mount_with_children(descriptor, move |_, children| {
+            let ports = std::array::from_fn::<_, 2, _>(|_| {
+                let mapped = Arc::clone(&mapped);
+                children.command(move |input: Input| {
+                    mapped.fetch_add(1, Ordering::SeqCst);
+                    input.0.get()
+                })
+            });
+            *export.lock().unwrap() = Some(ports);
+        });
+    let gate = rca_core::testing::TransactionGate::new();
+    let store = builder.transaction_gate(gate.clone()).build().unwrap();
+    driver.finish(gate.wait_for_pending());
+    let boundary = gate.boundary().unwrap();
+    drop(
+        driver
+            .finish(gate.release_pending_with_receipt().unwrap().finish())
+            .unwrap(),
+    );
+    assert!(gate.acknowledge(boundary));
+    let sites = declared.lock().unwrap().take().unwrap();
+    let ports = sites
+        .each_ref()
+        .map(|site| driver.finish(store.command_port(site)).unwrap().unwrap());
+    InspectionFixture {
+        store,
+        gate,
+        sites,
+        ports,
+    }
+}
+
+#[cfg(feature = "test-util")]
+#[test]
+fn recipe_inspection_preserves_input_for_foreign_sibling_and_stale_ports() {
+    use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+
+    let driver = Driver::default();
+    let maps = Arc::new(AtomicUsize::new(0));
+    let configuration = Arc::new(AtomicU64::new(0));
+    let InspectionFixture {
+        store,
+        gate,
+        sites,
+        ports,
+    } = inspection_fixture(&driver, &maps, &configuration);
+    let InspectionFixture {
+        store: foreign_store,
+        ports: foreign_ports,
+        ..
+    } = inspection_fixture(&driver, &maps, &configuration);
+    configuration.store(1, Ordering::SeqCst);
+    let mut refresh = Box::pin(store.send(()));
+    let mut context = Context::from_waker(Waker::noop());
+    assert!(refresh.as_mut().poll(&mut context).is_pending());
+    driver.finish(gate.wait_for_pending());
+    let boundary = gate.boundary().unwrap();
+    drop(
+        driver
+            .finish(gate.release_pending_with_receipt().unwrap().finish())
+            .unwrap(),
+    );
+    drop(driver.finish(refresh).unwrap());
+    assert!(gate.acknowledge(boundary));
+    let current = driver
+        .finish(store.command_port(&sites[0]))
+        .unwrap()
+        .unwrap();
+    let sibling = driver
+        .finish(store.command_port(&sites[1]))
+        .unwrap()
+        .unwrap();
+    let input = Input(Box::new(Cell::new(7)));
+    let identity = std::ptr::from_ref(&*input.0);
+    let mut send = Box::pin(current.send(input));
+    assert!(send.as_mut().poll(&mut context).is_pending());
+    driver.finish(gate.wait_for_pending());
+    let boundary = gate.boundary().unwrap();
+    for invalid in [&foreign_ports[0], &ports[0]] {
+        let error = gate
+            .inspect_command(invalid, |_| panic!("rejected matcher entered"))
+            .unwrap_err();
+        assert_eq!(error.reason(), TaskAccessReason::ScopeEnded);
+        assert_eq!(error.progress(), rca_core::TaskProgress::NotStarted);
+        assert_eq!(gate.boundary(), Some(boundary));
+        assert!(send.as_mut().poll(&mut context).is_pending());
+    }
+    assert_eq!(
+        gate.inspect_command(&sibling, |_| panic!("sibling matcher entered")),
+        Ok(None::<()>)
+    );
+    assert_eq!(
+        gate.inspect_command(&current, |held| {
+            assert_eq!(std::ptr::from_ref(&*held.0), identity);
+            held.0.get()
+        }),
+        Ok(Some(7))
+    );
+    assert_eq!(maps.load(Ordering::SeqCst), 0);
+    assert_eq!(gate.boundary(), Some(boundary));
+    assert!(!gate.has_failed_match());
+    drop(
+        driver
+            .finish(gate.release_pending_with_receipt().unwrap().finish())
+            .unwrap(),
+    );
+    drop(driver.finish(send).unwrap());
+    assert!(gate.acknowledge(boundary));
+    assert_eq!(
+        driver.finish(store.read(|state| state.child)).unwrap(),
+        Some(10)
+    );
+    assert_eq!(
+        driver
+            .finish(foreign_store.read(|state| state.child))
+            .unwrap(),
+        Some(3)
+    );
+    assert_eq!(maps.load(Ordering::SeqCst), 1);
+    drop((store, foreign_store));
+    driver.turn();
+    assert!(driver.0.lock().unwrap().is_empty());
+}
+
+#[cfg(feature = "test-util")]
 #[test]
 fn diagnostic_recipe_acquisitions_reject_closed_admission_without_retaining_the_mapper() {
     use std::sync::atomic::{AtomicUsize, Ordering};

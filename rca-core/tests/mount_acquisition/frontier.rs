@@ -6,6 +6,7 @@ struct State {
     child: Option<usize>,
     replacement: u64,
     root_configuration: u64,
+    child_configuration: u64,
 }
 struct Root;
 impl Feature for Root {
@@ -14,6 +15,8 @@ impl Feature for Root {
     fn update(&mut self, state: &mut State, action: &u8, _: &mut FeatureContext<'_, State, u8>) {
         if *action == 1 {
             state.root_configuration += 1;
+        } else if *action == 2 {
+            state.child_configuration += 1;
         } else {
             state.replacement += 1;
         }
@@ -37,7 +40,7 @@ fn mounted(driver: &Driver, gate: &TransactionGate<State, u8>) -> (Store<State, 
             state.child.map(|_| MountIdentity {
                 key: (),
                 replacement: state.replacement,
-                configuration: 0,
+                configuration: state.child_configuration,
             })
         },
         |_| Child,
@@ -49,6 +52,7 @@ fn mounted(driver: &Driver, gate: &TransactionGate<State, u8>) -> (Store<State, 
                 child: Some(3),
                 replacement: 0,
                 root_configuration: 0,
+                child_configuration: 0,
             },
             Runtime::new(driver.clone()),
         )
@@ -268,6 +272,98 @@ fn closed_foreign_context_cannot_inspect_or_disturb_a_live_mounted_frontier() {
     driver.turn();
     assert_eq!(poll(read.as_mut()), Poll::Ready(Ok(5)));
     drop(store);
+    driver.turn();
+    assert!(driver.0.lock().unwrap().is_empty());
+}
+
+#[test]
+fn live_foreign_sibling_and_refreshed_contexts_preserve_mounted_input() {
+    let driver = Driver::default();
+    let gate = TransactionGate::new();
+    let descriptor = || {
+        OptionalMount::new(
+            |state: &State| state.child.as_ref(),
+            |state: &mut State| state.child.as_mut(),
+            |state: &State| {
+                state.child.map(|_| MountIdentity {
+                    key: (),
+                    replacement: 0,
+                    configuration: state.child_configuration,
+                })
+            },
+            |_| Child,
+        )
+    };
+    let (builder, first) = Store::builder(
+        State {
+            child: Some(3),
+            replacement: 0,
+            root_configuration: 0,
+            child_configuration: 0,
+        },
+        Root,
+        Runtime::new(driver.clone()),
+    )
+    .mount_with_site(descriptor());
+    let (builder, second) = builder.mount_with_site(descriptor());
+    let store = builder.transaction_gate(gate.clone()).build().unwrap();
+    driver.turn();
+    release(&driver, &gate);
+    let acquire = |site: &Site| {
+        let mut future = Box::pin(gate.acquire(&store, site));
+        assert!(poll(future.as_mut()).is_pending());
+        driver.turn();
+        let Poll::Ready(Ok(Some(context))) = poll(future.as_mut()) else {
+            panic!("current installed context");
+        };
+        context
+    };
+    let stale = acquire(&first);
+    let mut refresh = Box::pin(store.send(2));
+    assert!(poll(refresh.as_mut()).is_pending());
+    driver.turn();
+    release(&driver, &gate);
+    assert!(matches!(poll(refresh.as_mut()), Poll::Ready(Ok(_))));
+    let current = acquire(&first);
+    let sibling = acquire(&second);
+    let foreign_gate = TransactionGate::new();
+    let (foreign_store, foreign_site) = mounted(&driver, &foreign_gate);
+    let mut acquisition = Box::pin(foreign_gate.acquire(&foreign_store, &foreign_site));
+    assert!(poll(acquisition.as_mut()).is_pending());
+    driver.turn();
+    let Poll::Ready(Ok(Some(foreign))) = poll(acquisition.as_mut()) else {
+        panic!("live foreign context");
+    };
+    let mut send = Box::pin(current.send(2));
+    assert!(poll(send.as_mut()).is_pending());
+    driver.turn();
+    let boundary = gate.boundary();
+    for invalid in [&foreign, &stale] {
+        let error = gate
+            .inspect_mounted(invalid, |_| panic!("rejected matcher entered"))
+            .unwrap_err();
+        assert_eq!(error.reason(), TaskAccessReason::ScopeEnded);
+        assert_eq!(error.progress(), TaskProgress::NotStarted);
+        assert_eq!(gate.boundary(), boundary);
+        assert!(poll(send.as_mut()).is_pending());
+    }
+    assert_eq!(
+        gate.inspect_mounted(&sibling, |_| panic!("sibling matcher entered")),
+        Ok(None::<()>)
+    );
+    assert_eq!(
+        gate.inspect_mounted(&current, |action| *action),
+        Ok(Some(2))
+    );
+    assert_eq!(gate.boundary(), boundary);
+    assert!(!gate.has_failed_match());
+    release(&driver, &gate);
+    assert!(matches!(poll(send.as_mut()), Poll::Ready(Ok(_))));
+    let mut read = Box::pin(current.read(|state| *state));
+    assert!(poll(read.as_mut()).is_pending());
+    driver.turn();
+    assert_eq!(poll(read.as_mut()), Poll::Ready(Ok(5)));
+    drop((store, foreign_store));
     driver.turn();
     assert!(driver.0.lock().unwrap().is_empty());
 }

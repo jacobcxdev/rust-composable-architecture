@@ -17,16 +17,17 @@ note: required because it appears within the type `ReactionChange<Rc<i32>>`
   |
   | pub enum ReactionChange<V> {
   |          ^^^^^^^^^^^^^^
-note: required because it's used within this closure
+note: required because `change` is used within this closure
  --> tests/ui/rc08_reactions_shared_task.rs
   |
-  |             Task::run(move |_| async move {
-  |                       ^^^^^^^^
+  |                 drop(change);
+  |                      ^^^^^^
 note: required by a bound in `rca_core::Task::<S, A>::run`
  --> src/store/task_context.rs
   |
+  | impl<S: 'static, A: 'static> Task<S, A> {
+...
   |     pub fn run<F, Fut>(run: F) -> Self
-  |            --- required by a bound in this associated function
   |     where
   |         F: FnOnce(TaskContext<S, A>) -> Fut + Send + 'static,
   |                                               ^^^^ required by this bound in `Task::<S, A>::run`
@@ -48,8 +49,9 @@ note: captured value is not `Send`
 note: required by a bound in `rca_core::Task::<S, A>::run`
  --> src/store/task_context.rs
   |
+  | impl<S: 'static, A: 'static> Task<S, A> {
+...
   |     pub fn run<F, Fut>(run: F) -> Self
-  |            --- required by a bound in this associated function
 ...
   |         Fut: Future<Output = ()> + Send + 'static,
   |                                    ^^^^ required by this bound in `Task::<S, A>::run`

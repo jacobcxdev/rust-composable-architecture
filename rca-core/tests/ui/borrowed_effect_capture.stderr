@@ -4,7 +4,7 @@ error[E0521]: borrowed data escapes outside of function
 5 |   fn borrowed_effect(value: &str) -> Effect<()> {
   |                      -----  - let's call the lifetime of this reference `'1`
   |                      |
-  |                      `value` is a reference that is only valid in the function body
+  |                      `value` is only valid in the function body
 6 | /     Effect::run(move |_sender| async move {
 7 | |         std::hint::black_box(value);
 8 | |     })
@@ -12,3 +12,15 @@ error[E0521]: borrowed data escapes outside of function
   | |      |
   | |______`value` escapes the function body here
   |        argument requires that `'1` must outlive `'static`
+  |
+note: `'static` lifetime requirement from `rca_core::Effect::<Action>::run` introduced here
+ --> src/effect/mod.rs
+  |
+  | impl<Action> Effect<Action> {
+...
+  |     pub fn run<F, Fut>(operation: F) -> Self
+  |     where
+  |         F: FnOnce(EffectSender<Action>) -> Fut + Send + 'static,
+  |                                                         ^^^^^^^ lifetime requirement introduced here
+  |         Fut: Future<Output = ()> + Send + 'static,
+  |                                           ^^^^^^^ lifetime requirement introduced here

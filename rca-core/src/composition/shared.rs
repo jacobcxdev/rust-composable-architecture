@@ -501,6 +501,73 @@ mod local_tests {
         assert_eq!(state.get(), 7);
         assert_eq!(shared.get(), 9);
     }
+
+    #[test]
+    fn shared_scope_skips_nonmatches_and_maps_only_nonempty_child_work() {
+        struct Child;
+
+        impl SharedReducer for Child {
+            type State = u64;
+            type Shared = u64;
+            type Action = u64;
+
+            fn reduce(
+                &mut self,
+                state: &mut u64,
+                shared: &mut u64,
+                action: &u64,
+                _: &mut ReduceContext<'_>,
+            ) -> Effect<u64> {
+                *state += *action;
+                *shared += *state;
+                if *action == 0 {
+                    Effect::none()
+                } else {
+                    Effect::send(*shared)
+                }
+            }
+        }
+
+        let splits = Cell::new(0);
+        let mut reducer = scope_shared(
+            |state: &mut (u64, u64)| {
+                splits.set(splits.get() + 1);
+                (&mut state.0, &mut state.1)
+            },
+            ActionPath::new(Option::as_ref, Some),
+            Child,
+        );
+        assert_eq!(format!("{reducer:?}"), "SharedScope { .. }");
+        assert_eq!(splits.get(), 0, "formatting must not project state");
+
+        let mut state = (2, 10);
+        let mut dependencies = DependencyValues::new();
+        let (_scopes_lifecycle, mut scopes) = ScopeRegistry::for_test();
+        let mut transitions = crate::store::scope::ScopeTransitionBatch::default();
+        let mut context = ReduceContext::new(
+            &mut dependencies,
+            MonotonicInstant::ZERO,
+            &mut scopes,
+            &mut transitions,
+        );
+
+        let unmatched = reducer.reduce(&mut state, &None, &mut context);
+        assert!(matches!(unmatched.program, Program::None));
+        assert_eq!(state, (2, 10));
+        assert_eq!(splits.get(), 0);
+
+        let empty = reducer.reduce(&mut state, &Some(0), &mut context);
+        assert!(matches!(empty.program, Program::None));
+        assert_eq!(empty.scope, None);
+        assert_eq!(state, (2, 12));
+        assert_eq!(splits.get(), 1);
+
+        let sent = reducer.reduce(&mut state, &Some(3), &mut context);
+        assert_eq!(state, (5, 17));
+        assert_eq!(splits.get(), 2);
+        assert!(sent.scope.is_some(), "child output retains its scope");
+        assert!(matches!(sent.program, Program::Send(Some(17))));
+    }
 }
 }
 
@@ -612,6 +679,75 @@ mod keyed_tests {
         assert_eq!(state.rows[&1], 102);
         assert_eq!(state.rows[&2], 0);
         assert_eq!(state.shared, 103);
+    }
+
+    #[test]
+    fn keyed_shared_output_keeps_its_id_and_child_before_parent_order() {
+        struct SendingChild;
+
+        impl SharedReducer for SendingChild {
+            type State = u64;
+            type Shared = u64;
+            type Action = ();
+
+            fn reduce(
+                &mut self,
+                state: &mut u64,
+                shared: &mut u64,
+                (): &(),
+                _: &mut ReduceContext<'_>,
+            ) -> Effect<()> {
+                *state += *shared;
+                Effect::send(())
+            }
+        }
+
+        let mut reducer = for_each_shared(
+            Parent,
+            |state: &State| &state.rows,
+            |state: &mut State| (&mut state.rows, &mut state.shared),
+            KeyedActionPath::new(
+                |action: &Action| match action {
+                    Action::Child(child) => Some(child),
+                    Action::Settings => None,
+                },
+                Action::Child,
+            ),
+            SendingChild,
+        );
+        assert_eq!(format!("{reducer:?}"), "ForEachShared { .. }");
+
+        let mut state = state();
+        let mut dependencies = DependencyValues::new();
+        let (_scopes_lifecycle, mut scopes) = ScopeRegistry::for_test();
+        let mut transitions = crate::store::scope::ScopeTransitionBatch::default();
+        let mut context = ReduceContext::new(
+            &mut dependencies,
+            MonotonicInstant::ZERO,
+            &mut scopes,
+            &mut transitions,
+        );
+
+        let effect = reducer.reduce(
+            &mut state,
+            &Action::Child(KeyedAction::new(2, ())),
+            &mut context,
+        );
+        assert_eq!(state.rows[&1], 0);
+        assert_eq!(state.rows[&2], 1);
+        assert_eq!(state.shared, 2);
+        assert_eq!(state.parent_calls, 1);
+        assert_eq!(effect.scope, None);
+        let Program::Merge(children) = effect.program else {
+            panic!("the child output must survive the empty parent effect");
+        };
+        assert_eq!(children.len(), 1);
+        let child = children.into_iter().next().unwrap();
+        assert!(child.scope.is_some(), "mapped output retains child authority");
+        let Program::Send(Action::Child(output)) = child.program else {
+            panic!("the shared child output must use the keyed parent route");
+        };
+        assert_eq!(output.into_parts(), (2, ()));
     }
 
     // Both absent active IDs and inconsistent projections must panic before parent.

@@ -334,8 +334,26 @@ mod error_tests {
                 ),
             },
         ];
+        let diagnostics = [
+            (
+                concat!(
+                    "Rejected { error: TaskAccessError { reason: InputClosed, ",
+                    "progress: NotStarted }, .. }",
+                ),
+                "typed task access failed: InputClosed (NotStarted)",
+            ),
+            (
+                concat!(
+                    "Failed { error: TaskAccessError { reason: ActorFailed, ",
+                    "progress: Committed { revision: 9 } } }",
+                ),
+                "typed task access failed: ActorFailed (Committed { revision: 9 })",
+            ),
+        ];
 
-        for failure in &failures {
+        for (failure, (debug, display)) in failures.iter().zip(diagnostics) {
+            assert_eq!(format!("{failure:?}"), debug);
+            assert_eq!(failure.to_string(), display);
             let source = failure
                 .source()
                 .expect("the typed access failure remains in the standard error chain")

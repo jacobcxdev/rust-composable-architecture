@@ -155,6 +155,146 @@ struct Input(Rc<Cell<usize>>);
 /// Uses the same installed child while bypassing its ordinary input gate.
 struct Control(Rc<Cell<usize>>);
 
+#[cfg(feature = "test-util")]
+/// Separates the pending actor's two command identities from a foreign actor.
+struct InspectionFixture {
+    /// Keeps foreign authority live rather than testing earlier closure rejection.
+    store: Store<State, Close>,
+    /// Holds one genuine command while another port attempts inspection.
+    gate: rca_core::testing::local::TransactionGate<State, Close>,
+    /// Uses distinct mapper declarations with the same input type and child.
+    ports: [rca_core::local::CommandPort<Input>; 2],
+}
+
+#[cfg(feature = "test-util")]
+/// Installs two mapper declarations without invoking either mapper.
+fn inspection_fixture(
+    driver: &Driver,
+    state: Rc<Cell<usize>>,
+    maps: &Rc<Cell<usize>>,
+    reductions: &Rc<Cell<usize>>,
+) -> InspectionFixture {
+    let declared = Rc::new(RefCell::new(None));
+    let export = Rc::clone(&declared);
+    let mapped = Rc::clone(maps);
+    let reduced = Rc::clone(reductions);
+    let descriptor = OptionalMount::new(
+        |state: &State| state.child.as_ref(),
+        |state: &mut State| state.child.as_mut(),
+        |state: &State| {
+            state.child.as_ref().map(|_| MountIdentity {
+                key: (),
+                replacement: 0,
+                configuration: 0,
+            })
+        },
+        move |_| Child(Rc::clone(&reduced)),
+    );
+    let (builder, _) = Store::builder(
+        State { child: Some(state) },
+        Parent,
+        Runtime::new(driver.clone()),
+    )
+    .mount_with_children(descriptor, move |_, children| {
+        *export.borrow_mut() = Some(std::array::from_fn::<_, 2, _>(|_| {
+            let mapped = Rc::clone(&mapped);
+            children.command(move |input: Input| {
+                mapped.set(mapped.get() + 1);
+                Rc::new(input.0.get())
+            })
+        }));
+    });
+    let gate = rca_core::testing::local::TransactionGate::new();
+    let store = builder.transaction_gate(gate.clone()).build().unwrap();
+    driver.finish(gate.wait_for_pending());
+    let boundary = gate.boundary().unwrap();
+    drop(
+        driver
+            .finish(gate.release_pending_with_receipt().unwrap().finish())
+            .unwrap(),
+    );
+    assert!(gate.acknowledge(boundary));
+    let sites = declared.borrow_mut().take().unwrap();
+    let ports = sites
+        .each_ref()
+        .map(|site| driver.finish(store.command_port(site)).unwrap().unwrap());
+    InspectionFixture { store, gate, ports }
+}
+
+#[cfg(feature = "test-util")]
+#[test]
+fn local_recipe_inspection_preserves_input_for_live_foreign_and_sibling_ports() {
+    let driver = Driver::default();
+    let maps = Rc::new(Cell::new(0));
+    let reductions = Rc::new(Cell::new(0));
+    let state = Rc::new(Cell::new(3));
+    let foreign_state = Rc::new(Cell::new(11));
+    let InspectionFixture { store, gate, ports } =
+        inspection_fixture(&driver, Rc::clone(&state), &maps, &reductions);
+    let InspectionFixture {
+        store: foreign_store,
+        ports: foreign_ports,
+        ..
+    } = inspection_fixture(&driver, Rc::clone(&foreign_state), &maps, &reductions);
+    let input = Rc::new(Cell::new(7));
+    let mut send = Box::pin(ports[0].send(Input(Rc::clone(&input))));
+    let mut context = Context::from_waker(Waker::noop());
+    assert!(send.as_mut().poll(&mut context).is_pending());
+    driver.finish(gate.wait_for_pending());
+    let boundary = gate.boundary().unwrap();
+    let error = gate
+        .inspect_command(&foreign_ports[0], |_| panic!("foreign matcher entered"))
+        .unwrap_err();
+    assert_eq!(error.reason(), TaskAccessReason::ScopeEnded);
+    assert_eq!(error.progress(), rca_core::TaskProgress::NotStarted);
+    assert_eq!(
+        gate.inspect_command(&ports[1], |_| panic!("sibling matcher entered")),
+        Ok(None::<()>)
+    );
+    assert_eq!(
+        gate.inspect_command(&ports[0], |held| {
+            assert!(Rc::ptr_eq(&held.0, &input));
+            held.0.get()
+        }),
+        Ok(Some(7))
+    );
+    assert_eq!(
+        (
+            maps.get(),
+            reductions.get(),
+            state.get(),
+            foreign_state.get()
+        ),
+        (0, 0, 3, 11)
+    );
+    assert_eq!(Rc::strong_count(&input), 2);
+    assert!(send.as_mut().poll(&mut context).is_pending());
+    assert_eq!(gate.boundary(), Some(boundary));
+    assert!(!gate.has_failed_match());
+    drop(
+        driver
+            .finish(gate.release_pending_with_receipt().unwrap().finish())
+            .unwrap(),
+    );
+    drop(driver.finish(send).unwrap());
+    assert!(gate.acknowledge(boundary));
+    assert_eq!(
+        (
+            maps.get(),
+            reductions.get(),
+            state.get(),
+            foreign_state.get()
+        ),
+        (1, 1, 10, 11)
+    );
+    assert_eq!(Rc::strong_count(&input), 1);
+    driver.finish(store.shutdown()).unwrap();
+    driver.finish(foreign_store.shutdown()).unwrap();
+    drop((store, foreign_store));
+    assert!(driver.0.borrow().is_empty());
+    assert_eq!(Rc::strong_count(&state), 1);
+}
+
 #[test]
 fn local_task_debug_redacts_capture_without_starting_work() {
     use rca_core::local::Task;

@@ -2437,3 +2437,141 @@ fn local_closed_and_ancestor_stale_contexts_preserve_live_mounted_frontier() {
     assert!(driver.tasks.borrow().is_empty());
     assert_eq!(Rc::strong_count(&state), 1);
 }
+
+#[cfg(feature = "test-util")]
+/// Distinct declarations can project the same state without sharing node identity.
+type InspectionSites = [MountSite<RootState, Rc<Cell<usize>>, ChildAction, RootAction>; 2];
+
+#[cfg(feature = "test-util")]
+/// Installs two live nodes for inspection without entering either child reducer.
+fn inspection_mounts(
+    driver: &Driver,
+    gate: &rca_core::testing::local::TransactionGate<RootState, RootAction>,
+    state: Rc<Cell<usize>>,
+    configuration: &Rc<Cell<u64>>,
+    reductions: &Rc<Cell<usize>>,
+) -> (Store<RootState, RootAction>, InspectionSites) {
+    let descriptor = || {
+        let configuration = Rc::clone(configuration);
+        let reductions = Rc::clone(reductions);
+        OptionalMount::new(
+            |root: &RootState| root.0.as_ref(),
+            |root: &mut RootState| root.0.as_mut(),
+            move |root: &RootState| {
+                root.0.as_ref().map(|_| MountIdentity {
+                    key: (),
+                    replacement: 0,
+                    configuration: configuration.get(),
+                })
+            },
+            move |_| Child(Rc::clone(&reductions)),
+        )
+    };
+    let (builder, first) =
+        Store::builder(RootState(Some(state)), Root, Runtime::new(driver.clone()))
+            .mount_with_site(descriptor());
+    let (builder, second) = builder.mount_with_site(descriptor());
+    let store = builder.transaction_gate(gate.clone()).build().unwrap();
+    driver.finish(gate.wait_for_pending());
+    let boundary = gate.boundary().unwrap();
+    drop(
+        driver
+            .finish(gate.release_pending_with_receipt().unwrap().finish())
+            .unwrap(),
+    );
+    assert!(gate.acknowledge(boundary));
+    (store, [first, second])
+}
+
+#[cfg(feature = "test-util")]
+#[test]
+fn local_live_foreign_sibling_and_refreshed_contexts_preserve_mounted_input() {
+    use rca_core::testing::local::TransactionGate;
+
+    let driver = Driver::default();
+    let reductions = Rc::new(Cell::new(0));
+    let configuration = Rc::new(Cell::new(0));
+    let gate = TransactionGate::new();
+    let state = Rc::new(Cell::new(3));
+    let (store, sites) = inspection_mounts(
+        &driver,
+        &gate,
+        Rc::clone(&state),
+        &configuration,
+        &reductions,
+    );
+    let stale = driver.finish(store.acquire(&sites[0])).unwrap().unwrap();
+    configuration.set(1);
+    let mut refresh = Box::pin(store.send(RootAction));
+    let mut context = Context::from_waker(Waker::noop());
+    assert!(refresh.as_mut().poll(&mut context).is_pending());
+    driver.finish(gate.wait_for_pending());
+    let boundary = gate.boundary().unwrap();
+    drop(
+        driver
+            .finish(gate.release_pending_with_receipt().unwrap().finish())
+            .unwrap(),
+    );
+    drop(driver.finish(refresh).unwrap());
+    assert!(gate.acknowledge(boundary));
+    let current = driver.finish(store.acquire(&sites[0])).unwrap().unwrap();
+    let sibling = driver.finish(store.acquire(&sites[1])).unwrap().unwrap();
+    let foreign_gate = TransactionGate::new();
+    let (foreign_store, foreign_sites) = inspection_mounts(
+        &driver,
+        &foreign_gate,
+        Rc::new(Cell::new(11)),
+        &configuration,
+        &reductions,
+    );
+    let foreign = driver
+        .finish(foreign_store.acquire(&foreign_sites[0]))
+        .unwrap()
+        .unwrap();
+    let action = Rc::new(2);
+    let mut send = Box::pin(current.send(ChildAction(Rc::clone(&action))));
+    assert!(send.as_mut().poll(&mut context).is_pending());
+    driver.finish(gate.wait_for_pending());
+    let boundary = gate.boundary().unwrap();
+    for invalid in [&foreign, &stale] {
+        let error = gate
+            .inspect_mounted(invalid, |_| panic!("rejected matcher entered"))
+            .unwrap_err();
+        assert_eq!(error.reason(), rca_core::TaskAccessReason::ScopeEnded);
+        assert_eq!(error.progress(), rca_core::TaskProgress::NotStarted);
+        assert_eq!(gate.boundary(), Some(boundary));
+        assert!(send.as_mut().poll(&mut context).is_pending());
+    }
+    assert_eq!(
+        gate.inspect_mounted(&sibling, |_| panic!("sibling matcher entered")),
+        Ok(None::<()>)
+    );
+    assert_eq!(
+        gate.inspect_mounted(&current, |held| {
+            assert!(Rc::ptr_eq(&held.0, &action));
+            *held.0
+        }),
+        Ok(Some(2))
+    );
+    assert_eq!(
+        (reductions.get(), state.get(), Rc::strong_count(&action)),
+        (0, 3, 2)
+    );
+    assert_eq!(gate.boundary(), Some(boundary));
+    assert!(!gate.has_failed_match());
+    drop(
+        driver
+            .finish(gate.release_pending_with_receipt().unwrap().finish())
+            .unwrap(),
+    );
+    drop(driver.finish(send).unwrap());
+    assert!(gate.acknowledge(boundary));
+    assert_eq!(
+        (reductions.get(), state.get(), Rc::strong_count(&action)),
+        (1, 5, 1)
+    );
+    drop((store, foreign_store));
+    driver.turn();
+    assert!(driver.tasks.borrow().is_empty());
+    assert_eq!(Rc::strong_count(&state), 1);
+}

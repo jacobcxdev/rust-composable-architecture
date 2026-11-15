@@ -15,7 +15,6 @@ note: required by a bound in `rca_core::if_case`
   --> src/composition/lifecycle.rs
    |
    | pub const fn if_case<
-   |              ------- required by a bound in this function
 ...
    |     Child: Reducer<State = ChildState, Action = ChildAction>,
    |                                        ^^^^^^^^^^^^^^^^^^^^ required by this bound in `if_case`

@@ -32,6 +32,34 @@ class CaptureCoverageTests(unittest.TestCase):
         self.addCleanup(self.directory.cleanup)
         self.root = Path(self.directory.name).resolve()
 
+    def test_written_production_witnesses_are_selected_for_capture(self):
+        packages = {
+            "rca-core": {
+                "captured_modification", "composition", "keyed", "keyed_iterator_contracts",
+                "stack", "owned_case_path", "shared_value", "shared_update", "application_clients",
+                "dependency_fixture", "dependency_scope", "captured_graph", "lifecycle",
+                "missing_children", "ephemeral", "stack_removed_child", "local_stack_removed_child",
+                "local_runtime", "error_contracts", "issue_stubs", "issue_collector", "owned_snapshot",
+                "command_port", "local_input_gate", "fold_views", "weak_scoped_store",
+                "action_receipt_lifetime", "named_operation_tasks", "keyed_batch_position",
+                "delayed_scope_retirement", "command_acquisition_admission",
+            },
+            "rca-test": {
+                "dependency_defaults", "dependency_scope", "focused_receiving", "test_store",
+                "typed_transactions", "fold_frontier", "local_runtime", "snapshot_compare",
+                "mismatch_diagnostics",
+            },
+            "rca-persistence": {"staged_restoration", "shared_quiescence", "subscription_ownership_contracts"},
+        }
+        for package, expected in packages.items():
+            selected = {name for group in self.capture.TARGETS.values()
+                        if group.package == package for name in group.tests}
+            with self.subTest(package=package):
+                self.assertFalse(expected - selected, f"missing written witnesses: {sorted(expected - selected)}")
+        for group in ("channel-overflow-std", "channel-overflow-nostd"):
+            with self.subTest(group=group):
+                self.assertEqual(set(self.capture.TARGETS[group].tests), {"bounded", "unbounded", "public_contracts"})
+
     def test_group_commands_do_not_enable_rich_features_in_minimal(self):
         self.assertEqual(self.capture.group_arguments("core-minimal"), [
             "-p", "rca-core", "--no-default-features", "--features", "local",
@@ -42,7 +70,9 @@ class CaptureCoverageTests(unittest.TestCase):
                                    "diagnostics,futures-stream,local,test-util", "--lib"])
         self.assertEqual(rich[6::2], ["structural_diagnostics", "mount_acquisition",
                                     "local_mount", "output_delivery", "local_output_delivery",
-                                    "scoped_store", "keyed_operations", "shared_key_cache"])
+                                    "scoped_store", "keyed_operations", "shared_key_cache",
+                                    "captured_modification", "composition", "owned_case_path",
+                                    "keyed_iterator_contracts"])
         with self.assertRaises(ValueError):
             self.capture.group_arguments("all")
 
@@ -155,7 +185,8 @@ class CaptureCoverageTests(unittest.TestCase):
         expected = {
             "core-removal": (
                 ["-p", "rca-core", "--features", "diagnostics,futures-stream,local,test-util"],
-                ["removed_child", "local_removed_child"],
+                ["removed_child", "local_removed_child", "stack_removed_child", "local_stack_removed_child",
+                 "missing_children", "ephemeral"],
             ),
             "tokio": (
                 ["-p", "rca-tokio"],
@@ -192,7 +223,8 @@ class CaptureCoverageTests(unittest.TestCase):
     def test_macro_and_timer_groups_select_fixed_existing_hosts(self):
         self.assertEqual(self.capture.group_arguments("core-reactions"), [
             "-p", "rca-core", "--features", "diagnostics,futures-stream,local,test-util",
-            "--test", "changed_reactions",
+            *[item for name in ("changed_reactions", "stack", "keyed", "keyed_batch_position", "shared_update")
+              for item in ("--test", name)],
         ])
         self.assertEqual(self.capture.group_arguments("macros"), [
             "-p", "rca-macros", "--lib",
@@ -204,7 +236,9 @@ class CaptureCoverageTests(unittest.TestCase):
         minimal = ["-p", "rca-core", "--no-default-features", "--features", "local"]
         self.assertEqual(self.capture.group_arguments("core-timers-rich"), [
             *rich, *[item for name in ("timers", "local_clock_timer", "named_operation_timers",
-                                         "typed_transactions", "assertion_gate", "lifecycle_diagnostics")
+                                         "typed_transactions", "assertion_gate", "lifecycle_diagnostics",
+                                         "delayed_scope_retirement", "named_operation_tasks", "local_runtime",
+                                         "action_receipt_lifetime")
                     for item in ("--test", name)],
         ])
         self.assertEqual(self.capture.group_arguments("core-timers-minimal"), [
@@ -226,9 +260,10 @@ class CaptureCoverageTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.capture.group_arguments("listener-unselected")
 
-    def test_fold_command_group_selects_only_eight_rich_in_process_hosts(self):
+    def test_fold_command_group_selects_rich_unfiltered_integration_hosts(self):
         names = ("fold_local", "fold_gate", "fold_shape", "fold_terminal", "fold_selector_close",
-                 "recipe_commands", "recipe_commands_local", "recipe_command_failures")
+                 "recipe_commands", "recipe_commands_local", "recipe_command_failures",
+                 "command_port", "local_input_gate", "fold_views", "command_acquisition_admission")
         self.assertEqual(self.capture.group_arguments("core-fold-commands"), [
             "-p", "rca-core", "--features", "diagnostics,futures-stream,local,test-util",
             *[item for name in names for item in ("--test", name)],
@@ -239,7 +274,7 @@ class CaptureCoverageTests(unittest.TestCase):
                 self.assertEqual(self.capture.host_arguments("core-fold-commands", ["test"], executable),
                                  [str(executable)])
 
-    def test_channel_overflow_groups_select_only_unfiltered_library_hosts(self):
+    def test_channel_overflow_groups_select_library_and_integration_hosts(self):
         executable = self.root / "async_channel-fixture"
         for group, options in (
             ("channel-overflow-std", ["-p", "rca-async-channel", "--lib"]),
@@ -247,7 +282,10 @@ class CaptureCoverageTests(unittest.TestCase):
         ):
             with self.subTest(group=group):
                 self.assertIn(group, self.capture.TARGETS)
-                self.assertEqual(self.capture.group_arguments(group), options)
+                self.assertEqual(self.capture.group_arguments(group), [
+                    *options, *[item for name in ("bounded", "unbounded", "public_contracts")
+                                for item in ("--test", name)],
+                ])
                 self.assertEqual(self.capture.host_arguments(group, ["lib"], executable),
                                  [str(executable), "--nocapture", "--test-threads=1"])
                 self.assertEqual(self.capture.host_arguments(group, ["test"], executable), [str(executable)])
@@ -256,10 +294,11 @@ class CaptureCoverageTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.capture.group_arguments("channel-overflow-other")
 
-    def test_observation_operation_group_selects_only_eight_rich_in_process_hosts(self):
+    def test_observation_operation_group_selects_rich_unfiltered_integration_hosts(self):
         names = ("observation", "observation_adapters", "observation_scope_lifecycle",
                  "observation_waker_lifecycle", "observation_adapter_scopes", "named_operations",
-                 "named_operation_races", "local_named_operations")
+                 "named_operation_races", "local_named_operations", "shared_value", "weak_scoped_store",
+                 "captured_graph", "owned_snapshot")
         self.assertEqual(self.capture.group_arguments("core-observation-operations"), [
             "-p", "rca-core", "--features", "diagnostics,futures-stream,local,test-util",
             *[item for name in names for item in ("--test", name)],
@@ -270,8 +309,9 @@ class CaptureCoverageTests(unittest.TestCase):
                 self.assertEqual(self.capture.host_arguments("core-observation-operations", ["test"], executable),
                                  [str(executable)])
 
-    def test_terminal_group_selects_five_rich_unfiltered_integration_hosts(self):
-        names = ("clock_fixtures", "store_actor", "local_store", "effects", "terminal_unwind")
+    def test_terminal_group_selects_rich_unfiltered_integration_hosts(self):
+        names = ("clock_fixtures", "store_actor", "local_store", "effects", "terminal_unwind",
+                 "lifecycle", "error_contracts")
         self.assertIn("core-terminal", self.capture.TARGETS)
         self.assertEqual(self.capture.group_arguments("core-terminal"), [
             "-p", "rca-core", "--features", "diagnostics,futures-stream,local,test-util",
@@ -285,10 +325,12 @@ class CaptureCoverageTests(unittest.TestCase):
                     expected.extend(("--nocapture", "--test-threads=1"))
                 self.assertEqual(self.capture.host_arguments("core-terminal", ["test"], executable), expected)
 
-    def test_test_store_group_selects_local_library_and_ten_unfiltered_integration_hosts(self):
+    def test_test_store_group_selects_local_library_and_unfiltered_integration_hosts(self):
         names = ("controls", "error_contracts", "snapshot_contracts", "local_test_store",
                  "output_delivery", "focused_outputs", "conformance_deterministic",
-                 "semantic_checks", "issue_expectations", "snapshot_strategies")
+                 "semantic_checks", "issue_expectations", "snapshot_strategies", "dependency_defaults",
+                 "dependency_scope", "focused_receiving", "test_store", "typed_transactions", "fold_frontier",
+                 "local_runtime", "snapshot_compare", "mismatch_diagnostics")
         self.assertIn("test-store", self.capture.TARGETS)
         self.assertEqual(self.capture.group_arguments("test-store"), [
             "-p", "rca-test", "--features", "local", "--lib",
@@ -303,9 +345,10 @@ class CaptureCoverageTests(unittest.TestCase):
         self.assertEqual(self.capture.host_arguments("test-store", ["lib"], executable),
                          [str(executable)])
 
-    def test_services_group_selects_nine_rich_unfiltered_integration_hosts(self):
+    def test_services_group_selects_rich_unfiltered_integration_hosts(self):
         names = ("dependency_defaults", "dependency_preparation", "issue_operations", "issue_contexts",
-                 "diagnostics", "diagnostics_checkpoint", "presentation", "fallible_effect", "fallible_effect_lifecycle")
+                 "diagnostics", "diagnostics_checkpoint", "presentation", "fallible_effect", "fallible_effect_lifecycle",
+                 "application_clients", "dependency_fixture", "dependency_scope", "issue_stubs", "issue_collector")
         self.assertIn("core-services", self.capture.TARGETS)
         self.assertEqual(self.capture.group_arguments("core-services"), [
             "-p", "rca-core", "--features", "diagnostics,futures-stream,local,test-util",
@@ -317,9 +360,10 @@ class CaptureCoverageTests(unittest.TestCase):
                 self.assertEqual(self.capture.host_arguments("core-services", ["test"], executable),
                                  [str(executable)])
 
-    def test_persistence_file_group_selects_six_unfiltered_integration_hosts(self):
+    def test_persistence_file_group_selects_unfiltered_integration_hosts(self):
         names = ("document", "file", "shared_document_session_replacement",
-                 "shared_document", "shared_key_cache", "shared_subscription")
+                 "shared_document", "shared_key_cache", "shared_subscription", "staged_restoration",
+                 "shared_quiescence", "subscription_ownership_contracts")
         self.assertIn("persistence-file", self.capture.TARGETS)
         self.assertEqual(self.capture.group_arguments("persistence-file"), [
             "-p", "rca-persistence", "--features", "file",
@@ -418,28 +462,36 @@ class CaptureCoverageTests(unittest.TestCase):
     def test_added_group_artifacts_reject_foreign_package_features_and_hosts(self):
         cases = (
             ("core-removal", "rca-core", "rca_core", ["default", "diagnostics", "futures-stream", "local", "test-util"],
-             ["removed_child", "local_removed_child"]),
+             ["removed_child", "local_removed_child", "stack_removed_child", "local_stack_removed_child",
+              "missing_children", "ephemeral"]),
             ("core-reactions", "rca-core", "rca_core", ["default", "diagnostics", "futures-stream", "local", "test-util"],
-             ["changed_reactions"]),
+             ["changed_reactions", "stack", "keyed", "keyed_batch_position", "shared_update"]),
             ("core-fold-commands", "rca-core", "rca_core", ["default", "diagnostics", "futures-stream", "local", "test-util"],
              ["fold_local", "fold_gate", "fold_shape", "fold_terminal", "fold_selector_close",
-              "recipe_commands", "recipe_commands_local", "recipe_command_failures"]),
+              "recipe_commands", "recipe_commands_local", "recipe_command_failures",
+              "command_port", "local_input_gate", "fold_views", "command_acquisition_admission"]),
             ("core-observation-operations", "rca-core", "rca_core", ["default", "diagnostics", "futures-stream", "local", "test-util"],
              ["observation", "observation_adapters", "observation_scope_lifecycle",
               "observation_waker_lifecycle", "observation_adapter_scopes", "named_operations",
-              "named_operation_races", "local_named_operations"]),
+              "named_operation_races", "local_named_operations", "shared_value", "weak_scoped_store",
+              "captured_graph", "owned_snapshot"]),
             ("core-terminal", "rca-core", "rca_core", ["default", "diagnostics", "futures-stream", "local", "test-util"],
-             ["clock_fixtures", "store_actor", "local_store", "effects", "terminal_unwind"]),
+             ["clock_fixtures", "store_actor", "local_store", "effects", "terminal_unwind",
+              "lifecycle", "error_contracts"]),
             ("core-services", "rca-core", "rca_core", ["default", "diagnostics", "futures-stream", "local", "test-util"],
              ["dependency_defaults", "dependency_preparation", "issue_operations", "issue_contexts",
-              "diagnostics", "diagnostics_checkpoint", "presentation", "fallible_effect", "fallible_effect_lifecycle"]),
+              "diagnostics", "diagnostics_checkpoint", "presentation", "fallible_effect", "fallible_effect_lifecycle",
+              "application_clients", "dependency_fixture", "dependency_scope", "issue_stubs", "issue_collector"]),
             ("test-store", "rca-test", "rca_test", ["local"],
              ["rca_test", "controls", "error_contracts", "snapshot_contracts", "local_test_store",
               "output_delivery", "focused_outputs", "conformance_deterministic",
-              "semantic_checks", "issue_expectations", "snapshot_strategies"]),
+              "semantic_checks", "issue_expectations", "snapshot_strategies", "dependency_defaults",
+              "dependency_scope", "focused_receiving", "test_store", "typed_transactions", "fold_frontier",
+              "local_runtime", "snapshot_compare", "mismatch_diagnostics"]),
             ("persistence-file", "rca-persistence", "rca_persistence", ["default", "file"],
              ["document", "file", "shared_document_session_replacement",
-              "shared_document", "shared_key_cache", "shared_subscription"]),
+              "shared_document", "shared_key_cache", "shared_subscription", "staged_restoration",
+              "shared_quiescence", "subscription_ownership_contracts"]),
             ("tokio", "rca-tokio", "rca_tokio", [],
              ["rca_tokio", "async_cleanup_host", "client_clock", "panic_subprocess", "synchronous_host", "thread_affine_host"]),
             ("listener-std", "dependencies/rca-event-listener", "event_listener", ["default", "parking", "std"],
@@ -453,8 +505,9 @@ class CaptureCoverageTests(unittest.TestCase):
             ("listener-std-critical-section", "dependencies/rca-event-listener", "event_listener",
              ["critical-section", "default", "parking", "std"], ["public_surface"]),
             ("channel-overflow-std", "dependencies/rca-async-channel", "async_channel", ["default", "std"],
-             ["async_channel"]),
-            ("channel-overflow-nostd", "dependencies/rca-async-channel", "async_channel", [], ["async_channel"]),
+             ["async_channel", "bounded", "unbounded", "public_contracts"]),
+            ("channel-overflow-nostd", "dependencies/rca-async-channel", "async_channel", [],
+             ["async_channel", "bounded", "unbounded", "public_contracts"]),
             ("strategy-std", "dependencies/rca-event-listener-strategy", "event_listener_strategy", ["default", "std"],
              ["event_listener_strategy", "easy_wrapper", "public_contracts"]),
         )
@@ -634,7 +687,8 @@ class CaptureCoverageTests(unittest.TestCase):
         options = ["-p", "rca-core", "--no-default-features", "--features", "local",
                    "--lib", "--test", "store_actor", "--test", "local_store"]
         if group == "core-terminal":
-            names = ["clock_fixtures", "store_actor", "local_store", "effects", "terminal_unwind"]
+            names = ["clock_fixtures", "store_actor", "local_store", "effects", "terminal_unwind",
+                     "lifecycle", "error_contracts"]
             features = ["default", "diagnostics", "futures-stream", "local", "test-util"]
             options = ["-p", "rca-core", "--features", "diagnostics,futures-stream,local,test-util",
                        *[item for name in names for item in ("--test", name)]]
@@ -648,12 +702,13 @@ class CaptureCoverageTests(unittest.TestCase):
                 options = ["-p", "rca-event-listener", "--features", "critical-section", "--test", "public_surface"]
         if group in ("channel-overflow-std", "channel-overflow-nostd"):
             package, package_name, library = "dependencies/rca-async-channel", "rca-async-channel", "async_channel"
-            names = ["async_channel"]
+            names = ["async_channel", "bounded", "unbounded", "public_contracts"]
             features = ["default", "std"] if group == "channel-overflow-std" else []
             options = ["-p", "rca-async-channel"]
             if group == "channel-overflow-nostd":
                 options.append("--no-default-features")
             options.append("--lib")
+            options.extend(item for name in names[1:] for item in ("--test", name))
         files = {".gitignore": "target/\n.tools/\n", "Cargo.lock": "version = 4\n",
                  "rust-toolchain.toml": '[toolchain]\nchannel = "1.100.0"\n',
                  "Cargo.toml": f'[workspace]\nmembers = ["{package}"]\n',
@@ -681,7 +736,8 @@ raw.parent.mkdir(parents=True, exist_ok=True)
 raw.write_bytes(b"runtime profile")
 mode = (root / ".tools/mode").read_text()
 listener = {group!r} in ("listener-spin", "listener-std-critical-section")
-channel = {group!r} in ("channel-overflow-std", "channel-overflow-nostd")
+channel_group = {group!r} in ("channel-overflow-std", "channel-overflow-nostd")
+channel = channel_group and Path(__file__).name.startswith("async_channel-")
 effects = {group!r} == "core-terminal" and Path(__file__).name.startswith("effects-")
 if effects:
     assert sys.argv[1:] == ["--nocapture", "--test-threads=1"]
@@ -702,6 +758,10 @@ if channel:
             (raw.parent / f"current-{{os.getpid() + index + 1}}.profraw").write_bytes(b"runtime profile")
         status = "exit status: 0" if index < 3 else "signal: 6 (SIGABRT)"
         print(f"previous={{previous}}: {{status}}; stderr=", file=sys.stderr)
+elif channel_group:
+    assert sys.argv[1:] == []
+    assert Path(os.environ["LLVM_PROFILE_FILE"]).name == "current-%p%c.profraw"
+    assert os.environ["RUSTFLAGS"] == {self.capture.RUSTFLAGS!r} + " -C llvm-args=-runtime-counter-relocation"
 if listener and not os.environ.get("CAPTURE_FIXTURE_CHILD"):
     assert sys.argv[1:] == ["--test-threads=1"]
     subprocess.run([sys.executable, __file__], env=dict(os.environ, CAPTURE_FIXTURE_CHILD="1"), check=True)
@@ -817,6 +877,11 @@ elif name == "llvm-cov":
         self.assertEqual(len(json.loads((host / "raw-sha256.json").read_text())), 6)
         self.assertEqual(len(json.loads((host / "overflow-outcomes.json").read_text())), 5)
         self.assertNotIn("exact_children", json.loads((host / "test-summary.json").read_text()))
+        for name in ("bounded", "unbounded", "public_contracts"):
+            integration = output / "hosts" / name
+            self.assertEqual(len(json.loads((integration / "raw-sha256.json").read_text())), 1)
+            self.assertFalse((integration / "overflow-outcomes.json").exists())
+            self.assertEqual(json.loads((integration / "test-summary.json").read_text())["passed"], 1)
         record = json.loads(gzip.decompress((host / "export.json.gz").read_bytes()))["data"][0]["functions"][0]
         self.assertEqual(record["regions"][0][4], 0)
         self.assertEqual(record["branches"][0][4:6], [0, 0])
