@@ -518,6 +518,20 @@ mod identifier_tests {
     fn library_resolution_requires_context_only_for_ambiguous_canonical_names() {
         const CASE: &str = "RCA_MACROS_MANIFEST_CONTEXT_CASE";
         if let Ok(case) = std::env::var(CASE) {
+            if matches!(case.as_str(), "self-core" | "canonical") {
+                let expected = if case == "self-core" {
+                    "crate"
+                } else {
+                    ":: rca"
+                };
+                assert_eq!(
+                    super::rca_path()
+                        .expect("self use and canonical dependencies must resolve")
+                        .to_string(),
+                    expected,
+                );
+                return;
+            }
             if case == "reserved-alias" {
                 assert!(matches!(
                     proc_macro_crate::crate_name("rca-core")
@@ -627,6 +641,8 @@ mod identifier_tests {
             "unrelated",
             "conflicting-origin",
             "reserved-alias",
+            "self-core",
+            "canonical",
         ] {
             let mut child = std::process::Command::new(
                 std::env::current_exe().expect("the test executable is available"),
@@ -645,7 +661,10 @@ mod identifier_tests {
                     std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
                         .join("tests/fixtures/manifest-reading"),
                 );
-            } else if matches!(case, "conflicting-origin" | "reserved-alias") {
+            } else if matches!(
+                case,
+                "conflicting-origin" | "reserved-alias" | "self-core" | "canonical"
+            ) {
                 child.env(
                     "CARGO_MANIFEST_DIR",
                     std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -654,6 +673,10 @@ mod identifier_tests {
                 );
             } else {
                 child.env("CARGO_MANIFEST_DIR", env!("CARGO_MANIFEST_DIR"));
+            }
+            if case == "self-core" {
+                // Cargo sets this for integration targets, which are not self-use.
+                child.env_remove("CARGO_TARGET_TMPDIR");
             }
             let output = child.output().expect("the isolated context test runs");
             assert!(

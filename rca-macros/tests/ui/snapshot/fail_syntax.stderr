@@ -37,21 +37,21 @@ error: expected snapshot item option `name` or `into`
 error: expected identifier, found reserved identifier `$crate`
   --> tests/ui/snapshot/fail_syntax.rs:27:16
    |
+24 | macro_rules! malformed_snapshot {
+...
 27 |         struct $crate {
    |                ^^^^^^ expected identifier, found reserved identifier
 ...
 33 | malformed_snapshot!();
    | --------------------- in this macro invocation
-   |
-   = note: this error originates in the macro `malformed_snapshot` (in Nightly builds, run with -Z macro-backtrace for more info)
 
 error: Snapshot cannot derive a valid companion name
   --> tests/ui/snapshot/fail_syntax.rs:27:16
    |
+24 | macro_rules! malformed_snapshot {
+...
 27 |         struct $crate {
    |                ^^^^^^
 ...
 33 | malformed_snapshot!();
    | --------------------- in this macro invocation
-   |
-   = note: this error originates in the macro `malformed_snapshot` (in Nightly builds, run with -Z macro-backtrace for more info)

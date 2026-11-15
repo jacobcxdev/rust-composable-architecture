@@ -1,0 +1,6 @@
+# Resolver input only. This manifest is not a compiled Cargo consumer.
+[package]
+name = "rca-core"
+version = "0.1.0"
+
+[workspace]

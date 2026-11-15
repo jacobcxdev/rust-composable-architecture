@@ -43,6 +43,8 @@ class CaptureCoverageTests(unittest.TestCase):
                 "command_port", "local_input_gate", "fold_views", "weak_scoped_store",
                 "action_receipt_lifetime", "named_operation_tasks", "keyed_batch_position",
                 "delayed_scope_retirement", "command_acquisition_admission",
+                "on_change", "debounce_throttle", "fold", "fold_input_gate", "fold_keyed", "issues",
+                "effect_send_lifetime",
             },
             "rca-test": {
                 "dependency_defaults", "dependency_scope", "focused_receiving", "test_store",
@@ -64,6 +66,7 @@ class CaptureCoverageTests(unittest.TestCase):
         self.assertEqual(self.capture.group_arguments("core-minimal"), [
             "-p", "rca-core", "--no-default-features", "--features", "local",
             "--lib", "--test", "store_actor", "--test", "local_store",
+            "--test", "command_port", "--test", "removed_child", "--test", "local_removed_child",
         ])
         rich = self.capture.group_arguments("core-rich")
         self.assertEqual(rich[:5], ["-p", "rca-core", "--features",
@@ -97,6 +100,18 @@ class CaptureCoverageTests(unittest.TestCase):
                                "staged_restoration", "shared_quiescence", "subscription_ownership_contracts")
               for item in ("--test", name)],
         ])
+
+    def test_only_native_file_host_includes_permission_qualification(self):
+        for group, kind, name, expected in (
+            ("persistence-file", ["test"], "file-123", ["--include-ignored"]),
+            ("persistence-file", ["test"], "shared_document-123", []),
+            ("persistence-file", ["lib"], "rca_persistence-123", []),
+            ("core-minimal", ["test"], "file-123", []),
+        ):
+            executable = self.root / name
+            with self.subTest(group=group, kind=kind, host=name):
+                self.assertEqual(self.capture.host_arguments(group, kind, executable),
+                                 [str(executable), *expected])
 
     def test_test_store_and_persistence_parsers_require_exact_selected_hosts(self):
         for group, excluded in (("test-store", ("compiler_contracts", "panic_subprocess")),
@@ -146,7 +161,8 @@ class CaptureCoverageTests(unittest.TestCase):
                 "filenames": [str(executable)], "executable": str(executable)}
 
     def records(self):
-        return [self.artifact(name) for name in ("rca_core", "store_actor", "local_store")]
+        return [self.artifact(name) for name in
+                ("rca_core", "store_actor", "local_store", "command_port", "removed_child", "local_removed_child")]
 
     def parse(self, rows):
         return self.capture.parse_artifacts("\n".join(map(json.dumps, rows)), self.root,
@@ -154,7 +170,8 @@ class CaptureCoverageTests(unittest.TestCase):
 
     def test_artifact_parser_binds_exact_core_package_features_and_hosts(self):
         hosts = self.parse(self.records())
-        self.assertEqual([row["target"]["name"] for row in hosts], ["local_store", "rca_core", "store_actor"])
+        self.assertEqual([row["target"]["name"] for row in hosts],
+                         ["command_port", "local_removed_child", "local_store", "rca_core", "removed_child", "store_actor"])
         for change in ("features", "manifest_path", "executable", "profile"):
             with self.subTest(change=change), self.assertRaises(ValueError):
                 rows = self.records()
@@ -190,7 +207,7 @@ class CaptureCoverageTests(unittest.TestCase):
             executable.parent.mkdir(parents=True)
             executable.write_bytes(b"selected test host")
             row.update(executable=str(executable), filenames=[str(executable)])
-        self.assertEqual(len(self.parse(rows)), 3)
+        self.assertEqual(len(self.parse(rows)), 6)
 
         foreign = self.root / "foreign-host"
         foreign.write_bytes(b"not in the declared build directory")
@@ -275,7 +292,7 @@ class CaptureCoverageTests(unittest.TestCase):
     def test_macro_and_timer_groups_select_fixed_existing_hosts(self):
         self.assertEqual(self.capture.group_arguments("core-reactions"), [
             "-p", "rca-core", "--features", "diagnostics,futures-stream,local,test-util",
-            *[item for name in ("changed_reactions", "stack", "keyed", "keyed_batch_position", "shared_update")
+            *[item for name in ("changed_reactions", "stack", "keyed", "keyed_batch_position", "shared_update", "on_change")
               for item in ("--test", name)],
         ])
         self.assertEqual(self.capture.group_arguments("macros"), [
@@ -316,7 +333,8 @@ class CaptureCoverageTests(unittest.TestCase):
     def test_fold_command_group_selects_rich_unfiltered_integration_hosts(self):
         names = ("fold_local", "fold_gate", "fold_shape", "fold_terminal", "fold_selector_close",
                  "recipe_commands", "recipe_commands_local", "recipe_command_failures",
-                 "command_port", "local_input_gate", "fold_views", "command_acquisition_admission")
+                 "command_port", "local_input_gate", "fold_views", "command_acquisition_admission",
+                 "fold", "fold_input_gate", "fold_keyed")
         self.assertEqual(self.capture.group_arguments("core-fold-commands"), [
             "-p", "rca-core", "--features", "diagnostics,futures-stream,local,test-util",
             *[item for name in names for item in ("--test", name)],
@@ -364,7 +382,7 @@ class CaptureCoverageTests(unittest.TestCase):
 
     def test_terminal_group_selects_rich_unfiltered_integration_hosts(self):
         names = ("clock_fixtures", "store_actor", "local_store", "effects", "terminal_unwind",
-                 "lifecycle", "error_contracts")
+                 "lifecycle", "error_contracts", "debounce_throttle", "effect_send_lifetime")
         self.assertIn("core-terminal", self.capture.TARGETS)
         self.assertEqual(self.capture.group_arguments("core-terminal"), [
             "-p", "rca-core", "--features", "diagnostics,futures-stream,local,test-util",
@@ -398,7 +416,7 @@ class CaptureCoverageTests(unittest.TestCase):
     def test_services_group_selects_rich_unfiltered_integration_hosts(self):
         names = ("dependency_defaults", "dependency_preparation", "issue_operations", "issue_contexts",
                  "diagnostics", "diagnostics_checkpoint", "presentation", "fallible_effect", "fallible_effect_lifecycle",
-                 "application_clients", "dependency_fixture", "dependency_scope", "issue_stubs", "issue_collector")
+                 "application_clients", "dependency_fixture", "dependency_scope", "issue_stubs", "issue_collector", "issues")
         self.assertIn("core-services", self.capture.TARGETS)
         self.assertEqual(self.capture.group_arguments("core-services"), [
             "-p", "rca-core", "--features", "diagnostics,futures-stream,local,test-util",
@@ -423,7 +441,7 @@ class CaptureCoverageTests(unittest.TestCase):
             executable = self.root / (name + "-123")
             with self.subTest(host=name):
                 self.assertEqual(self.capture.host_arguments("persistence-file", ["test"], executable),
-                                 [str(executable)])
+                                 [str(executable), *(["--include-ignored"] if name == "file" else [])])
 
     def test_macro_parser_requires_its_unit_executable_and_one_owned_dynamic_object(self):
         group = "macros"
@@ -515,11 +533,12 @@ class CaptureCoverageTests(unittest.TestCase):
              ["removed_child", "local_removed_child", "stack_removed_child", "local_stack_removed_child",
               "missing_children", "ephemeral"]),
             ("core-reactions", "rca-core", "rca_core", ["default", "diagnostics", "futures-stream", "local", "test-util"],
-             ["changed_reactions", "stack", "keyed", "keyed_batch_position", "shared_update"]),
+             ["changed_reactions", "stack", "keyed", "keyed_batch_position", "shared_update", "on_change"]),
             ("core-fold-commands", "rca-core", "rca_core", ["default", "diagnostics", "futures-stream", "local", "test-util"],
              ["fold_local", "fold_gate", "fold_shape", "fold_terminal", "fold_selector_close",
               "recipe_commands", "recipe_commands_local", "recipe_command_failures",
-              "command_port", "local_input_gate", "fold_views", "command_acquisition_admission"]),
+              "command_port", "local_input_gate", "fold_views", "command_acquisition_admission",
+              "fold", "fold_input_gate", "fold_keyed"]),
             ("core-observation-operations", "rca-core", "rca_core", ["default", "diagnostics", "futures-stream", "local", "test-util"],
              ["observation", "observation_adapters", "observation_scope_lifecycle",
               "observation_waker_lifecycle", "observation_adapter_scopes", "named_operations",
@@ -527,11 +546,11 @@ class CaptureCoverageTests(unittest.TestCase):
               "captured_graph", "owned_snapshot"]),
             ("core-terminal", "rca-core", "rca_core", ["default", "diagnostics", "futures-stream", "local", "test-util"],
              ["clock_fixtures", "store_actor", "local_store", "effects", "terminal_unwind",
-              "lifecycle", "error_contracts"]),
+              "lifecycle", "error_contracts", "debounce_throttle", "effect_send_lifetime"]),
             ("core-services", "rca-core", "rca_core", ["default", "diagnostics", "futures-stream", "local", "test-util"],
              ["dependency_defaults", "dependency_preparation", "issue_operations", "issue_contexts",
               "diagnostics", "diagnostics_checkpoint", "presentation", "fallible_effect", "fallible_effect_lifecycle",
-              "application_clients", "dependency_fixture", "dependency_scope", "issue_stubs", "issue_collector"]),
+              "application_clients", "dependency_fixture", "dependency_scope", "issue_stubs", "issue_collector", "issues"]),
             ("test-store", "rca-test", "rca_test", ["local"],
              ["rca_test", *sorted(path.stem for path in (SCRIPT.parents[1] / "rca-test/tests").glob("*.rs")
                                   if path.stem not in ("compiler_contracts", "panic_subprocess"))]),
@@ -730,9 +749,10 @@ class CaptureCoverageTests(unittest.TestCase):
 
     def capture_fixture(self, mode="success", group="core-minimal"):
         package, package_name, library = "rca-core", "rca-core", "rca_core"
-        names, features = ["rca_core", "store_actor", "local_store"], ["local"]
+        names = ["rca_core", "store_actor", "local_store", "command_port", "removed_child", "local_removed_child"]
+        features = ["local"]
         options = ["-p", "rca-core", "--no-default-features", "--features", "local",
-                   "--lib", "--test", "store_actor", "--test", "local_store"]
+                   "--lib", *[item for name in names[1:] for item in ("--test", name)]]
         if group == "test-store":
             package, package_name, library = "rca-test", "rca-test", "rca_test"
             ordinary = {path.stem for path in (SCRIPT.parents[1] / "rca-test/tests").glob("*.rs")}
@@ -750,7 +770,7 @@ class CaptureCoverageTests(unittest.TestCase):
                        *[item for name in names[1:] for item in ("--test", name)]]
         if group == "core-terminal":
             names = ["clock_fixtures", "store_actor", "local_store", "effects", "terminal_unwind",
-                     "lifecycle", "error_contracts"]
+                     "lifecycle", "error_contracts", "debounce_throttle", "effect_send_lifetime"]
             features = ["default", "diagnostics", "futures-stream", "local", "test-util"]
             options = ["-p", "rca-core", "--features", "diagnostics,futures-stream,local,test-util",
                        *[item for name in names for item in ("--test", name)]]
@@ -1199,7 +1219,7 @@ elif name == "llvm-cov":
         with self.assertRaises(ValueError):
             self.run_capture_fixture(tools, output)
         self.assertFalse(json.loads((output / "capture.json").read_text())["capture_complete"])
-        self.assertEqual(json.loads((output / "hosts/local_store/run.status.json").read_text())["returncode"], 0)
+        self.assertEqual(json.loads((output / "hosts/command_port/run.status.json").read_text())["returncode"], 0)
 
     def test_capture_rejects_zero_tests_despite_successful_exit(self):
         tools, output = self.capture_fixture("zero-tests")

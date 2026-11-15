@@ -5,7 +5,7 @@ error[E0521]: borrowed data escapes outside of closure
    |         ------- `escaped` declared here, outside of the closure body
 ...
 18 |         move |change| {
-   |               ------ `change` is a reference that is only valid in the closure body
+   |               ------ `change` is only valid in the closure body
 19 |             escaped.lock().unwrap().push(change);
    |             ^^^^^^^^^^^^^^ `change` escapes the closure body here
    |

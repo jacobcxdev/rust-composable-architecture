@@ -294,6 +294,16 @@ fn mixed_optional_keyed_roster_reorders_retains_and_replaces_independent_contrib
     drop(driver.finish(store.send(Action::Remove)).unwrap());
     assert_eq!(driver.finish(store.fold(&fold)).unwrap().0, [1, 2, 5, 6, 7]);
     assert!(captures.lock().unwrap()[&1].upgrade().is_none());
+    let Err(error) = driver.finish(leaf_view.read()) else {
+        panic!("the removed row must release its nested declaration")
+    };
+    assert_eq!(error.reason(), TaskAccessReason::ScopeEnded);
+    assert_eq!(error.progress(), TaskProgress::NotStarted);
+    let Err(error) = driver.finish(store.acquire_fold(&fold, &leaf_site)) else {
+        panic!("a retired nested declaration cannot be acquired on the live root")
+    };
+    assert_eq!(error.reason(), TaskAccessReason::ScopeEnded);
+    assert_eq!(error.progress(), TaskProgress::NotStarted);
     let Err(error) = driver.finish(refreshed.read()) else {
         panic!("removed row view")
     };

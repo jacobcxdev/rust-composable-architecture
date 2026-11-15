@@ -98,12 +98,12 @@ fn registration_cost<F: Future<Output = ()>>(
             operations: prepared.operation_ancestry(),
         };
 
-        // This isolates the removed expression's cost, not a copied registration
+        // This isolates the current authority clone, not a copied registration
         // algorithm or a claim about end-to-end CPU time.
         let before = dhat::HeapStats::get();
         let copy = std::hint::black_box(provenance.clone());
         let clone_cost = delta(&before, &dhat::HeapStats::get());
-        assert_eq!(clone_cost.0, u64::from(depth > 0));
+        assert_eq!(clone_cost, (0, 0));
         drop(copy);
 
         let before = dhat::HeapStats::get();
@@ -120,7 +120,7 @@ fn registration_cost<F: Future<Output = ()>>(
     let released = dhat::HeapStats::get();
     assert_eq!(released.curr_blocks, initial.curr_blocks);
     assert_eq!(released.curr_bytes, initial.curr_bytes);
-    eprintln!("mounted provenance depth={depth}: removed clone expression={clone_cost:?}");
+    eprintln!("mounted provenance depth={depth}: shared authority clone={clone_cost:?}");
     cost
 }
 

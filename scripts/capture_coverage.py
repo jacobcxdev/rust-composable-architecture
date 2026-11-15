@@ -42,7 +42,7 @@ TARGETS = {
     "core-minimal": CaptureGroup(
         "rca-core", "rca-core", "rca_core", frozenset({"local"}),
         ("--no-default-features", "--features", "local"),
-        ("store_actor", "local_store"),
+        ("store_actor", "local_store", "command_port", "removed_child", "local_removed_child"),
     ),
     "core-rich": CaptureGroup(
         "rca-core", "rca-core", "rca_core",
@@ -79,7 +79,7 @@ TARGETS = {
         "rca-core", "rca-core", "rca_core",
         frozenset({"default", "diagnostics", "futures-stream", "local", "test-util"}),
         ("--features", "diagnostics,futures-stream,local,test-util"),
-        ("changed_reactions", "stack", "keyed", "keyed_batch_position", "shared_update"),
+        ("changed_reactions", "stack", "keyed", "keyed_batch_position", "shared_update", "on_change"),
         include_library=False,
     ),
     "core-fold-commands": CaptureGroup(
@@ -88,7 +88,8 @@ TARGETS = {
         ("--features", "diagnostics,futures-stream,local,test-util"),
         ("fold_local", "fold_gate", "fold_shape", "fold_terminal", "fold_selector_close",
          "recipe_commands", "recipe_commands_local", "recipe_command_failures",
-         "command_port", "local_input_gate", "fold_views", "command_acquisition_admission"),
+         "command_port", "local_input_gate", "fold_views", "command_acquisition_admission",
+         "fold", "fold_input_gate", "fold_keyed"),
         include_library=False,
     ),
     "core-observation-operations": CaptureGroup(
@@ -105,7 +106,7 @@ TARGETS = {
         frozenset({"default", "diagnostics", "futures-stream", "local", "test-util"}),
         ("--features", "diagnostics,futures-stream,local,test-util"),
         ("clock_fixtures", "store_actor", "local_store", "effects", "terminal_unwind",
-         "lifecycle", "error_contracts"), include_library=False,
+         "lifecycle", "error_contracts", "debounce_throttle", "effect_send_lifetime"), include_library=False,
     ),
     "core-services": CaptureGroup(
         "rca-core", "rca-core", "rca_core",
@@ -113,7 +114,7 @@ TARGETS = {
         ("--features", "diagnostics,futures-stream,local,test-util"),
         ("dependency_defaults", "dependency_preparation", "issue_operations", "issue_contexts",
          "diagnostics", "diagnostics_checkpoint", "presentation", "fallible_effect", "fallible_effect_lifecycle",
-         "application_clients", "dependency_fixture", "dependency_scope", "issue_stubs", "issue_collector"),
+         "application_clients", "dependency_fixture", "dependency_scope", "issue_stubs", "issue_collector", "issues"),
         include_library=False,
     ),
     "macros": CaptureGroup(
@@ -230,6 +231,11 @@ def host_arguments(group, kind, executable):
         args.extend(("--nocapture", "--test-threads=1"))
     if group in ("channel-overflow-std", "channel-overflow-nostd") and kind == ["lib"]:
         args.extend(("--nocapture", "--test-threads=1"))
+    if group == "persistence-file" and kind == ["test"] and (
+        executable.name == "file" or executable.name.startswith("file-")
+    ):
+        # This Linux-only capture requires real permission denial, not a skipped witness.
+        args.append("--include-ignored")
     return args
 
 

@@ -8,5 +8,7 @@ error[E0277]: `Rc<u32>` cannot be sent between threads safely
 note: required by a bound in `rca_core::SharedReaderKey::Value`
  --> src/sharing/cache.rs
   |
+  | pub trait SharedReaderKey: Send + Sync + 'static {
+  |     /// Value admitted to the heterogeneous cache.
   |     type Value: Send + 'static;
   |                 ^^^^ required by this bound in `SharedReaderKey::Value`

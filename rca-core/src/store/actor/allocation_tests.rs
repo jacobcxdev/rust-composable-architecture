@@ -392,7 +392,9 @@ fn assert_sequence_storage_budget() {
     warm_control.notify();
     drop(warm_control);
 
-    for (depth, blocks) in [(0_u32, 8), (1, 17), (4, 27), (16, 67)] {
+    // Shared generation authority and inline singleton memberships lower these budgets.
+    // Keep the tighter ceilings while accepting further compiler allocation elision.
+    for (depth, maximum_blocks) in [(0_u32, 8), (1, 15), (4, 25), (16, 65)] {
         let effect = (0..depth).fold(
             Effect::concatenate([
                 Effect::future(pending()),
@@ -448,7 +450,10 @@ fn assert_sequence_storage_budget() {
         );
         assert_eq!(released.curr_blocks, before.curr_blocks);
         assert_eq!(released.curr_bytes, before.curr_bytes);
-        assert_eq!(retained.total_blocks - before.total_blocks, blocks);
+        assert!(
+            retained.total_blocks - before.total_blocks <= maximum_blocks,
+            "sequence depth {depth} exceeded its {maximum_blocks}-block budget",
+        );
     }
     #[cfg(target_pointer_width = "64")]
     assert!(

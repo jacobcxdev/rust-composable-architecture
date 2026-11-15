@@ -2,7 +2,7 @@ error[E0521]: borrowed data escapes outside of function
  --> tests/ui/rc04_id_borrowed.rs
   |
   | fn check<'s>(id: &'s str, context: &mut ReduceContext<'_>) {
-  |          --  -- `id` is a reference that is only valid in the function body
+  |          --  -- `id` is only valid in the function body
   |          |
   |          lifetime `'s` defined here
 ...
@@ -12,6 +12,24 @@ error[E0521]: borrowed data escapes outside of function
   |             `id` escapes the function body here
   |             argument requires that `'s` must outlive `'static`
   |
+note: `'static` lifetime requirement from `<ScopeIdentified<ParentState, ParentAction, Parent, Child, StatePath<ParentState, ChildState, Get, GetMut>, ActionPath<ParentAction, ChildAction, Extract, Embed>, Identity, Id> as rca_core::Reducer>::reduce` introduced here
+ --> src/composition/scope.rs
+  |
+  | impl<
+...
+  |     ParentAction: 'static,
+  |                   ^^^^^^^ lifetime requirement introduced here
+...
+  |     ChildAction: 'static,
+  |                  ^^^^^^^ lifetime requirement introduced here
+...
+  |     Embed: Fn(ChildAction) -> ParentAction + Clone + Send + Sync + 'static,
+  |                                                                    ^^^^^^^ lifetime requirement introduced here
+  |     Identity: for<'a> Fn(&'a ChildState) -> &'a Id,
+  |     Id: Eq + core::hash::Hash + Clone + Send + Sync + 'static,
+  |                                                       ^^^^^^^ lifetime requirement introduced here
+...
+  |     fn reduce(
   = note: requirement occurs because of a mutable reference to `ScopeIdentified<&str, (), rca_core::Reduce<&str, (), {closure@$DIR/tests/ui/rc04_id_borrowed.rs:10:21: 10:49}>, rca_core::Reduce<&str, (), {closure@$DIR/tests/ui/rc04_id_borrowed.rs:14:21: 14:49}>, StatePath<&str, &str, {closure@$DIR/tests/ui/rc04_id_borrowed.rs:11:24: 11:37}, {closure@$DIR/tests/ui/rc04_id_borrowed.rs:11:41: 11:58}>, ActionPath<(), (), {closure@$DIR/tests/ui/rc04_id_borrowed.rs:12:25: 12:33}, {closure@$DIR/tests/ui/rc04_id_borrowed.rs:12:43: 12:46}>, for<'a, 's> fn(&'a &'s str) -> &'a &'s str {identity}, &str>`
   = note: mutable references are invariant over their type parameter
   = help: see <https://doc.rust-lang.org/nomicon/subtyping.html> for more information about variance

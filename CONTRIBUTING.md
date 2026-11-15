@@ -270,15 +270,15 @@ change implementation.
 
 | Group | Selected tests |
 | --- | --- |
-| `core-minimal` | Core unit, actor and Local Store tests with `local`, without `test-util` |
+| `core-minimal` | Core unit, actor, Local Store, command-port and removed-child tests with `local`, without `test-util` |
 | `core-rich` | Core unit, mounted access, paths, composition and captured-modification tests with the rich Core features |
 | `core-removal` | Removed-child, stack-removal, missing-child and ephemeral tests with the rich Core features |
 | `core-timers-rich` | Timers, transactions, task receipts, named tasks, Local runtime and cold-listener registration tests with the rich Core features |
 | `core-timers-minimal` | Core timer and transaction tests with `local` only |
-| `core-reactions` | Changed reactions, keyed collections, stack and shared-update tests with the rich Core features |
+| `core-reactions` | Changed reactions, reducer change callbacks, keyed collections, stack and shared-update tests with the rich Core features |
 | `core-fold-commands` | Folds, recipe commands, command ports, input gates and acquisition-admission tests with the rich Core features |
 | `core-observation-operations` | Observations, named operations, shared values, weak handles, captured graphs and owned snapshots with the rich Core features |
-| `core-terminal` | Clocks, Stores, effects, lifecycle, errors and terminal unwind with the rich Core features |
+| `core-terminal` | Clocks, debounce, throttle, Stores, effect-send ownership, lifecycle, errors and terminal unwind with the rich Core features |
 | `core-services` | Dependencies, application clients, issues, diagnostics, presentation and fallible effects with the rich Core features |
 | `macros` | Macro unit and integration tests, plus compiler-stage profiles from the proc-macro library |
 | `test-store` | Unit tests and ordinary native integration tests with `local` |
@@ -296,8 +296,10 @@ The `test-store` group excludes the separate compiler-contract and panic-process
 `compiler_contracts` uses a compiler harness, not libtest.
 `panic_subprocess` has intentional failing and watchdog-killed children; the separate runtime-conformance suite checks their outcomes.
 
-The `persistence-file` group leaves the host-qualified unreadable-file test ignored.
-Its summary records the ignored test; the capture does not claim it ran.
+The `persistence-file` group runs the host-qualified unreadable-file test with `--include-ignored`.
+Only its native file host receives this option.
+The Linux runner must deny opening a mode-000 regular file.
+The test fails if the host does not enforce that permission boundary.
 
 The `listener-spin` group captures the fallback only for regression evidence.
 It does not expand supported production configurations.
