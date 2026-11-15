@@ -17,6 +17,8 @@ V4_POLICY_SHA256 = "18a136c60ee24f0d1ef6ce5523158e7dcb53ef76bba9b65051fb8b346a43
 V4_METHOD = "composition-windows-complete-v4"
 V5_POLICY_SHA256 = "679e38f61cbbffbfa0b5f6d67435616ac049b7ec5fe5705920929b0ade20edf7"
 V5_METHOD = "composition-windows-complete-v5"
+V6_POLICY_SHA256 = "a82d2879870f98b57f8e2341d20ec69ad30b881093e1c5afd4feb264e90b3d6a"
+V6_METHOD = "composition-windows-complete-v6"
 
 
 def _digest(value):
@@ -26,7 +28,7 @@ def _digest(value):
 def load_policy(path):
     """Reject changed rules rather than accepting limits chosen after capture."""
     path = Path(path)
-    if path.is_symlink() or evidence._sha256(path) not in (POLICY_SHA256, RUST100_POLICY_SHA256, V4_POLICY_SHA256, V5_POLICY_SHA256):
+    if path.is_symlink() or evidence._sha256(path) not in (POLICY_SHA256, RUST100_POLICY_SHA256, V4_POLICY_SHA256, V5_POLICY_SHA256, V6_POLICY_SHA256):
         raise ValueError("Windows complete policy hash differs from the frozen rules")
     return json.loads(path.read_text(encoding="utf-8"))
 
@@ -35,7 +37,8 @@ def _validate_policy(policy):
     name = {METHOD: "composition-windows-complete-v2.json",
             RUST100_METHOD: "composition-windows-complete-v3.json",
             V4_METHOD: "composition-windows-complete-v4.json",
-            V5_METHOD: "composition-windows-complete-v5.json"}.get(policy.get("method_version"))
+            V5_METHOD: "composition-windows-complete-v5.json",
+            V6_METHOD: "composition-windows-complete-v6.json"}.get(policy.get("method_version"))
     if name is None:
         raise ValueError("Windows complete policy method is unsupported")
     path = Path(__file__).resolve().parents[1] / "docs/performance/composition" / name
@@ -171,7 +174,8 @@ def seal_reference(policy, budget_path, timing_report, raw_observation):
         for row in timing_report["rows"]
     ]
     policy_hash = {METHOD: POLICY_SHA256, RUST100_METHOD: RUST100_POLICY_SHA256,
-                   V4_METHOD: V4_POLICY_SHA256, V5_METHOD: V5_POLICY_SHA256}[policy["method_version"]]
+                   V4_METHOD: V4_POLICY_SHA256, V5_METHOD: V5_POLICY_SHA256,
+                   V6_METHOD: V6_POLICY_SHA256}[policy["method_version"]]
     return {"schema": "composition-windows-reference-limits-v1", "policy_sha256": policy_hash,
             "reference_revision": policy["reference_revision"],
             "capture_sha256": timing_report["metadata"]["capture_sha256"],

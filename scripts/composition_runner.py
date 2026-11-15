@@ -34,8 +34,8 @@ import windows_strip  # noqa: E402
 ROOT = Path(__file__).resolve().parents[1]
 PROTOCOL = ROOT / "docs/performance/composition/composition-protocol-v7.json"
 CURRENT_PROTOCOL = ROOT / "docs/performance/composition/composition-protocol-v9.json"
-WINDOWS_PROTOCOL = ROOT / "docs/performance/composition/composition-windows-paired-v5.json"
-WINDOWS_COMPLETE_POLICY = ROOT / "docs/performance/composition/composition-windows-complete-v5.json"
+WINDOWS_PROTOCOL = ROOT / "docs/performance/composition/composition-windows-paired-v6.json"
+WINDOWS_COMPLETE_POLICY = ROOT / "docs/performance/composition/composition-windows-complete-v6.json"
 BUDGET = ROOT / "docs/performance/composition/composition-budgets.json"
 EVIDENCE_ROOT = ROOT / "target/qualification-evidence/0.1.0/composition"
 LOCK = Path("/tmp/rca-composition-performance.machine.lock")
@@ -59,6 +59,7 @@ def protocol_path(protocol):
         evidence.RUST100_WINDOWS_METHOD: "composition-windows-paired-v3.json",
         evidence.WINDOWS_V4_METHOD: "composition-windows-paired-v4.json",
         evidence.WINDOWS_V5_METHOD: "composition-windows-paired-v5.json",
+        evidence.WINDOWS_V6_METHOD: "composition-windows-paired-v6.json",
     }
     name = names.get(protocol["method_version"])
     return PROTOCOL.with_name(name) if name else PROTOCOL
@@ -831,6 +832,10 @@ class WindowsMonitor(HostMonitor):
             or (executed[1] == "bench" and "--no-run" in cargo_arguments)
             or (self.complete and (executed[1] == "build"
                 or (executed[1] == "test" and "--no-run" in cargo_arguments))))
+        divan_timing = not pinned_cargo and (
+            executed[1:] == ["--bench"] or executed[1:3] == ["--bench", "--exact"])
+        primary_thread_affinity = (self.protocol.get("method_version") == evidence.WINDOWS_V6_METHOD
+                                   and divan_timing)
 
         timeout = self.protocol["process_timeout_seconds"] if timeout is None else timeout
         memory_limit = self.protocol["process_memory_limit_bytes"]
@@ -850,11 +855,12 @@ class WindowsMonitor(HostMonitor):
             with destination.open("xb") as transcript:
                 result = self.run_process(executed, transcript, str(cwd), env, timeout, self.provider,
                                           memory_limit_bytes=memory_limit,
+                                          **({"primary_thread_affinity_mask": 1} if primary_thread_affinity else {}),
                                           **({"compiler_telemetry_path": telemetry["path"]} if compiler else {}))
             receipt = {key: value for key, value in result.items() if key != "counters"}
             receipt.update(command_kind="compile" if compiler else "runtime",
                            compiler_telemetry_sha256=None if telemetry is None else telemetry["sha256"])
-            if executed[1:3] == ["--bench", "--exact"]:
+            if executed[1:3] == ["--bench", "--exact"] or (primary_thread_affinity and divan_timing):
                 receipt["divan_arguments"] = executed[1:]
             if result["returncode"]:
                 raise subprocess.CalledProcessError(result["returncode"], executed)
@@ -865,7 +871,8 @@ class WindowsMonitor(HostMonitor):
                 check_windows_compiler_telemetry(self.protocol)
             resources = {"real_seconds": result["leader_elapsed_seconds"] if compiler else result["elapsed_seconds"],
                          "direct_process": result["counters"], "process_receipt": receipt}
-            evidence.validate_windows_resource_counters(resources, expected_kind="compile" if compiler else "runtime")
+            evidence.validate_windows_resource_counters(resources, expected_kind="compile" if compiler else "runtime",
+                                                       primary_thread_affinity_required=primary_thread_affinity)
             if timed:
                 write_json(destination.with_suffix(".resources.json"), resources)
         except BaseException as error:
@@ -941,6 +948,7 @@ def execute_pairs(protocol, roots, executables, targets, paired, cargo, env, mon
 def execute_interleaved_pairs(protocol, captures, cargo, env, monitor, directory):
     """Run each frozen block once, with a control block in the same capture."""
     capture_hash = evidence._sha256(directory / "capture.json")
+    sealed = {mode: [] for mode in captures}
     with (directory / "blocks.jsonl").open("x", encoding="utf-8") as transcript:
         for block, order in enumerate(evidence.seeded_order_schedule(protocol), 1):
             for mode in evidence.interleaved_mode_order(protocol, block):
@@ -950,6 +958,32 @@ def execute_interleaved_pairs(protocol, captures, cargo, env, monitor, directory
                     transcript.write(json.dumps({**row, **measured, "phase": phase, "recorded_at": now(),
                                                  "monotonic": time.monotonic()}, allow_nan=False) + "\n")
                     transcript.flush()
+                    if phase == "finish" and protocol["method_version"] == evidence.WINDOWS_V6_METHOD:
+                        sealed[mode].append({"block": block, "sha256": measured["sha256"]})
+                        try:
+                            if [item["block"] for item in sealed[mode]] != list(range(1, block + 1)):
+                                raise ValueError("sealed paired prefix is not contiguous")
+                            for item in sealed[mode]:
+                                if paired_block_hashes(directory, protocol, item["block"], mode) != item["sha256"]:
+                                    raise ValueError("sealed paired prefix hash changed")
+                            paired = captures[mode]["paired"]
+                            failures = evidence.paired_prefix_rejections(
+                                BUDGET, protocol, paired / "subject", paired / "control", block)
+                        except BaseException:
+                            for capture in captures.values():
+                                retain_runtime_products(capture)
+                            raise
+                        if failures:
+                            retained = {name: retain_runtime_products(capture) for name, capture in captures.items()}
+                            write_json(directory / "prefix-rejection.json", {
+                                "complete": False, "passed": False, "qualification_acceptance_checked": False,
+                                "status": "irrecoverable-prefix-rejection", "mode": mode, "block": block,
+                                "protocol_sha256": evidence._protocol_sha256(protocol), "capture_sha256": capture_hash,
+                                "blocks_sha256": evidence._sha256(directory / "blocks.jsonl"),
+                                "failed_gates": failures, "sealed_mode_prefix": sealed[mode],
+                                "retained_runtime_products": retained,
+                            })
+                            raise ValueError("paired capture has an irrecoverable final upper-bound failure")
                     if phase == "start":
                         capture = captures[mode]
                         execute_pairs(protocol, capture["roots"], capture["executables"],
@@ -973,6 +1007,21 @@ def paired_block_hashes(directory, protocol, block, mode):
         if (directory / path).is_symlink():
             raise ValueError("interleaved measurement became a symlink")
     return {path.as_posix(): evidence._sha256(directory / path) for path in paths}
+
+
+def retain_runtime_products(capture):
+    """Preserve exact failed products before their temporary build trees unwind."""
+    retained = capture["staging"] / "builds/failed-runtime-products"
+    retained.mkdir()
+    hashes = {}
+    for role, executable in capture["executables"].items():
+        destination = retained / (role + executable.suffix)
+        shutil.copy2(executable, destination)
+        digest = evidence._sha256(destination)
+        if digest != capture["metadata"][f"{role}_executable_sha256"]:
+            raise ValueError(f"retained runtime executable hash mismatch: {role}")
+        hashes[role] = digest
+    return hashes
 
 
 def benchmark(root, target, role, staging, tools, env, monitor):
@@ -1385,13 +1434,7 @@ def qualify(output, staging, reference, mode, aa_evidence=None, *, platform_name
             passed[item] = finish_pair_capture(captures[item], protocol, controller, env, monitor,
                                                 **options)
             if not passed[item]:
-                retained = captures[item]["staging"] / "builds/failed-runtime-products"
-                retained.mkdir()
-                for role, executable in captures[item]["executables"].items():
-                    destination = retained / (role + executable.suffix)
-                    shutil.copy2(executable, destination)
-                    if evidence._sha256(destination) != captures[item]["metadata"][f"{role}_executable_sha256"]:
-                        raise ValueError(f"retained runtime executable hash mismatch: {role}")
+                retain_runtime_products(captures[item])
             # Final source and executable hashes are complete. No later sample uses this tree.
             shutil.rmtree(captures[item]["targets"])
         if validate_interleaved_capture(staging, protocol) != capture_hash:

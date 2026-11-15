@@ -1609,6 +1609,84 @@ class RunnerTests(unittest.TestCase):
             for name, digest in events[1]["sha256"].items():
                 self.assertEqual(digest, evaluator._sha256(directory / name))
 
+    def test_irrecoverable_prefix_stops_after_seal_and_retains_all_four_images(self):
+        self.assertTrue(hasattr(runner, "retain_runtime_products"))
+        protocol = evaluator.load_protocol(runner.WINDOWS_PROTOCOL)
+        protocol["runtime"]["gated_scenarios"] = []
+        protocol["compile"]["fixtures"] = ["direct"]
+        class Monitor:
+            def idle(self, *args, **kwargs):
+                pass
+            def run(self, command, destination, cwd, env):
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                destination.write_text("completed compile")
+                destination.with_suffix(".resources.json").write_text("{}")
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "capture.json").write_text("frozen capture")
+            build_tree = tempfile.TemporaryDirectory(dir=root)
+            self.addCleanup(build_tree.cleanup)
+            captures = {}
+            for mode in ("candidate-reference", "reference-reference-aa"):
+                staging = root / mode
+                (staging / "builds").mkdir(parents=True)
+                products = {role: Path(build_tree.name) / (mode + role + ".exe") for role in ("subject", "control")}
+                for role, path in products.items():
+                    path.write_bytes((mode + role).encode())
+                captures[mode] = {"roots": {role: root for role in products}, "executables": products,
+                    "targets": root / mode / "targets", "paired": staging / "paired", "staging": staging,
+                    "metadata": {f"{role}_executable_sha256": evaluator._sha256(path) for role, path in products.items()}}
+            def reject(_budget, _protocol, _subject, _control, block):
+                return [{"final_upper_bound_lower_bound": 1.2, "irrecoverable": True}] if block == 4 else []
+            with patch.object(evaluator, "paired_prefix_rejections", side_effect=reject), \
+                 self.assertRaisesRegex(ValueError, "irrecoverable"):
+                runner.execute_interleaved_pairs(protocol, captures, "/cargo", {}, Monitor(), root)
+            build_tree.cleanup()
+            events = [json.loads(line) for line in (root / "blocks.jsonl").read_text().splitlines()]
+            self.assertEqual((events[-1]["block"], events[-1]["phase"]), (4, "finish"))
+            rejection = json.loads((root / "prefix-rejection.json").read_text())
+            self.assertFalse(rejection["complete"])
+            self.assertFalse(rejection["qualification_acceptance_checked"])
+            self.assertEqual(rejection["block"], 4)
+            self.assertFalse((root / "complete.json").exists())
+            for mode, capture in captures.items():
+                for role, product in capture["executables"].items():
+                    retained = capture["staging"] / "builds/failed-runtime-products" / (role + ".exe")
+                    self.assertFalse(product.exists(), "temporary products did not unwind")
+                    self.assertEqual(retained.read_bytes(), (mode + role).encode())
+                    self.assertEqual(evaluator._sha256(retained), rejection["retained_runtime_products"][mode][role])
+
+    def test_prefix_rechecks_sealed_hashes_before_parsing_current_measurements(self):
+        protocol = evaluator.load_protocol(runner.WINDOWS_PROTOCOL)
+        protocol["runtime"]["gated_scenarios"] = []
+        protocol["compile"]["fixtures"] = ["direct"]
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "capture.json").write_text("frozen capture")
+            captures = {}
+            for mode in ("candidate-reference", "reference-reference-aa"):
+                staging = root / mode
+                (staging / "builds").mkdir(parents=True)
+                captures[mode] = {"roots": {}, "executables": {}, "targets": root / "targets",
+                                  "staging": staging, "paired": staging / "paired", "metadata": {}}
+            def execute(_protocol, _roots, _executables, _targets, paired, *_args, blocks):
+                block, _order = blocks[0]
+                for role in ("subject", "control"):
+                    path = paired / role / "compile/direct" / f"block-{block:02d}.txt"
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    path.write_text("completed compile")
+                    path.with_suffix(".resources.json").write_text("{}")
+                if block == 2:
+                    for path in root.glob("*/paired/*/compile/direct/block-01.resources.json"):
+                        path.write_text("changed after sealing")
+            with patch.object(runner, "execute_pairs", side_effect=execute), \
+                 patch.object(evaluator, "paired_prefix_rejections", return_value=[]) as analyse, \
+                 self.assertRaisesRegex(ValueError, "sealed paired prefix hash changed"):
+                runner.execute_interleaved_pairs(protocol, captures, "/cargo", {}, Mock(), root)
+            self.assertEqual(analyse.call_count, 2, "changed second-block evidence reached the parser")
+            self.assertFalse((root / "complete.json").exists())
+
+
     def test_interleaved_control_rejects_detached_binding_order_and_missing_blocks(self):
         protocol = evaluator.load_protocol(runner.PROTOCOL)
         protocol["runtime"]["gated_scenarios"] = []

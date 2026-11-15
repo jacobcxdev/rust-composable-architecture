@@ -207,6 +207,38 @@ class WindowsCompleteTests(unittest.TestCase):
             else:
                 self.assertAlmostEqual(actual["absolute_budget"], 110)
 
+    def test_v6_complete_keeps_limits_and_rejects_v5_baselines_and_timing(self):
+        previous = complete.load_policy(POLICY.with_name("composition-windows-complete-v5.json"))
+        current = complete.load_policy(POLICY.with_name("composition-windows-complete-v6.json"))
+        self.assertEqual(
+            {key: value for key, value in previous.items() if key not in ("method_version", "paired_protocol_sha256")},
+            {key: value for key, value in current.items() if key not in ("method_version", "paired_protocol_sha256")})
+        self.reference.update(method_version=evidence.WINDOWS_V6_METHOD,
+                              protocol_sha256=evidence.WINDOWS_V6_PROTOCOL_SHA256,
+                              toolchain=evidence.expected_toolchain({"method_version": evidence.WINDOWS_V6_METHOD}),
+                              revision=evidence.RELEASE_BASELINE_REVISION)
+        self.reference["metadata"].update(method_version=evidence.WINDOWS_V6_METHOD,
+                                          subject_revision=evidence.RELEASE_BASELINE_REVISION,
+                                          control_revision=evidence.RELEASE_BASELINE_REVISION)
+        self.raw["subject_revision"] = evidence.RELEASE_BASELINE_REVISION
+        baseline = complete.seal_reference(current, BUDGET, self.reference, self.raw)
+        timing, raw = self.candidate()
+        for subject, observation in ((self.reference, self.raw), (timing, raw)):
+            report = complete.evaluate(current, BUDGET, subject, observation, baseline)
+            self.assertTrue(report["passed"])
+            self.assertEqual(len(report["rows"]), 33)
+            self.assertEqual(report["policy_sha256"], complete.V6_POLICY_SHA256)
+        with self.assertRaisesRegex(ValueError, "another paired protocol"):
+            complete.seal_reference(previous, BUDGET, self.reference, self.raw)
+        old = copy.deepcopy(self.reference)
+        old.update(method_version=evidence.WINDOWS_V5_METHOD, protocol_sha256=evidence.WINDOWS_V5_PROTOCOL_SHA256)
+        old["metadata"]["method_version"] = evidence.WINDOWS_V5_METHOD
+        old_baseline = complete.seal_reference(previous, BUDGET, old, self.raw)
+        with self.assertRaisesRegex(ValueError, "another paired protocol"):
+            complete.evaluate(current, BUDGET, timing, raw, old_baseline)
+        with self.assertRaisesRegex(ValueError, "another paired protocol"):
+            complete.evaluate(current, BUDGET, old, self.raw, baseline)
+
     def test_candidate_cannot_define_reference_limits(self):
         timing, raw = self.candidate()
         with self.assertRaisesRegex(ValueError, "reference-only"):

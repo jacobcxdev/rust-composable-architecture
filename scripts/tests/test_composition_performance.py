@@ -1371,6 +1371,180 @@ class MacWatchdogEvidenceTests(unittest.TestCase):
 
 
 class WindowsPairedProtocolTests(unittest.TestCase):
+    def test_prefix_bound_is_irreversible_but_never_early_accepts(self):
+        self.assertTrue(hasattr(composition_performance, "paired_prefix_bound"))
+        protocol = composition_performance.load_protocol(
+            REPO_ROOT / "docs/performance/composition/composition-windows-paired-v6.json")
+        schedule = composition_performance.seeded_order_schedule(protocol)
+        pairs = [{"block": block, "order": order, "subject": 1.11, "control": 1.0}
+                 for block, order in enumerate(schedule[:4], 1)]
+        self.assertIsNone(composition_performance.paired_prefix_bound(pairs[:3], "maximum", protocol))
+        result = composition_performance.paired_prefix_bound(pairs, "maximum", protocol)
+        self.assertTrue(result["irrecoverable"])
+        self.assertAlmostEqual(result["final_upper_bound_lower_bound"], 1.11)
+        for pair in pairs:
+            pair["subject"] = 1.10
+        self.assertFalse(composition_performance.paired_prefix_bound(pairs, "maximum", protocol)["irrecoverable"])
+        # One high observation per stratum is not enough: use second-largest, not maximum.
+        pairs[0]["subject"], pairs[2]["subject"] = 9.0, 9.0
+        self.assertFalse(composition_performance.paired_prefix_bound(pairs, "maximum", protocol)["irrecoverable"])
+        with self.assertRaisesRegex(ValueError, "twenty"):
+            composition_performance.paired_ratio_statistics(pairs, "maximum", protocol)
+        for invalid in (pairs[1:], [pairs[1], pairs[0], *pairs[2:]]):
+            with self.assertRaises(ValueError):
+                composition_performance.paired_prefix_bound(invalid, "maximum", protocol)
+
+    def test_v6_changes_only_placement_and_irreversible_stop_policy(self):
+        directory = REPO_ROOT / "docs/performance/composition"
+        path = directory / "composition-windows-paired-v6.json"
+        self.assertTrue(path.is_file(), "Primary-thread placement needs a separate frozen method")
+        previous = composition_performance.load_protocol(directory / "composition-windows-paired-v5.json")
+        current = composition_performance.load_protocol(path)
+        comparable = json.loads(json.dumps(current))
+        comparable["method_version"] = previous["method_version"]
+        placement = comparable["runtime"].pop("primary_thread_affinity")
+        self.assertEqual(comparable.pop("early_rejection"), {
+            "criterion": "irrecoverable-final-upper-bound-after-sealed-mode-block",
+            "minimum_observations_per_order_stratum": 2,
+            "successful_capture_requires_all_blocks_and_gates": True})
+        self.assertEqual(placement, {"mask": 1, "group": 0, "apply_before_resume": True,
+            "process_affinity": "unchanged-full-system", "commands": "normal-divan-timing-only"})
+        self.assertEqual(comparable, previous)
+        for scenario in current["runtime"]["gated_scenarios"]:
+            self.assertEqual(composition_performance.isolated_divan_arguments(current, scenario),
+                             ["--min-time", "2", "--max-time", "2"])
+
+    def test_prefix_loaders_preserve_all_fourteen_metrics_and_throughput_rounding(self):
+        protocol = composition_performance.load_protocol(
+            REPO_ROOT / "docs/performance/composition/composition-windows-paired-v6.json")
+        placement = {"mask": 1, "previous_mask": 0xffffff, "group": 0,
+                     "process_mask": 0xffffff, "system_mask": 0xffffff, "applied_before_resume": True}
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            subject, control = root / "subject", root / "control"
+            for arm, duration, seconds in ((subject, 120.0, 3.0), (control, 100.0, 2.0)):
+                for block in range(1, 5):
+                    for scenario in protocol["runtime"]["gated_scenarios"]:
+                        write_isolated_observation(arm, scenario, block, duration)
+                        path = arm / "runtime" / scenario.replace("/", "__") / f"block-{block:02d}.resources.json"
+                        resource = self.resources()
+                        resource["process_receipt"].update(primary_thread_affinity=placement, divan_arguments=[
+                            "--bench", "--exact", "composition::" + scenario.replace("/", "::"),
+                            "--min-time", "2", "--max-time", "2"])
+                        path.write_text(json.dumps(resource))
+                    for fixture in protocol["compile"]["fixtures"]:
+                        write_compile_observation(arm, fixture, block, seconds)
+                        path = arm / "compile" / fixture / f"block-{block:02d}.resources.json"
+                        path.write_text(json.dumps(self.resources(seconds, compiler=True)))
+            failures = composition_performance.paired_prefix_rejections(
+                REPO_ROOT / "docs/performance/composition/composition-budgets.json", protocol, subject, control, 4)
+            self.assertEqual(len(failures), 14)
+            for row in failures:
+                expected = (1.5 if row["scenario"].startswith("compile/") else
+                            320000000 / 266666700 if row["measured_statistic"] == "median_throughput_across_processes" else 1.2)
+                self.assertAlmostEqual(row["final_upper_bound_lower_bound"], expected)
+            with self.assertRaisesRegex(ValueError, "incomplete"):
+                composition_performance.load_isolated_runtime_pairs(subject, control, "direct/1", protocol)
+            for count in (0, True, 21):
+                with self.subTest(count=count), self.assertRaisesRegex(ValueError, "block count"):
+                    composition_performance.load_compile_pairs(subject, control, "direct", protocol, block_count=count)
+            extra = subject / "runtime/direct__1/block-05.txt"
+            extra.write_text("unsealed future row")
+            with self.assertRaisesRegex(ValueError, "incomplete"):
+                composition_performance.load_isolated_runtime_pairs(subject, control, "direct/1", protocol, block_count=4)
+
+    def test_v6_rejects_missing_changed_or_extended_placement_policy(self):
+        from unittest.mock import patch
+        protocol = composition_performance.load_protocol(
+            REPO_ROOT / "docs/performance/composition/composition-windows-paired-v6.json")
+        placement = protocol["runtime"]["primary_thread_affinity"]
+        bad_values = (None, {}, {**placement, "mask": True}, {**placement, "mask": 2},
+                      {**placement, "group": 1}, {**placement, "apply_before_resume": False},
+                      {**placement, "workers_pinned": True})
+        with tempfile.TemporaryDirectory() as directory:
+            path = pathlib.Path(directory) / "protocol.json"
+            for value in bad_values:
+                bad = json.loads(json.dumps(protocol))
+                if value is None:
+                    bad["runtime"].pop("primary_thread_affinity")
+                else:
+                    bad["runtime"]["primary_thread_affinity"] = value
+                path.write_text(json.dumps(bad))
+                with self.subTest(placement=value), patch.object(composition_performance, "_sha256",
+                        return_value=composition_performance.WINDOWS_V6_PROTOCOL_SHA256), \
+                     self.assertRaisesRegex(ValueError, "primary-thread affinity"):
+                    composition_performance.load_protocol(path)
+            bad = json.loads(json.dumps(protocol))
+            bad["method_version"] = composition_performance.WINDOWS_V5_METHOD
+            path.write_text(json.dumps(bad))
+            with patch.object(composition_performance, "_sha256",
+                    return_value=composition_performance.WINDOWS_V5_PROTOCOL_SHA256), \
+                 self.assertRaisesRegex(ValueError, "Historical Windows"):
+                composition_performance.load_protocol(path)
+
+    def test_v6_isolated_receipts_require_placement_and_reject_mixed_v5_cells(self):
+        protocol = composition_performance.load_protocol(
+            REPO_ROOT / "docs/performance/composition/composition-windows-paired-v6.json")
+        previous = composition_performance.load_protocol(
+            REPO_ROOT / "docs/performance/composition/composition-windows-paired-v5.json")
+        placement = {"mask": 1, "previous_mask": 0xffffff, "group": 0,
+                     "process_mask": 0xffffff, "system_mask": 0xffffff, "applied_before_resume": True}
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            subject, control = root / "subject", root / "control"
+            for arm in (subject, control):
+                for block in range(1, 21):
+                    write_isolated_observation(arm, "direct/1", block, 100.0)
+                    path = arm / "runtime/direct__1" / f"block-{block:02d}.resources.json"
+                    row = self.resources()
+                    row["process_receipt"].update(primary_thread_affinity=placement,
+                        divan_arguments=["--bench", "--exact", "composition::direct::1", "--min-time", "2", "--max-time", "2"])
+                    path.write_text(json.dumps(row))
+            self.assertEqual(len(composition_performance.load_isolated_runtime_pairs(subject, control, "direct/1", protocol)), 20)
+            with self.assertRaisesRegex(ValueError, "primary-thread affinity"):
+                composition_performance.load_isolated_runtime_pairs(subject, control, "direct/1", previous)
+            path = subject / "runtime/direct__1/block-01.resources.json"
+            valid = json.loads(path.read_text())
+            mutations = (None, {**placement, "mask": True}, {**placement, "mask": 2},
+                         {**placement, "previous_mask": 1}, {**placement, "process_mask": 1},
+                         {**placement, "group": 1}, {**placement, "applied_before_resume": False},
+                         {**placement, "worker_masks": [1]})
+            for value in mutations:
+                row = json.loads(json.dumps(valid))
+                if value is None:
+                    row["process_receipt"].pop("primary_thread_affinity")
+                else:
+                    row["process_receipt"]["primary_thread_affinity"] = value
+                path.write_text(json.dumps(row))
+                with self.subTest(placement=value), self.assertRaisesRegex(ValueError, "primary-thread affinity"):
+                    composition_performance.load_isolated_runtime_pairs(subject, control, "direct/1", protocol)
+
+    def test_v6_diagnostics_require_primary_placement_and_full_benchmark_arguments(self):
+        protocol = composition_performance.load_protocol(
+            REPO_ROOT / "docs/performance/composition/composition-windows-paired-v6.json")
+        original = REPO_ROOT / "scripts/tests/fixtures/composition-performance/raw/runtime-divan-01.txt"
+        placement = {"mask": 1, "previous_mask": 0xffffff, "group": 0,
+                     "process_mask": 0xffffff, "system_mask": 0xffffff, "applied_before_resume": True}
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            for role in ("candidate", "reference"):
+                (root / f"{role}.txt").write_bytes(original.read_bytes())
+                row = self.resources()
+                row["process_receipt"].update(primary_thread_affinity=placement, divan_arguments=["--bench"])
+                (root / f"{role}.resources.json").write_text(json.dumps(row))
+            composition_performance.validate_protocol_diagnostics(root, ("candidate", "reference"), protocol)
+            path = root / "candidate.resources.json"
+            valid = json.loads(path.read_text())
+            for field, value in (("primary_thread_affinity", None), ("divan_arguments", ["--bench", "--exact", "composition::direct::1"])):
+                row = json.loads(json.dumps(valid))
+                if value is None:
+                    row["process_receipt"].pop(field)
+                else:
+                    row["process_receipt"][field] = value
+                path.write_text(json.dumps(row))
+                with self.subTest(field=field), self.assertRaises(ValueError):
+                    composition_performance.validate_protocol_diagnostics(root, ("candidate", "reference"), protocol)
+
     def test_v5_uniform_sampling_changes_only_durations_and_method(self):
         directory = REPO_ROOT / "docs/performance/composition"
         path = directory / "composition-windows-paired-v5.json"

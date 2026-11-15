@@ -1,14 +1,14 @@
 # Composition performance qualification
 
 The [v9 macOS protocol](composition-protocol-v9.json) and
-[complete Windows policy](composition-windows-complete-v5.json) define separate qualification routes.
+[complete Windows policy](composition-windows-complete-v6.json) define separate qualification routes.
 Their workloads, hashes and numerical limits are frozen before capture.
 Complete Windows qualification uses the current release reference.
 The older [macOS absolute budgets](composition-budgets.json) retain their original values and provenance.
 Those older architectural ceilings are not additional release blockers for the current reference.
 This directory contains the methods and historical receipts, not current-candidate captures.
 
-The v9 macOS and v5 Windows methods use Rust 1.100.0. Their workloads,
+The v9 macOS and v6 Windows methods use Rust 1.100.0. Their workloads,
 ordering and acceptance limits match the preceding Rust 1.99 methods.
 The frozen Rust 1.98 and 1.99 protocols and captures retain their original
 identities. A new compiler requires a new matched capture, not relabelled evidence.
@@ -134,7 +134,7 @@ Passing modes retain no runtime binaries.
 
 ## Windows paired measurements
 
-The [Windows protocol](composition-windows-paired-v5.json) runs the same 14
+The [Windows protocol](composition-windows-paired-v6.json) runs the same 14
 relative gates on H1 with Rust 1.100.0. It uses the same 20 paired blocks, fixed
 orders, confidence rule and 1.10 limit. Every block contains both comparison
 modes; their first mode alternates. All measurements and their hashes remain in the
@@ -144,11 +144,28 @@ absolute gates.
 Versions 2 and 3 set the minimum and maximum Divan sampling time to 0.5 seconds for every isolated runtime cell.
 Version 4 keeps that duration for eight scenarios and uses two seconds for scoped concurrent sends.
 Version 5 uses two seconds for every isolated runtime cell.
+Version 6 keeps that duration and uses fixed primary-thread placement for normal Divan timing commands.
+The process helper sets primary-thread mask `1` in processor group `0` before `ResumeThread`.
+This rule applies to isolated cells and full-benchmark diagnostics, not Cargo, allocation or list commands.
+The process mask stays equal to the full system mask. The helper performs no CPU search.
+Each timing receipt records the previous and actual primary-thread masks, processor group, process mask and system mask.
+The evaluator rejects missing records, changed masks and mixed method records.
+These records do not observe individual worker-thread affinity. They show that the process still permits the full system CPU set.
+The Windows unit test separately observes four new worker-thread masks. This finite check does not measure every qualification worker.
 The sample size, work per operation, pair counts, order and acceptance limits do not change.
 Before a full capture uses a new sampling policy, its readiness control must pass.
 That control must use independently built reference products, not two copies of one executable.
 Longer collection does not prove immunity to interference or guarantee that the full control will pass.
 Failed captures retain their original method and result. They supply no rows to a new capture.
+
+Version 6 can reject an irrecoverable failure after a sealed mode block.
+Each order stratum must contain at least two observations before this rule applies.
+The current second-largest ratio cannot decrease as later observations enter that stratum.
+The geometric mean of both such ratios is a lower bound on the final upper-confidence bound.
+If that lower bound exceeds `1.10`, the runner stops and retains all four normal runtime images.
+The prefix receipt records a rejected, incomplete capture, not a confidence interval for the prefix.
+The runner checks sealed file hashes before each prefix calculation. It does not read in-flight observations.
+This rule never accepts early. Successful qualification still requires all twenty pairs, both modes and all absolute gates.
 
 Collection can continue past the workload sample count to reach that duration.
 The final sample can cross the time limit. This limit is not a process deadline.
@@ -190,7 +207,7 @@ diagnostics, not treated as compiler-child totals or instruction counts.
 
 ## Complete Windows qualification
 
-The [complete Windows policy](composition-windows-complete-v5.json) adds native
+The [complete Windows policy](composition-windows-complete-v6.json) adds native
 absolute measurements to the paired protocol above. It does not change that
 protocol or claim that Windows measurements satisfy Mac limits.
 

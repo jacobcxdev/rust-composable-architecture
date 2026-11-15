@@ -2,6 +2,7 @@
 
 import ctypes
 import importlib.util
+import json
 from pathlib import Path
 import shutil
 import subprocess
@@ -113,6 +114,100 @@ class WindowsProcessTests(unittest.TestCase):
         self.assertEqual(self.api.active_processes.call_count, 3)
         self.assertGreater(result["elapsed_seconds"], 0)
         self.provider.read.assert_called_once_with(20)
+
+    def test_primary_thread_placement_precedes_resume_and_preserves_receipt(self):
+        import inspect
+        self.assertIn("primary_thread_affinity_mask", inspect.signature(self.module.run_process).parameters)
+        placement = {"mask": 1, "previous_mask": 0xffffff, "group": 0,
+                     "process_mask": 0xffffff, "system_mask": 0xffffff}
+        self.api.set_primary_thread_affinity.return_value = placement
+        result = self.run_child(primary_thread_affinity_mask=1)
+        names = [call[0] for call in self.api.mock_calls]
+        self.assertLess(names.index("assign"), names.index("set_primary_thread_affinity"))
+        self.assertLess(names.index("set_primary_thread_affinity"), names.index("resume"))
+        self.api.set_primary_thread_affinity.assert_called_once_with(20, 30, 1)
+        self.assertEqual(result["primary_thread_affinity"], {**placement, "applied_before_resume": True})
+
+    def test_native_primary_thread_placement_reads_back_without_setting_process_affinity(self):
+        api, kernel = self.native_affinity_api()
+        self.assertEqual(api.set_primary_thread_affinity(20, 30, 1), {
+            "mask": 1, "previous_mask": 0xffffff, "group": 0,
+            "process_mask": 0xffffff, "system_mask": 0xffffff})
+        kernel.SetThreadAffinityMask.assert_called_once_with(30, 1)
+        self.assertEqual(kernel.GetProcessAffinityMask.call_count, 2)
+        kernel.SetProcessAffinityMask.assert_not_called()
+        kernel.ResumeThread.assert_not_called()
+
+    def test_primary_thread_invalid_masks_fail_before_process_creation(self):
+        for mask in (True, False, 0, 2, -1, 1.0, "1", 2**64):
+            with self.subTest(mask=mask), self.assertRaisesRegex(ValueError, "fixed mask 1"):
+                self.run_child(primary_thread_affinity_mask=mask)
+        self.api.create_job.assert_not_called()
+        result = self.run_child()
+        self.assertNotIn("primary_thread_affinity", result)
+        self.api.set_primary_thread_affinity.assert_not_called()
+
+    def test_primary_thread_failure_kills_assigned_job_without_resuming(self):
+        self.api.set_primary_thread_affinity.side_effect = OSError("placement failed")
+        with self.assertRaisesRegex(OSError, "placement failed") as caught:
+            self.run_child(primary_thread_affinity_mask=1)
+        self.api.resume.assert_not_called()
+        self.api.terminate_job.assert_called_once_with(10)
+        self.assertEqual(self.api.close.call_count, 3)
+        self.assertTrue(caught.exception.windows_process_receipt["error_cleanup_completed"])
+        self.assertEqual(caught.exception.windows_process_receipt["requested_primary_thread_affinity_mask"], 1)
+
+    def test_native_primary_thread_api_failures_cannot_return_placement(self):
+        for name in ("GetActiveProcessorGroupCount", "GetProcessAffinityMask",
+                     "SetThreadAffinityMask", "GetThreadGroupAffinity"):
+            api, kernel = self.native_affinity_api()
+            function = getattr(kernel, name)
+            function.side_effect, function.return_value = None, 0
+            with self.subTest(api=name), patch.object(ctypes, "get_last_error", return_value=5, create=True), \
+                 self.assertRaisesRegex(OSError, name):
+                api.set_primary_thread_affinity(20, 30, 1)
+
+    def test_native_primary_thread_rejects_wrong_readback_or_process_restriction(self):
+        for field in ("groups", "mask", "group", "previous", "process", "changed-process"):
+            api, kernel = self.native_affinity_api()
+            if field == "groups":
+                kernel.GetActiveProcessorGroupCount.return_value = 2
+            elif field == "previous":
+                kernel.SetThreadAffinityMask.return_value = 1
+            elif field in ("mask", "group"):
+                def read_thread(thread, value, field=field):
+                    value._obj.Mask = 2 if field == "mask" else 1
+                    value._obj.Group = 1 if field == "group" else 0
+                    return 1
+                kernel.GetThreadGroupAffinity.side_effect = read_thread
+            else:
+                calls = []
+                def read_process(process, selected, system, field=field):
+                    calls.append(process)
+                    system._obj.value = 0xffffff
+                    selected._obj.value = 1 if field == "process" or len(calls) == 2 else 0xffffff
+                    return 1
+                kernel.GetProcessAffinityMask.side_effect = read_process
+            with self.subTest(field=field), self.assertRaises(ValueError):
+                api.set_primary_thread_affinity(20, 30, 1)
+            kernel.ResumeThread.assert_not_called()
+
+    def native_affinity_api(self):
+        """Keep the native pointer writes real while replacing only kernel calls."""
+        api, kernel = self.native_api()
+        def read_process(process, selected, system):
+            self.assertEqual(process, 20)
+            selected._obj.value = system._obj.value = 0xffffff
+            return 1
+        def read_thread(thread, value):
+            self.assertEqual(thread, 30)
+            value._obj.Mask, value._obj.Group = 1, 0
+            return 1
+        kernel.GetActiveProcessorGroupCount.return_value = 1
+        kernel.GetProcessAffinityMask.side_effect = read_process
+        kernel.SetThreadAffinityMask.return_value = 0xffffff
+        kernel.GetThreadGroupAffinity.side_effect = read_thread
+        return api, kernel
 
     def test_timeout_terminates_job_and_waits_for_all_children(self):
         self.api.wait.side_effect = [False, True]
@@ -608,6 +703,33 @@ class NativeWindowsProcessTests(unittest.TestCase):
         script = "import os; from pathlib import Path; Path('unicode-\u65e5.txt').write_text(os.environ['RCA_PROCESS_UNICODE'], encoding='utf-8')"
         self.run_child(script)
         self.assertEqual((self.root / "unicode-\u65e5.txt").read_text(encoding="utf-8"), "caf\u00e9 \u65e5\u672c")
+
+    def test_native_primary_thread_pin_leaves_process_and_new_worker_masks_full(self):
+        script = f'''
+import ctypes, json, sys, threading
+sys.path.insert(0, {str(SCRIPT.parent)!r})
+import windows_process
+api = windows_process.WindowsProcessApi()
+api.kernel.GetCurrentThread.restype = windows_process.HANDLE
+def mask():
+    value = windows_process.GroupAffinity()
+    api.checked("GetThreadGroupAffinity", api.kernel.GetCurrentThread(), ctypes.byref(value))
+    return value.Mask
+workers = []
+threads = [threading.Thread(target=lambda: workers.append(mask())) for _ in range(4)]
+for thread in threads:
+    thread.start()
+for thread in threads:
+    thread.join()
+print(json.dumps({{"primary": mask(), "workers": workers}}))
+'''
+        result = self.run_child(script, primary_thread_affinity_mask=1)
+        observed = json.loads((self.root / "transcript.txt").read_text())
+        placement = result["primary_thread_affinity"]
+        self.assertEqual(observed["primary"], 1)
+        self.assertEqual(observed["workers"], [placement["system_mask"]] * 4)
+        self.assertEqual(placement["process_mask"], placement["system_mask"])
+        self.assertTrue(placement["applied_before_resume"])
 
     def test_native_nonzero_exit_stays_a_failure(self):
         with self.assertRaises(subprocess.CalledProcessError) as caught:

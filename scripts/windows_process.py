@@ -15,6 +15,8 @@ https://learn.microsoft.com/windows/win32/api/processthreadsapi/nf-processthread
 https://learn.microsoft.com/windows/win32/api/jobapi2/nf-jobapi2-queryinformationjobobject
 https://learn.microsoft.com/windows/win32/api/jobapi/nf-jobapi-isprocessinjob
 https://learn.microsoft.com/windows/win32/api/winbase/nf-winbase-queryfullprocessimagenamew
+https://learn.microsoft.com/windows/win32/api/winbase/nf-winbase-setthreadaffinitymask
+https://learn.microsoft.com/windows/win32/api/processtopologyapi/nf-processtopologyapi-getthreadgroupaffinity
 """
 
 from contextlib import ExitStack
@@ -96,6 +98,13 @@ class ProcessInformation(ctypes.Structure):
     _fields_ = [("process", HANDLE), ("thread", HANDLE), ("pid", DWORD), ("tid", DWORD)]
 
 
+class GroupAffinity(ctypes.Structure):
+    """Read the primary processor group and its thread affinity mask."""
+
+    _fields_ = [("Mask", SIZE_T), ("Group", ctypes.c_uint16),
+                ("Reserved", ctypes.c_uint16 * 3)]
+
+
 class WindowsProcessApi:
     """Bind only the Win32 operations needed by the qualification runner."""
 
@@ -130,6 +139,10 @@ class WindowsProcessApi:
                                 ctypes.c_wchar_p, ctypes.POINTER(StartupInfoEx),
                                 ctypes.POINTER(ProcessInformation)], BOOL),
             "ResumeThread": ([HANDLE], DWORD),
+            "GetActiveProcessorGroupCount": ([], ctypes.c_uint16),
+            "GetProcessAffinityMask": ([HANDLE, ctypes.POINTER(SIZE_T), ctypes.POINTER(SIZE_T)], BOOL),
+            "SetThreadAffinityMask": ([HANDLE, SIZE_T], SIZE_T),
+            "GetThreadGroupAffinity": ([HANDLE, ctypes.POINTER(GroupAffinity)], BOOL),
             "WaitForSingleObject": ([HANDLE, DWORD], DWORD),
             "GetExitCodeProcess": ([HANDLE, ctypes.POINTER(DWORD)], BOOL),
             "OpenProcess": ([DWORD, BOOL, DWORD], HANDLE),
@@ -235,6 +248,34 @@ class WindowsProcessApi:
         """Require exactly one suspension to end."""
         if self.kernel.ResumeThread(thread) != 1:
             raise OSError(ctypes.get_last_error(), "ResumeThread did not resume the primary thread")
+
+    def set_primary_thread_affinity(self, process, thread, mask):
+        """Restrict only the primary thread on the fixed single-group host.
+
+        The caller retains suspension until this method returns. Process affinity
+        stays unchanged. This does not observe the affinity of later worker threads.
+        """
+        if type(mask) is not int or mask != 1:
+            raise ValueError("primary-thread affinity requires the fixed mask 1")
+        if self.checked("GetActiveProcessorGroupCount") != 1:
+            raise ValueError("primary-thread affinity requires one processor group")
+
+        def read_process_affinity():
+            selected, system = SIZE_T(), SIZE_T()
+            self.checked("GetProcessAffinityMask", process, ctypes.byref(selected), ctypes.byref(system))
+            if selected.value != system.value or not (system.value & mask):
+                raise ValueError("primary-thread placement requires full-system process affinity")
+            return selected.value, system.value
+
+        before = read_process_affinity()
+        previous = self.checked("SetThreadAffinityMask", thread, mask)
+        actual = GroupAffinity()
+        self.checked("GetThreadGroupAffinity", thread, ctypes.byref(actual))
+        if (actual.Mask != mask or actual.Group != 0 or previous != before[0]
+                or read_process_affinity() != before):
+            raise ValueError("primary-thread affinity or unchanged process affinity was not verified")
+        return {"mask": actual.Mask, "previous_mask": previous, "group": actual.Group,
+                "process_mask": before[0], "system_mask": before[1]}
 
     def wait(self, process, timeout):
         """Wait on the retained handle, using a finite millisecond deadline."""
@@ -380,6 +421,7 @@ def terminate_compiler_telemetry(api, job, expected_path, deadline, clock, comma
 
 def run_process(command, transcript, cwd, env, timeout, provider, *, api=None,
                 memory_limit_bytes=DEFAULT_MEMORY_LIMIT, compiler_telemetry_path=None,
+                primary_thread_affinity_mask=None,
                 clock=time.monotonic, sleep=time.sleep):
     """Return direct-process counters only after the entire owned tree exits.
 
@@ -392,9 +434,14 @@ def run_process(command, transcript, cwd, env, timeout, provider, *, api=None,
     Execution and cleanup failures carry a `windows_process_receipt` attribute
     and an exception note. Input validation errors do not carry a receipt.
     These retain any telemetry termination that preceded the failure.
+    The optional fixed primary-thread mask is applied after Job assignment and
+    before resume. Its receipt proves only that thread and the process mask.
     """
     validate_arguments(command, cwd, env, timeout)
     validate_memory_limit(memory_limit_bytes)
+    if primary_thread_affinity_mask is not None and (
+            type(primary_thread_affinity_mask) is not int or primary_thread_affinity_mask != 1):
+        raise ValueError("primary-thread affinity requires the fixed mask 1")
     if compiler_telemetry_path is not None and (
             not isinstance(compiler_telemetry_path, str) or "\0" in compiler_telemetry_path
             or not ntpath.isabs(compiler_telemetry_path)
@@ -405,6 +452,7 @@ def run_process(command, transcript, cwd, env, timeout, provider, *, api=None,
     leader_elapsed = None
     returncode = None
     terminated_telemetry = []
+    primary_thread_affinity = None
 
     def record_failure(error, cleanup_completed):
         receipt = {"returncode": returncode,
@@ -414,6 +462,9 @@ def run_process(command, transcript, cwd, env, timeout, provider, *, api=None,
                    "terminated_telemetry": list(terminated_telemetry),
                    "error_cleanup_completed": cleanup_completed,
                    "job_memory_limit_bytes": memory_limit_bytes}
+        if primary_thread_affinity_mask is not None:
+            receipt.update(requested_primary_thread_affinity_mask=primary_thread_affinity_mask,
+                           primary_thread_affinity=primary_thread_affinity)
         error.windows_process_receipt = receipt
         error.add_note("Windows process receipt: " + json.dumps(receipt, sort_keys=True))
 
@@ -435,6 +486,11 @@ def run_process(command, transcript, cwd, env, timeout, provider, *, api=None,
         try:
             api.assign(job, process.process)
             assigned = True
+            if primary_thread_affinity_mask is not None:
+                primary_thread_affinity = {
+                    **api.set_primary_thread_affinity(process.process, process.thread, primary_thread_affinity_mask),
+                    "applied_before_resume": True,
+                }
             api.resume(process.thread)
             remaining = started + timeout - clock()
             if remaining <= 0 or not api.wait(process.process, remaining):
@@ -459,7 +515,9 @@ def run_process(command, transcript, cwd, env, timeout, provider, *, api=None,
                     "descendants_exited_naturally": not terminated_telemetry,
                     "compiler_telemetry_path": compiler_telemetry_path,
                     "terminated_telemetry": terminated_telemetry,
-                    "job_memory_limit_bytes": memory_limit_bytes}
+                    "job_memory_limit_bytes": memory_limit_bytes,
+                    **({"primary_thread_affinity": primary_thread_affinity}
+                       if primary_thread_affinity is not None else {})}
         except BaseException as error:
             try:
                 if assigned:

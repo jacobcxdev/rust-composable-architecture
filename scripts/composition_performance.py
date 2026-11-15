@@ -51,10 +51,12 @@ RUST100_METHOD = "composition-paired-v9"
 RUST100_WINDOWS_METHOD = "composition-windows-paired-v3"
 WINDOWS_V4_METHOD = "composition-windows-paired-v4"
 WINDOWS_V5_METHOD = "composition-windows-paired-v5"
+WINDOWS_V6_METHOD = "composition-windows-paired-v6"
 RUST100_PROTOCOL_SHA256 = "3b0462407c0d8e3d46731ca0fa78a5386418ced36fab70b33ea3bb8ca523b0a8"
 RUST100_WINDOWS_PROTOCOL_SHA256 = "0675071ac4b8dc3fc5efcb843821ea79535afe148833b3d9f5c68365aecf396c"
 WINDOWS_V4_PROTOCOL_SHA256 = "c2a6e4293fae4a497c64f6cd587b607ba6be17853e6d99d6a8354baf9d36ee67"
 WINDOWS_V5_PROTOCOL_SHA256 = "7744f60cde73b78cd1dd11a7678a8951bcb799aa51d3236977b29747b8c0ac2a"
+WINDOWS_V6_PROTOCOL_SHA256 = "73e478c59ece9f87f1c4ac28c1b5cfabaabca9c02045769ce2bec0252a4fb642"
 REGRESSION_LIMIT = 1.10
 EXPECTED_DIVAN_ROWS = 153
 EXPECTED_ALLOCATIONS = 47
@@ -78,6 +80,15 @@ WINDOWS_COMPILER_TELEMETRY = {
 WINDOWS_PROTOCOL_SHA256 = "1d76afa9be7bbddb4942b03591e7e42011b4929a33a0714883917b9bcc6719b9"
 WINDOWS_ISOLATED_DIVAN_ARGUMENTS = ["--min-time", "0.5", "--max-time", "0.5"]
 WINDOWS_V5_ISOLATED_DIVAN_ARGUMENTS = ["--min-time", "2", "--max-time", "2"]
+WINDOWS_PRIMARY_THREAD_AFFINITY = {
+    "mask": 1, "group": 0, "apply_before_resume": True,
+    "process_affinity": "unchanged-full-system", "commands": "normal-divan-timing-only",
+}
+WINDOWS_PREFIX_REJECTION = {
+    "criterion": "irrecoverable-final-upper-bound-after-sealed-mode-block",
+    "minimum_observations_per_order_stratum": 2,
+    "successful_capture_requires_all_blocks_and_gates": True,
+}
 WINDOWS_SCENARIO_DIVAN_ARGUMENTS = {
     "scoped_concurrent_senders_32": ["--min-time", "2", "--max-time", "2"],
 }
@@ -827,7 +838,7 @@ def _evaluate_counter_cohorts(cohorts: dict, protocol: dict, plan: list[dict],
 
 def is_windows_protocol(protocol: dict[str, Any]) -> bool:
     """Identify the Windows method without treating it as macOS absolute evidence."""
-    return protocol.get("method_version") in (WINDOWS_METHOD, RUST100_WINDOWS_METHOD, WINDOWS_V4_METHOD, WINDOWS_V5_METHOD)
+    return protocol.get("method_version") in (WINDOWS_METHOD, RUST100_WINDOWS_METHOD, WINDOWS_V4_METHOD, WINDOWS_V5_METHOD, WINDOWS_V6_METHOD)
 
 
 def is_current_mac_protocol(protocol: dict[str, Any]) -> bool:
@@ -842,14 +853,14 @@ def is_current_protocol(protocol: dict[str, Any]) -> bool:
 
 def expected_tool_versions(protocol: dict[str, Any]) -> dict[str, str]:
     """Return the exact native tool versions required by this frozen method."""
-    if protocol.get("method_version") in (RUST100_METHOD, RUST100_WINDOWS_METHOD, WINDOWS_V4_METHOD, WINDOWS_V5_METHOD):
+    if protocol.get("method_version") in (RUST100_METHOD, RUST100_WINDOWS_METHOD, WINDOWS_V4_METHOD, WINDOWS_V5_METHOD, WINDOWS_V6_METHOD):
         return dict(RUST100_TOOL_VERSIONS)
     return dict(CURRENT_TOOL_VERSIONS if is_current_protocol(protocol) else LEGACY_TOOL_VERSIONS)
 
 
 def expected_reference_revision(protocol: dict[str, Any]) -> str:
     """Keep the active release baseline separate from historical budget provenance."""
-    if protocol.get("method_version") in (RUST100_METHOD, RUST100_WINDOWS_METHOD, WINDOWS_V4_METHOD, WINDOWS_V5_METHOD):
+    if protocol.get("method_version") in (RUST100_METHOD, RUST100_WINDOWS_METHOD, WINDOWS_V4_METHOD, WINDOWS_V5_METHOD, WINDOWS_V6_METHOD):
         return RELEASE_BASELINE_REVISION
     return REFERENCE_REVISION
 
@@ -876,6 +887,7 @@ def _protocol_sha256(protocol: dict[str, Any]) -> str:
         RUST100_WINDOWS_METHOD: RUST100_WINDOWS_PROTOCOL_SHA256,
         WINDOWS_V4_METHOD: WINDOWS_V4_PROTOCOL_SHA256,
         WINDOWS_V5_METHOD: WINDOWS_V5_PROTOCOL_SHA256,
+        WINDOWS_V6_METHOD: WINDOWS_V6_PROTOCOL_SHA256,
     }
     version = protocol.get("method_version")
     if not isinstance(version, str) or version not in versions:
@@ -942,7 +954,7 @@ def load_protocol(path: pathlib.Path) -> dict[str, Any]:
     runtime = document.get("runtime", {})
     if is_windows_protocol(document):
         expected_arguments = (WINDOWS_V5_ISOLATED_DIVAN_ARGUMENTS
-                              if document["method_version"] == WINDOWS_V5_METHOD else
+                              if document["method_version"] in (WINDOWS_V5_METHOD, WINDOWS_V6_METHOD) else
                               WINDOWS_ISOLATED_DIVAN_ARGUMENTS)
         if runtime.get("isolated_divan_arguments") != expected_arguments:
             raise ValueError("Windows isolated sampling arguments differ from the frozen policy")
@@ -952,6 +964,18 @@ def load_protocol(path: pathlib.Path) -> dict[str, Any]:
                 raise ValueError("Windows scenario sampling arguments differ from the frozen policy")
         elif "isolated_divan_arguments_by_scenario" in runtime:
             raise ValueError("Windows sampling arguments cannot have scenario overrides")
+        placement = runtime.get("primary_thread_affinity")
+        if document["method_version"] == WINDOWS_V6_METHOD:
+            if (placement != WINDOWS_PRIMARY_THREAD_AFFINITY
+                    or type(placement.get("mask")) is not int or type(placement.get("group")) is not int
+                    or placement.get("apply_before_resume") is not True):
+                raise ValueError("Windows primary-thread affinity differs from the frozen policy")
+            if document.get("early_rejection") != WINDOWS_PREFIX_REJECTION:
+                raise ValueError("Windows prefix rejection differs from the frozen policy")
+        elif "primary_thread_affinity" in runtime:
+            raise ValueError("Historical Windows protocols cannot change primary-thread affinity")
+        elif "early_rejection" in document:
+            raise ValueError("Historical Windows protocols cannot change prefix rejection")
     if runtime.get("pairs_per_order_stratum") != 10:
         raise ValueError("composition protocol runtime sample size is invalid")
     if runtime.get("diagnostic_timing_rows") != EXPECTED_DIVAN_ROWS:
@@ -1343,7 +1367,9 @@ def _load_resource_counters(
     if not isinstance(document, dict) or set(document) != set(required):
         raise ValueError(f"per-process resource counter set is invalid: {path}")
     if is_windows_protocol(protocol):
-        validate_windows_resource_counters(document, expected_kind=command_kind)
+        validate_windows_resource_counters(document, expected_kind=command_kind,
+            primary_thread_affinity_required=(protocol["method_version"] == WINDOWS_V6_METHOD
+                                              and command_kind == "runtime"))
         return document
     for field, value in document.items():
         if (type(value) not in (int, float) or not math.isfinite(value) or value < 0
@@ -1361,7 +1387,8 @@ def _load_resource_counters(
 
 
 def validate_windows_resource_counters(
-    document: dict[str, Any], *, expected_kind: str | None = None
+    document: dict[str, Any], *, expected_kind: str | None = None,
+    primary_thread_affinity_required: bool = False,
 ) -> None:
     """Keep command timing, owned cleanup and direct-process counters separate."""
     if not isinstance(document, dict) or set(document) != {"real_seconds", "direct_process", "process_receipt"}:
@@ -1394,6 +1421,21 @@ def validate_windows_resource_counters(
                 or not isinstance(receipt["divan_arguments"], list)
                 or not all(isinstance(value, str) for value in receipt["divan_arguments"])):
             raise ValueError("Windows isolated sampling arguments are invalid")
+    if primary_thread_affinity_required:
+        fields.add("primary_thread_affinity")
+        placement = receipt.get("primary_thread_affinity") if isinstance(receipt, dict) else None
+        expected_fields = {"mask", "previous_mask", "group", "process_mask", "system_mask", "applied_before_resume"}
+        if (not isinstance(placement, dict) or set(placement) != expected_fields
+                or any(type(placement[key]) is not int for key in expected_fields - {"applied_before_resume"})
+                or placement["mask"] != 1 or placement["group"] != 0
+                or not 0 < placement["system_mask"] < 2**64 or not (placement["system_mask"] & 1)
+                or placement["previous_mask"] != placement["system_mask"]
+                or placement["process_mask"] != placement["system_mask"]
+                or placement["applied_before_resume"] is not True
+                or receipt.get("command_kind") != "runtime" or "divan_arguments" not in receipt):
+            raise ValueError("Windows primary-thread affinity receipt is missing or invalid")
+    elif isinstance(receipt, dict) and "primary_thread_affinity" in receipt:
+        raise ValueError("Windows primary-thread affinity is not part of this measurement")
     if not isinstance(receipt, dict) or set(receipt) != fields:
         raise ValueError("Windows process receipt fields are invalid")
     kind = receipt["command_kind"]
@@ -1503,11 +1545,12 @@ def load_isolated_runtime_pairs(
     scenario: str,
     protocol: dict[str, Any],
     memory_watchdog_sha256: str | None = None,
+    *, block_count: int | None = None,
 ) -> list[dict[str, Any]]:
     """Load one isolated observation per role for every seeded block."""
     if scenario not in protocol["runtime"]["gated_scenarios"]:
         raise ValueError(f"runtime scenario is not frozen in the protocol: {scenario}")
-    schedule = seeded_order_schedule(protocol)
+    schedule = _paired_schedule(protocol, block_count)
     slug = scenario.replace("/", "__")
     expected_names = {
         f"block-{block:02d}{suffix}"
@@ -1568,11 +1611,12 @@ def load_compile_pairs(
     fixture: str,
     protocol: dict[str, Any],
     memory_watchdog_sha256: str | None = None,
+    *, block_count: int | None = None,
 ) -> list[dict[str, Any]]:
     """Load balanced, clean compile observations from isolated targets."""
     if fixture not in protocol["compile"]["fixtures"]:
         raise ValueError(f"compile fixture is not frozen in the protocol: {fixture}")
-    schedule = seeded_order_schedule(protocol)
+    schedule = _paired_schedule(protocol, block_count)
     expected_names = {
         f"block-{block:02d}{suffix}"
         for block in range(1, len(schedule) + 1)
@@ -1724,25 +1768,11 @@ def evaluate_protocol_paired(
         direction = _direction(budget_row)
         converted = []
         for pair in pairs:
-            if budget_row["measured_statistic"] == "median_throughput_across_processes":
-                subject_value = float(
-                    round((32 * 1_000_000_000 / pair["subject"]) / 100) * 100
-                )
-                control_value = float(
-                    round((32 * 1_000_000_000 / pair["control"]) / 100) * 100
-                )
-            elif budget_row["measured_statistic"] == "median_of_process_medians":
-                subject_value = pair["subject"]
-                control_value = pair["control"]
-            else:
-                raise ValueError(
-                    f"unsupported runtime statistic: {budget_row['measured_statistic']}"
-                )
             converted.append(
                 {
                     **pair,
-                    "subject": subject_value,
-                    "control": control_value,
+                    "subject": _runtime_value(budget_row, {scenario: pair["subject"]}),
+                    "control": _runtime_value(budget_row, {scenario: pair["control"]}),
                 }
             )
         statistics_result = paired_ratio_statistics(converted, direction, protocol)
@@ -1904,7 +1934,10 @@ def validate_protocol_diagnostics(
         validate_divan_transcript(
             transcript, protocol["runtime"]["diagnostic_timing_rows"]
         )
-        _load_resource_counters(transcript.with_suffix(".resources.json"), protocol)
+        resources = _load_resource_counters(transcript.with_suffix(".resources.json"), protocol)
+        if (protocol.get("method_version") == WINDOWS_V6_METHOD
+                and resources["process_receipt"].get("divan_arguments") != ["--bench"]):
+            raise ValueError("Windows diagnostic sampling arguments differ from the frozen policy")
 
 
 def _load_protocol_metadata(
@@ -2579,15 +2612,22 @@ def evaluate_absolute(
 
 
 
-def paired_ratio_statistics(
-    repetitions: list[dict[str, Any]],
-    direction: str,
-    protocol: dict[str, Any],
-) -> dict[str, Any]:
-    """Compute the point estimate and exact distribution-free upper bound."""
+def _paired_schedule(protocol: dict[str, Any], block_count: int | None) -> list[str]:
+    """Keep final evaluation complete while admitting an explicit collection prefix."""
     schedule = seeded_order_schedule(protocol)
+    if block_count is not None:
+        if type(block_count) is not int or not 1 <= block_count <= len(schedule):
+            raise ValueError("paired prefix block count is invalid")
+        return schedule[:block_count]
+    return schedule
+
+
+def _paired_ratios(repetitions, direction, protocol, block_count=None):
+    """Validate the same order and value contracts for final and prefix ratios."""
+    schedule = _paired_schedule(protocol, block_count)
     if len(repetitions) != len(schedule):
-        raise ValueError("paired runtime gate requires twenty seeded blocks")
+        expected = "twenty" if block_count is None else str(len(schedule))
+        raise ValueError(f"paired observations require {expected} seeded blocks")
     expected_blocks = list(range(1, len(schedule) + 1))
     if [row.get("block") for row in repetitions] != expected_blocks:
         raise ValueError("paired runtime blocks are not ordered 1 through 20")
@@ -2613,6 +2653,62 @@ def paired_ratio_statistics(
                 f"relative gate direction must be minimum or maximum: {direction}"
             )
         ratios_by_order[row["order"]].append(ratio)
+    return ratios_by_order
+
+
+def paired_prefix_bound(repetitions, direction, protocol):
+    """Bound the final statistic from below, never accept an incomplete capture.
+
+    Each final stratum has ten observations and uses its second-largest ratio.
+    Its observed second-largest ratio cannot decrease as more values arrive.
+    This is not a confidence interval for the prefix.
+    """
+    if (protocol["confidence"]["observations_per_stratum"] != 10
+            or protocol["confidence"]["upper_order_statistic_rank"] != 9):
+        raise ValueError("paired prefix requires the frozen ten-observation rank-nine rule")
+    ratios = _paired_ratios(repetitions, direction, protocol, len(repetitions))
+    if any(len(values) < 2 for values in ratios.values()):
+        return None
+    bounds = {order: sorted(values)[-2] for order, values in ratios.items()}
+    lower_bound = math.sqrt(math.prod(bounds.values()))
+    return {"final_upper_bound_lower_bound": lower_bound,
+            "order_stratum_lower_bounds": bounds,
+            "observations_per_order_stratum": {order: len(values) for order, values in ratios.items()},
+            "regression_limit": protocol["regression_limit"],
+            "irrecoverable": lower_bound > protocol["regression_limit"]}
+
+
+def paired_prefix_rejections(budget_path, protocol, subject, control, block_count):
+    """Apply the unchanged row conversions to a complete, sealed mode prefix."""
+    document = validate_budget_document(budget_path)
+    failures = []
+    runtime = {}
+    for row in document["rows"]:
+        if row["scenario"].startswith("runtime/"):
+            scenario = row["scenario"].removeprefix("runtime/")
+            if scenario not in runtime:
+                runtime[scenario] = load_isolated_runtime_pairs(subject, control, scenario, protocol,
+                                                               block_count=block_count)
+            pairs = [{**pair, **{role: _runtime_value(row, {scenario: pair[role]})
+                                for role in ("subject", "control")}} for pair in runtime[scenario]]
+        elif row["scenario"].startswith("compile/"):
+            pairs = load_compile_pairs(subject, control, row["scenario"].split("/")[1], protocol,
+                                       block_count=block_count)
+        else:
+            continue
+        bound = paired_prefix_bound(pairs, _direction(row), protocol)
+        if bound is not None and bound["irrecoverable"]:
+            failures.append({"scenario": row["scenario"], "measured_statistic": row["measured_statistic"], **bound})
+    return failures
+
+
+def paired_ratio_statistics(
+    repetitions: list[dict[str, Any]],
+    direction: str,
+    protocol: dict[str, Any],
+) -> dict[str, Any]:
+    """Compute the point estimate and exact distribution-free upper bound."""
+    ratios_by_order = _paired_ratios(repetitions, direction, protocol)
 
     observations = protocol["confidence"]["observations_per_stratum"]
     upper_rank = protocol["confidence"]["upper_order_statistic_rank"]

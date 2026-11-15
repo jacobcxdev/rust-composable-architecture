@@ -17,6 +17,46 @@ import composition_performance as evidence
 
 
 class WindowsRunnerTests(unittest.TestCase):
+    def test_v6_monitor_rejects_a_backend_without_primary_thread_proof(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            monitor = runner.WindowsMonitor(root / "telemetry", evidence.load_protocol(runner.WINDOWS_PROTOCOL),
+                                            provider=object(), run_process=Mock(return_value=self.process_result()))
+            with self.assertRaisesRegex(ValueError, "primary-thread affinity"):
+                monitor.run(["C:/bench.exe", "--bench"], root / "runtime.txt", root, {})
+            self.assertFalse((root / "runtime.resources.json").exists())
+
+    def test_v6_pins_only_divan_timing_commands_and_retains_the_native_receipt(self):
+        protocol = evidence.load_protocol(runner.WINDOWS_PROTOCOL)
+        placement = {"mask": 1, "previous_mask": 0xffffff, "group": 0,
+                     "process_mask": 0xffffff, "system_mask": 0xffffff, "applied_before_resume": True}
+        def execute(command, *args, **kwargs):
+            result = self.process_result(compiler="compiler_telemetry_path" in kwargs)
+            if "primary_thread_affinity_mask" in kwargs:
+                result["primary_thread_affinity"] = placement
+            return result
+        commands = (["C:/bench.exe", "--bench"],
+                    ["C:/bench.exe", "--bench", "--exact", "composition::direct::1", "--min-time", "2", "--max-time", "2"],
+                    ["C:/bench.exe", "--list"], ["C:/allocations.exe", "--measure-allocations"],
+                    ["C:/cargo.exe", "check"], ["C:/cargo.exe", "bench", "--no-run"])
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            process = Mock(side_effect=execute)
+            monitor = runner.WindowsMonitor(root / "telemetry", protocol, cargo="C:/cargo.exe",
+                                            provider=object(), run_process=process, complete=True)
+            with patch.object(runner, "check_windows_compiler_telemetry", return_value=evidence.WINDOWS_COMPILER_TELEMETRY):
+                for index, command in enumerate(commands):
+                    path = root / f"{index}.txt"
+                    monitor.run(command, path, root, {})
+                    receipt = json.loads(path.with_suffix(".resources.json").read_text())["process_receipt"]
+                    if index < 2:
+                        self.assertEqual(receipt["primary_thread_affinity"], placement)
+                        self.assertEqual(receipt["divan_arguments"], command[1:])
+                    else:
+                        self.assertNotIn("primary_thread_affinity", receipt)
+            self.assertEqual([call.kwargs.get("primary_thread_affinity_mask") for call in process.call_args_list],
+                             [1, 1, None, None, None, None])
+
     def test_v5_runtime_uses_two_seconds_for_all_scenarios_and_both_arms(self):
         path = runner.WINDOWS_PROTOCOL.with_name("composition-windows-paired-v5.json")
         self.assertTrue(path.is_file(), "The active uniform sampling policy must exist")
@@ -108,7 +148,7 @@ class WindowsRunnerTests(unittest.TestCase):
             root = Path(tmp)
             execute = Mock(return_value=self.process_result())
             monitor = runner.WindowsMonitor(root / "telemetry",
-                                            evidence.load_protocol(runner.WINDOWS_PROTOCOL),
+                                            evidence.load_protocol(runner.WINDOWS_PROTOCOL.with_name("composition-windows-paired-v5.json")),
                                             provider=object(), run_process=execute)
             destination = root / "runtime.txt"
             monitor.run(["C:/bench.exe", *arguments], destination, root, {})
@@ -448,7 +488,7 @@ class WindowsRunnerTests(unittest.TestCase):
                     runner.windows_host()
 
     def test_windows_interleaving_retains_all_blocks_and_rejects_changed_bytes(self):
-        protocol = evidence.load_protocol(runner.WINDOWS_PROTOCOL)
+        protocol = evidence.load_protocol(runner.WINDOWS_PROTOCOL.with_name("composition-windows-paired-v5.json"))
         protocol["runtime"]["gated_scenarios"] = []
         protocol["compile"]["fixtures"] = ["direct"]
         modes = ("candidate-reference", "reference-reference-aa")
@@ -464,7 +504,7 @@ class WindowsRunnerTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmp:
             directory = Path(tmp)
-            manifest = {"protocol_sha256": evidence._sha256(runner.WINDOWS_PROTOCOL),
+            manifest = {"protocol_sha256": evidence.WINDOWS_V5_PROTOCOL_SHA256,
                         "controller": {"revision": "1" * 40}, "host": {"identity": "Windows"},
                         "modes": {}, "schedule": [
                             {"block": block, "mode": mode} for block in range(1, 21)
