@@ -348,8 +348,8 @@ Capture requires all eighteen successful exact-filtered child tests and nineteen
 The parent still runs its full test list. Each child runs the same instrumented executable and retains its own profile.
 
 The `core-timers-rich` lifecycle registration host uses the same isolation pattern.
-Capture requires both parent tests, two successful exact-filtered children and three process profiles.
-The separate assertion-listener host runs its single test in the parent process.
+Capture requires the complete parent test list, two successful exact-filtered children and three process profiles.
+The separate assertion-listener host does not create child test processes.
 
 A successful capture is not a 100% production-coverage result. Its raw data includes
 test code and dependencies, and the selected groups do not cover every RCA package

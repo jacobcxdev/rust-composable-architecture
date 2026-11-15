@@ -765,7 +765,7 @@ if effects:
         if mode != "missing-effect-profile" or index != 17:
             (raw.parent / f"current-child-{{index}}-fixture.profraw").write_bytes(b"runtime profile")
         passed = 0 if mode == "empty-effect-child" and index == 0 else 1
-        print(f"test result: ok. {{passed}} passed; 0 failed; 0 ignored; 0 measured; 19 filtered out")
+        print(f"test result: ok. {{passed}} passed; 0 failed; 0 ignored; 0 measured; 33 filtered out")
     if mode == "extra-effect-profile":
         (raw.parent / "current-extra-fixture.profraw").write_bytes(b"runtime profile")
 if lifecycle:
@@ -776,7 +776,7 @@ if lifecycle:
             (raw.parent / f"current-child-{{index}}-fixture.profraw").write_bytes(b"runtime profile")
         passed = 0 if mode == "empty-lifecycle-child" and index == 0 else 1
         failed = 1 if mode == "failed-lifecycle-child" and index == 0 else 0
-        filtered = 0 if mode == "unfiltered-lifecycle-child" else (2 if mode == "wrong-lifecycle-parent" else 1)
+        filtered = 0 if mode == "unfiltered-lifecycle-child" else 4
         print(f"test result: ok. {{passed}} passed; {{failed}} failed; 0 ignored; 0 measured; {{filtered}} filtered out")
     if mode == "extra-lifecycle-profile":
         (raw.parent / "current-extra-fixture.profraw").write_bytes(b"runtime profile")
@@ -802,10 +802,10 @@ if mode == "tool-change":
     with (root / ".tools/cc").open("a") as stream:
         stream.write("\\n# changed\\n")
 if mode != "missing-summary":
-    passed = 20 if effects else (2 if lifecycle else (0 if mode == "zero-tests" else 1))
-    if lifecycle and mode == "wrong-lifecycle-parent":
-        passed = 3
+    passed = 34 if effects else (5 if lifecycle else (0 if mode == "zero-tests" else 1))
     ignored = 0 if listener or channel or effects or lifecycle else 1
+    if lifecycle and mode == "ignored-lifecycle-parent":
+        passed, ignored = 4, 1
     print(f"test result: ok. {{passed}} passed; 0 failed; {{ignored}} ignored; 0 measured; 0 filtered out")
 '''
         tool_code = f'''#!{sys.executable}
@@ -868,7 +868,7 @@ elif name == "llvm-cov":
         self.run_capture_fixture(tools, output, group=group)
         host = output / "hosts/effects"
         summary = json.loads((host / "test-summary.json").read_text())
-        self.assertEqual(summary["passed"], 20)
+        self.assertEqual(summary["passed"], 34)
         self.assertEqual(len(summary["exact_children"]), 18)
         self.assertEqual(len(json.loads((host / "raw-sha256.json").read_text())), 19)
         self.assertTrue(json.loads((output / "capture.json").read_text())["capture_complete"])
@@ -905,12 +905,12 @@ elif name == "llvm-cov":
         self.run_capture_fixture(tools, output, group=group)
         host = output / "hosts/lifecycle_registration_window"
         summary = json.loads((host / "test-summary.json").read_text())
-        self.assertEqual(summary["passed"], 2)
+        self.assertEqual(summary["passed"], 5)
         self.assertEqual(summary["failed"], 0)
         self.assertEqual(summary["ignored"], 0)
         self.assertEqual(len(summary["exact_children"]), 2)
         for child in summary["exact_children"]:
-            self.assertEqual(child, dict(passed=1, failed=0, ignored=0, measured=0, filtered_out=1))
+            self.assertEqual(child, dict(passed=1, failed=0, ignored=0, measured=0, filtered_out=4))
         self.assertEqual(len(json.loads((host / "raw-sha256.json").read_text())), 3)
         obj = json.loads((host / "object.json").read_text())
         self.assertEqual(json.loads((host / "run.argv.json").read_text()),
@@ -923,11 +923,11 @@ elif name == "llvm-cov":
         group = "core-timers-rich"
         errors = {
             "missing-lifecycle-child": "lifecycle_registration_window host must report 2 successful exact-filtered children",
-            "extra-lifecycle-child": "Child did not finish one exact-filtered test",
+            "extra-lifecycle-child": "lifecycle_registration_window host must report 2 successful exact-filtered children",
             "empty-lifecycle-child": "Child did not finish one exact-filtered test",
             "failed-lifecycle-child": "Child did not finish one exact-filtered test",
             "unfiltered-lifecycle-child": "Child did not finish one exact-filtered test",
-            "wrong-lifecycle-parent": "lifecycle_registration_window host must pass all 2 parent tests",
+            "ignored-lifecycle-parent": "lifecycle_registration_window host must run its complete parent test cohort",
             "missing-lifecycle-profile": "lifecycle_registration_window host must retain 3 parent and child profiles",
             "extra-lifecycle-profile": "lifecycle_registration_window host must retain 3 parent and child profiles",
         }

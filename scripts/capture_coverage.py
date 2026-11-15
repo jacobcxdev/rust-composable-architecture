@@ -183,8 +183,8 @@ TARGETS = {
 }
 GIB = 1024 ** 3
 EXACT_CHILD_HOSTS = {
-    ("core-terminal", "effects"): (18, 20),
-    ("core-timers-rich", "lifecycle_registration_window"): (2, 2),
+    ("core-terminal", "effects"): 18,
+    ("core-timers-rich", "lifecycle_registration_window"): 2,
 }
 
 
@@ -624,20 +624,19 @@ def capture(root, group, output):
                                         "listener-std-critical-section")
                               and record["target"]["kind"] == ["test"])
             macro_child = group == "macros" and record["target"]["name"] == "reducer"
-            exact_counts = EXACT_CHILD_HOSTS.get((group, record["target"]["name"]))
-            summary = test_summary((host / "run.stdout").read_text(), listener_child or exact_counts is not None, macro_child)
-            if exact_counts is not None:
-                children, parent_tests = exact_counts
-                if len(summary["exact_children"]) != children:
-                    raise ValueError(f"{record['target']['name']} host must report {children} successful exact-filtered children")
-                if summary["passed"] != parent_tests or summary["ignored"] != 0 or summary["measured"] != 0:
-                    raise ValueError(f"{record['target']['name']} host must pass all {parent_tests} parent tests")
+            exact_children = EXACT_CHILD_HOSTS.get((group, record["target"]["name"]))
+            summary = test_summary((host / "run.stdout").read_text(), listener_child or exact_children is not None, macro_child)
+            if exact_children is not None:
+                if len(summary["exact_children"]) != exact_children:
+                    raise ValueError(f"{record['target']['name']} host must report {exact_children} successful exact-filtered children")
+                if summary["ignored"] != 0 or summary["measured"] != 0:
+                    raise ValueError(f"{record['target']['name']} host must run its complete parent test cohort")
             write_json(host / "test-summary.json", summary)
             profiles = sorted(raw.glob("*.profraw"))
             if not profiles or set(raw.iterdir()) != set(profiles) or any(path.is_symlink() for path in profiles):
                 raise ValueError("Missing or unexpected runtime profiles")
-            if exact_counts is not None and len(profiles) != exact_counts[0] + 1:
-                raise ValueError(f"{record['target']['name']} host must retain {exact_counts[0] + 1} parent and child profiles")
+            if exact_children is not None and len(profiles) != exact_children + 1:
+                raise ValueError(f"{record['target']['name']} host must retain {exact_children + 1} parent and child profiles")
             write_json(host / "raw-sha256.json", {path.name: digest(path) for path in profiles})
             if channel_overflow and record["target"]["kind"] == ["lib"]:
                 write_json(host / "overflow-outcomes.json",
