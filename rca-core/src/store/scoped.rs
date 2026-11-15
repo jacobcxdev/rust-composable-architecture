@@ -50,6 +50,9 @@ type ReadProjection<State> = Box<dyn FnOnce(&State) -> ErasedValue + Send>;
 type ObservationProjection<State> = Box<dyn Fn(&State) -> ErasedValue + Send>;
 /// Hides root-specific asynchronous admission behind the child driver.
 type ScopedFuture<T> = Pin<Box<dyn std::future::Future<Output = T> + Send + 'static>>;
+/// Borrows the captured route throughout an ordinary scoped send.
+type ScopedSendFuture<'a> =
+    Pin<Box<dyn std::future::Future<Output = Result<ActionTask, ScopedStoreEnded>> + Send + 'a>>;
 /// Reuses one weak-root admission callback across sequential observation takes.
 ///
 /// Scoped takes always need asynchronous, type-erased admission. Boxing their
@@ -119,7 +122,7 @@ impl<Value: Send + 'static> TakeOperation<Value> for TypedTakeOperation<Value> {
 /// Hides the root domain while preserving ordered admission and child authority.
 trait ScopedDriver<State, Action>: Send + Sync {
     /// Submits a child action and resolves its root commit result.
-    fn send(&self, action: Action) -> ScopedFuture<Result<ActionTask, ScopedStoreEnded>>;
+    fn send(&self, action: Action) -> ScopedSendFuture<'_>;
     /// Links one send's causal work to explicit predicate-wait cancellation.
     fn send_owned(
         &self,
@@ -784,8 +787,8 @@ where
     Get: for<'a> Fn(&'a ParentState) -> &'a ChildState + Send + Sync + 'static,
     Embed: Fn(ChildAction) -> ParentAction + Send + Sync + 'static,
 {
-    fn send(&self, action: ChildAction) -> ScopedFuture<Result<ActionTask, ScopedStoreEnded>> {
-        let store = self.store.clone();
+    fn send(&self, action: ChildAction) -> ScopedSendFuture<'_> {
+        let store = &self.store;
         let action = self.embed.apply(action);
         Box::pin(async move {
             store
@@ -882,7 +885,7 @@ where
     ChildAction: Send + 'static,
     Embed: Fn(ChildAction) -> ParentAction + Send + Sync + 'static,
 {
-    fn send(&self, action: ChildAction) -> ScopedFuture<Result<ActionTask, ScopedStoreEnded>> {
+    fn send(&self, action: ChildAction) -> ScopedSendFuture<'_> {
         if self.handle.is_ended() {
             return Box::pin(std::future::ready(Err(ScopedStoreEnded::scope_ended())));
         }
@@ -1159,6 +1162,53 @@ mod tests {
     use crate::store::observation::PublishPolicy;
     use crate::test_support as support;
     use crate::{Effect, Reduce, Store};
+
+    #[test]
+    fn required_send_borrows_existing_store_ownership() {
+        use std::cell::Cell;
+
+        fn assert_send<T: Send>(_: &T) {}
+
+        let runtime = support::ManualRuntime::new();
+        let store = Store::new(
+            Cell::new(0),
+            Reduce::new(|state: &mut Cell<usize>, action: &Cell<usize>, _| {
+                state.set(state.get() + action.get());
+                Effect::none()
+            }),
+            runtime.runtime(),
+        );
+        let child = store.scope(crate::identity_state_path(), crate::identity_action_path());
+        let mut actor = runtime.take_only_queued_task();
+        let mut context = Context::from_waker(std::task::Waker::noop());
+        let lifecycle_references = Arc::strong_count(&store.lifecycle);
+        let ingress_references = Arc::strong_count(&store.ingress);
+        {
+            let send = child.send(Cell::new(7));
+            assert_send(&send);
+            let mut send = std::pin::pin!(send);
+            assert!(send.as_mut().poll(&mut context).is_pending());
+            assert_eq!(
+                Arc::strong_count(&store.lifecycle),
+                lifecycle_references,
+                "a pending required send must borrow its existing lifecycle ownership",
+            );
+            assert_eq!(
+                Arc::strong_count(&store.ingress),
+                ingress_references,
+                "a pending required send must borrow its existing ingress ownership",
+            );
+            assert!(actor.as_mut().poll(&mut context).is_pending());
+            let Poll::Ready(Ok(task)) = send.as_mut().poll(&mut context) else {
+                panic!("the actor must acknowledge the required child action");
+            };
+            assert!(task.is_finished());
+        }
+        let mut read = Box::pin(store.read(Cell::get));
+        assert!(read.as_mut().poll(&mut context).is_pending());
+        assert!(actor.as_mut().poll(&mut context).is_pending());
+        assert!(matches!(read.as_mut().poll(&mut context), Poll::Ready(Ok(7))));
+    }
 
     /// Records disposal without requiring a clone of the owned input.
     struct AdmissionPayload {
