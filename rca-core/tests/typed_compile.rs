@@ -11,7 +11,10 @@ fn typed_tasks_keep_domain_and_retained_lifetime_boundaries() {
     #[cfg(feature = "local")]
     tests.compile_fail("tests/ui/rc05_wrong_state_local.rs");
     tests.compile_fail("tests/ui/rc05_async_update.rs");
+    #[cfg(not(feature = "local"))]
     tests.compile_fail("tests/ui/rc05_borrowed_capture.rs");
+    #[cfg(feature = "local")]
+    tests.compile_fail("tests/ui/rc05_borrowed_capture_local.rs");
     #[cfg(not(feature = "local"))]
     tests.compile_fail("tests/ui/rc05_rc_task.rs");
     #[cfg(feature = "local")]

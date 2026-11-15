@@ -21,5 +21,8 @@ fn removed_child_keeps_turn_and_owned_output_boundaries() {
     tests.compile_fail("tests/ui/rc09_removed_rc_receive.rs");
     #[cfg(feature = "local")]
     tests.compile_fail("tests/ui/rc09_removed_rc_receive_local.rs");
+    #[cfg(not(feature = "local"))]
     tests.compile_fail("tests/ui/rc09_removed_borrowed_output.rs");
+    #[cfg(feature = "local")]
+    tests.compile_fail("tests/ui/rc09_removed_borrowed_output_local.rs");
 }

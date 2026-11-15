@@ -106,29 +106,33 @@ jobs:
               if: ${{ !cancelled() && steps.consumer_dependencies.outcome == 'success' }}
               run: cargo test --locked -p rca-core -p rca-test --no-default-features --no-fail-fast --test compiler_contracts -- --check
 
-            - name: Link workspace binaries with all features
-              # Normal builds do not use the test-only critical-section provider.
-              run: cargo build --locked --workspace --all-features --features critical-section/std
-
-            - name: Test workspace
-              run: cargo test --locked --workspace --all-features --no-fail-fast
-
             - name: Stress composition reference models
+              if: ${{ !cancelled() && steps.consumer_dependencies.outcome == 'success' }}
               timeout-minutes: 10
               env:
                   PROPTEST_CASES: 10000
               run: cargo test --locked -p rca-core --features test-util --test lifecycle_properties --test keyed_properties --test scoped_properties
 
             - name: Test documentation
-              run: cargo test --workspace --all-features --doc
+              if: ${{ !cancelled() && steps.consumer_dependencies.outcome == 'success' }}
+              run: cargo test --locked --workspace --all-features --no-fail-fast --doc
 
             - name: Build documentation
+              if: ${{ !cancelled() && steps.consumer_dependencies.outcome == 'success' }}
               env:
                   RUSTDOCFLAGS: -D warnings
               run: |
                   cargo doc --locked -p futures-core --no-deps
                   cargo doc --locked -p rca-event-listener --all-features --no-deps
                   cargo doc --locked --workspace --all-features --no-deps
+
+            - name: Link workspace binaries with all features
+              # Normal builds do not use the test-only critical-section provider.
+              run: cargo build --locked --workspace --all-features --features critical-section/std
+
+            - name: Test workspace
+              # Earlier independent checks collect failures before this long suite.
+              run: cargo test --locked --workspace --all-features --no-fail-fast
 
     coverage-evidence:
         name: Coverage evidence (${{ matrix.group }})
