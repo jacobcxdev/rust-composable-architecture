@@ -350,7 +350,7 @@ fn fixture_with_gate(
     panic: bool,
     control: bool,
     #[cfg(feature = "test-util")] gate: Option<
-        rca_core::testing::TransactionGate<RootState, RootAction>,
+        &rca_core::testing::TransactionGate<RootState, RootAction>,
     >,
 ) -> Fixture {
     let driver = Driver::default();
@@ -392,7 +392,7 @@ fn fixture_with_gate(
         mapper(&maps[2], &mapper_drops, &action_drops, panic),
     );
     #[cfg(feature = "test-util")]
-    let builder = if let Some(gate) = &gate {
+    let builder = if let Some(gate) = gate {
         builder.transaction_gate(gate.clone())
     } else {
         builder
@@ -1048,7 +1048,7 @@ fn refresh_and_replacement_require_fresh_ordered_acquisition() {
 #[test]
 fn command_inspection_preserves_input_for_foreign_sibling_and_stale_ports() {
     let gate = rca_core::testing::TransactionGate::new();
-    let fixture = fixture_with_gate(false, false, Some(gate.clone()));
+    let fixture = fixture_with_gate(false, false, Some(&gate));
     let foreign = self::fixture();
     let mut refresh = Box::pin(fixture.store.send(RootAction::Refresh(0)));
     assert!(poll(refresh.as_mut()).is_pending());

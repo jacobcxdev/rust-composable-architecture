@@ -1,9 +1,4 @@
-#![cfg(all(
-    feature = "test-util",
-    target_os = "macos",
-    target_arch = "aarch64",
-    not(loom)
-))]
+#![cfg(all(feature = "test-util", not(loom)))]
 //! Publishes gated output during the first assertion-listener allocation window.
 //!
 //! Waiting must observe publication without releasing the pending action.

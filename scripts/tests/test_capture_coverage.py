@@ -177,9 +177,18 @@ class CaptureCoverageTests(unittest.TestCase):
         for group, name, extra in (
             ("macros", "reducer", ["--test-threads=1"]),
             ("core-terminal", "effects", ["--nocapture", "--test-threads=1"]),
+            ("core-timers-rich", "lifecycle_registration_window", ["--nocapture", "--test-threads=1"]),
         ):
             path = self.root / name
             self.assertEqual(self.capture.host_arguments(group, ["test"], path), [str(path), *extra])
+
+    def test_cold_registration_witnesses_use_the_rich_timer_configuration(self):
+        names = {"lifecycle_registration_window", "listener_registration_window"}
+        self.assertTrue(names.issubset(self.capture.TARGETS["core-timers-rich"].tests))
+        self.assertTrue(names.isdisjoint(self.capture.TARGETS["core-timers-minimal"].tests))
+        self.assertEqual(self.capture.host_arguments(
+            "core-timers-rich", ["test"], Path("/tmp/listener_registration_window-123")),
+            ["/tmp/listener_registration_window-123"])
 
     def test_added_groups_select_only_fixed_package_features_and_ordinary_hosts(self):
         expected = {
@@ -238,7 +247,8 @@ class CaptureCoverageTests(unittest.TestCase):
             *rich, *[item for name in ("timers", "local_clock_timer", "named_operation_timers",
                                          "typed_transactions", "assertion_gate", "lifecycle_diagnostics",
                                          "delayed_scope_retirement", "named_operation_tasks", "local_runtime",
-                                         "action_receipt_lifetime")
+                                         "action_receipt_lifetime", "lifecycle_registration_window",
+                                         "listener_registration_window")
                     for item in ("--test", name)],
         ])
         self.assertEqual(self.capture.group_arguments("core-timers-minimal"), [
@@ -692,6 +702,14 @@ class CaptureCoverageTests(unittest.TestCase):
             features = ["default", "diagnostics", "futures-stream", "local", "test-util"]
             options = ["-p", "rca-core", "--features", "diagnostics,futures-stream,local,test-util",
                        *[item for name in names for item in ("--test", name)]]
+        if group == "core-timers-rich":
+            names = ["timers", "local_clock_timer", "named_operation_timers", "typed_transactions",
+                     "assertion_gate", "lifecycle_diagnostics", "delayed_scope_retirement",
+                     "named_operation_tasks", "local_runtime", "action_receipt_lifetime",
+                     "lifecycle_registration_window", "listener_registration_window"]
+            features = ["default", "diagnostics", "futures-stream", "local", "test-util"]
+            options = ["-p", "rca-core", "--features", "diagnostics,futures-stream,local,test-util",
+                       *[item for name in names for item in ("--test", name)]]
         if group in ("listener-spin", "listener-std-critical-section"):
             package, package_name, library = "dependencies/rca-event-listener", "rca-event-listener", "event_listener"
             if group == "listener-spin":
@@ -739,6 +757,7 @@ listener = {group!r} in ("listener-spin", "listener-std-critical-section")
 channel_group = {group!r} in ("channel-overflow-std", "channel-overflow-nostd")
 channel = channel_group and Path(__file__).name.startswith("async_channel-")
 effects = {group!r} == "core-terminal" and Path(__file__).name.startswith("effects-")
+lifecycle = {group!r} == "core-timers-rich" and Path(__file__).name.startswith("lifecycle_registration_window-")
 if effects:
     assert sys.argv[1:] == ["--nocapture", "--test-threads=1"]
     children = 17 if mode == "missing-effect-child" else (19 if mode == "extra-effect-child" else 18)
@@ -748,6 +767,18 @@ if effects:
         passed = 0 if mode == "empty-effect-child" and index == 0 else 1
         print(f"test result: ok. {{passed}} passed; 0 failed; 0 ignored; 0 measured; 19 filtered out")
     if mode == "extra-effect-profile":
+        (raw.parent / "current-extra-fixture.profraw").write_bytes(b"runtime profile")
+if lifecycle:
+    assert sys.argv[1:] == ["--nocapture", "--test-threads=1"]
+    children = 1 if mode == "missing-lifecycle-child" else (3 if mode == "extra-lifecycle-child" else 2)
+    for index in range(children):
+        if mode != "missing-lifecycle-profile" or index != 1:
+            (raw.parent / f"current-child-{{index}}-fixture.profraw").write_bytes(b"runtime profile")
+        passed = 0 if mode == "empty-lifecycle-child" and index == 0 else 1
+        failed = 1 if mode == "failed-lifecycle-child" and index == 0 else 0
+        filtered = 0 if mode == "unfiltered-lifecycle-child" else (2 if mode == "wrong-lifecycle-parent" else 1)
+        print(f"test result: ok. {{passed}} passed; {{failed}} failed; 0 ignored; 0 measured; {{filtered}} filtered out")
+    if mode == "extra-lifecycle-profile":
         (raw.parent / "current-extra-fixture.profraw").write_bytes(b"runtime profile")
 if channel:
     assert sys.argv[1:] == ["--nocapture", "--test-threads=1"]
@@ -771,8 +802,10 @@ if mode == "tool-change":
     with (root / ".tools/cc").open("a") as stream:
         stream.write("\\n# changed\\n")
 if mode != "missing-summary":
-    passed = 20 if effects else (0 if mode == "zero-tests" else 1)
-    ignored = 0 if listener or channel or effects else 1
+    passed = 20 if effects else (2 if lifecycle else (0 if mode == "zero-tests" else 1))
+    if lifecycle and mode == "wrong-lifecycle-parent":
+        passed = 3
+    ignored = 0 if listener or channel or effects or lifecycle else 1
     print(f"test result: ok. {{passed}} passed; 0 failed; {{ignored}} ignored; 0 measured; 0 filtered out")
 '''
         tool_code = f'''#!{sys.executable}
@@ -843,11 +876,11 @@ elif name == "llvm-cov":
     def test_effect_capture_rejects_missing_or_empty_children_and_missing_profiles(self):
         group = "core-terminal"
         errors = {
-            "missing-effect-child": "Effects host must report eighteen successful exact-filtered children",
-            "extra-effect-child": "Effects host must report eighteen successful exact-filtered children",
+            "missing-effect-child": "effects host must report 18 successful exact-filtered children",
+            "extra-effect-child": "effects host must report 18 successful exact-filtered children",
             "empty-effect-child": "Child did not finish one exact-filtered test",
-            "missing-effect-profile": "Effects host must retain its parent and eighteen child profiles",
-            "extra-effect-profile": "Effects host must retain its parent and eighteen child profiles",
+            "missing-effect-profile": "effects host must retain 19 parent and child profiles",
+            "extra-effect-profile": "effects host must retain 19 parent and child profiles",
         }
         for mode, expected_error in errors.items():
             with self.subTest(mode=mode), tempfile.TemporaryDirectory() as directory:
@@ -865,6 +898,53 @@ elif name == "llvm-cov":
 
     def test_channel_nostd_capture_retains_continuous_profiles_and_checked_outcomes(self):
         self.check_channel_capture("channel-overflow-nostd")
+
+    def test_lifecycle_capture_requires_both_children_and_three_same_object_profiles(self):
+        group = "core-timers-rich"
+        tools, output = self.capture_fixture(group=group)
+        self.run_capture_fixture(tools, output, group=group)
+        host = output / "hosts/lifecycle_registration_window"
+        summary = json.loads((host / "test-summary.json").read_text())
+        self.assertEqual(summary["passed"], 2)
+        self.assertEqual(summary["failed"], 0)
+        self.assertEqual(summary["ignored"], 0)
+        self.assertEqual(len(summary["exact_children"]), 2)
+        for child in summary["exact_children"]:
+            self.assertEqual(child, dict(passed=1, failed=0, ignored=0, measured=0, filtered_out=1))
+        self.assertEqual(len(json.loads((host / "raw-sha256.json").read_text())), 3)
+        obj = json.loads((host / "object.json").read_text())
+        self.assertEqual(json.loads((host / "run.argv.json").read_text()),
+                         [obj["retained"], "--nocapture", "--test-threads=1"])
+        self.assertEqual(json.loads((host / "export.argv.json").read_text())[-2:],
+                         ["-object", obj["retained"]])
+        self.assertTrue(json.loads((output / "capture.json").read_text())["capture_complete"])
+
+    def test_lifecycle_capture_rejects_missing_extra_or_invalid_children_and_profiles(self):
+        group = "core-timers-rich"
+        errors = {
+            "missing-lifecycle-child": "lifecycle_registration_window host must report 2 successful exact-filtered children",
+            "extra-lifecycle-child": "Child did not finish one exact-filtered test",
+            "empty-lifecycle-child": "Child did not finish one exact-filtered test",
+            "failed-lifecycle-child": "Child did not finish one exact-filtered test",
+            "unfiltered-lifecycle-child": "Child did not finish one exact-filtered test",
+            "wrong-lifecycle-parent": "lifecycle_registration_window host must pass all 2 parent tests",
+            "missing-lifecycle-profile": "lifecycle_registration_window host must retain 3 parent and child profiles",
+            "extra-lifecycle-profile": "lifecycle_registration_window host must retain 3 parent and child profiles",
+        }
+        for mode, expected_error in errors.items():
+            with self.subTest(mode=mode), tempfile.TemporaryDirectory() as directory:
+                original_root = self.root
+                self.root = Path(directory).resolve()
+                try:
+                    tools, output = self.capture_fixture(mode, group=group)
+                    with self.assertRaises(ValueError):
+                        self.run_capture_fixture(tools, output, group=group)
+                    receipt = json.loads((output / "capture.json").read_text())
+                    self.assertFalse(receipt["capture_complete"])
+                    self.assertEqual(receipt["error"], expected_error)
+                    self.assertFalse((output / "hosts/lifecycle_registration_window/runtime.profdata").exists())
+                finally:
+                    self.root = original_root
 
     def check_channel_capture(self, group):
         self.assertIn(group, self.capture.TARGETS)

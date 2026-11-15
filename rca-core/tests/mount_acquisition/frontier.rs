@@ -324,6 +324,7 @@ fn live_foreign_sibling_and_refreshed_contexts_preserve_mounted_input() {
     driver.turn();
     release(&driver, &gate);
     assert!(matches!(poll(refresh.as_mut()), Poll::Ready(Ok(_))));
+    drop(refresh);
     let current = acquire(&first);
     let sibling = acquire(&second);
     let foreign_gate = TransactionGate::new();

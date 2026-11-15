@@ -2500,7 +2500,7 @@ fn local_live_foreign_sibling_and_refreshed_contexts_preserve_mounted_input() {
         &configuration,
         &reductions,
     );
-    let stale = driver.finish(store.acquire(&sites[0])).unwrap().unwrap();
+    let prior_context = driver.finish(store.acquire(&sites[0])).unwrap().unwrap();
     configuration.set(1);
     let mut refresh = Box::pin(store.send(RootAction));
     let mut context = Context::from_waker(Waker::noop());
@@ -2533,7 +2533,7 @@ fn local_live_foreign_sibling_and_refreshed_contexts_preserve_mounted_input() {
     assert!(send.as_mut().poll(&mut context).is_pending());
     driver.finish(gate.wait_for_pending());
     let boundary = gate.boundary().unwrap();
-    for invalid in [&foreign, &stale] {
+    for invalid in [&foreign, &prior_context] {
         let error = gate
             .inspect_mounted(invalid, |_| panic!("rejected matcher entered"))
             .unwrap_err();

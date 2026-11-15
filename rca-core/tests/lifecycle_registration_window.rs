@@ -1,4 +1,4 @@
-#![cfg(all(target_os = "macos", target_arch = "aarch64", not(loom)))]
+#![cfg(not(loom))]
 //! Forces final-owner closure into the first lifecycle-listener allocation window.
 //!
 //! The allocation hook controls ordering, not elapsed time. The actor retains its
@@ -21,6 +21,10 @@ use rca_core::{
 };
 
 #[test]
+#[cfg_attr(
+    miri,
+    ignore = "race control launches a subprocess, which Miri isolation forbids"
+)]
 fn closed_observes_last_owner_loss_before_cold_listener_registration() {
     if child::run_in_child("closed_observes_last_owner_loss_before_cold_listener_registration") {
         return;
@@ -73,6 +77,10 @@ fn closed_observes_last_owner_loss_before_cold_listener_registration() {
 }
 
 #[test]
+#[cfg_attr(
+    miri,
+    ignore = "race control launches a subprocess, which Miri isolation forbids"
+)]
 fn readiness_observes_last_owner_loss_before_cold_listener_registration() {
     if child::run_in_child("readiness_observes_last_owner_loss_before_cold_listener_registration") {
         return;

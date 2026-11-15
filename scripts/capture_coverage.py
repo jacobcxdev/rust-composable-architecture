@@ -65,7 +65,8 @@ TARGETS = {
         ("--features", "diagnostics,futures-stream,local,test-util"),
         ("timers", "local_clock_timer", "named_operation_timers", "typed_transactions",
          "assertion_gate", "lifecycle_diagnostics", "delayed_scope_retirement",
-         "named_operation_tasks", "local_runtime", "action_receipt_lifetime"), include_library=False,
+         "named_operation_tasks", "local_runtime", "action_receipt_lifetime",
+         "lifecycle_registration_window", "listener_registration_window"), include_library=False,
     ),
     "core-timers-minimal": CaptureGroup(
         "rca-core", "rca-core", "rca_core", frozenset({"local"}),
@@ -181,6 +182,10 @@ TARGETS = {
     ),
 }
 GIB = 1024 ** 3
+EXACT_CHILD_HOSTS = {
+    ("core-terminal", "effects"): (18, 20),
+    ("core-timers-rich", "lifecycle_registration_window"): (2, 2),
+}
 
 
 def group_arguments(group):
@@ -202,7 +207,10 @@ def host_arguments(group, kind, executable):
         args.append("--test-threads=1")
     if group == "macros" and (executable.name == "reducer" or executable.name.startswith("reducer-")):
         args.append("--test-threads=1")
-    if group == "core-terminal" and kind == ["test"] and (executable.name == "effects" or executable.name.startswith("effects-")):
+    if kind == ["test"] and any(
+        group == expected_group and (executable.name == name or executable.name.startswith(name + "-"))
+        for expected_group, name in EXACT_CHILD_HOSTS
+    ):
         args.extend(("--nocapture", "--test-threads=1"))
     if group in ("channel-overflow-std", "channel-overflow-nostd") and kind == ["lib"]:
         args.extend(("--nocapture", "--test-threads=1"))
@@ -616,17 +624,20 @@ def capture(root, group, output):
                                         "listener-std-critical-section")
                               and record["target"]["kind"] == ["test"])
             macro_child = group == "macros" and record["target"]["name"] == "reducer"
-            effect_children = group == "core-terminal" and record["target"]["name"] == "effects"
-            summary = test_summary((host / "run.stdout").read_text(), listener_child or effect_children, macro_child)
-            # This host isolates eighteen tests in the same executable.
-            if effect_children and len(summary["exact_children"]) != 18:
-                raise ValueError("Effects host must report eighteen successful exact-filtered children")
+            exact_counts = EXACT_CHILD_HOSTS.get((group, record["target"]["name"]))
+            summary = test_summary((host / "run.stdout").read_text(), listener_child or exact_counts is not None, macro_child)
+            if exact_counts is not None:
+                children, parent_tests = exact_counts
+                if len(summary["exact_children"]) != children:
+                    raise ValueError(f"{record['target']['name']} host must report {children} successful exact-filtered children")
+                if summary["passed"] != parent_tests or summary["ignored"] != 0 or summary["measured"] != 0:
+                    raise ValueError(f"{record['target']['name']} host must pass all {parent_tests} parent tests")
             write_json(host / "test-summary.json", summary)
             profiles = sorted(raw.glob("*.profraw"))
             if not profiles or set(raw.iterdir()) != set(profiles) or any(path.is_symlink() for path in profiles):
                 raise ValueError("Missing or unexpected runtime profiles")
-            if effect_children and len(profiles) != 19:
-                raise ValueError("Effects host must retain its parent and eighteen child profiles")
+            if exact_counts is not None and len(profiles) != exact_counts[0] + 1:
+                raise ValueError(f"{record['target']['name']} host must retain {exact_counts[0] + 1} parent and child profiles")
             write_json(host / "raw-sha256.json", {path.name: digest(path) for path in profiles})
             if channel_overflow and record["target"]["kind"] == ["lib"]:
                 write_json(host / "overflow-outcomes.json",

@@ -273,7 +273,7 @@ change implementation.
 | `core-minimal` | Core unit, actor and Local Store tests with `local`, without `test-util` |
 | `core-rich` | Core unit, mounted access, paths, composition and captured-modification tests with the rich Core features |
 | `core-removal` | Removed-child, stack-removal, missing-child and ephemeral tests with the rich Core features |
-| `core-timers-rich` | Timers, transactions, task receipts, named tasks and Local runtime tests with the rich Core features |
+| `core-timers-rich` | Timers, transactions, task receipts, named tasks, Local runtime and cold-listener registration tests with the rich Core features |
 | `core-timers-minimal` | Core timer and transaction tests with `local` only |
 | `core-reactions` | Changed reactions, keyed collections, stack and shared-update tests with the rich Core features |
 | `core-fold-commands` | Folds, recipe commands, command ports, input gates and acquisition-admission tests with the rich Core features |
@@ -346,6 +346,10 @@ Existing ignored tests remain visible in the retained summary.
 The `core-terminal` effects host also runs one parent test at a time, with captured output visible.
 Capture requires all eighteen successful exact-filtered child tests and nineteen process profiles, including the parent.
 The parent still runs its full test list. Each child runs the same instrumented executable and retains its own profile.
+
+The `core-timers-rich` lifecycle registration host uses the same isolation pattern.
+Capture requires both parent tests, two successful exact-filtered children and three process profiles.
+The separate assertion-listener host runs its single test in the parent process.
 
 A successful capture is not a 100% production-coverage result. Its raw data includes
 test code and dependencies, and the selected groups do not cover every RCA package
