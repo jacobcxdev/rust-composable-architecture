@@ -739,11 +739,11 @@ impl<State: 'static, Action: 'static, C: Execution<State, Action> + 'static>
             return WaitOutcome::Continue;
         }
 
-        let command = match self.receiver.try_recv() {
-            Ok(command) => Some(Ok(command)),
-            Err(mailbox::TryRecvError::Disconnected) => Some(Err(mailbox::RecvError)),
-            Err(mailbox::TryRecvError::Empty) => {
-                // Ready commands need no listener. Before waiting, register and recheck both sources.
+        let command = match self.receiver.try_recv_uncontended() {
+            Some(Ok(command)) => Some(Ok(command)),
+            Some(Err(mailbox::TryRecvError::Disconnected)) => Some(Err(mailbox::RecvError)),
+            Some(Err(mailbox::TryRecvError::Empty)) | None => {
+                // Empty or contended probes register before the blocking queue recheck.
                 #[cfg(test)]
                 if let Some(before_listener) = self.before_untimed_listener.take() {
                     before_listener();

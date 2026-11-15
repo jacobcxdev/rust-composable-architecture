@@ -1,4 +1,4 @@
-//! Contracts exercise real endpoints, futures and notifier callbacks, not queue internals.
+//! Contracts exercise real endpoints, futures, queue locking and notifier callbacks.
 
 use super::{SendError, Sender, TryRecvError, TrySendError, bounded};
 use std::cell::Cell;
@@ -97,6 +97,33 @@ fn counted_waker() -> (Waker, Arc<AtomicUsize>) {
 /// Polls once with the callback chosen by the contract being tested.
 fn poll<F: Future>(future: Pin<&mut F>, waker: &Waker) -> Poll<F::Output> {
     future.poll(&mut Context::from_waker(waker))
+}
+
+/// Speculative receives preserve queued values when the lock is busy.
+#[test]
+fn uncontended_receive_skips_busy_queue_and_preserves_fifo_and_closure() {
+    model(|| {
+        let (sender, receiver) = bounded(NonZeroUsize::new(2).unwrap());
+        sender.try_send(11).unwrap();
+        sender.try_send(22).unwrap();
+        let queue = receiver.0.lock();
+        assert_eq!(receiver.try_recv_uncontended(), None);
+        drop(queue);
+
+        assert_eq!(receiver.try_recv_uncontended(), Some(Ok(11)));
+        assert_eq!(receiver.try_recv_uncontended(), Some(Ok(22)));
+        assert_eq!(
+            receiver.try_recv_uncontended(),
+            Some(Err(TryRecvError::Empty))
+        );
+        sender.try_send(33).unwrap();
+        assert!(sender.close(|| {}));
+        assert_eq!(receiver.try_recv_uncontended(), Some(Ok(33)));
+        assert_eq!(
+            receiver.try_recv_uncontended(),
+            Some(Err(TryRecvError::Disconnected)),
+        );
+    });
 }
 
 /// Uses real ingress admission without a lifecycle epoch change or a lost wake.
@@ -699,7 +726,7 @@ fn receive_wake_can_reenter_close() {
         sender.try_send(0).unwrap();
         let mut waiting = Box::pin(sender.send(1, || {}));
         assert!(poll(waiting.as_mut(), &waker).is_pending());
-        assert_eq!(receiver.try_recv().unwrap(), 0);
+        assert_eq!(receiver.try_recv_uncontended(), Some(Ok(0)));
         assert_eq!(calls.load(Ordering::SeqCst), 1);
         assert!(receiver.is_closed());
         assert!(matches!(
@@ -777,7 +804,7 @@ fn receive_wake_panic_drops_removed_payload_outside_lock() {
         let waker = Waker::from(WakerArc::new(PanicWake(Arc::clone(&calls))));
         assert!(poll(waiting.as_mut(), &waker).is_pending());
 
-        let panic = catch_unwind(AssertUnwindSafe(|| receiver.try_recv()));
+        let panic = catch_unwind(AssertUnwindSafe(|| receiver.try_recv_uncontended()));
         let Err(panic) = panic else {
             panic!("producer wake must unwind receive");
         };

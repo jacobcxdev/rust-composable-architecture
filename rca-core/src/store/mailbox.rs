@@ -174,14 +174,25 @@ impl<T> Receiver<T> {
     /// Queued values remain readable after closure. A panicking producer waker
     /// unwinds after removal; the removed payload is dropped, not put back.
     pub(super) fn try_recv(&self) -> Result<T, TryRecvError> {
-        let result = {
-            let mut queue = self.0.lock();
-            match queue.pop_front() {
-                Some(value) => Ok(value),
-                None if self.0.closed.load(Ordering::Relaxed) => Err(TryRecvError::Disconnected),
-                None => Err(TryRecvError::Empty),
-            }
+        self.receive_locked(self.0.lock())
+    }
+
+    /// Attempts removal without waiting for the queue lock.
+    ///
+    /// `None` means lock contention, not an empty queue. Acquired queues use the
+    /// same FIFO, closure and post-unlock notification rules as [`Self::try_recv`].
+    pub(super) fn try_recv_uncontended(&self) -> Option<Result<T, TryRecvError>> {
+        Some(self.receive_locked(self.0.try_lock()?))
+    }
+
+    /// Removes one value, then releases the queue before notifying capacity waiters.
+    fn receive_locked(&self, mut queue: MutexGuard<'_, VecDeque<T>>) -> Result<T, TryRecvError> {
+        let result = match queue.pop_front() {
+            Some(value) => Ok(value),
+            None if self.0.closed.load(Ordering::Relaxed) => Err(TryRecvError::Disconnected),
+            None => Err(TryRecvError::Empty),
         };
+        drop(queue);
         if result.is_ok() && self.0.capacity_interest.load(Ordering::Acquire) {
             // No queue guard is held across waker notification.
             self.0.send_ops.notify_additional(1);
@@ -210,6 +221,21 @@ impl<T> Channel<T> {
         #[cfg(not(all(test, loom)))]
         {
             self.queue.lock()
+        }
+    }
+
+    /// Attempts the same queue lock without waiting or hiding model poisoning.
+    fn try_lock(&self) -> Option<MutexGuard<'_, VecDeque<T>>> {
+        #[cfg(all(test, loom))]
+        {
+            match self.queue.try_lock() {
+                Err(std::sync::TryLockError::WouldBlock) => None,
+                result => Some(result.expect("mailbox model lock was poisoned")),
+            }
+        }
+        #[cfg(not(all(test, loom)))]
+        {
+            self.queue.try_lock()
         }
     }
 
