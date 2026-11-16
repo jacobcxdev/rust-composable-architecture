@@ -423,10 +423,10 @@ impl Feature for AccountJobs {
     fn update(
         &mut self,
         _: &mut Self::State,
-        job: &Job,
+        action: &Job,
         context: &mut FeatureContext<'_, Self::State, Job>,
     ) {
-        let job = *job;
+        let job = *action;
         let response = self.responses.pop_front().expect("prepared job response");
         context.task(
             Task::run(move |context| async move {

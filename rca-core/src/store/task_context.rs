@@ -437,6 +437,37 @@ mod request_tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::task::{Context, Waker};
 
+    /// Nested names preserve the inline size and alignment of single-name tasks.
+    #[test]
+    fn nested_names_preserve_task_layout() {
+        use std::alloc::Layout;
+
+        /// Matches the two fields that tasks used before nested names.
+        struct SingleNameTask<Run> {
+            /// Keeps the original factory type for each runtime family.
+            _run: Run,
+            /// Keeps the original optional declaration representation.
+            _declaration: Option<OperationDeclaration>,
+        }
+
+        assert_eq!(
+            Layout::new::<TaskDeclarations>(),
+            Layout::new::<Option<OperationDeclaration>>(),
+            "nested names must preserve the declaration size and alignment"
+        );
+        assert_eq!(
+            Layout::new::<Task<(), ()>>(),
+            Layout::new::<SingleNameTask<TaskRun<(), ()>>>(),
+            "nested names must preserve the Shared task size and alignment"
+        );
+        #[cfg(feature = "local")]
+        assert_eq!(
+            Layout::new::<local::Task<(), ()>>(),
+            Layout::new::<SingleNameTask<local::TaskRun<(), ()>>>(),
+            "nested names must preserve the Local task size and alignment"
+        );
+    }
+
     #[test]
     fn dropping_a_capacity_blocked_request_destroys_its_action_before_releasing_named_work() {
         struct Action {

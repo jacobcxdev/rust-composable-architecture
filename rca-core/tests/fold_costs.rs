@@ -96,6 +96,16 @@ macro_rules! public_case {
         /// Keeps three independently mounted row groups in a fixed order.
         type Groups = [Rows; 3];
 
+        /// Borrows the fixed group without capturing its index in a closure.
+        fn group_read<const INDEX: usize>(groups: &Groups) -> Option<&Rows> {
+            groups.get(INDEX)
+        }
+
+        /// Mutably borrows the same fixed group as its read projection.
+        fn group_write<const INDEX: usize>(groups: &mut Groups) -> Option<&mut Rows> {
+            groups.get_mut(INDEX)
+        }
+
         /// Owns the fixed three-group shape without changing it between reads.
         struct GroupRoot;
         impl Feature for GroupRoot {
@@ -136,12 +146,22 @@ macro_rules! public_case {
                 });
                 let mut builder = Store::builder(groups, GroupRoot, Runtime::new(driver.clone()));
                 let mut selected_site = None;
-                for group in 0..3 {
+                for (group, (read, write)) in [
+                    (
+                        group_read::<0> as fn(&Groups) -> Option<&Rows>,
+                        group_write::<0> as fn(&mut Groups) -> Option<&mut Rows>,
+                    ),
+                    (group_read::<1>, group_write::<1>),
+                    (group_read::<2>, group_write::<2>),
+                ]
+                .into_iter()
+                .enumerate()
+                {
                     let declared = fold.clone();
                     let selected = Arc::clone(&calls);
                     let mount = OptionalMount::new(
-                        move |groups: &Groups| Some(&groups[group]),
-                        move |groups: &mut Groups| Some(&mut groups[group]),
+                        read,
+                        write,
                         move |_: &Groups| Some(rca_core::MountIdentity {
                             key: group,
                             replacement: 0,

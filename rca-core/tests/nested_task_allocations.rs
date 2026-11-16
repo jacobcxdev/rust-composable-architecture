@@ -13,6 +13,10 @@ mod allocation_test;
 mod support;
 
 #[cfg(feature = "local")]
+#[expect(
+    dead_code,
+    reason = "allocation assays take individual tasks instead of polling the whole host queue"
+)]
 #[path = "fold/local_driver.rs"]
 mod local_driver;
 

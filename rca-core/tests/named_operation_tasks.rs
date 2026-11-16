@@ -94,7 +94,8 @@ impl Feature for GroupedTasks {
     type State = ();
     type Action = Job;
 
-    fn update(&mut self, (): &mut (), job: &Job, context: &mut FeatureContext<'_, (), Job>) {
+    fn update(&mut self, (): &mut (), action: &Job, context: &mut FeatureContext<'_, (), Job>) {
+        let job = *action;
         let capture = TaskCapture(self.observations.next().unwrap());
         context.task(
             Task::run(move |_| {
@@ -104,7 +105,7 @@ impl Feature for GroupedTasks {
                     std::future::pending::<()>().await;
                 }
             })
-            .named(*job, OperationPolicy::Replace)
+            .named(job, OperationPolicy::Replace)
             .named(job.0, OperationPolicy::Coexist),
         );
     }
@@ -258,14 +259,14 @@ fn nested_typed_task_groups_isolate_jobs_and_capture_existing_generations() {
         .mount_with_site(OptionalMount::new(
             |state: &()| Some(state),
             |state: &mut ()| Some(state),
-            |_: &()| {
+            |(): &()| {
                 Some(MountIdentity {
                     key: (),
                     replacement: 0,
                     configuration: 0,
                 })
             },
-            move |_| GroupedTasks {
+            move |()| GroupedTasks {
                 observations: Vec::from(child_observations.clone()).into_iter(),
             },
         ));
