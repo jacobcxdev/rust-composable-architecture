@@ -1,5 +1,20 @@
 # Exact-work performance harness
 
+## Controlled Store costs
+
+The separate `controlled_cost` binary profiles nine fixed Store schedules with
+the manual runtime and default production features. It checks exact work and
+physical owner release before reporting. It does not measure native contention
+or elapsed latency. The existing default executable remains
+`rca-performance-profile`.
+
+The [controlled instruction comparison](../../docs/performance/method.md#controlled-instruction-comparison)
+describes paired builds, exact repeatability checks and the added-work control.
+Do not infer an improvement from instruction counts without the separate native
+performance evidence.
+
+## Existing workload families
+
 Standalone, unpublished profiling input; not a product benchmark or a timing
 claim. Run `rca-performance-profile WORKLOAD SIZE ITERATIONS`. Every counter/effect
 prefix below has `-native` and `-deterministic` names. Direct shared-cache names

@@ -344,6 +344,7 @@ dependencies = [
  "async-channel",
  "dhat",
  "futures-executor",
+ "futures-util",
  "rca-core",
  "rca-persistence",
  "rca-test",

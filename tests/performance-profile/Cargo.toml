@@ -1,5 +1,6 @@
 [package]
 name = "rca-performance-profile"
+default-run = "rca-performance-profile"
 version = "0.0.0"
 edition = "2024"
 rust-version = "1.100.0"
@@ -15,7 +16,7 @@ categories = ["development-tools::profiling"]
 
 [features]
 default = []
-deterministic = ["dep:rca-test", "dep:futures-executor"]
+deterministic = ["dep:rca-test"]
 local = ["deterministic", "rca-core/local", "rca-test/local"]
 diagnostics = ["rca-core/diagnostics"]
 allocations = ["dep:dhat", "dep:serde_json"]
@@ -27,7 +28,8 @@ rca-core = { path = "../../rca-core" }
 rca-persistence = { path = "../../rca-persistence", optional = true, default-features = false }
 rca-test = { path = "../../rca-test", optional = true }
 rca-tokio = { path = "../../rca-tokio" }
-futures-executor = { version = "=0.3.34", optional = true }
+futures-executor = "=0.3.34"
+futures-util = { version = "=0.3.34", default-features = false, features = ["std"] }
 tokio = { version = "=1.53.3", features = ["rt", "time"] }
 dhat = { version = "=0.3.3", optional = true }
 serde_json = { version = "=1.0.151", optional = true }

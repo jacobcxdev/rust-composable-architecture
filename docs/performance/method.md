@@ -319,6 +319,74 @@ The 54 stable scenarios cover:
 
 ## Profiling rule
 
+### Controlled instruction comparison
+
+The `controlled_cost` binary in `tests/performance-profile` measures fixed Store
+schedules without executor threads or elapsed-time decisions. It uses the common
+manual runtime and the production Core feature graph. Do not enable optional
+profiling-package features for this binary.
+
+The finite matrix has nine schedules: both action orders with an empty mailbox,
+both orders with a capacity-one mailbox, idle and queued graceful shutdown, and
+unpolled, idle and queried abortive shutdown. Two logical producers follow explicit
+poll scripts. This does not simulate simultaneous native contention.
+
+Each fixture owns 64 KiB of state. Its named `profile_controlled_work` boundary
+includes construction, the prescribed work and physical actor destruction.
+Every fixture completes cleanup before the next one starts. Exact action order,
+poll counts, state checksums and owner destruction must match. These are complete
+controlled lifecycle costs, not isolated send latency or OS wake-up time.
+
+On an OS-limited Linux host, build with the pinned tools:
+
+```sh
+rustup run 1.100.0 cargo build --locked --release \
+  --manifest-path tests/performance-profile/Cargo.toml --bin controlled_cost
+```
+
+Build both product revisions with the same controlled binary source, manual
+runtime support and profiling manifest. Preserve each product's production source
+and dependency versions. Use a separate target directory for each revision.
+Seal each executable at build time, before another build can replace an output
+alias. Retain build commands, source hashes, compiler identity,
+feature graph and resulting executable hashes. The comparison helper identifies
+executables; it does not infer which revision produced them.
+
+With x86-64 Linux Callgrind installed, compare the two identified executables:
+
+```sh
+python3 scripts/profile_controlled_cost.py \
+  --reference /path/to/reference/controlled_cost \
+  --candidate /path/to/candidate/controlled_cost \
+  --output /path/to/new-evidence-directory
+```
+
+The helper runs sixteen complete fixtures per process and three repetitions per
+product and control input. It requires exact equality of useful-work records,
+instruction totals and exclusive function counts within each unchanged product.
+It fixes the child environment and working directory, so caller settings do not
+alter the process layout. Repeat a complete capture with the same executables,
+tools and libraries, then require identical records and function counts across
+captures. Do not compare raw profile hashes: process identifiers and output paths
+are metadata, not counted work. The helper does not average drift.
+A fixed arithmetic control adds work inside the same boundary without changing
+Store work. Both its total cost and its named function
+cost must increase. A failed control or changed binary stops the comparison and
+retains incomplete evidence.
+
+Callgrind collection excludes argument parsing and reporting. Cache and branch
+simulation stay disabled. The helper retains raw profiles, full function tables,
+commands and hashes. It requires a fresh output directory and twenty GiB of free
+disk reserve. Retain the build receipts with this output.
+
+Instruction differences describe these finite controlled schedules. They do not
+establish native latency, throughput, hardware cycles, cache behaviour or all
+possible interleavings. An increased count stays visible even if repeatability
+passes. Existing native scenarios and numerical gates remain required. Do not use
+controlled instruction counts to relabel uncertain native timings as improvements.
+
+### Native profiles
+
 Every Mac qualification records:
 
 - Time Profiler trace for saturated four-producer commit;
