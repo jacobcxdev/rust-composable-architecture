@@ -34,7 +34,8 @@ pub(crate) enum TaskDeclarations {
 
 impl TaskDeclarations {
     /// Adds an outer name without changing previously declared policies.
-    #[inline]
+    // Fold first-name conversion into callers that construct an unnamed task.
+    #[inline(always)]
     fn named(self, declaration: OperationDeclaration) -> Self {
         match self {
             Self::List(None) => Self::One(declaration),

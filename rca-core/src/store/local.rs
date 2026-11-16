@@ -2188,6 +2188,8 @@ impl<S: 'static, A: 'static> Execution<S, A> for Local {
         TaskContext::new(ingress, scope, provenance, authority)
     }
 
+    // Keep this forwarding layer inside the task registration path.
+    #[inline(always)]
     fn register_task(
         registry: &mut TaskRegistry,
         prepared: PreparedTask,
