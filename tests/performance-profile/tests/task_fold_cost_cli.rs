@@ -69,7 +69,13 @@ mod production_graph {
         assert_eq!(lines.len(), 3);
         assert_eq!(&lines[..2], &["READY", "DONE"]);
         let row: serde_json::Value = serde_json::from_str(lines[2]).unwrap();
-        assert_eq!(row["schema"], "rca-task-fold-cost-v1");
+        let (schema, clock) = if cfg!(feature = "task-fold-controlled") {
+            ("rca-task-fold-controlled-cost-v1", "paused-checked")
+        } else {
+            ("rca-task-fold-cost-v1", "live")
+        };
+        assert_eq!(row["schema"], schema);
+        assert_eq!(row["details"]["clock"], clock);
         assert_eq!(row["workload"], args[0]);
         assert_eq!(row["size"], args[1].parse::<u64>().unwrap());
         assert_eq!(row["iterations"], args[2].parse::<u64>().unwrap());

@@ -670,11 +670,28 @@ impl rca_core::local::RuntimeDriver for LocalTokio {
 /// Panics if work counts, fold results, affinity or owner release differ from the contract.
 #[inline(never)]
 pub(crate) fn profile_task_fold_work(config: &Config) -> Result<WorkResult> {
-    let host = tokio::runtime::Builder::new_current_thread()
-        .enable_time()
-        .build()?;
-    let result =
-        host.block_on(async { execute(config, rca_tokio::TokioRuntime::current()?).await });
+    let mut builder = tokio::runtime::Builder::new_current_thread();
+    builder.enable_time();
+    #[cfg(feature = "task-fold-controlled")]
+    builder.start_paused(true);
+    let host = builder.build()?;
+    let result = host.block_on(async {
+        let runtime = rca_tokio::TokioRuntime::current()?;
+        #[cfg(feature = "task-fold-controlled")]
+        let clock = (tokio::time::Instant::now(), runtime.now(), runtime.clone());
+        let result = execute(config, runtime).await;
+        #[cfg(feature = "task-fold-controlled")]
+        {
+            // Paused Tokio time can auto-advance for timers. These bodies use none.
+            assert_eq!(
+                tokio::time::Instant::now(),
+                clock.0,
+                "Tokio clock stayed fixed"
+            );
+            assert_eq!(clock.2.now(), clock.1, "RCA clock stayed fixed");
+        }
+        result
+    });
     drop(host);
     let result = result?;
     assert_eq!(

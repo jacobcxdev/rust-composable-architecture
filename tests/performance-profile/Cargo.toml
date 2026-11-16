@@ -23,6 +23,7 @@ allocations = ["dep:dhat", "dep:serde_json"]
 persistence = ["dep:rca-persistence"]
 task-fold = ["rca-core/local"]
 task-fold-groups = ["task-fold"]
+task-fold-controlled = ["task-fold", "tokio/test-util"]
 
 [dependencies]
 async-channel = "=2.5.0"

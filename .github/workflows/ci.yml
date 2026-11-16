@@ -96,6 +96,10 @@ jobs:
                   cargo test --locked --manifest-path tests/performance-profile/Cargo.toml --features task-fold --test controlled_cost_cli -- --test-threads=1
                   cargo clippy --locked --manifest-path tests/performance-profile/Cargo.toml --features task-fold-groups --bin task_fold_cost --test task_fold_cost_cli -- -D warnings
                   cargo test --locked --manifest-path tests/performance-profile/Cargo.toml --features task-fold-groups --bin task_fold_cost --test task_fold_cost_cli -- --test-threads=1
+                  cargo clippy --locked --manifest-path tests/performance-profile/Cargo.toml --features task-fold-controlled --bin task_fold_cost --test task_fold_cost_cli -- -D warnings
+                  cargo test --locked --manifest-path tests/performance-profile/Cargo.toml --features task-fold-controlled --bin task_fold_cost --test task_fold_cost_cli -- --test-threads=1
+                  cargo clippy --locked --manifest-path tests/performance-profile/Cargo.toml --features task-fold-controlled,task-fold-groups --bin task_fold_cost --test task_fold_cost_cli -- -D warnings
+                  cargo test --locked --manifest-path tests/performance-profile/Cargo.toml --features task-fold-controlled,task-fold-groups --bin task_fold_cost --test task_fold_cost_cli -- --test-threads=1
 
             - name: Fetch consumer dependencies
               id: consumer_dependencies
@@ -691,6 +695,11 @@ jobs:
                       fi
                       run_logged "$role-build" cargo build --locked --release --manifest-path tests/performance-profile/Cargo.toml --target "$PROFILE_TARGET" --features task-fold --bin task_fold_cost
                       cp "$CARGO_TARGET_DIR/$PROFILE_TARGET/release/task_fold_cost" "$output/$role-task-fold"
+                      if [[ "$RUNNER_OS" == Linux ]]; then
+                          run_logged "$role-controlled-cli" cargo test --locked --release --manifest-path tests/performance-profile/Cargo.toml --target "$PROFILE_TARGET" --features task-fold-controlled --bin task_fold_cost --test task_fold_cost_cli -- --test-threads=1
+                          run_logged "$role-controlled-build" cargo build --locked --release --manifest-path tests/performance-profile/Cargo.toml --target "$PROFILE_TARGET" --features task-fold-controlled --bin task_fold_cost
+                          cp "$CARGO_TARGET_DIR/$PROFILE_TARGET/release/task_fold_cost" "$output/$role-task-fold-controlled"
+                      fi
                   done
                   cd "$root"
                   export CARGO_TARGET_DIR="$build_parent/rca-native-profile-candidate"
@@ -700,12 +709,23 @@ jobs:
                   fi
                   run_logged candidate-groups-build cargo build --locked --release --manifest-path tests/performance-profile/Cargo.toml --target "$PROFILE_TARGET" --features task-fold-groups --bin task_fold_cost
                   cp "$CARGO_TARGET_DIR/$PROFILE_TARGET/release/task_fold_cost" "$output/candidate-task-fold-groups"
+                  if [[ "$RUNNER_OS" == Linux ]]; then
+                      run_logged candidate-controlled-groups-cli cargo test --locked --release --manifest-path tests/performance-profile/Cargo.toml --target "$PROFILE_TARGET" --features task-fold-controlled,task-fold-groups --bin task_fold_cost --test task_fold_cost_cli -- --test-threads=1
+                      run_logged candidate-controlled-groups-build cargo build --locked --release --manifest-path tests/performance-profile/Cargo.toml --target "$PROFILE_TARGET" --features task-fold-controlled,task-fold-groups --bin task_fold_cost
+                      cp "$CARGO_TARGET_DIR/$PROFILE_TARGET/release/task_fold_cost" "$output/candidate-task-fold-controlled-groups"
+                  fi
                   production_check
                   git diff --exit-code HEAD
                   cd "$output"
                   shasum -a 256 baseline-task-fold candidate-task-fold candidate-task-fold-groups > binaries.sha256
                   wc -c baseline-task-fold candidate-task-fold candidate-task-fold-groups > binary-sizes.txt
                   file baseline-task-fold candidate-task-fold candidate-task-fold-groups > binary-formats.txt
+                  if [[ "$RUNNER_OS" == Linux ]]; then
+                      controlled=(baseline-task-fold-controlled candidate-task-fold-controlled candidate-task-fold-controlled-groups)
+                      shasum -a 256 "${controlled[@]}" >> binaries.sha256
+                      wc -c "${controlled[@]}" >> binary-sizes.txt
+                      file "${controlled[@]}" >> binary-formats.txt
+                  fi
                   printf 'All selected checks passed; allocation assays run only on macOS. No statistical benchmark ran.\n' > complete.txt
 
             - name: Retain native task and fold tools

@@ -45,25 +45,33 @@ fn main() -> Result<()> {
     output.flush()?;
     expect_command(&mut input, "REPORT")?;
 
+    let (schema, clock) = if cfg!(feature = "task-fold-controlled") {
+        ("rca-task-fold-controlled-cost-v1", "paused-checked")
+    } else {
+        ("rca-task-fold-cost-v1", "live")
+    };
     // Names come only from a fixed ASCII list. Every other field is a scalar.
     writeln!(
         output,
         concat!(
-            "{{\"schema\":\"rca-task-fold-cost-v1\",\"workload\":\"{}\",",
+            "{{\"schema\":\"{}\",\"workload\":\"{}\",",
             "\"size\":{},\"iterations\":{},\"workers\":1,\"operations\":{},",
             "\"checksum\":{},\"elapsed_ns\":{},\"latencies_ns\":[],",
             "\"cleanup_complete\":true,\"details\":{{\"allocator\":\"system\",",
             "\"runtime\":\"Tokio current-thread\",\"task_groups_enabled\":{},",
+            "\"clock\":\"{}\",",
             "\"boundary\":\"profile_task_fold_work\",",
             "\"scope\":\"construction, checked work, shutdown and host disposal\"}}}}"
         ),
+        schema,
         config.name(),
         config.size,
         config.iterations,
         result.operations,
         result.checksum,
         elapsed,
-        cfg!(feature = "task-fold-groups")
+        cfg!(feature = "task-fold-groups"),
+        clock
     )?;
     output.flush()?;
     expect_command(&mut input, "EXIT")

@@ -6,6 +6,10 @@ rust-version.workspace = true
 license.workspace = true
 publish = false
 
+[[example]]
+name = "named_operations"
+test = true
+
 [dependencies]
 rca = { package = "rust-composable-architecture", path = "../../rca", version = "=0.1.0", features = ["macros", "tokio"] }
 tokio = { workspace = true, features = ["macros", "rt", "time"] }

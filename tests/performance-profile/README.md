@@ -51,6 +51,15 @@ Retain all samples and same-image controls. Whole-image size changes do not
 establish per-method code-size costs. No runtime-speed claim follows from a
 successful fixture or instruction count alone.
 
+The separate `task-fold-controlled` feature pauses Tokio time for instruction
+repeatability checks. It retains the timer driver required by the RCA adapter.
+Each batch checks that both Tokio and RCA clocks stay fixed through work and
+shutdown. These workloads use no timers. A timer that advances the paused clock
+fails the batch. Controlled records use `rca-task-fold-controlled-cost-v1` and
+report `clock="paused-checked"`. Native records keep `rca-task-fold-cost-v1` and
+report `clock="live"`. Controlled elapsed times are not native timing evidence.
+Exact instruction repeatability still requires unchanged-image repeated captures.
+
 ## Controlled Store costs
 
 The separate `controlled_cost` binary profiles nine fixed Store schedules with
