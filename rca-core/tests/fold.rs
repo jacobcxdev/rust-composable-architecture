@@ -255,6 +255,10 @@ fn transform_applies_only_to_its_subtree() {
     let driver = Driver::default();
     let fold = Fold::<Root, Sum>::new();
     let declared = fold.clone();
+    let digits = Fold::<Root, Digits>::new();
+    let declared_digits = digits.clone();
+    let calls = Arc::new([AtomicUsize::new(0), AtomicUsize::new(0)]);
+    let selected_calls = Arc::clone(&calls);
     let mount = OptionalMount::new(
         |root: &Root| root.parent.as_ref(),
         |root: &mut Root| root.parent.as_mut(),
@@ -278,7 +282,16 @@ fn transform_applies_only_to_its_subtree() {
         Runtime::new(driver.clone()),
     )
     .mount_with_children(mount, move |_, children| {
-        children.contribute(&declared, |_| Owned(Box::new(Cell::new(1))));
+        let sum_calls = Arc::clone(&selected_calls);
+        children.contribute(&declared, move |_| {
+            sum_calls[0].fetch_add(1, Ordering::Relaxed);
+            Owned(Box::new(Cell::new(1)))
+        });
+        let digit_calls = Arc::clone(&selected_calls);
+        children.contribute(&declared_digits, move |_| {
+            digit_calls[1].fetch_add(1, Ordering::Relaxed);
+            Owned(Box::new(Cell::new(1)))
+        });
         let leaf = OptionalMount::new(
             |parent: &Parent| parent.leaf.as_ref(),
             |parent: &mut Parent| parent.leaf.as_mut(),
@@ -292,20 +305,44 @@ fn transform_applies_only_to_its_subtree() {
             |_| LeafFeature,
         );
         let declared = declared.clone();
+        let declared_digits = declared_digits.clone();
+        let selected_calls = Arc::clone(&selected_calls);
         children.optional_with_children(leaf, move |_, children| {
+            let sum_calls = Arc::clone(&selected_calls);
             children.contribute_transformed(
                 &declared,
-                |value| Owned(Box::new(Cell::new(*value))),
+                move |value| {
+                    sum_calls[0].fetch_add(1, Ordering::Relaxed);
+                    Owned(Box::new(Cell::new(*value)))
+                },
                 |value| {
                     value.0.set(value.0.get() * 10);
                     value
                 },
             );
+            let digit_calls = Arc::clone(&selected_calls);
+            children.contribute(&declared_digits, move |value| {
+                digit_calls[1].fetch_add(1, Ordering::Relaxed);
+                Owned(Box::new(Cell::new(*value)))
+            });
         });
     });
     let store = builder.build().unwrap();
     driver.finish(store.ready()).unwrap();
     assert_eq!(driver.finish(store.fold(&fold)).unwrap().0.get(), 21);
+    assert_eq!(calls[0].load(Ordering::Relaxed), 2);
+    assert_eq!(calls[1].load(Ordering::Relaxed), 0);
+    assert_eq!(driver.finish(store.fold(&digits)).unwrap().0.get(), 12);
+    assert_eq!(calls[0].load(Ordering::Relaxed), 2);
+    assert_eq!(calls[1].load(Ordering::Relaxed), 2);
+
+    drop(driver.finish(store.send(Action::Replace)).unwrap());
+    assert_eq!(driver.finish(store.fold(&fold)).unwrap().0.get(), 81);
+    assert_eq!(calls[0].load(Ordering::Relaxed), 4);
+    assert_eq!(calls[1].load(Ordering::Relaxed), 2);
+    assert_eq!(driver.finish(store.fold(&digits)).unwrap().0.get(), 18);
+    assert_eq!(calls[0].load(Ordering::Relaxed), 4);
+    assert_eq!(calls[1].load(Ordering::Relaxed), 4);
     driver.finish(store.shutdown()).unwrap();
 }
 

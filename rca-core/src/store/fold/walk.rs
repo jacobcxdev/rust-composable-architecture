@@ -13,16 +13,17 @@ use crate::store::scope::ScopeRegistry;
 use crate::store::task_context::{TaskAccessError, TaskAccessReason, TaskProgress};
 use std::ops::ControlFlow;
 
-/// Selects one current incarnation and its contiguous preorder descendants.
+/// Locates one current incarnation without scanning its descendants.
 ///
 /// Frozen authority is checked before roster lookup. The roster owns each
-/// declaration throughout selection, and no user selector runs here.
+/// declaration throughout selection, and no user selector runs here. The
+/// subtree walker finds the boundary during its existing depth traversal.
 pub(super) fn subtree<'a, R, A, C: Carriers<R, A>>(
     scopes: &ScopeRegistry,
     mounts: &'a [Box<C::Mount>],
     identity: usize,
     frozen: &super::super::output::FrozenRegistration,
-) -> Result<&'a [Box<C::Mount>], TaskAccessError> {
+) -> Result<SubtreeStart<'a, C::Mount>, TaskAccessError> {
     let start = if frozen.is_current(scopes) {
         mounts
             .iter()
@@ -31,12 +32,18 @@ pub(super) fn subtree<'a, R, A, C: Carriers<R, A>>(
         None
     }
     .ok_or_else(|| TaskAccessError::new(TaskAccessReason::ScopeEnded, TaskProgress::NotStarted))?;
-    let depth = mounts[start].depth();
-    let length = 1 + mounts[start + 1..]
-        .iter()
-        .take_while(|owner| owner.depth() > depth)
-        .count();
-    Ok(&mounts[start..start + length])
+    Ok(SubtreeStart {
+        mounts: &mounts[start..],
+        depth: mounts[start].depth(),
+    })
+}
+
+/// Borrows a validated root and the remaining roster without owning declarations.
+pub(super) struct SubtreeStart<'a, M: ?Sized> {
+    /// Starts at the selected root and can include later, unrelated siblings.
+    mounts: &'a [Box<M>],
+    /// Excludes every later declaration at this depth or a shallower depth.
+    depth: usize,
 }
 
 /// Keeps one explicit transform group open until traversal leaves its subtree.
@@ -113,14 +120,54 @@ pub(super) fn walk<R: 'static, A, K: FoldKey, C: Carriers<R, A>, L: CallbackLeas
     scopes: &ScopeRegistry,
     mounts: &[Box<C::Mount>],
     lifecycle: &Lifecycle,
+    acquire: impl FnMut(usize) -> Option<L>,
+) -> Result<K::Value, TaskAccessError> {
+    walk_bounded::<R, A, K, C, L, false>(root, scopes, mounts, 0, lifecycle, acquire)
+}
+
+/// Folds one subtree without a separate pass to find its final descendant.
+pub(super) fn walk_subtree<R: 'static, A, K: FoldKey, C: Carriers<R, A>, L: CallbackLease<R, K>>(
+    root: &R,
+    scopes: &ScopeRegistry,
+    subtree: SubtreeStart<'_, C::Mount>,
+    lifecycle: &Lifecycle,
+    acquire: impl FnMut(usize) -> Option<L>,
+) -> Result<K::Value, TaskAccessError> {
+    walk_bounded::<R, A, K, C, L, true>(
+        root,
+        scopes,
+        subtree.mounts,
+        subtree.depth,
+        lifecycle,
+        acquire,
+    )
+}
+
+/// Shares reduction while removing subtree checks from whole-root instantiations.
+fn walk_bounded<
+    R: 'static,
+    A,
+    K: FoldKey,
+    C: Carriers<R, A>,
+    L: CallbackLease<R, K>,
+    const SUBTREE: bool,
+>(
+    root: &R,
+    scopes: &ScopeRegistry,
+    mounts: &[Box<C::Mount>],
+    subtree_depth: usize,
+    lifecycle: &Lifecycle,
     mut acquire: impl FnMut(usize) -> Option<L>,
 ) -> Result<K::Value, TaskAccessError> {
     live(lifecycle)?;
     let mut accumulator = Some(K::identity());
     let mut frames: Vec<Frame<K, L>> = Vec::new();
     let mut broken = false;
-    for owner in mounts {
+    for (index, owner) in mounts.iter().enumerate() {
         let depth = owner.depth();
+        if SUBTREE && index != 0 && depth <= subtree_depth {
+            break;
+        }
         // Finish groups before considering this sibling. A broken group still
         // transforms once and can break its enclosing group during reduction.
         while frames.last().is_some_and(|frame| depth <= frame.depth) {

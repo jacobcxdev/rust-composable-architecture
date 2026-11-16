@@ -330,23 +330,25 @@ impl<R: 'static, A, K: FoldKey> FoldCall<R, A, Local> for Read<R, K> {
             self.reply.complete(Err(ended()));
             return;
         }
-        let mounts = match self
+        let subtree = match self
             .target
             .as_ref()
             .map(|target| target.select::<R, A>(scopes, mounts))
             .transpose()
         {
-            Ok(Some(mounts)) => mounts,
-            Ok(None) => mounts,
+            Ok(subtree) => subtree,
             Err(error) => {
                 self.reply.complete(Err(error));
                 return;
             }
         };
         self.reply.mark_entered();
-        let result = walk::walk::<R, A, K, Local, _>(root, scopes, mounts, lifecycle, |identity| {
-            self.fold.acquire(identity)
-        });
+        let acquire = |identity| self.fold.acquire(identity);
+        let result = if let Some(subtree) = subtree {
+            walk::walk_subtree::<R, A, K, Local, _>(root, scopes, subtree, lifecycle, acquire)
+        } else {
+            walk::walk::<R, A, K, Local, _>(root, scopes, mounts, lifecycle, acquire)
+        };
         self.reply.complete(result);
     }
 
@@ -518,12 +520,12 @@ impl Clone for Target {
 }
 
 impl Target {
-    /// Selects the current committed subtree or rejects stale captured authority.
+    /// Locates the current subtree root or rejects stale captured authority.
     fn select<'a, R, A>(
         &self,
         scopes: &ScopeRegistry,
         mounts: &'a Mounts<R, A>,
-    ) -> Result<&'a Mounts<R, A>, TaskAccessError> {
+    ) -> Result<walk::SubtreeStart<'a, <Local as Carriers<R, A>>::Mount>, TaskAccessError> {
         let _reservation = self.reservation.upgrade().ok_or_else(ended)?;
         walk::subtree::<R, A, Local>(scopes, mounts, self.identity, &self.frozen)
     }

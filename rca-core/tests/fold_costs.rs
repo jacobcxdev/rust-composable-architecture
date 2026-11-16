@@ -37,7 +37,10 @@ fn measure<T>(f: impl FnOnce() -> T) -> (T, (u64, u64, u128)) {
 macro_rules! public_case {
     () => {
         use super::{Arc, AtomicUsize, Cell, ControlFlow, FoldKey, KeyedState, Ordering, measure};
-        use domain::{EntryMount, Feature, FeatureContext, Fold, MountChildren, Runtime, Store};
+        use domain::{
+            EntryMount, Feature, FeatureContext, Fold, MountChildren, OptionalMount, Runtime,
+            Store,
+        };
 
         struct Owned(Cell<usize>);
         struct Sum;
@@ -88,6 +91,133 @@ macro_rules! public_case {
             type Action = ();
 
             fn update(&mut self, _: &mut usize, _: &(), _: &mut FeatureContext<'_, usize, ()>) {}
+        }
+
+        /// Keeps three independently mounted row groups in a fixed order.
+        type Groups = [Rows; 3];
+
+        /// Owns the fixed three-group shape without changing it between reads.
+        struct GroupRoot;
+        impl Feature for GroupRoot {
+            type State = Groups;
+            type Action = ();
+
+            fn update(&mut self, _: &mut Groups, _: &(), _: &mut FeatureContext<'_, Groups, ()>) {}
+        }
+
+        /// Keeps each row group mounted under its own subtree identity.
+        struct Group;
+        impl Feature for Group {
+            type State = Rows;
+            type Action = ();
+
+            fn update(&mut self, _: &mut Rows, _: &(), _: &mut FeatureContext<'_, Rows, ()>) {}
+        }
+
+        /// Measures sparse root reads and repeated reads of the middle subtree.
+        ///
+        /// Literal fixture sums detect traversal outside the selected subtree.
+        /// Callback counts detect skipped, duplicated or unrelated contributions.
+        pub(super) fn sparse_subtree(
+            width: usize,
+            stride: usize,
+            contributors: usize,
+            root_sum: usize,
+            subtree_sum: usize,
+        ) -> ((u64, u64), (u64, u64)) {
+            const READS: usize = 32;
+            let domain = module_path!();
+            let driver = Driver::default();
+            let calls = Arc::new(AtomicUsize::new(0));
+            let fold = Fold::<Groups, Sum>::new();
+            let ((store, site), construction) = measure(|| {
+                let groups = std::array::from_fn(|group| {
+                    (0..width).map(|id| (id, group + 1)).collect()
+                });
+                let mut builder = Store::builder(groups, GroupRoot, Runtime::new(driver.clone()));
+                let mut selected_site = None;
+                for group in 0..3 {
+                    let declared = fold.clone();
+                    let selected = Arc::clone(&calls);
+                    let mount = OptionalMount::new(
+                        move |groups: &Groups| Some(&groups[group]),
+                        move |groups: &mut Groups| Some(&mut groups[group]),
+                        move |_: &Groups| Some(rca_core::MountIdentity {
+                            key: group,
+                            replacement: 0,
+                            configuration: 0,
+                        }),
+                        |_| Group,
+                    );
+                    let (next, site) = builder.mount_with_children(mount, move |_, children| {
+                        let declared = declared.clone();
+                        let selected = Arc::clone(&selected);
+                        children.keyed_with_children(
+                            |rows| rows,
+                            |rows| rows,
+                            move |id, _| {
+                                let contributes = (*id).is_multiple_of(stride);
+                                let declared = declared.clone();
+                                let selected = Arc::clone(&selected);
+                                (
+                                    EntryMount::new(Child),
+                                    move |_: &usize,
+                                          children: &mut MountChildren<'_, Groups, (), usize, ()>| {
+                                        if contributes {
+                                            let selected = Arc::clone(&selected);
+                                            children.contribute(&declared, move |value| {
+                                                selected.fetch_add(1, Ordering::Relaxed);
+                                                Owned(Cell::new(*value))
+                                            });
+                                        }
+                                    },
+                                )
+                            },
+                        );
+                    });
+                    builder = next;
+                    if group == 1 {
+                        selected_site = Some(site);
+                    }
+                }
+                let store = builder.build().unwrap();
+                driver.finish(store.ready()).unwrap();
+                (store, selected_site.unwrap())
+            });
+            let view = driver.finish(store.acquire_fold(&fold, &site)).unwrap().unwrap();
+            let (cold_root, cold_root_cost) = measure(|| driver.finish(store.fold(&fold)).unwrap());
+            assert_eq!(cold_root.0.get(), root_sum);
+            assert_eq!(calls.swap(0, Ordering::Relaxed), contributors * 3);
+            let (cold_subtree, cold_subtree_cost) = measure(|| driver.finish(view.read()).unwrap());
+            assert_eq!(cold_subtree.0.get(), subtree_sum);
+            assert_eq!(calls.swap(0, Ordering::Relaxed), contributors);
+
+            let (sum, root_cost) = measure(|| {
+                (0..READS)
+                    .map(|_| std::hint::black_box(driver.finish(store.fold(&fold)).unwrap()).0.get())
+                    .sum::<usize>()
+            });
+            assert_eq!(sum, root_sum * READS);
+            assert_eq!(calls.swap(0, Ordering::Relaxed), contributors * 3 * READS);
+            let (sum, subtree_cost) = measure(|| {
+                (0..READS)
+                    .map(|_| std::hint::black_box(driver.finish(view.read()).unwrap()).0.get())
+                    .sum::<usize>()
+            });
+            assert_eq!(sum, subtree_sum * READS);
+            assert_eq!(calls.swap(0, Ordering::Relaxed), contributors * READS);
+
+            let (_, teardown) = measure(|| {
+                drop(store);
+                driver.turn();
+            });
+            let error = driver.finish(view.read()).err().unwrap();
+            assert_eq!(error.reason(), rca_core::TaskAccessReason::StoreClosed);
+            assert_eq!(calls.load(Ordering::Relaxed), 0);
+            eprintln!(
+                "fold sparse domain={domain} width_per_group={width} stride={stride} contributors_per_group={contributors} reads={READS} construction={construction:?} cold_root={cold_root_cost:?} cold_subtree={cold_subtree_cost:?} repeated_root={root_cost:?} repeated_subtree={subtree_cost:?} teardown={teardown:?}; units=(blocks,bytes,ns), includes deterministic driver"
+            );
+            ((root_cost.0, root_cost.1), (subtree_cost.0, subtree_cost.1))
         }
 
         /// Measures a real keyed fold before and after roster changes.
@@ -299,10 +429,59 @@ fn finite_public_reads_and_actual_vec_prune_work() {
     );
 }
 
+/// Keeps repeated read allocations independent of roster width and contribution density.
+fn sparse_channels_and_repeated_subtree_reads() {
+    let _profiler = dhat::Profiler::builder().testing().build();
+    let mut shared_costs = Vec::new();
+    #[cfg(feature = "local")]
+    let mut local_costs = Vec::new();
+    // Each group uses values 1, 2 and 3. The selected middle group uses value 2.
+    // Dense and sparse rows distinguish contribution work from roster traversal.
+    for (width, stride, contributors, root_sum, subtree_sum) in [
+        (0, 16, 0, 0, 0),
+        (1, 16, 1, 6, 2),
+        (16, 16, 1, 6, 2),
+        (256, 16, 16, 96, 32),
+        (1_024, 16, 64, 384, 128),
+        (256, 1, 256, 1_536, 512),
+    ] {
+        shared_costs.push(shared::sparse_subtree(
+            width,
+            stride,
+            contributors,
+            root_sum,
+            subtree_sum,
+        ));
+        #[cfg(feature = "local")]
+        local_costs.push(local::sparse_subtree(
+            width,
+            stride,
+            contributors,
+            root_sum,
+            subtree_sum,
+        ));
+    }
+    assert!(
+        shared_costs.iter().all(|cost| *cost == shared_costs[0]),
+        "Shared repeated reads allocate no per-row routes or contributions: {shared_costs:?}"
+    );
+    #[cfg(feature = "local")]
+    assert!(
+        local_costs.iter().all(|cost| *cost == local_costs[0]),
+        "Local repeated reads allocate no per-row routes or contributions: {local_costs:?}"
+    );
+}
+
 /// Preserves the exact names of the isolated allocation cases.
-const CASES: &[(&str, fn())] = &[(
-    "finite_public_reads_and_actual_vec_prune_work",
-    finite_public_reads_and_actual_vec_prune_work,
-)];
+const CASES: &[(&str, fn())] = &[
+    (
+        "finite_public_reads_and_actual_vec_prune_work",
+        finite_public_reads_and_actual_vec_prune_work,
+    ),
+    (
+        "sparse_channels_and_repeated_subtree_reads",
+        sparse_channels_and_repeated_subtree_reads,
+    ),
+];
 
 include!("support/allocation_main.rs");

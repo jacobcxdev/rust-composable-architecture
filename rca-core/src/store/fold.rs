@@ -360,24 +360,25 @@ impl<R: 'static, A, K: FoldKey> FoldCall<R, A, Shared> for Read<R, K> {
             )));
             return;
         }
-        let mounts = match self
+        let subtree = match self
             .target
             .as_ref()
             .map(|target| target.select::<R, A, Shared>(scopes, mounts))
             .transpose()
         {
-            Ok(Some(mounts)) => mounts,
-            Ok(None) => mounts,
+            Ok(subtree) => subtree,
             Err(error) => {
                 self.reply.complete(Err(error));
                 return;
             }
         };
         self.reply.mark_entered();
-        let result =
-            walk::walk::<R, A, K, Shared, _>(root, scopes, mounts, lifecycle, |identity| {
-                self.fold.acquire(identity)
-            });
+        let acquire = |identity| self.fold.acquire(identity);
+        let result = if let Some(subtree) = subtree {
+            walk::walk_subtree::<R, A, K, Shared, _>(root, scopes, subtree, lifecycle, acquire)
+        } else {
+            walk::walk::<R, A, K, Shared, _>(root, scopes, mounts, lifecycle, acquire)
+        };
         self.reply.complete(result);
     }
 

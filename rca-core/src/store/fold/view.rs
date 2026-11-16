@@ -104,12 +104,12 @@ impl Clone for Target {
 }
 
 impl Target {
-    /// Borrows the current subtree or rejects this stale captured authority.
+    /// Locates the current subtree root or rejects this stale captured authority.
     pub(super) fn select<'a, R, A, C: Carriers<R, A>>(
         &self,
         scopes: &ScopeRegistry,
         mounts: &'a [Box<C::Mount>],
-    ) -> Result<&'a [Box<C::Mount>], TaskAccessError> {
+    ) -> Result<walk::SubtreeStart<'a, C::Mount>, TaskAccessError> {
         let _reservation = self.reservation.upgrade().ok_or_else(ended)?;
         walk::subtree::<R, A, C>(scopes, mounts, self.identity, &self.frozen)
     }
