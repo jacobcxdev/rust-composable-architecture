@@ -85,6 +85,18 @@ class TaskFoldProfileTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             profile.verify_repetitions(values)
 
+    def test_task_profiles_require_registration_not_just_the_wrapper(self):
+        boundary = "task.rs:task_fold_cost::workloads::profile_task_fold_work"
+        registration = "transaction.rs:rca_core::store::transaction::register_root_task::<u64, (), Carrier>::{closure#0}"
+        for row in profile.TASK_ROWS:
+            with self.subTest(row=row):
+                profile.validate_counted_work({"functions": {boundary: 10, registration: 10}}, row)
+                for functions in ({boundary: 10, "tokio.rs:time::Handle::process_at_time": 10},
+                                  {boundary: 10, registration: 0},
+                                  {boundary + "::{closure#0}": 10, registration: 10}):
+                    with self.assertRaises(ValueError):
+                        profile.validate_counted_work({"functions": functions}, row)
+
     def test_artifact_identity_and_executable_hashes_fail_closed(self):
         with tempfile.TemporaryDirectory() as temporary:
             artifact = Path(temporary)
@@ -125,7 +137,8 @@ class TaskFoldProfileTests(unittest.TestCase):
                     annotations += 1
                     first = 12 if annotations != 3 else 11
                     output = ("Events shown: Ir\n20 PROGRAM TOTALS\n"
-                              f"{first} task.rs:profile_task_fold_work\n{20 - first} store.rs:poll\n")
+                              f"{first} task.rs:task_fold_cost::workloads::profile_task_fold_work\n"
+                              f"{20 - first} transaction.rs:rca_core::store::transaction::register_root_task::<u64, (), Carrier>\n")
                 return SimpleNamespace(stdout=output, stderr="", returncode=0)
 
             with patch.object(profile.sys, "platform", "linux"), \
@@ -155,10 +168,14 @@ class TaskFoldProfileTests(unittest.TestCase):
                 if "--version" in command:
                     output = "valgrind-test"
                 elif "--tool=callgrind" in command:
+                    self.assertEqual([argument for argument in command if argument.startswith("--toggle-collect=")],
+                                     ["--toggle-collect=task_fold_cost::workloads::profile_task_fold_work"])
                     calls.append(command[-4:])
                     output = stdout(record(name=command[-4]))
                 else:
-                    output = "Events shown: Ir\n20 PROGRAM TOTALS\n20 task.rs:profile_task_fold_work\n"
+                    output = ("Events shown: Ir\n20 PROGRAM TOTALS\n"
+                              "10 task.rs:task_fold_cost::workloads::profile_task_fold_work\n"
+                              "10 transaction.rs:rca_core::store::transaction::register_root_task::<u64, (), Carrier>\n")
                 return SimpleNamespace(stdout=output, stderr="", returncode=0)
 
             with patch.object(profile.sys, "platform", "linux"), \

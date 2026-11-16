@@ -66,10 +66,17 @@ and `RCA_TASK_FOLD_PROFILE_HEAD` identify the existing build run and candidate s
 The job checks the run identity, source identities and executable hashes before
 measurement. It does not compile another copy.
 
+When source and profiling inputs are unchanged, set `RCA_SKIP_PROFILE_BUILD=true`
+to reuse the existing artifacts. This skips only the optional profiling builds.
+All ordinary CI tests and compiler-contract checks still run.
+
 `scripts/profile_task_fold_cost.py` compares 24 fixed workloads by default. Each role runs
 three times. All semantic results and complete function instruction counts must
 match within each role. The first mismatch stops collection and retains the
 failed evidence. Instruction ratios remain separate from native performance gates.
+Collection toggles only at the exact outer `task_fold_cost::workloads::profile_task_fold_work` symbol.
+Each Task profile must also contain positive Task registration instruction counts.
+Stable counts for the wrapper alone do not establish a complete capture.
 
 The explicit `--tasks-only` option selects all four common Task workloads:
 unnamed and one-name Tasks for both Shared and Local Stores. CI uses this option.

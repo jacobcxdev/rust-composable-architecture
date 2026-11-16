@@ -591,7 +591,7 @@ jobs:
             # This optional route builds public profiling tools; it does not run
             # statistical benchmarks or upload private comparison sources.
             - name: Validate optional profiling baseline
-              if: (matrix.target == 'aarch64-apple-darwin' || matrix.target == 'x86_64-unknown-linux-gnu') && vars.RCA_PROFILE_BASELINE != ''
+              if: (matrix.target == 'aarch64-apple-darwin' || matrix.target == 'x86_64-unknown-linux-gnu') && vars.RCA_PROFILE_BASELINE != '' && vars.RCA_SKIP_PROFILE_BUILD != 'true'
               shell: bash
               env:
                   PROFILE_BASELINE: ${{ vars.RCA_PROFILE_BASELINE }}
@@ -604,7 +604,7 @@ jobs:
                   (( available >= 12 * 1024 * 1024 ))
 
             - name: Checkout exact profiling baseline
-              if: (matrix.target == 'aarch64-apple-darwin' || matrix.target == 'x86_64-unknown-linux-gnu') && vars.RCA_PROFILE_BASELINE != ''
+              if: (matrix.target == 'aarch64-apple-darwin' || matrix.target == 'x86_64-unknown-linux-gnu') && vars.RCA_PROFILE_BASELINE != '' && vars.RCA_SKIP_PROFILE_BUILD != 'true'
               uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
               with:
                   ref: ${{ vars.RCA_PROFILE_BASELINE }}
@@ -612,7 +612,7 @@ jobs:
                   persist-credentials: false
 
             - name: Restore isolated profiling dependency caches
-              if: (matrix.target == 'aarch64-apple-darwin' || matrix.target == 'x86_64-unknown-linux-gnu') && vars.RCA_PROFILE_BASELINE != ''
+              if: (matrix.target == 'aarch64-apple-darwin' || matrix.target == 'x86_64-unknown-linux-gnu') && vars.RCA_PROFILE_BASELINE != '' && vars.RCA_SKIP_PROFILE_BUILD != 'true'
               uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
               with:
                   key: native-task-fold-${{ matrix.target }}
@@ -624,7 +624,7 @@ jobs:
 
             - name: Build native task and fold profiling tools
               id: native_profile
-              if: (matrix.target == 'aarch64-apple-darwin' || matrix.target == 'x86_64-unknown-linux-gnu') && vars.RCA_PROFILE_BASELINE != ''
+              if: (matrix.target == 'aarch64-apple-darwin' || matrix.target == 'x86_64-unknown-linux-gnu') && vars.RCA_PROFILE_BASELINE != '' && vars.RCA_SKIP_PROFILE_BUILD != 'true'
               timeout-minutes: 40
               shell: bash
               env:
@@ -742,7 +742,7 @@ jobs:
                   printf 'All selected checks passed; allocation assays run only on macOS. No statistical benchmark ran.\n' > complete.txt
 
             - name: Retain native task and fold tools
-              if: always() && (matrix.target == 'aarch64-apple-darwin' || matrix.target == 'x86_64-unknown-linux-gnu') && vars.RCA_PROFILE_BASELINE != '' && steps.native_profile.outcome != 'skipped'
+              if: always() && (matrix.target == 'aarch64-apple-darwin' || matrix.target == 'x86_64-unknown-linux-gnu') && vars.RCA_PROFILE_BASELINE != '' && vars.RCA_SKIP_PROFILE_BUILD != 'true' && steps.native_profile.outcome != 'skipped'
               uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
               with:
                   name: native-task-fold-${{ matrix.target }}-${{ github.run_id }}-${{ github.run_attempt }}

@@ -22,6 +22,7 @@ for carrier in ("shared", "local"):
                     (("-empty", 1, 16), ("", 3, 16), ("", 256, 16),
                      ("-sparse", 1024, 16), ("-churn", 16, 3)))
 TASK_ROWS = [row for row in ROWS if row[0].startswith("task-")]
+WORK_BOUNDARY = "task_fold_cost::workloads::profile_task_fold_work"
 
 
 def validate_record(stdout, row):
@@ -60,6 +61,20 @@ def verify_repetitions(samples):
     if len(samples) != 3 or any(sample != samples[0] for sample in samples[1:]):
         raise ValueError("repeatability drift in work or full function counts")
     return samples[0]
+
+
+def validate_counted_work(profile, row):
+    """Reject stable profiles that omit the actual Task registration work."""
+    functions = profile["functions"]
+    boundary = rf":{re.escape(WORK_BOUNDARY)}(?: \[[^\n]*\])?$"
+    if not any(count > 0 and re.search(boundary, name) for name, count in functions.items()):
+        raise ValueError("exact outer instruction boundary is missing")
+    # Registration can retain its own symbol or a compiler-generated closure.
+    # Host monomorphisations merely containing its name are not registration.
+    registration = r":rca_core::store::transaction::register_root_task(?:::|<)"
+    if row[0].startswith("task-") and not any(
+            count > 0 and re.search(registration, name) for name, count in functions.items()):
+        raise ValueError("actual Task registration instruction counts are missing")
 
 
 def verify_artifact(artifact, head, baseline):
@@ -145,15 +160,14 @@ def collect(artifact, head, baseline, output, *, tasks_only=False):
                     raw = output / f"{label}.callgrind"
                     stdout = run([tools["valgrind"], "--command-line-only=yes", "--tool=callgrind",
                                   "--cache-sim=no", "--branch-sim=no", "--collect-atstart=no",
-                                  "--toggle-collect=*profile_task_fold_work*", f"--callgrind-out-file={raw}",
+                                  f"--toggle-collect={WORK_BOUNDARY}", f"--callgrind-out-file={raw}",
                                   str(binaries[role]), name, str(size), str(iterations), "1"], label,
                                  "GO\nREPORT\nEXIT\n")
                     record = validate_record(stdout, row)
                     annotation = run([tools["callgrind_annotate"], "--show=Ir", "--show-percs=no",
                                       "--auto=no", "--inclusive=no", "--threshold=100", str(raw)], label + "-annotation")
                     profile = parse_annotation(annotation)
-                    if not any("profile_task_fold_work" in name for name in profile["functions"]):
-                        raise ValueError("intended instruction boundary is missing")
+                    validate_counted_work(profile, row)
                     sample = {"record": record, "profile": profile}
                     groups[role].append(sample)
                     result["observations"].append({"label": label, **sample})
