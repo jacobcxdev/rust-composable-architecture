@@ -76,6 +76,267 @@ fn replacement_task(
     }
 }
 
+/// Groups jobs without sharing their replacement identities.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+struct Account(u8);
+
+/// Identifies one independently replaceable job within an account.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+struct Job(Account, u8);
+
+/// Supplies one observed task lifetime for each admitted job.
+struct GroupedTasks {
+    /// Keeps task capture identities independent of operation metadata.
+    observations: std::vec::IntoIter<Arc<TaskObservation>>,
+}
+
+impl Feature for GroupedTasks {
+    type State = ();
+    type Action = Job;
+
+    fn update(&mut self, (): &mut (), job: &Job, context: &mut FeatureContext<'_, (), Job>) {
+        let capture = TaskCapture(self.observations.next().unwrap());
+        context.task(
+            Task::run(move |_| {
+                capture.0.starts.fetch_add(1, Ordering::SeqCst);
+                async move {
+                    let _capture = capture;
+                    std::future::pending::<()>().await;
+                }
+            })
+            .named(*job, OperationPolicy::Replace)
+            .named(job.0, OperationPolicy::Coexist),
+        );
+    }
+}
+
+/// Dropping an unpolled nested task must release both groups without starting its factory.
+#[test]
+fn nested_typed_task_cancel_before_first_poll_releases_both_groups() {
+    let host = support::ManualRuntime::new();
+    let observation = Arc::new(TaskObservation::default());
+    let store = Store::builder(
+        (),
+        GroupedTasks {
+            observations: vec![Arc::clone(&observation)].into_iter(),
+        },
+        host.runtime(),
+    )
+    .build()
+    .unwrap();
+    let mut actor = host.take_only_queued_task();
+    let account = store.operation(Account(1));
+    let job = store.operation(Job(Account(1), 1));
+    let receipt = ordered(&mut actor, store.send(Job(Account(1), 1))).unwrap();
+    let mut body = host.take_only_queued_task();
+
+    assert_eq!(observation.starts.load(Ordering::SeqCst), 0);
+    assert_eq!(
+        ordered(&mut actor, account.status())
+            .unwrap()
+            .active_count(),
+        1
+    );
+    assert_eq!(ordered(&mut actor, job.status()).unwrap().active_count(), 1);
+    let mut account_wait = Box::pin(ordered(&mut actor, account.capture()).unwrap());
+    let mut job_wait = Box::pin(ordered(&mut actor, job.capture()).unwrap());
+
+    ordered(&mut actor, account.cancel()).unwrap();
+    assert!(poll(account_wait.as_mut()).is_pending());
+    assert!(poll(job_wait.as_mut()).is_pending());
+    assert_eq!(observation.drops.load(Ordering::SeqCst), 0);
+    assert!(poll(body.as_mut()).is_ready());
+    assert_eq!(poll(account_wait.as_mut()), Poll::Ready(Ok(())));
+    assert_eq!(poll(job_wait.as_mut()), Poll::Ready(Ok(())));
+    assert_eq!(observation.starts.load(Ordering::SeqCst), 0);
+    assert_eq!(observation.drops.load(Ordering::SeqCst), 1);
+    assert!(receipt.is_finished());
+
+    drop(store);
+    assert!(poll(actor.as_mut()).is_ready());
+}
+
+/// Nested replacement and captured waits must stay within their account and scope.
+#[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "One finite sequence keeps the same retained bodies across replacement, captured wait and cancellation"
+)]
+fn nested_typed_task_groups_isolate_jobs_and_capture_existing_generations() {
+    for mounted in [false, true] {
+        let host = support::ManualRuntime::new();
+        let observations: [_; 5] = std::array::from_fn(|_| Arc::new(TaskObservation::default()));
+        let child_observations = observations.clone();
+        let (builder, site) = Store::builder(
+            (),
+            GroupedTasks {
+                observations: Vec::from(observations.clone()).into_iter(),
+            },
+            host.runtime(),
+        )
+        .mount_with_site(OptionalMount::new(
+            |state: &()| Some(state),
+            |state: &mut ()| Some(state),
+            |_: &()| {
+                Some(MountIdentity {
+                    key: (),
+                    replacement: 0,
+                    configuration: 0,
+                })
+            },
+            move |_| GroupedTasks {
+                observations: Vec::from(child_observations.clone()).into_iter(),
+            },
+        ));
+        let store = builder.build().unwrap();
+        let mut actor = host.take_only_queued_task();
+        ordered(&mut actor, store.ready()).unwrap();
+        let child = ordered(&mut actor, store.acquire(&site)).unwrap().unwrap();
+        let account_a = if mounted {
+            child.operation(Account(1))
+        } else {
+            store.operation(Account(1))
+        };
+        let account_b = if mounted {
+            child.operation(Account(2))
+        } else {
+            store.operation(Account(2))
+        };
+        let job_a1 = if mounted {
+            child.operation(Job(Account(1), 1))
+        } else {
+            store.operation(Job(Account(1), 1))
+        };
+        let other_scope = if mounted {
+            store.operation(Account(1))
+        } else {
+            child.operation(Account(1))
+        };
+        let send = |actor: &mut RuntimeFuture, job| {
+            if mounted {
+                ordered(actor, child.send(job)).unwrap()
+            } else {
+                ordered(actor, store.send(job)).unwrap()
+            }
+        };
+
+        let mut receipts = Vec::new();
+        let mut bodies = Vec::new();
+        for job in [Job(Account(1), 1), Job(Account(1), 2), Job(Account(2), 1)] {
+            receipts.push(send(&mut actor, job));
+            let mut body = host.take_only_queued_task();
+            assert!(poll(body.as_mut()).is_pending());
+            bodies.push(body);
+        }
+        assert_eq!(
+            ordered(&mut actor, account_a.status())
+                .unwrap()
+                .active_count(),
+            2
+        );
+        assert_eq!(
+            ordered(&mut actor, account_b.status())
+                .unwrap()
+                .active_count(),
+            1
+        );
+        assert_eq!(
+            ordered(&mut actor, other_scope.status())
+                .unwrap()
+                .active_count(),
+            0
+        );
+
+        receipts.push(send(&mut actor, Job(Account(1), 1)));
+        let mut replacement = host.take_only_queued_task();
+        assert!(poll(replacement.as_mut()).is_pending());
+        bodies.push(replacement);
+        assert_eq!(
+            ordered(&mut actor, account_a.status())
+                .unwrap()
+                .active_count(),
+            3
+        );
+        assert_eq!(
+            ordered(&mut actor, job_a1.status()).unwrap().active_count(),
+            2
+        );
+        assert!(poll(bodies[1].as_mut()).is_pending());
+        assert!(poll(bodies[2].as_mut()).is_pending());
+        assert!(!receipts[0].is_finished());
+        assert_eq!(observations[0].drops.load(Ordering::SeqCst), 0);
+        let mut captured = Box::pin(ordered(&mut actor, account_a.capture()).unwrap());
+        assert!(poll(bodies[0].as_mut()).is_ready());
+        assert!(receipts[0].is_finished());
+        assert_eq!(observations[0].drops.load(Ordering::SeqCst), 1);
+        assert!(poll(captured.as_mut()).is_pending());
+
+        // This generation starts after capture, so its retained body cannot extend that wait.
+        receipts.push(send(&mut actor, Job(Account(1), 3)));
+        let mut later = host.take_only_queued_task();
+        assert!(poll(later.as_mut()).is_pending());
+        ordered(&mut actor, account_a.cancel()).unwrap();
+        assert_eq!(
+            ordered(&mut actor, account_a.status())
+                .unwrap()
+                .active_count(),
+            3
+        );
+        assert!(poll(captured.as_mut()).is_pending());
+        assert!(poll(bodies[2].as_mut()).is_pending());
+
+        for index in [1, 3] {
+            assert!(poll(bodies[index].as_mut()).is_ready());
+            assert!(receipts[index].is_finished());
+        }
+        assert_eq!(poll(captured.as_mut()), Poll::Ready(Ok(())));
+        assert_eq!(
+            ordered(&mut actor, account_a.status())
+                .unwrap()
+                .active_count(),
+            1
+        );
+        assert_eq!(
+            ordered(&mut actor, job_a1.status()).unwrap().active_count(),
+            0
+        );
+        assert_eq!(
+            ordered(&mut actor, account_b.status())
+                .unwrap()
+                .active_count(),
+            1
+        );
+        assert!(!receipts[2].is_finished());
+        assert!(!receipts[4].is_finished());
+
+        drop(later);
+        assert!(receipts[4].is_finished());
+        assert_eq!(
+            ordered(&mut actor, account_a.status())
+                .unwrap()
+                .active_count(),
+            0
+        );
+        ordered(&mut actor, account_b.cancel()).unwrap();
+        assert!(poll(bodies[2].as_mut()).is_ready());
+        assert!(receipts[2].is_finished());
+        assert_eq!(
+            observations
+                .each_ref()
+                .map(|item| item.starts.load(Ordering::SeqCst)),
+            [1, 1, 1, 1, 1]
+        );
+        assert_eq!(
+            observations
+                .each_ref()
+                .map(|item| item.drops.load(Ordering::SeqCst)),
+            [1, 1, 1, 1, 1]
+        );
+        drop(store);
+        assert!(poll(actor.as_mut()).is_ready());
+    }
+}
+
 /// Changes action cases while addressing the same named operation.
 enum ReplacementAction {
     /// Starts an existing generation before the replacement transaction.
