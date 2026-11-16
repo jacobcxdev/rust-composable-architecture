@@ -101,6 +101,9 @@ jobs:
                   cargo test --locked --manifest-path tests/performance-profile/Cargo.toml --features task-fold-controlled --bin task_fold_cost --test task_fold_cost_cli -- --test-threads=1
                   cargo clippy --locked --manifest-path tests/performance-profile/Cargo.toml --features task-fold-controlled,task-fold-groups --bin task_fold_cost --test task_fold_cost_cli -- -D warnings
                   cargo test --locked --manifest-path tests/performance-profile/Cargo.toml --features task-fold-controlled,task-fold-groups --bin task_fold_cost --test task_fold_cost_cli -- --test-threads=1
+                  # Filter execution here; do not compile the full test images with native fat LTO.
+                  cargo test --locked --manifest-path tests/performance-profile/Cargo.toml --features deterministic,local --bin rca-performance-profile -- mixed_ --test-threads=1
+                  cargo test --locked --manifest-path tests/performance-profile/Cargo.toml --features deterministic,local,allocations --test allocation_controls -- mixed_ --test-threads=1
 
             - name: Fetch consumer dependencies
               id: consumer_dependencies
@@ -680,6 +683,15 @@ jobs:
                           return 1
                       }
                   }
+                  retain_binary() {
+                      cp "$1" "$output/$2"
+                      (
+                          cd "$output"
+                          shasum -a 256 "$2" >> binaries.sha256
+                          wc -c "$2" >> binary-sizes.txt
+                          file "$2" >> binary-formats.txt
+                      )
+                  }
                   # Hosted runners have their own memory allocation and timeout.
                   # Local compilation continues to require the local watchdog.
                   for role in baseline candidate; do
@@ -695,18 +707,11 @@ jobs:
                           run_logged "$role-fold-allocations" cargo test --locked --release -p rca-core --features allocation-measurement,local --test fold_costs -- --nocapture
                       fi
                       run_logged "$role-build" cargo build --locked --release --manifest-path tests/performance-profile/Cargo.toml --target "$PROFILE_TARGET" --features task-fold --bin task_fold_cost
-                      cp "$CARGO_TARGET_DIR/$PROFILE_TARGET/release/task_fold_cost" "$output/$role-task-fold"
+                      retain_binary "$CARGO_TARGET_DIR/$PROFILE_TARGET/release/task_fold_cost" "$role-task-fold"
                       if [[ "$RUNNER_OS" == Linux ]]; then
                           run_logged "$role-controlled-cli" cargo test --locked --release --manifest-path tests/performance-profile/Cargo.toml --target "$PROFILE_TARGET" --features task-fold-controlled --bin task_fold_cost --test task_fold_cost_cli -- --test-threads=1
                           run_logged "$role-controlled-build" cargo build --locked --release --manifest-path tests/performance-profile/Cargo.toml --target "$PROFILE_TARGET" --features task-fold-controlled --bin task_fold_cost
-                          cp "$CARGO_TARGET_DIR/$PROFILE_TARGET/release/task_fold_cost" "$output/$role-task-fold-controlled"
-                      else
-                          run_logged "$role-mixed-tests" cargo test --locked --release --manifest-path tests/performance-profile/Cargo.toml --target "$PROFILE_TARGET" --features deterministic,local --bin rca-performance-profile -- mixed_ --test-threads=1
-                          run_logged "$role-mixed-build" cargo build --locked --release --manifest-path tests/performance-profile/Cargo.toml --target "$PROFILE_TARGET" --features deterministic,local --bin rca-performance-profile
-                          cp "$CARGO_TARGET_DIR/$PROFILE_TARGET/release/rca-performance-profile" "$output/$role-mixed-profile"
-                          run_logged "$role-mixed-allocation-tests" cargo test --locked --release --manifest-path tests/performance-profile/Cargo.toml --target "$PROFILE_TARGET" --features deterministic,local,allocations --test allocation_controls -- mixed_ --test-threads=1
-                          run_logged "$role-mixed-allocation-build" cargo build --locked --release --manifest-path tests/performance-profile/Cargo.toml --target "$PROFILE_TARGET" --features deterministic,local,allocations --bin rca-performance-profile
-                          cp "$CARGO_TARGET_DIR/$PROFILE_TARGET/release/rca-performance-profile" "$output/$role-mixed-profile-allocations"
+                          retain_binary "$CARGO_TARGET_DIR/$PROFILE_TARGET/release/task_fold_cost" "$role-task-fold-controlled"
                       fi
                   done
                   cd "$root"
@@ -716,29 +721,42 @@ jobs:
                       run_logged candidate-nested-allocations cargo test --locked --release -p rca-core --features allocation-measurement,local --test nested_task_allocations -- --nocapture
                   fi
                   run_logged candidate-groups-build cargo build --locked --release --manifest-path tests/performance-profile/Cargo.toml --target "$PROFILE_TARGET" --features task-fold-groups --bin task_fold_cost
-                  cp "$CARGO_TARGET_DIR/$PROFILE_TARGET/release/task_fold_cost" "$output/candidate-task-fold-groups"
+                  retain_binary "$CARGO_TARGET_DIR/$PROFILE_TARGET/release/task_fold_cost" candidate-task-fold-groups
                   if [[ "$RUNNER_OS" == Linux ]]; then
                       run_logged candidate-controlled-groups-cli cargo test --locked --release --manifest-path tests/performance-profile/Cargo.toml --target "$PROFILE_TARGET" --features task-fold-controlled,task-fold-groups --bin task_fold_cost --test task_fold_cost_cli -- --test-threads=1
                       run_logged candidate-controlled-groups-build cargo build --locked --release --manifest-path tests/performance-profile/Cargo.toml --target "$PROFILE_TARGET" --features task-fold-controlled,task-fold-groups --bin task_fold_cost
-                      cp "$CARGO_TARGET_DIR/$PROFILE_TARGET/release/task_fold_cost" "$output/candidate-task-fold-controlled-groups"
+                      retain_binary "$CARGO_TARGET_DIR/$PROFILE_TARGET/release/task_fold_cost" candidate-task-fold-controlled-groups
+                  else
+                      # Fault-injection tests run in the required stable quality job.
+                      # Exercise these exact optimized images without another full test image.
+                      for role in baseline candidate; do
+                          source="$root"
+                          if [[ "$role" == baseline ]]; then source="$baseline"; fi
+                          export CARGO_TARGET_DIR="$build_parent/rca-native-profile-$role"
+                          cd "$source"
+                          for suffix in '' '-allocations'; do
+                              features=deterministic,local
+                              build_label="$role-mixed-build"
+                              if [[ -n "$suffix" ]]; then
+                                  features+=,allocations
+                                  build_label="$role-mixed-allocation-build"
+                              fi
+                              run_logged "$build_label" cargo build --locked --release --manifest-path tests/performance-profile/Cargo.toml --target "$PROFILE_TARGET" --features "$features" --bin rca-performance-profile
+                              binary="$output/$role-mixed-profile$suffix"
+                              retain_binary "$CARGO_TARGET_DIR/$PROFILE_TARGET/release/rca-performance-profile" "$role-mixed-profile$suffix"
+                              for carrier in shared local; do
+                                  for removal in ordered swap; do
+                                      run_logged "$role-mixed$suffix-$carrier-$removal" "$binary" "mixed-pool-$carrier-$removal" 1000 64
+                                  done
+                                  run_logged "$role-mixed$suffix-$carrier-service" "$binary" "mixed-service-$carrier-coalesced" 1 64
+                              done
+                          done
+                      done
                   fi
+                  cd "$root"
                   production_check
                   git diff --exit-code HEAD
                   cd "$output"
-                  shasum -a 256 baseline-task-fold candidate-task-fold candidate-task-fold-groups > binaries.sha256
-                  wc -c baseline-task-fold candidate-task-fold candidate-task-fold-groups > binary-sizes.txt
-                  file baseline-task-fold candidate-task-fold candidate-task-fold-groups > binary-formats.txt
-                  if [[ "$RUNNER_OS" == Linux ]]; then
-                      controlled=(baseline-task-fold-controlled candidate-task-fold-controlled candidate-task-fold-controlled-groups)
-                      shasum -a 256 "${controlled[@]}" >> binaries.sha256
-                      wc -c "${controlled[@]}" >> binary-sizes.txt
-                      file "${controlled[@]}" >> binary-formats.txt
-                  else
-                      mixed=(baseline-mixed-profile candidate-mixed-profile baseline-mixed-profile-allocations candidate-mixed-profile-allocations)
-                      shasum -a 256 "${mixed[@]}" >> binaries.sha256
-                      wc -c "${mixed[@]}" >> binary-sizes.txt
-                      file "${mixed[@]}" >> binary-formats.txt
-                  fi
                   printf 'All selected checks passed; allocation assays run only on macOS. No statistical benchmark ran.\n' > complete.txt
 
             - name: Retain native task and fold tools
