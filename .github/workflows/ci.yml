@@ -802,8 +802,8 @@ jobs:
 
             # These are exact instruction diagnostics on already-built binaries.
             # Native wall time, CPU saturation and energy remain separate gates.
-            - name: Require repeatability before comparing all fixed workloads
-              run: python3 scripts/profile_task_fold_cost.py "$RUNNER_TEMP/task-fold-instructions/build" "$PROFILE_HEAD" "$PROFILE_BASELINE" "$RUNNER_TEMP/task-fold-instructions/capture"
+            - name: Require repeatability before comparing four common Task workloads
+              run: python3 scripts/profile_task_fold_cost.py "$RUNNER_TEMP/task-fold-instructions/build" "$PROFILE_HEAD" "$PROFILE_BASELINE" "$RUNNER_TEMP/task-fold-instructions/capture" --tasks-only
 
             - name: Retain complete or failed instruction evidence
               if: always()

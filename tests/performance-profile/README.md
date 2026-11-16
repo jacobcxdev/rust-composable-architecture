@@ -66,10 +66,18 @@ and `RCA_TASK_FOLD_PROFILE_HEAD` identify the existing build run and candidate s
 The job checks the run identity, source identities and executable hashes before
 measurement. It does not compile another copy.
 
-`scripts/profile_task_fold_cost.py` compares 24 fixed workloads. Each role runs
+`scripts/profile_task_fold_cost.py` compares 24 fixed workloads by default. Each role runs
 three times. All semantic results and complete function instruction counts must
 match within each role. The first mismatch stops collection and retains the
 failed evidence. Instruction ratios remain separate from native performance gates.
+
+The explicit `--tasks-only` option selects all four common Task workloads:
+unnamed and one-name Tasks for both Shared and Local Stores. CI uses this option.
+Each result records the selected scope and complete row list. This scope supports
+controlled Task instruction evidence only. It does not establish fold determinism.
+Paused clocks do not remove instruction variation from randomly seeded fold hash maps.
+Native fold performance gates remain required, as do the existing coverage and CI checks.
+Failed full-scope captures remain failed evidence. A Task-only capture does not replace them.
 
 ## Controlled Store costs
 

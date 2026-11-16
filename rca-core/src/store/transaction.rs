@@ -983,27 +983,64 @@ impl<State: 'static, Action: 'static, C: Execution<State, Action>>
 {
     /// Registers a task inside its names, opening outer groups first.
     ///
-    /// The single-name path needs no list traversal. Nested names reuse the
-    /// existing operation brackets, without another buffer.
+    /// Zero and one name keep the nonrecursive registration path. Only nested
+    /// names enter the list interpreter and its additional stack frames.
+    #[inline]
     pub(super) fn with_task_operations(
         &mut self,
         declarations: TaskDeclarations,
         mut origin: WorkOrigin<'_>,
         register: impl FnOnce(&mut Self, WorkOrigin<'_>),
     ) {
-        let (declaration, inner) = match declarations {
-            TaskDeclarations::One(declaration) => (declaration, None),
-            TaskDeclarations::List(mut declarations) => {
-                let Some(declaration) = declarations.pop() else {
-                    register(self, origin);
+        let declaration = match declarations {
+            TaskDeclarations::One(declaration) => Some(declaration),
+            TaskDeclarations::List(declarations) => {
+                if !declarations.is_empty() {
+                    self.with_task_operation_list(declarations, origin, register);
                     return;
-                };
-                (declaration, Some(declarations))
+                }
+                None
             }
         };
 
-        // The callback owns the body. Drop it before this frame's registration
-        // guard if opening an inner name unwinds.
+        // The callback owns the body. Drop it before the registration guard
+        // if registration unwinds.
+        let named;
+        let register = register;
+        named = declaration.map(|declaration| {
+            self.begin_operation(
+                declaration,
+                origin.scope,
+                origin.generations,
+                origin.operations,
+            )
+        });
+        let operations = named
+            .as_ref()
+            .map_or(origin.operations, |(_, operations, _)| operations);
+        register(
+            self,
+            WorkOrigin {
+                operations,
+                ..origin.reborrow()
+            },
+        );
+        self.end_operation(named, origin.generations);
+    }
+
+    /// Opens nested names without adding recursion to zero or one name.
+    fn with_task_operation_list(
+        &mut self,
+        mut declarations: Vec<OperationDeclaration>,
+        mut origin: WorkOrigin<'_>,
+        register: impl FnOnce(&mut Self, WorkOrigin<'_>),
+    ) {
+        let Some(declaration) = declarations.pop() else {
+            register(self, origin);
+            return;
+        };
+
+        // Keep the deferred body ahead of this guard in unwind destruction.
         let named;
         let register = register;
         named = self.begin_operation(
@@ -1016,11 +1053,7 @@ impl<State: 'static, Action: 'static, C: Execution<State, Action>>
             operations: &named.1,
             ..origin.reborrow()
         };
-        if let Some(inner) = inner {
-            self.with_task_operations(TaskDeclarations::List(inner), inner_origin, register);
-        } else {
-            register(self, inner_origin);
-        }
+        self.with_task_operation_list(declarations, inner_origin, register);
         self.end_operation(Some(named), origin.generations);
     }
 

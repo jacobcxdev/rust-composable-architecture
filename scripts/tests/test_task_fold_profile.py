@@ -1,6 +1,8 @@
 """Reject changed work, incomplete identities and unstable instruction vectors."""
 
 import copy
+from contextlib import redirect_stderr, redirect_stdout
+import io
 import json
 from pathlib import Path
 import sys
@@ -32,6 +34,24 @@ class TaskFoldProfileTests(unittest.TestCase):
         self.assertEqual(profile.ROWS[0], ("task-named-shared", 1, 16))
         self.assertEqual(len(profile.ROWS), 24)
         self.assertEqual(len(set(profile.ROWS)), 24)
+
+    def test_tasks_only_keeps_all_four_common_task_rows(self):
+        self.assertEqual(profile.TASK_ROWS, [
+            ("task-named-shared", 1, 16), ("task-unnamed-shared", 1, 16),
+            ("task-unnamed-local", 1, 16), ("task-named-local", 1, 16),
+        ])
+
+    def test_cli_scope_is_explicit_and_unknown_options_fail(self):
+        arguments = ["artifact", "a" * 40, "b" * 40, "output"]
+        for options, selected in (([], False), (["--tasks-only"], True)):
+            with self.subTest(options=options), patch.object(profile, "collect") as collect:
+                profile.main(arguments + options)
+                self.assertEqual(collect.call_args.kwargs, {"tasks_only": selected})
+        with patch.object(profile, "collect") as collect, redirect_stderr(io.StringIO()):
+            with self.assertRaises(SystemExit) as error:
+                profile.main(arguments + ["--unknown-scope"])
+            self.assertEqual(error.exception.code, 2)
+            collect.assert_not_called()
 
     def test_literal_task_sparse_subtree_empty_and_churn_oracles(self):
         cases = [(record(), ("task-named-shared", 1, 16)),
@@ -120,8 +140,45 @@ class TaskFoldProfileTests(unittest.TestCase):
             self.assertEqual(counted, [["task-named-shared", "1", "16", "1"]] * 6)
             result = json.loads((root / "capture/comparison.json").read_text())
             self.assertFalse(result["complete"])
+            self.assertEqual(result["scope"], "tasks-and-folds")
+            self.assertEqual(result["rows"], [list(row) for row in profile.ROWS])
             self.assertEqual(len(result["observations"]), 6)
             self.assertEqual(result["comparisons"], [])
+
+    def test_tasks_only_capture_records_all_four_rows_and_no_folds(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            executable = root / "binary"
+            calls = []
+
+            def run(command, **_kwargs):
+                if "--version" in command:
+                    output = "valgrind-test"
+                elif "--tool=callgrind" in command:
+                    calls.append(command[-4:])
+                    output = stdout(record(name=command[-4]))
+                else:
+                    output = "Events shown: Ir\n20 PROGRAM TOTALS\n20 task.rs:profile_task_fold_work\n"
+                return SimpleNamespace(stdout=output, stderr="", returncode=0)
+
+            with patch.object(profile.sys, "platform", "linux"), \
+                    patch.object(profile, "verify_artifact", return_value={"baseline": executable, "candidate": executable}), \
+                    patch.object(profile.shutil, "which", return_value=str(executable)), \
+                    patch.object(profile.shutil, "disk_usage", return_value=SimpleNamespace(free=8 * 1024**3)), \
+                    patch.object(Path, "is_file", return_value=True), \
+                    patch.object(profile, "digest", return_value="recorded-hash"), \
+                    patch.object(profile.subprocess, "run", side_effect=run), redirect_stdout(io.StringIO()):
+                profile.collect(root, "a" * 40, "b" * 40, root / "capture", tasks_only=True)
+            expected_rows = [list(row) for row in profile.TASK_ROWS]
+            self.assertEqual(calls, [[name, str(size), str(iterations), "1"]
+                                     for name, size, iterations in expected_rows for _ in range(6)])
+            result = json.loads((root / "capture/comparison.json").read_text())
+            self.assertTrue(result["complete"])
+            self.assertFalse(result["native_timing_qualified"])
+            self.assertEqual(result["scope"], "tasks-only")
+            self.assertEqual(result["rows"], expected_rows)
+            self.assertEqual([comparison["row"] for comparison in result["comparisons"]], expected_rows)
+            self.assertEqual(len(result["observations"]), 24)
 
 
 if __name__ == "__main__":

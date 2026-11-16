@@ -21,6 +21,7 @@ for carrier in ("shared", "local"):
                     for suffix, size, iterations in
                     (("-empty", 1, 16), ("", 3, 16), ("", 256, 16),
                      ("-sparse", 1024, 16), ("-churn", 16, 3)))
+TASK_ROWS = [row for row in ROWS if row[0].startswith("task-")]
 
 
 def validate_record(stdout, row):
@@ -90,8 +91,9 @@ def verify_artifact(artifact, head, baseline):
     return binaries
 
 
-def collect(artifact, head, baseline, output):
+def collect(artifact, head, baseline, output, *, tasks_only=False):
     """Stop at the first unstable row and retain every completed or failed run."""
+    rows = TASK_ROWS if tasks_only else ROWS
     if sys.platform != "linux" or any(os.environ.get(key) for key in ("VALGRIND_LIB", "LD_PRELOAD", "LD_LIBRARY_PATH")):
         raise ValueError("Linux without profiler or loader overrides is required")
     binaries = verify_artifact(artifact, head, baseline)
@@ -106,7 +108,8 @@ def collect(artifact, head, baseline, output):
         raise ValueError("instruction capture requires four GiB of disk headroom")
     output.mkdir(exist_ok=False)
     result = {"schema": "rca-task-fold-instructions-v1", "complete": False,
-              "native_timing_qualified": False, "rows": ROWS, "repetitions": 3,
+              "native_timing_qualified": False, "rows": rows, "repetitions": 3,
+              "scope": "tasks-only" if tasks_only else "tasks-and-folds",
               "collector_sha256": digest(__file__), "parser_sha256": digest(Path(__file__).with_name("profile_controlled_cost.py")),
               "source_head": head, "baseline_head": baseline,
               "harness_identity_sha256": digest(artifact / "harness.sha256"),
@@ -131,7 +134,7 @@ def collect(artifact, head, baseline, output):
 
     try:
         result["valgrind_version"] = run([tools["valgrind"], "--version"], "version").strip()
-        for row in ROWS:
+        for row in rows:
             if shutil.disk_usage(output).free < 4 * 1024**3:
                 raise ValueError("instruction capture reached its disk reserve")
             groups = {role: [] for role in binaries}
@@ -172,11 +175,19 @@ def collect(artifact, head, baseline, output):
         (output / "comparison.json").write_text(json.dumps(result, indent=2) + "\n")
 
 
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description=__doc__)
+def main(arguments=None):
+    """Select the explicit diagnostic scope without changing default coverage."""
+    parser = argparse.ArgumentParser(description=__doc__, allow_abbrev=False)
     parser.add_argument("artifact", type=Path)
     parser.add_argument("head")
     parser.add_argument("baseline")
     parser.add_argument("output", type=Path)
-    args = parser.parse_args()
-    collect(args.artifact.resolve(), args.head, args.baseline, args.output.resolve())
+    parser.add_argument("--tasks-only", action="store_true",
+                        help="compare only the four common Shared and Local Task rows; exclude folds")
+    args = parser.parse_args(arguments)
+    collect(args.artifact.resolve(), args.head, args.baseline, args.output.resolve(),
+            tasks_only=args.tasks_only)
+
+
+if __name__ == "__main__":
+    main()
