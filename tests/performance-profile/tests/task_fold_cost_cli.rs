@@ -11,6 +11,19 @@ use std::time::Duration;
 
 mod support;
 
+/// Keeps the measured 64-bit owner budget, without promising a stable Rust ABI.
+#[cfg(target_pointer_width = "64")]
+#[test]
+fn task_owners_preserve_the_baseline_footprint() {
+    // Fail during this small host's compilation, before expensive profile builds.
+    const {
+        assert!(size_of::<rca_core::Task<u64, ()>>() == 48);
+        assert!(align_of::<rca_core::Task<u64, ()>>() == 8);
+        assert!(size_of::<rca_core::local::Task<u64, ()>>() == 48);
+        assert!(align_of::<rca_core::local::Task<u64, ()>>() == 8);
+    }
+}
+
 /// Owns the small controller input until the supervised process exits.
 struct Input(PathBuf);
 

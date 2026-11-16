@@ -22,13 +22,14 @@ use crate::effect::UnscopedCancellationIdentity;
 use crate::effect::operation::{OperationDeclaration, OperationPolicy};
 
 /// Keeps one name inline and allocates a list only for nested names.
+///
+/// The absent list avoids empty-vector cleanup without adding a third variant.
+/// The layout test guards the original single-name task size.
 pub(crate) enum TaskDeclarations {
-    /// Registers unnamed work without constructing or dropping a list.
-    None,
     /// Registers one name without allocating a declaration list.
     One(OperationDeclaration),
-    /// Stores two or more names from inner to outer.
-    List(Vec<OperationDeclaration>),
+    /// Holds no list for unnamed work, or two or more names from inner to outer.
+    List(Option<Vec<OperationDeclaration>>),
 }
 
 impl TaskDeclarations {
@@ -36,11 +37,11 @@ impl TaskDeclarations {
     #[inline]
     fn named(self, declaration: OperationDeclaration) -> Self {
         match self {
-            Self::None => Self::One(declaration),
-            Self::One(inner) => Self::List(vec![inner, declaration]),
-            Self::List(mut declarations) => {
+            Self::List(None) => Self::One(declaration),
+            Self::One(inner) => Self::List(Some(vec![inner, declaration])),
+            Self::List(Some(mut declarations)) => {
                 declarations.push(declaration);
-                Self::List(declarations)
+                Self::List(Some(declarations))
             }
         }
     }
@@ -69,7 +70,7 @@ impl<S: 'static, A: 'static> Task<S, A> {
     {
         Self {
             run: Box::new(move |context| Box::pin(async move { run(context).await })),
-            declarations: TaskDeclarations::None,
+            declarations: TaskDeclarations::List(None),
         }
     }
 
@@ -1642,7 +1643,7 @@ pub(super) mod local {
         {
             Self {
                 run: Box::new(move |context| Box::pin(async move { run(context).await })),
-                declarations: super::TaskDeclarations::None,
+                declarations: super::TaskDeclarations::List(None),
             }
         }
 

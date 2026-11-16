@@ -997,9 +997,9 @@ impl<State: 'static, Action: 'static, C: Execution<State, Action>>
         register: impl FnOnce(&mut Self, WorkOrigin<'_>),
     ) {
         let declaration = match declarations {
-            TaskDeclarations::None => None,
+            TaskDeclarations::List(None) => None,
             TaskDeclarations::One(declaration) => Some(declaration),
-            TaskDeclarations::List(declarations) => {
+            TaskDeclarations::List(Some(declarations)) => {
                 self.with_task_operation_list(declarations, origin, register);
                 return;
             }
