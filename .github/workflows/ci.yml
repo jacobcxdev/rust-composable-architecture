@@ -63,6 +63,7 @@ jobs:
               run: |
                   python3 -m unittest scripts.tests.test_performance_cohort scripts.tests.test_performance_sources
                   python3 -m unittest scripts.tests.test_controlled_cost
+                  python3 -m unittest scripts.tests.test_task_fold_profile
                   python3 -m unittest scripts.tests.test_windows_performance scripts.tests.test_native_performance_comparison
                   python3 -m unittest scripts.tests.test_composition_performance.ProtocolEvidenceTests scripts.tests.test_composition_performance.AbsoluteBudgetTests scripts.tests.test_composition_performance.InterleavedProtocolTests
                   python3 -m unittest scripts.tests.test_composition_performance.CurrentMacProtocolTests scripts.tests.test_composition_performance.MacWatchdogEvidenceTests scripts.tests.test_composition_performance.WindowsPairedProtocolTests scripts.tests.test_composition_windows_runner
@@ -624,7 +625,7 @@ jobs:
             - name: Build native task and fold profiling tools
               id: native_profile
               if: (matrix.target == 'aarch64-apple-darwin' || matrix.target == 'x86_64-unknown-linux-gnu') && vars.RCA_PROFILE_BASELINE != ''
-              timeout-minutes: 25
+              timeout-minutes: 40
               shell: bash
               env:
                   PROFILE_BASELINE: ${{ vars.RCA_PROFILE_BASELINE }}
@@ -699,6 +700,13 @@ jobs:
                           run_logged "$role-controlled-cli" cargo test --locked --release --manifest-path tests/performance-profile/Cargo.toml --target "$PROFILE_TARGET" --features task-fold-controlled --bin task_fold_cost --test task_fold_cost_cli -- --test-threads=1
                           run_logged "$role-controlled-build" cargo build --locked --release --manifest-path tests/performance-profile/Cargo.toml --target "$PROFILE_TARGET" --features task-fold-controlled --bin task_fold_cost
                           cp "$CARGO_TARGET_DIR/$PROFILE_TARGET/release/task_fold_cost" "$output/$role-task-fold-controlled"
+                      else
+                          run_logged "$role-mixed-tests" cargo test --locked --release --manifest-path tests/performance-profile/Cargo.toml --target "$PROFILE_TARGET" --features deterministic,local --bin rca-performance-profile -- mixed_ --test-threads=1
+                          run_logged "$role-mixed-build" cargo build --locked --release --manifest-path tests/performance-profile/Cargo.toml --target "$PROFILE_TARGET" --features deterministic,local --bin rca-performance-profile
+                          cp "$CARGO_TARGET_DIR/$PROFILE_TARGET/release/rca-performance-profile" "$output/$role-mixed-profile"
+                          run_logged "$role-mixed-allocation-tests" cargo test --locked --release --manifest-path tests/performance-profile/Cargo.toml --target "$PROFILE_TARGET" --features deterministic,local,allocations --test allocation_controls -- mixed_ --test-threads=1
+                          run_logged "$role-mixed-allocation-build" cargo build --locked --release --manifest-path tests/performance-profile/Cargo.toml --target "$PROFILE_TARGET" --features deterministic,local,allocations --bin rca-performance-profile
+                          cp "$CARGO_TARGET_DIR/$PROFILE_TARGET/release/rca-performance-profile" "$output/$role-mixed-profile-allocations"
                       fi
                   done
                   cd "$root"
@@ -725,6 +733,11 @@ jobs:
                       shasum -a 256 "${controlled[@]}" >> binaries.sha256
                       wc -c "${controlled[@]}" >> binary-sizes.txt
                       file "${controlled[@]}" >> binary-formats.txt
+                  else
+                      mixed=(baseline-mixed-profile candidate-mixed-profile baseline-mixed-profile-allocations candidate-mixed-profile-allocations)
+                      shasum -a 256 "${mixed[@]}" >> binaries.sha256
+                      wc -c "${mixed[@]}" >> binary-sizes.txt
+                      file "${mixed[@]}" >> binary-formats.txt
                   fi
                   printf 'All selected checks passed; allocation assays run only on macOS. No statistical benchmark ran.\n' > complete.txt
 
@@ -741,6 +754,69 @@ jobs:
               if: matrix.native != false
               timeout-minutes: 10
               run: cargo test --locked -p rca-core -p rca-test --all-features --test compiler_contracts -- --check
+
+    task-fold-instructions:
+        name: Optional Task and fold instruction diagnostic
+        if: vars.RCA_TASK_FOLD_PROFILE_RUN != '' && vars.RCA_TASK_FOLD_PROFILE_HEAD != ''
+        runs-on: ubuntu-24.04
+        timeout-minutes: 35
+        permissions:
+            contents: read
+            actions: read
+        env:
+            PROFILE_RUN: ${{ vars.RCA_TASK_FOLD_PROFILE_RUN }}
+            PROFILE_HEAD: ${{ vars.RCA_TASK_FOLD_PROFILE_HEAD }}
+            PROFILE_BASELINE: ${{ vars.RCA_PROFILE_BASELINE }}
+            GH_TOKEN: ${{ github.token }}
+            GH_REPO: ${{ github.repository }}
+            PYTHONDONTWRITEBYTECODE: 1
+        steps:
+            - name: Checkout collector
+              uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+            - name: Test fixed-work and repeatability checks
+              run: python3 -m unittest scripts.tests.test_task_fold_profile scripts.tests.test_controlled_cost
+
+            - name: Fetch exact existing Linux tools
+              shell: bash
+              run: |
+                  set -euo pipefail
+                  [[ "$PROFILE_RUN" =~ ^[0-9]+$ ]]
+                  [[ "$PROFILE_HEAD" =~ ^[0-9a-f]{40}$ ]]
+                  [[ "$PROFILE_BASELINE" =~ ^[0-9a-f]{40}$ ]]
+                  mkdir -p "$RUNNER_TEMP/task-fold-instructions/build"
+                  cd "$RUNNER_TEMP/task-fold-instructions"
+                  gh api "repos/$GH_REPO/actions/runs/$PROFILE_RUN" > build-run.json
+                  jq -e --arg head "$PROFILE_HEAD" '.head_sha == $head and .path == ".github/workflows/ci.yml"' build-run.json
+                  gh api "repos/$GH_REPO/contents/.github/workflows/ci.yml?ref=$PROFILE_HEAD" --jq '{path,sha}' > workflow-source.json
+                  artifact="native-task-fold-x86_64-unknown-linux-gnu-$PROFILE_RUN-1"
+                  gh api "repos/$GH_REPO/actions/runs/$PROFILE_RUN/artifacts" > artifacts.json
+                  jq -e --arg name "$artifact" '[.artifacts[] | select(.name == $name and .expired == false)] | length == 1' artifacts.json
+                  gh run download "$PROFILE_RUN" --repo "$GH_REPO" --name "$artifact" --dir build
+                  chmod u+x build/baseline-task-fold-controlled build/candidate-task-fold-controlled
+
+            - name: Install instruction profiler
+              run: |
+                  sudo apt-get update -qq
+                  sudo apt-get install -y --no-install-recommends valgrind
+
+            # These are exact instruction diagnostics on already-built binaries.
+            # Native wall time, CPU saturation and energy remain separate gates.
+            - name: Require repeatability before comparing all fixed workloads
+              run: python3 scripts/profile_task_fold_cost.py "$RUNNER_TEMP/task-fold-instructions/build" "$PROFILE_HEAD" "$PROFILE_BASELINE" "$RUNNER_TEMP/task-fold-instructions/capture"
+
+            - name: Retain complete or failed instruction evidence
+              if: always()
+              uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+              with:
+                  name: task-fold-instructions-${{ github.run_id }}-${{ github.run_attempt }}
+                  path: |
+                      ${{ runner.temp }}/task-fold-instructions/*.json
+                      ${{ runner.temp }}/task-fold-instructions/build/*.txt
+                      ${{ runner.temp }}/task-fold-instructions/build/*.sha256
+                      ${{ runner.temp }}/task-fold-instructions/capture/
+                  if-no-files-found: error
+                  retention-days: 7
 
     concurrency-model:
         name: Loom concurrency model

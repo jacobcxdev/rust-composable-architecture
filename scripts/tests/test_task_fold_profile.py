@@ -1,0 +1,128 @@
+"""Reject changed work, incomplete identities and unstable instruction vectors."""
+
+import copy
+import json
+from pathlib import Path
+import sys
+import tempfile
+from types import SimpleNamespace
+import unittest
+from unittest.mock import patch
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+import profile_task_fold_cost as profile
+
+
+def record(name="task-named-shared", size=1, iterations=16, checksum=16, operations=16):
+    return {"schema": "rca-task-fold-controlled-cost-v1", "workload": name,
+            "size": size, "iterations": iterations, "workers": 1, "operations": operations,
+            "checksum": checksum, "elapsed_ns": 100, "latencies_ns": [], "cleanup_complete": True,
+            "details": {"allocator": "system", "runtime": "Tokio current-thread",
+                        "task_groups_enabled": False, "clock": "paused-checked",
+                        "boundary": "profile_task_fold_work",
+                        "scope": "construction, checked work, shutdown and host disposal"}}
+
+
+def stdout(value):
+    return "READY\nDONE\n" + json.dumps(value) + "\n"
+
+
+class TaskFoldProfileTests(unittest.TestCase):
+    def test_first_row_is_small_and_all_twenty_four_rows_are_unique(self):
+        self.assertEqual(profile.ROWS[0], ("task-named-shared", 1, 16))
+        self.assertEqual(len(profile.ROWS), 24)
+        self.assertEqual(len(set(profile.ROWS)), 24)
+
+    def test_literal_task_sparse_subtree_empty_and_churn_oracles(self):
+        cases = [(record(), ("task-named-shared", 1, 16)),
+                 (record("fold-subtree-sparse-local", 1024, 16, 2048), ("fold-subtree-sparse-local", 1024, 16)),
+                 (record("fold-root-empty-shared", 1, 16, 0), ("fold-root-empty-shared", 1, 16)),
+                 (record("fold-root-churn-shared", 16, 3, 570, 12), ("fold-root-churn-shared", 16, 3))]
+        for value, row in cases:
+            with self.subTest(row=row):
+                accepted = profile.validate_record(stdout(value), row)
+                self.assertNotIn("elapsed_ns", accepted)
+                self.assertEqual(accepted["checksum"], value["checksum"])
+
+    def test_changed_schema_clock_work_cleanup_types_and_protocol_fail(self):
+        original = record()
+        changes = [{"schema": "rca-task-fold-cost-v1"}, {"workers": True}, {"checksum": 15},
+                   {"cleanup_complete": False}, {"elapsed_ns": 0}, {"unexpected": 1},
+                   {"details": {**original["details"], "clock": "live"}}]
+        for change in changes:
+            with self.subTest(change=change), self.assertRaises(ValueError):
+                profile.validate_record(stdout({**original, **change}), profile.ROWS[0])
+        with self.assertRaises(ValueError):
+            profile.validate_record("DONE\n" + json.dumps(original), profile.ROWS[0])
+
+    def test_exact_full_vectors_not_averages_are_required(self):
+        original = {"record": record(), "profile": {"instructions": 20, "functions": {"a": 12, "b": 8}}}
+        values = [copy.deepcopy(original) for _ in range(3)]
+        self.assertEqual(profile.verify_repetitions(values), original)
+        with self.assertRaises(ValueError):
+            profile.verify_repetitions(values[:2])
+        values[1]["profile"]["functions"] = {"a": 11, "b": 9}
+        with self.assertRaises(ValueError):
+            profile.verify_repetitions(values)
+
+    def test_artifact_identity_and_executable_hashes_fail_closed(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            artifact = Path(temporary)
+            files = {"candidate-source-head.txt": "a" * 40, "candidate-git.txt": "b" * 40 + "\n" + "c" * 40,
+                     "baseline-git.txt": "d" * 40 + "\n" + "e" * 40,
+                     "complete.txt": "All selected checks passed", "harness.sha256": "retained hashes",
+                     "tools.txt": "PROFILE_TARGET=x86_64-unknown-linux-gnu"}
+            for name, value in files.items():
+                (artifact / name).write_text(value)
+            names = ["baseline-task-fold-controlled", "candidate-task-fold-controlled"]
+            for name in names:
+                (artifact / name).write_bytes(b"public binary")
+            (artifact / "binaries.sha256").write_text("".join(f"{profile.digest(artifact / name)}  {name}\n" for name in names))
+            self.assertEqual(set(profile.verify_artifact(artifact, "a" * 40, "d" * 40)), {"baseline", "candidate"})
+            for head, baseline in (("f" * 40, "d" * 40), ("a" * 40, "f" * 40)):
+                with self.assertRaises(ValueError):
+                    profile.verify_artifact(artifact, head, baseline)
+            (artifact / names[0]).write_bytes(b"changed binary")
+            with self.assertRaises(ValueError):
+                profile.verify_artifact(artifact, "a" * 40, "d" * 40)
+
+    def test_first_unstable_row_stops_later_work_and_retains_failed_samples(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            executable = root / "binary"
+            executable.write_bytes(b"mock controlled binary")
+            counted = []
+            annotations = 0
+
+            def run(command, **_kwargs):
+                nonlocal annotations
+                if "--version" in command:
+                    output = "valgrind-test"
+                elif "--tool=callgrind" in command:
+                    counted.append(command[-4:])
+                    output = stdout(record())
+                else:
+                    annotations += 1
+                    first = 12 if annotations != 3 else 11
+                    output = ("Events shown: Ir\n20 PROGRAM TOTALS\n"
+                              f"{first} task.rs:profile_task_fold_work\n{20 - first} store.rs:poll\n")
+                return SimpleNamespace(stdout=output, stderr="", returncode=0)
+
+            with patch.object(profile.sys, "platform", "linux"), \
+                    patch.object(profile, "verify_artifact", return_value={"baseline": executable, "candidate": executable}), \
+                    patch.object(profile.shutil, "which", return_value=str(executable)), \
+                    patch.object(profile.shutil, "disk_usage", return_value=SimpleNamespace(free=8 * 1024**3)), \
+                    patch.object(Path, "is_file", return_value=True), \
+                    patch.object(profile, "digest", return_value="recorded-hash"), \
+                    patch.object(profile.subprocess, "run", side_effect=run):
+                with self.assertRaisesRegex(ValueError, "repeatability drift"):
+                    profile.collect(root, "a" * 40, "b" * 40, root / "capture")
+            self.assertEqual(counted, [["task-named-shared", "1", "16", "1"]] * 6)
+            result = json.loads((root / "capture/comparison.json").read_text())
+            self.assertFalse(result["complete"])
+            self.assertEqual(len(result["observations"]), 6)
+            self.assertEqual(result["comparisons"], [])
+
+
+if __name__ == "__main__":
+    unittest.main()

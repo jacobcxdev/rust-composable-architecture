@@ -60,6 +60,17 @@ report `clock="paused-checked"`. Native records keep `rca-task-fold-cost-v1` and
 report `clock="live"`. Controlled elapsed times are not native timing evidence.
 Exact instruction repeatability still requires unchanged-image repeated captures.
 
+The optional CI instruction diagnostic reuses the compiled Linux artifacts.
+`RCA_PROFILE_BASELINE` identifies the reference source. `RCA_TASK_FOLD_PROFILE_RUN`
+and `RCA_TASK_FOLD_PROFILE_HEAD` identify the existing build run and candidate source.
+The job checks the run identity, source identities and executable hashes before
+measurement. It does not compile another copy.
+
+`scripts/profile_task_fold_cost.py` compares 24 fixed workloads. Each role runs
+three times. All semantic results and complete function instruction counts must
+match within each role. The first mismatch stops collection and retains the
+failed evidence. Instruction ratios remain separate from native performance gates.
+
 ## Controlled Store costs
 
 The separate `controlled_cost` binary profiles nine fixed Store schedules with
