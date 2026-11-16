@@ -149,6 +149,9 @@ impl<A, E: EffectLeaves<A>> From<RuntimeLeaf<A, E>> for EffectLeaf<A, E> {
 /// These associated functions resolve statically for `Shared` or `Local`.
 /// Registration returns an unpolled future. The actor launches it after commit.
 pub(crate) trait Execution<S, A>: Carriers<S, A> {
+    /// Owns the task factory after its named-operation metadata is separated.
+    type TaskRun;
+
     /// Keeps typed root registration reachable only through producers that use it.
     const ROOT_REGISTRAR: super::transaction::RootRegistrar<S, A, Self>;
 
@@ -170,13 +173,8 @@ pub(crate) trait Execution<S, A>: Carriers<S, A> {
         handle: Option<super::scope::WeakHandleScope>,
         validation: &super::scope::SelectedChild<'_>,
     );
-    /// Separates optional named-operation metadata from the owned task body.
-    fn task_parts(
-        task: Self::Task,
-    ) -> (
-        Self::Task,
-        Option<crate::effect::operation::OperationDeclaration>,
-    );
+    /// Separates named-operation metadata from the owned task body.
+    fn task_parts(task: Self::Task) -> (Self::TaskRun, super::task_context::TaskDeclarations);
     /// Creates a task endpoint without retaining the store's command ingress.
     fn context(
         ingress: Weak<CommandIngress<Command<S, A, Self>>>,
@@ -188,7 +186,7 @@ pub(crate) trait Execution<S, A>: Carriers<S, A> {
     fn register_task(
         registry: &mut TaskRegistry,
         prepared: PreparedTask,
-        task: Self::Task,
+        task: Self::TaskRun,
         context: Self::Context,
     ) -> Self::Future;
     /// Registers an effect body with its captured producer authority.
@@ -202,6 +200,8 @@ pub(crate) trait Execution<S, A>: Carriers<S, A> {
 }
 
 impl<S: Send + 'static, A: Send + 'static> Execution<S, A> for Shared {
+    type TaskRun = super::task_context::TaskRun<S, A>;
+
     const ROOT_REGISTRAR: super::transaction::RootRegistrar<S, A, Self> =
         super::transaction::RootRegistrar {
             invoke: super::transaction::register_root_task::<S, A, Self>,
@@ -235,12 +235,7 @@ impl<S: Send + 'static, A: Send + 'static> Execution<S, A> for Shared {
         command.execute(state, registry, version, scope, handle, validation);
     }
 
-    fn task_parts(
-        task: Self::Task,
-    ) -> (
-        Self::Task,
-        Option<crate::effect::operation::OperationDeclaration>,
-    ) {
+    fn task_parts(task: Self::Task) -> (Self::TaskRun, super::task_context::TaskDeclarations) {
         task.into_parts()
     }
 
@@ -256,10 +251,10 @@ impl<S: Send + 'static, A: Send + 'static> Execution<S, A> for Shared {
     fn register_task(
         registry: &mut TaskRegistry,
         prepared: PreparedTask,
-        task: Self::Task,
+        task: Self::TaskRun,
         context: Self::Context,
     ) -> Self::Future {
-        registry.register(prepared, task.start(context))
+        registry.register(prepared, task(context))
     }
 
     fn register_effect(

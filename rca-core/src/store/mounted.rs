@@ -1890,41 +1890,37 @@ where
                     launches,
                 ),
                 WorkItem::Task(task) => {
-                    let (task, declaration) = task.into_parts();
-                    let named = declaration.map(|declaration| {
-                        parts.begin_operation(
-                            declaration,
-                            origin.scope,
-                            origin.generations,
-                            origin.operations,
-                        )
-                    });
-                    let operations = named
-                        .as_ref()
-                        .map_or(origin.operations, |(_, ancestry, _)| ancestry);
-                    let lineage =
-                        Arc::clone(origin.lineage.get_or_insert_with(|| {
-                            LineageState::new(Arc::downgrade(parts.control))
-                        }));
-                    let prepared = parts.registry.prepare_with_operations(
-                        origin.scope,
-                        Arc::clone(&lineage),
-                        origin.generations,
-                        operations,
+                    let (task, declarations) = task.into_parts();
+                    let route = &route;
+                    let launches = &mut *launches;
+                    parts.with_task_operations(
+                        declarations,
+                        origin.reborrow(),
+                        move |parts, origin| {
+                            let lineage = Arc::clone(origin.lineage.get_or_insert_with(|| {
+                                LineageState::new(Arc::downgrade(parts.control))
+                            }));
+                            let prepared = parts.registry.prepare_with_operations(
+                                origin.scope,
+                                Arc::clone(&lineage),
+                                origin.generations,
+                                origin.operations,
+                            );
+                            let provenance = Provenance::Effect {
+                                scope: origin.scope,
+                                lineage,
+                                task: prepared.sender_token(),
+                                generations: prepared.generation_tokens(),
+                                operations: prepared.operation_ancestry(),
+                            };
+                            let context =
+                                crate::TaskContext::from_endpoint(Arc::new(SharedEndpoint {
+                                    route: route.clone(),
+                                    provenance,
+                                }));
+                            launches.push(parts.registry.register(prepared, task(context)));
+                        },
                     );
-                    let provenance = Provenance::Effect {
-                        scope: origin.scope,
-                        lineage,
-                        task: prepared.sender_token(),
-                        generations: prepared.generation_tokens(),
-                        operations: prepared.operation_ancestry(),
-                    };
-                    let context = crate::TaskContext::from_endpoint(Arc::new(SharedEndpoint {
-                        route: route.clone(),
-                        provenance,
-                    }));
-                    launches.push(parts.registry.register(prepared, task.start(context)));
-                    parts.end_operation(named, origin.generations);
                 }
             }
         }
@@ -2966,46 +2962,42 @@ where
                         launches,
                     ),
                 WorkItem::Task(task) => {
-                    let (task, declaration) = task.into_parts();
-                    let named = declaration.map(|declaration| {
-                        parts.begin_operation(
-                            declaration,
-                            origin.scope,
-                            origin.generations,
-                            origin.operations,
-                        )
-                    });
-                    let operations = named
-                        .as_ref()
-                        .map_or(origin.operations, |(_, ancestry, _)| ancestry);
-                    let lineage =
-                        Arc::clone(origin.lineage.get_or_insert_with(|| {
-                            LineageState::new(Arc::downgrade(parts.control))
-                        }));
-                    let prepared = parts.registry.prepare_with_operations(
-                        origin.scope,
-                        Arc::clone(&lineage),
-                        origin.generations,
-                        operations,
+                    let (task, declarations) = task.into_parts();
+                    let route = &route;
+                    let launches = &mut *launches;
+                    parts.with_task_operations(
+                        declarations,
+                        origin.reborrow(),
+                        move |parts, origin| {
+                            let lineage = Arc::clone(origin.lineage.get_or_insert_with(|| {
+                                LineageState::new(Arc::downgrade(parts.control))
+                            }));
+                            let prepared = parts.registry.prepare_with_operations(
+                                origin.scope,
+                                Arc::clone(&lineage),
+                                origin.generations,
+                                origin.operations,
+                            );
+                            let provenance = Provenance::Effect {
+                                scope: origin.scope,
+                                lineage,
+                                task: prepared.sender_token(),
+                                generations: prepared.generation_tokens(),
+                                operations: prepared.operation_ancestry(),
+                            };
+                            let context = local::TaskContext::from_endpoint(std::rc::Rc::new(
+                                LocalEndpoint {
+                                    route: route.clone(),
+                                    provenance,
+                                },
+                            ));
+                            launches.push(
+                                parts
+                                    .registry
+                                    .register_local(prepared, move |_| task(context)),
+                            );
+                        },
                     );
-                    let provenance = Provenance::Effect {
-                        scope: origin.scope,
-                        lineage,
-                        task: prepared.sender_token(),
-                        generations: prepared.generation_tokens(),
-                        operations: prepared.operation_ancestry(),
-                    };
-                    let context =
-                        local::TaskContext::from_endpoint(std::rc::Rc::new(LocalEndpoint {
-                            route: route.clone(),
-                            provenance,
-                        }));
-                    launches.push(
-                        parts
-                            .registry
-                            .register_local(prepared, move |_| task.start(context)),
-                    );
-                    parts.end_operation(named, origin.generations);
                 }
             }
         }

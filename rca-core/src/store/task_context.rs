@@ -21,12 +21,40 @@ use crate::RuntimeFuture;
 use crate::effect::UnscopedCancellationIdentity;
 use crate::effect::operation::{OperationDeclaration, OperationPolicy};
 
+/// Keeps one name inline and allocates a list only for nested names.
+pub(crate) enum TaskDeclarations {
+    /// Registers one name without allocating a declaration list.
+    One(OperationDeclaration),
+    /// Stores names from inner to outer; an empty list means unnamed work.
+    List(Vec<OperationDeclaration>),
+}
+
+impl TaskDeclarations {
+    /// Adds an outer name without changing previously declared policies.
+    fn named(self, declaration: OperationDeclaration) -> Self {
+        match self {
+            Self::One(inner) => Self::List(vec![inner, declaration]),
+            Self::List(mut declarations) => {
+                if declarations.is_empty() {
+                    Self::One(declaration)
+                } else {
+                    declarations.push(declaration);
+                    Self::List(declarations)
+                }
+            }
+        }
+    }
+}
+
+/// Owns a deferred shared factory after its registration metadata is separated.
+pub(crate) type TaskRun<S, A> = Box<dyn FnOnce(TaskContext<S, A>) -> RuntimeFuture + Send>;
+
 /// Declares deferred work with typed access to its feature.
 pub struct Task<State, Action> {
     /// Owns captures until first poll invokes the factory or the task is dropped.
-    run: Box<dyn FnOnce(TaskContext<State, Action>) -> RuntimeFuture + Send>,
+    run: TaskRun<State, Action>,
     /// Selects named-generation registration without starting the factory.
-    declaration: Option<OperationDeclaration>,
+    declarations: TaskDeclarations,
 }
 
 impl<S: 'static, A: 'static> Task<S, A> {
@@ -41,31 +69,47 @@ impl<S: 'static, A: 'static> Task<S, A> {
     {
         Self {
             run: Box::new(move |context| Box::pin(async move { run(context).await })),
-            declaration: None,
+            declarations: TaskDeclarations::List(Vec::new()),
         }
     }
 
     /// Declares a named generation for one deferred typed task.
+    ///
+    /// This is [`Self::run`] followed by [`Self::named`]. Add more names to group
+    /// independently replaceable tasks under a shared cancellation boundary.
     pub fn run_named<K, F, Fut>(key: K, policy: OperationPolicy, run: F) -> Self
     where
         K: Hash + Eq + Send + Sync + 'static,
         F: FnOnce(TaskContext<S, A>) -> Fut + Send + 'static,
         Fut: Future<Output = ()> + Send + 'static,
     {
-        let mut task = Self::run(run);
-        task.declaration = Some(OperationDeclaration::new(key, policy));
-        task
+        Self::run(run).named(key, policy)
+    }
+
+    /// Adds an outer operation group without starting the task.
+    ///
+    /// Names nest in call order: the last name is outermost. For example,
+    /// `.named(job, OperationPolicy::Replace).named(account, OperationPolicy::Coexist)`
+    /// replaces the matching job while keeping other jobs in the account.
+    /// Cancelling either name cancels this task. Names are qualified by the
+    /// installed feature's scope, just like [`Self::run_named`].
+    ///
+    /// Captured waits include only generations present when captured. They
+    /// complete after the task and its causal work release their owned payloads,
+    /// not merely when cancellation is requested.
+    pub fn named<K>(mut self, key: K, policy: OperationPolicy) -> Self
+    where
+        K: Hash + Eq + Send + Sync + 'static,
+    {
+        self.declarations = self
+            .declarations
+            .named(OperationDeclaration::new(key, policy));
+        self
     }
 
     /// Separates registration policy from the still-unpolled task factory.
-    pub(crate) fn into_parts(mut self) -> (Self, Option<OperationDeclaration>) {
-        let declaration = self.declaration.take();
-        (self, declaration)
-    }
-
-    /// Binds authority without calling the factory until the returned future is polled.
-    pub(crate) fn start(self, context: TaskContext<S, A>) -> RuntimeFuture {
-        (self.run)(context)
+    pub(crate) fn into_parts(self) -> (TaskRun<S, A>, TaskDeclarations) {
+        (self.run, self.declarations)
     }
 }
 
@@ -1544,12 +1588,15 @@ pub(super) mod local {
     use crate::store::local::{Local, LocalFuture};
     use std::rc::Rc;
 
+    /// Owns a deferred local factory after its registration metadata is separated.
+    pub(crate) type TaskRun<S, A> = Box<dyn FnOnce(TaskContext<S, A>) -> LocalFuture>;
+
     /// Owns asynchronous work that is polled and dropped on its host thread.
     pub struct Task<S, A> {
         /// Owns non-`Send` captures until the deferred factory runs or is dropped.
-        run: Box<dyn FnOnce(TaskContext<S, A>) -> LocalFuture>,
+        run: TaskRun<S, A>,
         /// Selects named-generation registration without invoking the factory.
-        declaration: Option<super::OperationDeclaration>,
+        declarations: super::TaskDeclarations,
     }
     impl<S: 'static, A: 'static> Task<S, A> {
         /// Defers the factory and its future until the registered task is polled.
@@ -1563,31 +1610,43 @@ pub(super) mod local {
         {
             Self {
                 run: Box::new(move |context| Box::pin(async move { run(context).await })),
-                declaration: None,
+                declarations: super::TaskDeclarations::List(Vec::new()),
             }
         }
 
         /// Declares a named generation for one deferred typed task.
+        ///
+        /// This is [`Self::run`] followed by [`Self::named`]. Add more names to
+        /// group independently replaceable tasks under a shared cancellation boundary.
         pub fn run_named<K, F, Fut>(key: K, policy: super::OperationPolicy, run: F) -> Self
         where
             K: std::hash::Hash + Eq + Send + Sync + 'static,
             F: FnOnce(TaskContext<S, A>) -> Fut + 'static,
             Fut: Future<Output = ()> + 'static,
         {
-            let mut task = Self::run(run);
-            task.declaration = Some(super::OperationDeclaration::new(key, policy));
-            task
+            Self::run(run).named(key, policy)
+        }
+
+        /// Adds an outer operation group without starting the local task.
+        ///
+        /// The last name is outermost. A task can replace its own job name while
+        /// coexisting under an account name. Cancelling either name cancels the
+        /// task. Names stay within the installed feature's scope. Captured waits
+        /// exclude later generations and await payload release, not just a
+        /// cancellation request. The task body may retain non-`Send` values.
+        pub fn named<K>(mut self, key: K, policy: super::OperationPolicy) -> Self
+        where
+            K: std::hash::Hash + Eq + Send + Sync + 'static,
+        {
+            self.declarations = self
+                .declarations
+                .named(super::OperationDeclaration::new(key, policy));
+            self
         }
 
         /// Separates registration policy from the still-unpolled local factory.
-        pub(crate) fn into_parts(mut self) -> (Self, Option<super::OperationDeclaration>) {
-            let declaration = self.declaration.take();
-            (self, declaration)
-        }
-
-        /// Binds local authority without invoking the factory until first poll.
-        pub(crate) fn start(self, context: TaskContext<S, A>) -> LocalFuture {
-            (self.run)(context)
+        pub(crate) fn into_parts(self) -> (TaskRun<S, A>, super::TaskDeclarations) {
+            (self.run, self.declarations)
         }
     }
 

@@ -2140,6 +2140,8 @@ impl<S, A> Carriers<S, A> for Local {
 }
 
 impl<S: 'static, A: 'static> Execution<S, A> for Local {
+    type TaskRun = super::task_context::local::TaskRun<S, A>;
+
     const ROOT_REGISTRAR: super::transaction::RootRegistrar<S, A, Self> =
         super::transaction::RootRegistrar {
             invoke: super::transaction::register_root_task::<S, A, Self>,
@@ -2173,12 +2175,7 @@ impl<S: 'static, A: 'static> Execution<S, A> for Local {
         command.execute(state, registry, version, scope, handle, validation);
     }
 
-    fn task_parts(
-        task: Self::Task,
-    ) -> (
-        Self::Task,
-        Option<crate::effect::operation::OperationDeclaration>,
-    ) {
+    fn task_parts(task: Self::Task) -> (Self::TaskRun, super::task_context::TaskDeclarations) {
         task.into_parts()
     }
 
@@ -2194,10 +2191,10 @@ impl<S: 'static, A: 'static> Execution<S, A> for Local {
     fn register_task(
         registry: &mut TaskRegistry,
         prepared: PreparedTask,
-        task: Self::Task,
+        task: Self::TaskRun,
         context: Self::Context,
     ) -> Self::Future {
-        registry.register_local(prepared, move |_| task.start(context))
+        registry.register_local(prepared, move |_| task(context))
     }
 
     fn register_effect(

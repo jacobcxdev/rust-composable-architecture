@@ -24,8 +24,8 @@ use super::observation::ObservationRegistryCore;
 use super::output::OutputCall;
 use super::scope::{HandleRegistryCore, ScopeRegistry, ScopeToken, ScopeTransitionBatch};
 use super::task_context::{
-    CommitReply, EnteredSend, ReadCall, TaskAccessError, TaskAccessReason, TaskProgress,
-    TaskRequest, TypedSend, UpdateCall,
+    CommitReply, EnteredSend, ReadCall, TaskAccessError, TaskAccessReason, TaskDeclarations,
+    TaskProgress, TaskRequest, TypedSend, UpdateCall,
 };
 use super::{ActionTask, Ingress};
 use crate::effect::leaves::{EffectLeaves, EffectValue};
@@ -882,45 +882,39 @@ pub(super) fn register_root_task<S: 'static, A: 'static, C: Execution<S, A>>(
     origin: &mut WorkOrigin<'_>,
     launches: &mut Launches<C::Future>,
 ) {
-    let (task, declaration) = C::task_parts(task);
-    let named = declaration.map(|declaration| {
-        parts.begin_operation(
-            declaration,
-            parts.scopes.root(),
+    let (task, declarations) = C::task_parts(task);
+    let origin = WorkOrigin {
+        scope: parts.scopes.root(),
+        ..origin.reborrow()
+    };
+    parts.with_task_operations(declarations, origin, move |parts, origin| {
+        let lineage = Arc::clone(
+            origin
+                .lineage
+                .get_or_insert_with(|| LineageState::new(Arc::downgrade(parts.control))),
+        );
+        let scope = origin.scope;
+        let prepared = parts.registry.prepare_with_operations(
+            scope,
+            Arc::clone(&lineage),
             origin.generations,
             origin.operations,
-        )
+        );
+        let provenance = Provenance::Effect {
+            scope,
+            lineage,
+            task: prepared.sender_token(),
+            generations: prepared.generation_tokens(),
+            operations: prepared.operation_ancestry(),
+        };
+        let context = C::context(
+            Weak::clone(parts.ingress),
+            scope,
+            provenance,
+            parts.scopes.authority(scope),
+        );
+        launches.push(C::register_task(parts.registry, prepared, task, context));
     });
-    let operations = named
-        .as_ref()
-        .map_or(origin.operations, |(_, ancestry, _)| ancestry);
-    let lineage = Arc::clone(
-        origin
-            .lineage
-            .get_or_insert_with(|| LineageState::new(Arc::downgrade(parts.control))),
-    );
-    let scope = parts.scopes.root();
-    let prepared = parts.registry.prepare_with_operations(
-        scope,
-        Arc::clone(&lineage),
-        origin.generations,
-        operations,
-    );
-    let provenance = Provenance::Effect {
-        scope,
-        lineage,
-        task: prepared.sender_token(),
-        generations: prepared.generation_tokens(),
-        operations: prepared.operation_ancestry(),
-    };
-    let context = C::context(
-        Weak::clone(parts.ingress),
-        scope,
-        provenance,
-        parts.scopes.authority(scope),
-    );
-    launches.push(C::register_task(parts.registry, prepared, task, context));
-    parts.end_operation(named, origin.generations);
 }
 
 /// Dispatches typed task access; reads validate authority without making a commit.
@@ -987,6 +981,49 @@ impl<State: 'static, Action: 'static, C: Execution<State, Action>, Stamp>
 impl<State: 'static, Action: 'static, C: Execution<State, Action>>
     TransactionParts<'_, State, Action, C>
 {
+    /// Registers a task inside its names, opening outer groups first.
+    ///
+    /// The single-name path needs no list traversal. Nested names reuse the
+    /// existing operation brackets, without another buffer.
+    pub(super) fn with_task_operations(
+        &mut self,
+        declarations: TaskDeclarations,
+        mut origin: WorkOrigin<'_>,
+        register: impl FnOnce(&mut Self, WorkOrigin<'_>),
+    ) {
+        let (declaration, inner) = match declarations {
+            TaskDeclarations::One(declaration) => (declaration, None),
+            TaskDeclarations::List(mut declarations) => {
+                let Some(declaration) = declarations.pop() else {
+                    register(self, origin);
+                    return;
+                };
+                (declaration, Some(declarations))
+            }
+        };
+
+        // The callback owns the body. Drop it before this frame's registration
+        // guard if opening an inner name unwinds.
+        let named;
+        let register = register;
+        named = self.begin_operation(
+            declaration,
+            origin.scope,
+            origin.generations,
+            origin.operations,
+        );
+        let inner_origin = WorkOrigin {
+            operations: &named.1,
+            ..origin.reborrow()
+        };
+        if let Some(inner) = inner {
+            self.with_task_operations(TaskDeclarations::List(inner), inner_origin, register);
+        } else {
+            register(self, inner_origin);
+        }
+        self.end_operation(Some(named), origin.generations);
+    }
+
     /// Compiles one root-typed description using the common routed interpreter.
     pub(super) fn compile_effect(
         &mut self,
