@@ -34,7 +34,10 @@ pub(crate) enum TaskDeclarations {
 
 impl TaskDeclarations {
     /// Adds an outer name without changing previously declared policies.
-    // Fold first-name conversion into callers that construct an unnamed task.
+    #[expect(
+        clippy::inline_always,
+        reason = "measured first-name construction retains an unnecessary out-of-line conversion"
+    )]
     #[inline(always)]
     fn named(self, declaration: OperationDeclaration) -> Self {
         match self {

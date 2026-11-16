@@ -2188,7 +2188,10 @@ impl<S: 'static, A: 'static> Execution<S, A> for Local {
         TaskContext::new(ingress, scope, provenance, authority)
     }
 
-    // Keep this forwarding layer inside the task registration path.
+    #[expect(
+        clippy::inline_always,
+        reason = "measured out-of-line forwarding adds work to every local task registration"
+    )]
     #[inline(always)]
     fn register_task(
         registry: &mut TaskRegistry,
