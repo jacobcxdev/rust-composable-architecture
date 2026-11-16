@@ -59,6 +59,16 @@ With the exact reference available, capture the candidate and its reference/refe
 scripts/qualify-composition-performance.sh --mode candidate-reference <capture-output> <pinned-reference-worktree>
 ```
 
+For a stricter Mac ceiling, add `--memory-limit-gib 2` to this command.
+The option accepts whole GiB from one through eight. The default and maximum remain eight GiB.
+The selected ceiling applies to every command in both comparison modes, including preparation and absolute measurements.
+The four-GiB host reserve, pressure checks and cleanup requirements remain unchanged.
+Startup requires the selected ceiling plus that reserve. A two-GiB ceiling therefore requires six GiB of headroom.
+Both mode records and the shared capture manifest bind the selected ceiling.
+Every command receipt must match it. Missing or mixed ceilings fail qualification.
+Historical receipts remain unchanged. New captures require an explicit ceiling in their records, including the default selection.
+The ceiling changes the watchdog stop threshold, not the allocator, workloads or numerical gates.
+
 Use a new output path below `target/qualification-evidence/0.1.0/composition`.
 Retain failed evidence outside the tracked tree.
 The capture contains separate `candidate-reference` and `reference-reference-aa` directories.

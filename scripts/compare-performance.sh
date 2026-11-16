@@ -189,7 +189,13 @@ if [[ "${windows}" == false ]]; then
     exit 1
   fi
   expected_memory_watchdog_sha256=$(shasum -a 256 "${memory_watchdog}" | awk '{print $1}')
-  protocol_inputs+=("${expected_memory_watchdog_sha256}")
+  if ! memory_limit_bytes=$(jq -er '.metadata.cohort.memory_limit_bytes
+      | select(type == "number" and . >= 1073741824 and . <= 8589934592
+               and floor == . and . % 1073741824 == 0)' "${candidate}"); then
+    echo "Mac cohort memory ceiling is missing or invalid" >&2
+    exit 1
+  fi
+  protocol_inputs+=("${expected_memory_watchdog_sha256}" "${memory_limit_bytes}")
 else
   protocol_inputs+=("$(jq -r '.metadata.source_build_sha256' "${candidate}")")
 fi
@@ -390,16 +396,17 @@ if [[ "${windows}" == false ]]; then
       --arg candidate_sha256 "$(shasum -a 256 "${candidate}" | awk '{print $1}')" \
       --arg reference_sha256 "$(shasum -a 256 "${baseline}" | awk '{print $1}')" \
       --arg watchdog_sha256 "${expected_memory_watchdog_sha256}" \
-      --arg script_sha256 "${expected_qualification_script_sha256}" '
+      --arg script_sha256 "${expected_qualification_script_sha256}" \
+      --argjson memory_limit_bytes "${memory_limit_bytes}" '
         .entrypoint == "qualify-performance" and .toolchain == "1.100.0"
         and .protection == "polling-watchdog-not-kernel-memory-cap"
         and .started == true and .reason == "command-exited"
         and .returncode == 0 and .command_returncode == 0
         and .cleanup_complete == true and .descendants_complete == true
         and .forced_cleanup == false
-        and .memory_limit_bytes == 8589934592 and .host_reserve_bytes == 4294967296
+        and .memory_limit_bytes == $memory_limit_bytes and .host_reserve_bytes == 4294967296
         and .sample_interval_seconds == 0.25
-        and (.peak_footprint_bytes | type == "number" and . >= 0 and . < 8589934592 and floor == .)
+        and (.peak_footprint_bytes | type == "number" and . >= 0 and . < $memory_limit_bytes and floor == .)
         and (.peak_process_count | type == "number" and . >= 1 and floor == .)
         and (.elapsed_seconds | type == "number" and . > 0)
         and .memory_watchdog_sha256 == $watchdog_sha256

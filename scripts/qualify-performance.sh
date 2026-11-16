@@ -80,8 +80,15 @@ fi
 # Direct invocation is disabled until an explicit memory-guarded route owns us.
 python3 "$(dirname -- "${BASH_SOURCE[0]}")/guard_cargo_memory.py" --check-owned-group
 memory_watchdog_receipt=${RCA_MAC_MEMORY_GUARD_RECEIPT:-}
+memory_limit_bytes=${RCA_MAC_MEMORY_LIMIT_BYTES:-}
 if [[ "${memory_watchdog_receipt}" != /* ]]; then
   echo "canonical qualification requires the memory watchdog's fixed --qualify-performance route" >&2
+  exit 1
+fi
+if [[ ! "${memory_limit_bytes}" =~ ^[1-8][0-9]{9}$ ]] \
+  || ! (( memory_limit_bytes >= 1073741824 && memory_limit_bytes <= 8589934592 \
+          && memory_limit_bytes % 1073741824 == 0 )); then
+  echo "canonical qualification requires the owned guard's one-through-eight-GiB ceiling" >&2
   exit 1
 fi
 
@@ -277,7 +284,7 @@ scenario_manifest_sha256=$(shasum -a 256 docs/performance/scenarios.txt | awk '{
 qualification_script_sha256=$(shasum -a 256 scripts/qualify-performance.sh | awk '{print $1}')
 memory_watchdog_sha256=$(shasum -a 256 scripts/guard_cargo_memory.py | awk '{print $1}')
 protocol_sha256=$(printf '%s\n' "${qualification_source_sha256}" "${qualification_module_sha256}" \
-  "${scenario_manifest_sha256}" "${qualification_script_sha256}" "${memory_watchdog_sha256}" \
+  "${scenario_manifest_sha256}" "${qualification_script_sha256}" "${memory_watchdog_sha256}" "${memory_limit_bytes}" \
   | shasum -a 256 | awk '{print $1}')
 recorded_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 rustc_commit=$("${rustc}" --version --verbose | awk '/^commit-hash:/ {print $2}')
@@ -941,6 +948,7 @@ jq -n \
   --arg qualification_script_sha256 "${qualification_script_sha256}" \
   --arg memory_watchdog_sha256 "${memory_watchdog_sha256}" \
   --arg memory_watchdog_receipt "${memory_watchdog_receipt}" \
+  --argjson memory_limit_bytes "${memory_limit_bytes}" \
   --arg scenario_manifest_sha256 "${scenario_manifest_sha256}" \
   --arg candidate_lock_sha256 "${candidate_lock_sha256}" \
   --arg reference_lock_sha256 "${reference_lock_sha256}" \
@@ -1008,6 +1016,7 @@ jq -n \
           qualification_script_sha256: $qualification_script_sha256,
           memory_watchdog_sha256: $memory_watchdog_sha256,
           memory_watchdog_receipt: $memory_watchdog_receipt,
+          memory_limit_bytes: $memory_limit_bytes,
           scenario_manifest_sha256: $scenario_manifest_sha256,
           candidate_lock_sha256: $candidate_lock_sha256,
           reference_lock_sha256: $reference_lock_sha256,

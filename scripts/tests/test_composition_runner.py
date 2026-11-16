@@ -35,6 +35,40 @@ class RunnerTests(unittest.TestCase):
     def setUp(self):
         setup_guard_fixture(self)
 
+    def test_mac_cli_passes_one_selected_cap_to_the_complete_controller(self):
+        with tempfile.TemporaryDirectory() as tmp, \
+                patch.object(sys, "argv", ["composition_runner.py", "--memory-limit-gib", "2", "output", "reference"]), \
+                patch.object(runner, "output_paths", return_value=(Path(tmp) / "output", Path(tmp) / "staging")), \
+                patch.object(runner, "machine_lock", return_value=nullcontext()), \
+                patch.object(runner, "qualify", return_value=0) as qualify:
+            self.assertEqual(runner.main(), 0)
+            self.assertEqual(qualify.call_args.kwargs["memory_limit_bytes"], 2 * 1024**3)
+
+    def test_selected_mac_cap_is_rejected_for_windows_and_other_modes(self):
+        for arguments in (["--platform", "windows"], ["--mode", "counter-cohorts"],
+                          ["--check-prerequisites"]):
+            with self.subTest(arguments=arguments), \
+                    patch.object(sys, "argv", ["composition_runner.py", "--memory-limit-gib", "2", *arguments]), \
+                    patch.object(runner, "tool_environment") as tools:
+                self.assertEqual(runner.main(), 1)
+                tools.assert_not_called()
+
+    def test_selected_mac_cap_reaches_every_command_category(self):
+        import guard_cargo_memory as guard
+        receipt = dict(reason="command-exited", returncode=0, command_returncode=0,
+                       cleanup_complete=True, descendants_complete=True,
+                       memory_watchdog_sha256=guard.SOURCE_SHA256)
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            monitor = runner.HostMonitor(root / "telemetry", {"quiescence": {
+                "process_monitor_interval_seconds": 1}}, memory_limit_bytes=2 * 1024**3)
+            with patch.object(monitor, "idle"), patch.object(monitor, "sample"), \
+                    patch.object(guard, "run_guarded", return_value=receipt) as run:
+                for category in ("build", "list", "runtime", "compile", "diagnostic", "absolute"):
+                    monitor.run([category], root / f"{category}.txt", root, {}, timed=False)
+                    self.assertEqual(run.call_args.kwargs["memory_limit"], 2 * 1024**3)
+            self.assertEqual(run.call_count, 6)
+
     def test_common_harness_keeps_product_bytes_and_records_both_inputs(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -1688,20 +1722,29 @@ class RunnerTests(unittest.TestCase):
 
 
     def test_interleaved_control_rejects_detached_binding_order_and_missing_blocks(self):
-        protocol = evaluator.load_protocol(runner.PROTOCOL)
+        self.assert_interleaved_capture_bindings(runner.PROTOCOL)
+
+    def test_current_mac_interleaving_binds_one_selected_cap_to_both_modes(self):
+        self.assert_interleaved_capture_bindings(runner.CURRENT_PROTOCOL)
+
+    def assert_interleaved_capture_bindings(self, protocol_path):
+        protocol = evaluator.load_protocol(protocol_path)
+        mac = evaluator.is_current_mac_protocol(protocol)
         protocol["runtime"]["gated_scenarios"] = []
         protocol["compile"]["fixtures"] = ["direct"]
         modes = ("candidate-reference", "reference-reference-aa")
         with tempfile.TemporaryDirectory() as tmp:
             directory = Path(tmp)
-            manifest = {"protocol_sha256": evaluator.PROTOCOL_SHA256,
+            manifest = {"protocol_sha256": evaluator._protocol_sha256(protocol),
                         "controller": {"revision": "1" * 40}, "host": {"identity": "host"},
                         "modes": {}, "schedule": []}
+            cap = {"memory_limit_bytes": 2 * 1024**3} if mac else {}
+            manifest.update(cap)
             for mode in modes:
                 arm = directory / mode
                 arm.mkdir()
                 runner.write_json(arm / "inputs.json", {"mode": mode, "controller": manifest["controller"],
-                                                        "host": manifest["host"]})
+                                                        "host": manifest["host"], **cap})
                 runner.write_json(arm / "plan.json", evaluator.measurement_plan(protocol, mode))
                 manifest["modes"][mode] = {name: evaluator._sha256(arm / name)
                                             for name in ("inputs.json", "plan.json")}
@@ -1710,7 +1753,7 @@ class RunnerTests(unittest.TestCase):
             runner.write_json(directory / "capture.json", manifest)
             digest = evaluator._sha256(directory / "capture.json")
             for mode in modes:
-                runner.write_json(directory / mode / "metadata.json", {"capture_sha256": digest})
+                runner.write_json(directory / mode / "metadata.json", {"capture_sha256": digest, **cap})
             rows = [{**item, "capture_sha256": digest, "phase": phase, "recorded_at": "2026-10-30T23:00:00Z",
                      "monotonic": float(index)}
                     for index, (item, phase) in enumerate((item, phase) for item in manifest["schedule"]
@@ -1719,7 +1762,7 @@ class RunnerTests(unittest.TestCase):
                 if row["phase"] == "finish":
                     hashes = {}
                     for role in ("subject", "control"):
-                        for suffix in (".txt", ".resources.json"):
+                        for suffix in evaluator._measurement_suffixes(protocol):
                             name = Path(row["mode"]) / "paired" / role / "compile/direct" / f"block-{row['block']:02d}{suffix}"
                             (directory / name).parent.mkdir(parents=True, exist_ok=True)
                             (directory / name).write_text("measured output")
@@ -1728,6 +1771,17 @@ class RunnerTests(unittest.TestCase):
             raw = "".join(json.dumps(row) + "\n" for row in rows)
             (directory / "blocks.jsonl").write_text(raw)
             self.assertEqual(runner.validate_interleaved_capture(directory, protocol), digest)
+            if mac:
+                for mode in modes:
+                    metadata_path = directory / mode / "metadata.json"
+                    for wrong in (None, True, 4 * 1024**3):
+                        metadata = {"capture_sha256": digest}
+                        if wrong is not None:
+                            metadata["memory_limit_bytes"] = wrong
+                        metadata_path.write_text(json.dumps(metadata))
+                        with self.subTest(mode=mode, cap=wrong), self.assertRaisesRegex(ValueError, "ceilings"):
+                            runner.validate_interleaved_capture(directory, protocol)
+                    metadata_path.write_text(json.dumps({"capture_sha256": digest, **cap}))
             for bad in (rows[:-1], rows[:2] + rows[4:6] + rows[2:4] + rows[6:],
                         [{**row, "capture_sha256": "0" * 64} for row in rows],
                         [[]] + rows[1:], [{**rows[0], "block": True}] + rows[1:],
@@ -1777,14 +1831,14 @@ class RunnerTests(unittest.TestCase):
                              [(1, "reference-reference-aa", "start")])
 
     def test_prepared_modes_keep_independent_builds_and_exact_source_provenance(self):
-        protocol = evaluator.load_protocol(runner.PROTOCOL)
+        protocol = evaluator.load_protocol(runner.CURRENT_PROTOCOL)
         budget = evaluator.validate_budget_document(runner.BUDGET)
         original = {row["workload_source"]: row["workload_source_hash"] for row in budget["rows"]}
         effective = {**original, **{name: row["sha256"] for name, row in protocol["common_workloads"]["files"].items()}}
         hashes = {name: "0" * 64 for name in ("Cargo.lock", "benches/compile/Cargo.lock",
                                                "scripts/capture-composition-performance.sh")}
         controller = {"revision": "1" * 40, "hashes": hashes}
-        control = {"revision": evaluator.REFERENCE_REVISION, "hashes": hashes}
+        control = {"revision": evaluator.RELEASE_BASELINE_REVISION, "hashes": hashes}
         host = {"identity": {"os_version": "27.0", "os_build": "26A428"}}
 
         def stage(_source, identity, destination, _protocol):
@@ -1799,6 +1853,8 @@ class RunnerTests(unittest.TestCase):
             return executable
 
         class Monitor:
+            memory_limit_bytes = 2 * 1024**3
+
             def run(self, _command, destination, _cwd, _env):
                 destination.parent.mkdir(parents=True, exist_ok=True)
                 destination.write_text("same benchmark list")
@@ -1813,9 +1869,12 @@ class RunnerTests(unittest.TestCase):
                 for mode in ("candidate-reference", "reference-reference-aa")]
             self.assertEqual(len({path for item in captures for path in item["executables"].values()}), 4)
             self.assertEqual([item["metadata"]["subject_revision"] for item in captures],
-                             ["1" * 40, evaluator.REFERENCE_REVISION])
+                             ["1" * 40, evaluator.RELEASE_BASELINE_REVISION])
             for item in captures:
-                self.assertEqual(item["metadata"]["control_revision"], evaluator.REFERENCE_REVISION)
+                self.assertEqual(item["metadata"]["control_revision"], evaluator.RELEASE_BASELINE_REVISION)
+                self.assertEqual(item["metadata"]["memory_limit_bytes"], 2 * 1024**3)
+                self.assertEqual(json.loads((item["staging"] / "inputs.json").read_text())["memory_limit_bytes"],
+                                 2 * 1024**3)
                 self.assertEqual(item["metadata"]["workload_provenance"]["subject"]["original"], original)
                 self.assertEqual(item["metadata"]["plan_sha256"], evaluator._sha256(item["staging"] / "plan.json"))
 

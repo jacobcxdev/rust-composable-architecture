@@ -1479,12 +1479,20 @@ def validate_windows_resource_counters(
         seen.add(process["pid"])
 
 
+def validate_mac_memory_limit(value: int) -> int:
+    """Require one whole-GiB ceiling without increasing the eight-GiB maximum."""
+    if type(value) is not int or not 1024**3 <= value <= 8 * 1024**3 or value % 1024**3:
+        raise ValueError("Mac memory watchdog ceiling must be one through eight whole GiB")
+    return value
+
+
 def validate_memory_watchdog_receipt(
-    transcript: pathlib.Path, expected_sha256: str | None
+    transcript: pathlib.Path, expected_sha256: str | None, memory_limit_bytes: int
 ) -> None:
     """Reject measurements without successful, matching memory protection records."""
     if not isinstance(expected_sha256, str) or not _HASH.fullmatch(expected_sha256):
         raise ValueError("memory watchdog source hash is invalid")
+    validate_mac_memory_limit(memory_limit_bytes)
     if not transcript.is_file():
         raise ValueError(f"memory watchdog command transcript is missing: {transcript}")
     try:
@@ -1502,7 +1510,7 @@ def validate_memory_watchdog_receipt(
         "observer_complete": True,
         "descendants_complete": True,
         "forced_cleanup": False,
-        "memory_limit_bytes": 8589934592,
+        "memory_limit_bytes": memory_limit_bytes,
         "host_reserve_bytes": 4294967296,
         "sample_interval_seconds": 0.25,
         "memory_watchdog_sha256": expected_sha256,
@@ -1545,6 +1553,7 @@ def load_isolated_runtime_pairs(
     scenario: str,
     protocol: dict[str, Any],
     memory_watchdog_sha256: str | None = None,
+    memory_limit_bytes: int | None = None,
     *, block_count: int | None = None,
 ) -> list[dict[str, Any]]:
     """Load one isolated observation per role for every seeded block."""
@@ -1575,7 +1584,7 @@ def load_isolated_runtime_pairs(
         control_path = control_directory / "runtime" / slug / f"block-{block:02d}.txt"
         if is_current_mac_protocol(protocol):
             for transcript in (subject_path, control_path):
-                validate_memory_watchdog_receipt(transcript, memory_watchdog_sha256)
+                validate_memory_watchdog_receipt(transcript, memory_watchdog_sha256, memory_limit_bytes)
         subject = validate_isolated_transcript(subject_path, scenario)[scenario]
         control = validate_isolated_transcript(control_path, scenario)[scenario]
         subject_resources = _load_resource_counters(
@@ -1611,6 +1620,7 @@ def load_compile_pairs(
     fixture: str,
     protocol: dict[str, Any],
     memory_watchdog_sha256: str | None = None,
+    memory_limit_bytes: int | None = None,
     *, block_count: int | None = None,
 ) -> list[dict[str, Any]]:
     """Load balanced, clean compile observations from isolated targets."""
@@ -1640,7 +1650,7 @@ def load_compile_pairs(
         control_path = control_directory / "compile" / fixture / f"block-{block:02d}.txt"
         if is_current_mac_protocol(protocol):
             for transcript in (subject_path, control_path):
-                validate_memory_watchdog_receipt(transcript, memory_watchdog_sha256)
+                validate_memory_watchdog_receipt(transcript, memory_watchdog_sha256, memory_limit_bytes)
         if not subject_path.read_text(encoding="utf-8").strip() or not control_path.read_text(
             encoding="utf-8"
         ).strip():
@@ -1728,6 +1738,7 @@ def _validate_protocol_pair_metadata(
         if not isinstance(capture_hash, str) or not _HASH.fullmatch(capture_hash):
             raise ValueError("paired evidence capture hash is invalid")
     if is_current_mac_protocol({"method_version": version}):
+        validate_mac_memory_limit(metadata.get("memory_limit_bytes"))
         watchdog_hash = metadata.get("memory_watchdog_sha256")
         if not isinstance(watchdog_hash, str) or not _HASH.fullmatch(watchdog_hash):
             raise ValueError("paired evidence memory watchdog hash is invalid")
@@ -1750,6 +1761,7 @@ def evaluate_protocol_paired(
                 validate_memory_watchdog_receipt(
                     plan_path.parent / "builds" / f"{role}{suffix}.txt",
                     metadata["memory_watchdog_sha256"],
+                    metadata["memory_limit_bytes"],
                 )
     document = validate_budget_document(budget_path)
 
@@ -1763,6 +1775,7 @@ def evaluate_protocol_paired(
             loaded_runtime[scenario] = load_isolated_runtime_pairs(
                 subject_directory, control_directory, scenario, protocol,
                 metadata.get("memory_watchdog_sha256"),
+                metadata.get("memory_limit_bytes"),
             )
         pairs = loaded_runtime[scenario]
         direction = _direction(budget_row)
@@ -1824,6 +1837,7 @@ def evaluate_protocol_paired(
         pairs = load_compile_pairs(
             subject_directory, control_directory, fixture, protocol,
             metadata.get("memory_watchdog_sha256"),
+            metadata.get("memory_limit_bytes"),
         )
         statistics_result = paired_ratio_statistics(pairs, "maximum", protocol)
         identity = {
@@ -1918,6 +1932,7 @@ def validate_protocol_diagnostics(
     roles: tuple[str, str],
     protocol: dict[str, Any],
     memory_watchdog_sha256: str | None = None,
+    memory_limit_bytes: int | None = None,
 ) -> None:
     expected = {
         f"{role}{suffix}"
@@ -1930,7 +1945,7 @@ def validate_protocol_diagnostics(
     for role in roles:
         transcript = directory / f"{role}.txt"
         if is_current_mac_protocol(protocol):
-            validate_memory_watchdog_receipt(transcript, memory_watchdog_sha256)
+            validate_memory_watchdog_receipt(transcript, memory_watchdog_sha256, memory_limit_bytes)
         validate_divan_transcript(
             transcript, protocol["runtime"]["diagnostic_timing_rows"]
         )
@@ -2418,7 +2433,8 @@ def evaluate_absolute(
             raise ValueError("absolute timing report must use the subject arm")
         if is_current_mac_protocol(timing_report):
             validate_memory_watchdog_receipt(
-                raw_directory.parent / "absolute-capture.txt", paired_host["memory_watchdog_sha256"]
+                raw_directory.parent / "absolute-capture.txt", paired_host["memory_watchdog_sha256"],
+                paired_host["memory_limit_bytes"],
             )
     environment = _validate_environment(
         raw_directory, revision, capture_script_sha256, root_lock_sha256, paired_host, timing_report
@@ -2846,6 +2862,7 @@ def _command_evaluate_protocol(arguments: argparse.Namespace) -> int:
         (metadata["subject_role"], metadata["control_role"]),
         protocol,
         metadata.get("memory_watchdog_sha256"),
+        metadata.get("memory_limit_bytes"),
     )
     outputs = {
         f"{metadata['subject_role']}.json": subject,

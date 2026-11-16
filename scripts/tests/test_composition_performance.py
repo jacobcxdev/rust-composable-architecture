@@ -18,7 +18,7 @@ SPEC.loader.exec_module(composition_performance)
 WATCHDOG_SHA256 = "d" * 64
 
 
-def write_memory_receipt(transcript: pathlib.Path) -> dict:
+def write_memory_receipt(transcript: pathlib.Path, memory_limit_bytes=8 * 1024**3) -> dict:
     receipt = {
         "protection": "polling-watchdog-not-kernel-memory-cap",
         "started": True,
@@ -29,7 +29,7 @@ def write_memory_receipt(transcript: pathlib.Path) -> dict:
         "observer_complete": True,
         "descendants_complete": True,
         "forced_cleanup": False,
-        "memory_limit_bytes": 8589934592,
+        "memory_limit_bytes": memory_limit_bytes,
         "host_reserve_bytes": 4294967296,
         "sample_interval_seconds": 0.25,
         "memory_watchdog_sha256": WATCHDOG_SHA256,
@@ -678,6 +678,7 @@ class PairedComparisonTests(unittest.TestCase):
         root: pathlib.Path,
         protocol: dict,
         mode: str,
+        memory_limit_bytes=8 * 1024**3,
     ) -> tuple[pathlib.Path, pathlib.Path, pathlib.Path]:
         subject = root / "subject"
         control = root / "control"
@@ -689,14 +690,14 @@ class PairedComparisonTests(unittest.TestCase):
             for block in range(1, 21):
                 write_compile_observation(subject, fixture, block, 6.0)
                 write_compile_observation(control, fixture, block, 6.0)
-        if protocol["method_version"] == composition_performance.CURRENT_METHOD:
+        if composition_performance.is_current_mac_protocol(protocol):
             for role in ("subject", "control"):
                 for suffix in ("", "-list"):
                     transcript = root / "builds" / f"{role}{suffix}.txt"
                     transcript.parent.mkdir(exist_ok=True)
                     transcript.write_text("successful preparation\n")
             for transcript in root.rglob("*.txt"):
-                write_memory_receipt(transcript)
+                write_memory_receipt(transcript, memory_limit_bytes)
         plan = root / "measurement-plan.json"
         plan.write_text(
             json.dumps(composition_performance.measurement_plan(protocol, mode)),
@@ -1148,7 +1149,8 @@ class CurrentMacProtocolTests(unittest.TestCase):
         for method in (composition_performance.RUST100_METHOD, composition_performance.RUST100_WINDOWS_METHOD):
             metadata = dict(mode="reference-reference-aa", subject_role="reference-b", control_role="reference-a",
                             subject_revision=baseline, control_revision=baseline, os_version="27.0",
-                            os_build="26A428", capture_sha256="a" * 64, memory_watchdog_sha256=WATCHDOG_SHA256)
+                            os_build="26A428", capture_sha256="a" * 64, memory_watchdog_sha256=WATCHDOG_SHA256,
+                            memory_limit_bytes=8 * 1024**3)
             if method == composition_performance.RUST100_WINDOWS_METHOD:
                 metadata.update(platform="windows", target="x86_64-pc-windows-msvc",
                                 os_version="10.0.26100", os_build="26100")
@@ -1221,7 +1223,7 @@ class CurrentMacProtocolTests(unittest.TestCase):
         metadata = dict(mode="candidate-reference", subject_role="candidate", control_role="reference",
                         subject_revision="1" * 40, control_revision=composition_performance.REFERENCE_REVISION,
                         os_version="27.0", os_build="26A428", capture_sha256="a" * 64,
-                        memory_watchdog_sha256=WATCHDOG_SHA256)
+                        memory_watchdog_sha256=WATCHDOG_SHA256, memory_limit_bytes=8 * 1024**3)
         with tempfile.TemporaryDirectory() as directory:
             root = pathlib.Path(directory)
             subject, control, plan = PairedComparisonTests()._write_protocol_pair_fixture(
@@ -1243,15 +1245,65 @@ class CurrentMacProtocolTests(unittest.TestCase):
 
 
 class MacWatchdogEvidenceTests(unittest.TestCase):
+    def test_selected_cap_is_required_through_preparation_runtime_and_compile(self):
+        protocol = composition_performance.load_protocol(
+            REPO_ROOT / "docs/performance/composition/composition-protocol-v9.json")
+        cap = 2 * 1024**3
+        metadata = dict(mode="candidate-reference", subject_role="candidate", control_role="reference",
+                        subject_revision="1" * 40, control_revision=composition_performance.RELEASE_BASELINE_REVISION,
+                        os_version="27.0", os_build="26A428", capture_sha256="a" * 64,
+                        memory_watchdog_sha256=WATCHDOG_SHA256, memory_limit_bytes=cap)
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            subject, control, plan = PairedComparisonTests()._write_protocol_pair_fixture(
+                root, protocol, "candidate-reference", cap)
+            budget = REPO_ROOT / "docs/performance/composition/composition-budgets.json"
+            reports = composition_performance.evaluate_protocol_paired(budget, protocol, subject, control, plan, metadata)
+            self.assertTrue(reports[2]["passed"])
+            self.assertEqual(len(reports[2]["rows"]), 14)
+            paths = [root / "builds/subject.txt", root / "builds/control-list.txt",
+                     subject / "runtime/direct__1/block-01.txt", control / "runtime/direct__1/block-01.txt",
+                     subject / "compile/direct/block-01.txt", control / "compile/direct/block-01.txt"]
+            for transcript in paths:
+                write_memory_receipt(transcript, 8 * 1024**3)
+                with self.subTest(transcript=transcript), self.assertRaisesRegex(ValueError, "watchdog"):
+                    composition_performance.evaluate_protocol_paired(budget, protocol, subject, control, plan, metadata)
+                write_memory_receipt(transcript, cap)
+
+    def test_selected_cap_must_match_each_receipt(self):
+        with tempfile.TemporaryDirectory() as directory:
+            transcript = pathlib.Path(directory) / "command.txt"
+            transcript.write_text("completed\n")
+            for limit in range(1, 9):
+                cap = limit * 1024**3
+                write_memory_receipt(transcript, cap)
+                composition_performance.validate_memory_watchdog_receipt(transcript, WATCHDOG_SHA256, cap)
+                for wrong in (None, True, 0, cap + 1, 9 * 1024**3,
+                              (2 if limit == 1 else 1) * 1024**3):
+                    with self.subTest(limit=limit, wrong=wrong), self.assertRaises(ValueError):
+                        composition_performance.validate_memory_watchdog_receipt(transcript, WATCHDOG_SHA256, wrong)
+
+    def test_current_mac_metadata_requires_an_explicit_valid_cap(self):
+        metadata = dict(mode="candidate-reference", subject_role="candidate", control_role="reference",
+                        subject_revision="1" * 40, control_revision=composition_performance.RELEASE_BASELINE_REVISION,
+                        os_version="27.0", os_build="26A428", capture_sha256="a" * 64,
+                        memory_watchdog_sha256=WATCHDOG_SHA256)
+        for cap in (None, True, 0, 1024**3 + 1, 9 * 1024**3):
+            with self.subTest(cap=cap), self.assertRaisesRegex(ValueError, "ceiling"):
+                composition_performance._validate_protocol_pair_metadata(
+                    {**metadata, "memory_limit_bytes": cap}, composition_performance.RUST100_METHOD)
+        with self.assertRaisesRegex(ValueError, "ceiling"):
+            composition_performance._validate_protocol_pair_metadata(metadata, composition_performance.RUST100_METHOD)
+
     def test_accepts_successful_receipts_and_zero_peak_samples(self):
         with tempfile.TemporaryDirectory() as directory:
             transcript = pathlib.Path(directory) / "command.txt"
             transcript.write_text("completed\n")
             receipt = write_memory_receipt(transcript)
-            composition_performance.validate_memory_watchdog_receipt(transcript, WATCHDOG_SHA256)
+            composition_performance.validate_memory_watchdog_receipt(transcript, WATCHDOG_SHA256, 8 * 1024**3)
             receipt.update(peak_footprint_bytes=0, peak_process_count=0)
             transcript.with_suffix(".memory.json").write_text(json.dumps(receipt))
-            composition_performance.validate_memory_watchdog_receipt(transcript, WATCHDOG_SHA256)
+            composition_performance.validate_memory_watchdog_receipt(transcript, WATCHDOG_SHA256, 8 * 1024**3)
 
     def test_rejects_missing_fields_failed_stops_and_changed_protection(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -1280,7 +1332,7 @@ class MacWatchdogEvidenceTests(unittest.TestCase):
                 with self.subTest(receipt=receipt):
                     transcript.with_suffix(".memory.json").write_text(json.dumps(receipt))
                     with self.assertRaisesRegex(ValueError, "watchdog"):
-                        composition_performance.validate_memory_watchdog_receipt(transcript, WATCHDOG_SHA256)
+                        composition_performance.validate_memory_watchdog_receipt(transcript, WATCHDOG_SHA256, 8 * 1024**3)
 
     def test_rejects_missing_malformed_and_unsuccessful_sidecars(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -1296,11 +1348,11 @@ class MacWatchdogEvidenceTests(unittest.TestCase):
                         else:
                             path.write_text(content)
                         with self.assertRaisesRegex(ValueError, "watchdog"):
-                            composition_performance.validate_memory_watchdog_receipt(transcript, WATCHDOG_SHA256)
+                            composition_performance.validate_memory_watchdog_receipt(transcript, WATCHDOG_SHA256, 8 * 1024**3)
             write_memory_receipt(transcript)
             transcript.unlink()
             with self.assertRaisesRegex(ValueError, "transcript is missing"):
-                composition_performance.validate_memory_watchdog_receipt(transcript, WATCHDOG_SHA256)
+                composition_performance.validate_memory_watchdog_receipt(transcript, WATCHDOG_SHA256, 8 * 1024**3)
 
     def test_v8_diagnostics_require_matching_successful_receipts(self):
         protocol = composition_performance.load_protocol(
@@ -1319,7 +1371,7 @@ class MacWatchdogEvidenceTests(unittest.TestCase):
                 transcript.with_suffix(".resources.json").write_bytes(resources)
                 write_memory_receipt(transcript)
             composition_performance.validate_protocol_diagnostics(
-                diagnostics, roles, protocol, WATCHDOG_SHA256)
+                diagnostics, roles, protocol, WATCHDOG_SHA256, 8 * 1024**3)
             with self.assertRaisesRegex(ValueError, "watchdog"):
                 composition_performance.validate_protocol_diagnostics(diagnostics, roles, protocol)
             transcript = diagnostics / "reference.txt"
@@ -1329,14 +1381,14 @@ class MacWatchdogEvidenceTests(unittest.TestCase):
                 path.unlink()
                 with self.subTest(suffix=suffix), self.assertRaisesRegex(ValueError, "incomplete"):
                     composition_performance.validate_protocol_diagnostics(
-                        diagnostics, roles, protocol, WATCHDOG_SHA256)
+                        diagnostics, roles, protocol, WATCHDOG_SHA256, 8 * 1024**3)
                 path.write_bytes(saved)
             receipt = write_memory_receipt(transcript)
             receipt["descendants_complete"] = False
             transcript.with_suffix(".memory.json").write_text(json.dumps(receipt))
             with self.assertRaisesRegex(ValueError, "watchdog"):
                 composition_performance.validate_protocol_diagnostics(
-                    diagnostics, roles, protocol, WATCHDOG_SHA256)
+                    diagnostics, roles, protocol, WATCHDOG_SHA256, 8 * 1024**3)
 
     def test_v8_pair_rejects_missing_preparation_runtime_and_compile_receipts(self):
         protocol = composition_performance.load_protocol(
@@ -1344,7 +1396,7 @@ class MacWatchdogEvidenceTests(unittest.TestCase):
         metadata = dict(mode="candidate-reference", subject_role="candidate", control_role="reference",
                         subject_revision="1" * 40, control_revision=composition_performance.REFERENCE_REVISION,
                         os_version="27.0", os_build="26A428", capture_sha256="a" * 64,
-                        memory_watchdog_sha256=WATCHDOG_SHA256)
+                        memory_watchdog_sha256=WATCHDOG_SHA256, memory_limit_bytes=8 * 1024**3)
         with tempfile.TemporaryDirectory() as directory:
             root = pathlib.Path(directory)
             subject, control, plan = PairedComparisonTests()._write_protocol_pair_fixture(
@@ -2035,7 +2087,7 @@ class AbsoluteBudgetTests(unittest.TestCase):
             subject, control, plan = PairedComparisonTests()._write_protocol_pair_fixture(root, protocol, "reference-reference-aa")
             report, _, _ = composition_performance.evaluate_protocol_paired(
                 budget, protocol, subject, control, plan,
-                {"mode": "reference-reference-aa", "subject_role": "reference-b", "control_role": "reference-a", "subject_revision": composition_performance.REFERENCE_REVISION, "control_revision": composition_performance.REFERENCE_REVISION, "os_version": "27.0", "os_build": "26A428", "capture_sha256": "a" * 64, "memory_watchdog_sha256": WATCHDOG_SHA256},
+                {"mode": "reference-reference-aa", "subject_role": "reference-b", "control_role": "reference-a", "subject_revision": composition_performance.REFERENCE_REVISION, "control_revision": composition_performance.REFERENCE_REVISION, "os_version": "27.0", "os_build": "26A428", "capture_sha256": "a" * 64, "memory_watchdog_sha256": WATCHDOG_SHA256, "memory_limit_bytes": 8 * 1024**3},
             )
             raw = root / "raw"
             raw.mkdir()

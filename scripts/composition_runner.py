@@ -368,6 +368,7 @@ def validate_aa_evidence(value, protocol, controller, host, *, capture=None,
     evidence.validate_protocol_diagnostics(
         path / "diagnostics", ("reference-b", "reference-a"), protocol,
         metadata.get("memory_watchdog_sha256"),
+        metadata.get("memory_limit_bytes"),
     )
     if windows:
         if windows_complete is not None:
@@ -608,11 +609,12 @@ def stop_owned_process(process):
 
 
 def guarded_mac_command(command, destination, *, cwd, env, timeout, stdout, stderr,
-                        observe=None, observe_interval=1):
+                        observe=None, observe_interval=1, memory_limit_bytes=8 * 1024**3):
     """Keep one owner for the measured group and retain its memory-safety receipt."""
     # Keep POSIX-only imports out of the Windows controller.
     import guard_cargo_memory as guard
 
+    evidence.validate_mac_memory_limit(memory_limit_bytes)
     if evidence._sha256(Path(guard.__file__)) != guard.SOURCE_SHA256:
         raise ValueError("the loaded memory watchdog source changed")
     try:
@@ -624,6 +626,7 @@ def guarded_mac_command(command, destination, *, cwd, env, timeout, stdout, stde
         receipt = guard.run_guarded(
             command, cwd=cwd, env=env, probe=probe, timeout=timeout,
             stdout=stdout, stderr=stderr, observe=observe, observe_interval=observe_interval,
+            memory_limit=memory_limit_bytes,
         )
     if evidence._sha256(Path(guard.__file__)) != guard.SOURCE_SHA256:
         receipt.update(reason="watchdog-source-changed", returncode=125)
@@ -646,9 +649,10 @@ def require_guarded_success(receipt, command, timeout):
 
 
 class HostMonitor:
-    def __init__(self, directory, protocol):
+    def __init__(self, directory, protocol, *, memory_limit_bytes=8 * 1024**3):
         self.directory = directory
         self.protocol = protocol
+        self.memory_limit_bytes = evidence.validate_mac_memory_limit(memory_limit_bytes)
         self.process_deadline = None
         self.directory.mkdir(parents=True, exist_ok=True)
 
@@ -774,6 +778,7 @@ class HostMonitor:
                     stdout=transcript, stderr=subprocess.STDOUT,
                     observe=lambda: self.sample(f"during:{destination.name}", active=True),
                     observe_interval=self.protocol["quiescence"]["process_monitor_interval_seconds"],
+                    memory_limit_bytes=self.memory_limit_bytes,
                 )
             finally:
                 self.process_deadline = None
@@ -1077,6 +1082,8 @@ def prepare_pair_capture(protocol, budget, mode, staging, targets, reference, co
         "subject": subject, "control": control, "host": host, "input_hashes": hashes,
         "tools": {name: {"path": path, "sha256": evidence._sha256(Path(path))}
                   for name, path in tools.items()},
+        **({"memory_limit_bytes": monitor.memory_limit_bytes}
+           if evidence.is_current_mac_protocol(protocol) else {}),
     })
     with (staging / "protocol.json").open("xb") as copied_protocol:
         copied_protocol.write(protocol_path(protocol).read_bytes())
@@ -1130,7 +1137,8 @@ def prepare_pair_capture(protocol, budget, mode, staging, targets, reference, co
         "subject_lock_sha256": subject["hashes"]["Cargo.lock"],
         "control_lock_sha256": control["hashes"]["Cargo.lock"],
         "qualification_script_sha256": evidence._sha256(Path(__file__)),
-        **({"memory_watchdog_sha256": evidence._sha256(ROOT / "scripts/guard_cargo_memory.py")}
+        **({"memory_watchdog_sha256": evidence._sha256(ROOT / "scripts/guard_cargo_memory.py"),
+            "memory_limit_bytes": monitor.memory_limit_bytes}
            if evidence.is_current_mac_protocol(protocol) else {}),
         "evaluator_script_sha256": evidence._sha256(
             ROOT / "scripts/composition_performance.py"
@@ -1180,6 +1188,7 @@ def finish_pair_capture(capture, protocol, controller, env, monitor, *,
     evidence.validate_protocol_diagnostics(
         staging / "diagnostics", tuple(roles.values()), protocol,
         metadata.get("memory_watchdog_sha256"),
+        metadata.get("memory_limit_bytes"),
     )
     subject_report, control_report, comparison = evidence.evaluate_protocol_paired(
         BUDGET,
@@ -1301,6 +1310,8 @@ def validate_interleaved_capture(directory, protocol):
             or manifest.get("schedule") != schedule or not isinstance(manifest.get("modes"), dict)
             or set(manifest["modes"]) != set(modes)):
         raise ValueError("interleaved capture plan differs")
+    if evidence.is_current_mac_protocol(protocol):
+        evidence.validate_mac_memory_limit(manifest.get("memory_limit_bytes"))
     for mode in modes:
         arm = directory / mode
         if manifest["modes"][mode] != {name: evidence._sha256(arm / name)
@@ -1315,6 +1326,11 @@ def validate_interleaved_capture(directory, protocol):
         metadata = json.loads((arm / "metadata.json").read_text(encoding="utf-8"))
         if not isinstance(metadata, dict) or metadata.get("capture_sha256") != digest:
             raise ValueError("interleaved capture binding differs")
+        if evidence.is_current_mac_protocol(protocol) and any(
+                type(record.get("memory_limit_bytes")) is not int
+                or record["memory_limit_bytes"] != manifest["memory_limit_bytes"]
+                for record in (inputs, metadata)):
+            raise ValueError("interleaved capture memory ceilings differ")
     rows = [json.loads(line) for line in (directory / "blocks.jsonl").read_text(encoding="utf-8").splitlines()]
     expected = [{**item, "phase": phase, "capture_sha256": digest}
                 for item in schedule for phase in ("start", "finish")]
@@ -1340,7 +1356,7 @@ def validate_interleaved_capture(directory, protocol):
 
 
 def qualify(output, staging, reference, mode, aa_evidence=None, *, platform_name="macos",
-            windows_complete=False):
+            windows_complete=False, memory_limit_bytes=8 * 1024**3):
     if mode != "candidate-reference" or aa_evidence is not None:
         raise ValueError("composition qualification needs one contemporaneous two-mode capture")
     windows = platform_name == "windows"
@@ -1397,7 +1413,7 @@ def qualify(output, staging, reference, mode, aa_evidence=None, *, platform_name
     staging.mkdir()
     monitor = (WindowsMonitor(staging / "telemetry", protocol, cargo=tools["cargo"],
                               **({"complete": True} if windows_complete else {})) if windows
-               else HostMonitor(staging / "telemetry", protocol))
+               else HostMonitor(staging / "telemetry", protocol, memory_limit_bytes=memory_limit_bytes))
     monitor.idle("initial", sustained=True)
     env.update(CARGO_PROFILE_BENCH_DEBUG="false", CARGO_PROFILE_BENCH_LTO="false",
                CARGO_PROFILE_BENCH_STRIP="true")
@@ -1416,6 +1432,7 @@ def qualify(output, staging, reference, mode, aa_evidence=None, *, platform_name
             "schedule": [{"block": block, "mode": item}
                          for block in range(1, len(evidence.seeded_order_schedule(protocol)) + 1)
                          for item in evidence.interleaved_mode_order(protocol, block)],
+            **({"memory_limit_bytes": monitor.memory_limit_bytes} if not windows else {}),
         })
         capture_hash = evidence._sha256(staging / "capture.json")
         for capture in captures.values():
@@ -2423,6 +2440,8 @@ def main():
                         help="Windows captures paired gates only; Darwin absolute gates remain separate")
     parser.add_argument("--windows-complete", action="store_true",
                         help="add Windows allocation and reference-only timing/PE gates")
+    parser.add_argument("--memory-limit-gib", type=int, choices=range(1, 9),
+                        help="Mac qualification ceiling in GiB, from 1 to 8; default: 8")
     parser.add_argument(
         "--mode",
         choices=(
@@ -2447,6 +2466,10 @@ def main():
     parser.add_argument("reference", nargs="?")
     args = parser.parse_args()
     try:
+        if args.memory_limit_gib is not None and (args.platform != "macos"
+                or args.mode != "candidate-reference" or args.check_prerequisites
+                or args.check_staged_source or args.check_publication or args.check_lock):
+            raise ValueError("--memory-limit-gib applies only to canonical Mac qualification")
         if args.windows_complete and args.platform != "windows":
             raise ValueError("--windows-complete requires --platform windows")
         if args.platform == "windows" and args.mode != "candidate-reference":
@@ -2519,6 +2542,8 @@ def main():
                 output, staging, Path(args.reference), args.mode, args.aa_evidence,
                 **({"platform_name": "windows"} if args.platform == "windows" else {}),
                 **({"windows_complete": True} if args.windows_complete else {}),
+                **({"memory_limit_bytes": (args.memory_limit_gib or 8) * 1024**3}
+                   if args.platform == "macos" else {}),
             )
     except (ValueError, OSError, subprocess.SubprocessError) as error:
         print(

@@ -65,7 +65,7 @@ esac
 """)
         git.chmod(0o755)
 
-    def evidence(self, windows):
+    def evidence(self, windows, memory_limit_gib=8):
         capture = "scripts/capture-windows-performance.py" if windows else "scripts/qualify-performance.sh"
         harness_hash = digest(b"harness\n")
         module_hash = digest(b"shutdown harness\n")
@@ -84,10 +84,11 @@ esac
             "reference_lock_sha256": digest(b"reference lock\n"),
         }
         if not windows:
+            cohort["memory_limit_bytes"] = memory_limit_gib * 1024**3
             cohort["memory_watchdog_sha256"] = digest((self.root / "scripts/guard_cargo_memory.py").read_bytes())
             cohort["memory_watchdog_receipt"] = str((self.root / "memory.json").resolve())
             cohort["protocol_sha256"] = digest(
-                f"{harness_hash}\n{module_hash}\n{scenario_hash}\n{capture_hash}\n{cohort['memory_watchdog_sha256']}\n".encode())
+                f"{harness_hash}\n{module_hash}\n{scenario_hash}\n{capture_hash}\n{cohort['memory_watchdog_sha256']}\n{cohort['memory_limit_bytes']}\n".encode())
         for role in ("candidate", "reference"):
             cohort[f"{role}_source_tree"] = "d" * 40
             cohort[f"{role}_manifest_sha256"] = digest(b"manifest\n")
@@ -235,7 +236,7 @@ esac
                 entrypoint="qualify-performance", toolchain="1.100.0", started=True,
                 protection="polling-watchdog-not-kernel-memory-cap", reason="command-exited",
                 returncode=0, command_returncode=0, cleanup_complete=True, descendants_complete=True,
-                forced_cleanup=False, memory_limit_bytes=8 * 1024**3,
+                forced_cleanup=False, memory_limit_bytes=candidate["metadata"]["cohort"].get("memory_limit_bytes"),
                 host_reserve_bytes=4 * 1024**3, sample_interval_seconds=0.25,
                 peak_footprint_bytes=100, peak_process_count=1, elapsed_seconds=1,
                 memory_watchdog_sha256=digest((self.root / "scripts/guard_cargo_memory.py").read_bytes()),
@@ -382,6 +383,32 @@ esac
     def test_mac_rejects_missing_outer_guard_completion(self):
         result = self.compare(*self.evidence(False), no_guard=True)
         self.assertNotEqual(result.returncode, 0, result.stdout)
+
+    def test_mac_accepts_each_selected_whole_gib_cap(self):
+        for limit in range(1, 9):
+            with self.subTest(limit=limit):
+                result = self.compare(*self.evidence(False, limit))
+                self.assertEqual(result.returncode, 0, result.stdout)
+
+    def test_mac_rejects_changed_missing_and_mixed_caps(self):
+        for limit in (None, True, 0, -1, 1024**3 + 1, 9 * 1024**3):
+            reference, candidate = self.evidence(False, 2)
+            for result in (reference, candidate):
+                if limit is None:
+                    result["metadata"]["cohort"].pop("memory_limit_bytes")
+                else:
+                    result["metadata"]["cohort"]["memory_limit_bytes"] = limit
+            with self.subTest(limit=limit):
+                result = self.compare(reference, candidate)
+                self.assertNotEqual(result.returncode, 0, result.stdout)
+        reference, candidate = self.evidence(False, 2)
+        reference["metadata"]["cohort"]["memory_limit_bytes"] = 4 * 1024**3
+        self.assertNotEqual(self.compare(reference, candidate).returncode, 0)
+        for change in (lambda receipt: receipt.update(memory_limit_bytes=4 * 1024**3),
+                       lambda receipt: receipt.update(peak_footprint_bytes=2 * 1024**3),
+                       lambda receipt: receipt.update(host_reserve_bytes=2 * 1024**3)):
+            with self.subTest(change=change):
+                self.assertNotEqual(self.compare(*self.evidence(False, 2), guard_change=change).returncode, 0)
 
     def test_mac_rejects_failed_or_forged_outer_guard_completion(self):
         changes = (

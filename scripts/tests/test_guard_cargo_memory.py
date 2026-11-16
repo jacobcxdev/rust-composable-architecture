@@ -429,6 +429,12 @@ class GuardTests(unittest.TestCase):
                 self.guard.cargo_command(["test"], {})
 
     def test_canonical_qualification_dispatches_only_the_fixed_script(self):
+        self.assert_canonical_qualification_cap(8, explicit=False)
+
+    def test_canonical_qualification_uses_the_selected_stricter_cap(self):
+        self.assert_canonical_qualification_cap(2, explicit=True)
+
+    def assert_canonical_qualification_cap(self, limit, *, explicit):
         directory = self.directory / "pinned"
         directory.mkdir()
         for tool in ("cargo", "rustc", "rustdoc"):
@@ -437,7 +443,8 @@ class GuardTests(unittest.TestCase):
                      str(self.directory / "baseline.json")]
         receipt_path = self.directory / "qualification-memory.json"
         result = dict(started=True, returncode=0, command_returncode=0, reason="command-exited",
-                      cleanup_complete=True, descendants_complete=True, forced_cleanup=False)
+                      cleanup_complete=True, descendants_complete=True, forced_cleanup=False,
+                      memory_limit_bytes=limit * 1024**3)
         script_hash = self.guard.hashlib.sha256((SCRIPT.parent / "qualify-performance.sh").read_bytes()).hexdigest()
 
         def complete_capture(*args, **kwargs):
@@ -447,13 +454,16 @@ class GuardTests(unittest.TestCase):
                 "memory_watchdog_receipt": str(receipt_path.resolve()),
                 "memory_watchdog_sha256": self.guard.SOURCE_SHA256,
                 "qualification_script_sha256": script_hash,
+                "memory_limit_bytes": limit * 1024**3,
             }}}
             for argument in (arguments[0], arguments[2]):
                 Path(argument).write_text(json.dumps(document))
             return result
 
-        with patch.object(sys, "argv", [str(SCRIPT), "--receipt", str(receipt_path),
-                                       "--timeout", "123", "--qualify-performance", "--", *arguments]), \
+        with patch.dict(os.environ, {"RCA_MAC_MEMORY_LIMIT_BYTES": str(16 * 1024**3)}), \
+                patch.object(sys, "argv", [str(SCRIPT), "--receipt", str(receipt_path),
+                                       "--timeout", "123", *(["--memory-limit-gib", str(limit)] if explicit else []),
+                                       "--qualify-performance", "--", *arguments]), \
                 patch.object(self.guard.subprocess, "check_output",
                              side_effect=lambda command, **_: str(directory / command[-1]) + "\n"), \
                 patch.object(self.guard, "MacProbe", return_value=FakeProbe()), \
@@ -463,10 +473,12 @@ class GuardTests(unittest.TestCase):
         self.assertEqual(run.call_args.args[0],
                          ["/bin/bash", str(SCRIPT.parent / "qualify-performance.sh"), *arguments])
         self.assertEqual(run.call_args.kwargs["timeout"], 123)
+        self.assertEqual(run.call_args.kwargs["memory_limit"], limit * 1024**3)
         environment = run.call_args.kwargs["env"]
         for tool in ("CARGO", "RUSTC", "RUSTDOC"):
             self.assertEqual(environment[tool], str(directory / tool.lower()))
         self.assertEqual(environment["CARGO_BUILD_JOBS"], "1")
+        self.assertEqual(environment["RCA_MAC_MEMORY_LIMIT_BYTES"], str(limit * 1024**3))
         self.assertEqual(environment["RUSTC_WRAPPER"], "")
         self.assertEqual(environment["RUSTC_WORKSPACE_WRAPPER"], "")
         receipt = json.loads(receipt_path.read_text())
@@ -483,11 +495,34 @@ class GuardTests(unittest.TestCase):
                        dict(cleanup_complete=False), dict(returncode=False), dict(command_returncode=7)):
             with self.subTest(change=change):
                 receipt = dict(started=True, returncode=0, command_returncode=0, reason="command-exited",
-                               cleanup_complete=True, descendants_complete=True, forced_cleanup=False)
+                               cleanup_complete=True, descendants_complete=True, forced_cleanup=False,
+                               memory_limit_bytes=8 * 1024**3)
                 receipt.update(change)
                 with self.assertRaisesRegex(ValueError, "did not complete naturally"):
                     self.guard.bind_qualification_outputs(receipt, ["missing", "ref", "also-missing"],
                                                           self.directory / "memory.json", "script")
+                self.assertNotIn("qualification_outputs", receipt)
+
+    def test_canonical_binding_rejects_a_missing_or_different_role_cap(self):
+        receipt_path = self.directory / "memory.json"
+        arguments = [str(self.directory / "candidate.json"), "reference", str(self.directory / "reference.json")]
+        for bad_role in (0, 2):
+            for cap in (None, True, 4 * 1024**3):
+                receipt = dict(started=True, returncode=0, command_returncode=0, reason="command-exited",
+                               cleanup_complete=True, descendants_complete=True, forced_cleanup=False,
+                               memory_limit_bytes=2 * 1024**3)
+                for index in (0, 2):
+                    cohort = dict(memory_watchdog_receipt=str(receipt_path),
+                                  memory_watchdog_sha256=self.guard.SOURCE_SHA256,
+                                  qualification_script_sha256="script", memory_limit_bytes=2 * 1024**3)
+                    if index == bad_role:
+                        if cap is None:
+                            cohort.pop("memory_limit_bytes")
+                        else:
+                            cohort["memory_limit_bytes"] = cap
+                    Path(arguments[index]).write_text(json.dumps({"metadata": {"cohort": cohort}}))
+                with self.subTest(role=bad_role, cap=cap), self.assertRaisesRegex(ValueError, "guarded capture"):
+                    self.guard.bind_qualification_outputs(receipt, arguments, receipt_path, "script")
                 self.assertNotIn("qualification_outputs", receipt)
 
     def test_canonical_missing_output_preserves_cleanup_and_failed_artifacts(self):
@@ -498,10 +533,12 @@ class GuardTests(unittest.TestCase):
             "memory_watchdog_receipt": str(receipt_path.resolve()),
             "memory_watchdog_sha256": self.guard.SOURCE_SHA256,
             "qualification_script_sha256": script_hash,
+            "memory_limit_bytes": 8 * 1024**3,
         }}})
         candidate.write_text(candidate_text)
         result = dict(started=True, returncode=0, command_returncode=0, reason="command-exited",
                       cleanup_complete=True, descendants_complete=True, forced_cleanup=False,
+                      memory_limit_bytes=8 * 1024**3,
                       peak_footprint_bytes=123)
         arguments = [str(candidate), "reference", str(self.directory / "missing.json")]
         with patch.object(sys, "argv", [str(SCRIPT), "--receipt", str(receipt_path), "--timeout", "10",
@@ -622,9 +659,8 @@ class GuardTests(unittest.TestCase):
                 prepare.assert_not_called()
                 self.assertFalse(receipt.exists())
 
-    def test_canonical_qualification_rejects_a_selected_memory_limit(self):
-        # The qualification entrypoint must keep its fixed budget, even if equal.
-        for limit in ("4", "8"):
+    def test_canonical_qualification_rejects_invalid_memory_limits(self):
+        for limit in ("0", "9", "4.5"):
             receipt = self.directory / "unused-qualification-limit.json"
             with self.subTest(limit=limit), redirect_stderr(io.StringIO()), \
                     patch.object(sys, "argv", [str(SCRIPT), "--receipt", str(receipt),

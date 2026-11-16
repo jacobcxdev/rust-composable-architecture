@@ -2,7 +2,7 @@
 """Run Cargo or canonical Mac qualification with a polling memory watchdog.
 
 The watchdog targets a 250 ms interval between samples. Physical footprint
-includes compressed memory. The default ceiling is eight GiB. Cargo builds can
+includes compressed memory. The default ceiling is eight GiB. Commands can
 select a lower integer GiB ceiling. The watchdog also stops on host memory
 pressure, or when estimated reclaimable host memory falls below four GiB.
 The estimate counts free and file-backed pages, without counting speculative
@@ -489,7 +489,10 @@ def bind_qualification_outputs(receipt, arguments, receipt_path, script_sha256):
                    for key in ("returncode", "command_returncode"))
             or any(receipt.get(key) is not True
                    for key in ("cleanup_complete", "descendants_complete"))
-            or receipt.get("forced_cleanup") is not False):
+            or receipt.get("forced_cleanup") is not False
+            or type(receipt.get("memory_limit_bytes")) is not int
+            or not GIB <= receipt["memory_limit_bytes"] <= MEMORY_LIMIT
+            or receipt["memory_limit_bytes"] % GIB):
         raise ValueError("canonical qualification did not complete naturally under the memory watchdog")
     bindings = {}
     for role, argument in (("candidate", arguments[0]), ("reference", arguments[2])):
@@ -500,7 +503,9 @@ def bind_qualification_outputs(receipt, arguments, receipt_path, script_sha256):
         cohort = json.loads(data)["metadata"]["cohort"]
         if (cohort.get("memory_watchdog_receipt") != str(receipt_path)
                 or cohort.get("memory_watchdog_sha256") != SOURCE_SHA256
-                or cohort.get("qualification_script_sha256") != script_sha256):
+                or cohort.get("qualification_script_sha256") != script_sha256
+                or type(cohort.get("memory_limit_bytes")) is not int
+                or cohort["memory_limit_bytes"] != receipt["memory_limit_bytes"]):
             raise ValueError(f"canonical {role} output does not match the guarded capture")
         bindings[role] = {"path": str(path.resolve()), "sha256": hashlib.sha256(data).hexdigest()}
     receipt["qualification_outputs"] = bindings
@@ -518,14 +523,12 @@ def main():
     parser.add_argument("--receipt", type=Path, required=True, help="new JSON receipt path")
     parser.add_argument("--timeout", type=float, help="maximum seconds; Cargo default: 3600; required for qualification")
     parser.add_argument("--memory-limit-gib", type=int, choices=range(1, 9),
-                        help="Cargo build ceiling in GiB, from 1 to 8; default: 8")
+                        help="owned command ceiling in GiB, from 1 to 8; default: 8")
     parser.add_argument("--qualify-performance", action="store_true", help="run only the canonical qualification script")
     parser.add_argument("cargo_arguments", nargs=argparse.REMAINDER)
     args = parser.parse_args()
     if args.qualify_performance and args.timeout is None:
         parser.error("--qualify-performance requires an explicit --timeout")
-    if args.qualify_performance and args.memory_limit_gib is not None:
-        parser.error("--qualify-performance uses a fixed eight-GiB memory ceiling")
     if args.timeout is not None and (not math.isfinite(args.timeout) or args.timeout <= 0):
         parser.error("--timeout must be finite and positive")
     timeout = 3600 if args.timeout is None else args.timeout
@@ -542,6 +545,7 @@ def main():
             if args.qualify_performance:
                 receipt_path = args.receipt.resolve()
                 env["RCA_MAC_MEMORY_GUARD_RECEIPT"] = str(receipt_path)
+                env["RCA_MAC_MEMORY_LIMIT_BYTES"] = str(memory_limit)
                 script_sha256 = hashlib.sha256(Path(command[1]).read_bytes()).hexdigest()
             receipt = run_guarded(command, cwd=Path.cwd(), env=env, probe=MacProbe(),
                                   timeout=timeout, memory_limit=memory_limit)

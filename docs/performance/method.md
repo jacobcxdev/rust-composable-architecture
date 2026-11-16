@@ -34,6 +34,12 @@ Cargo uses one build job. The shell rejects direct invocation of `qualify-perfor
 
 Choose a timeout before the run. The example allows 3600 seconds.
 The watchdog does not extend that timeout or retry a failed capture.
+The default and maximum memory ceiling remain eight GiB.
+An explicit `--memory-limit-gib 2` selects a stricter two-GiB ceiling for the complete capture.
+Startup then requires six GiB of headroom, including the unchanged four-GiB host reserve.
+Both result files bind the selected ceiling into their shared cohort and protocol identity.
+The final watchdog receipt must match that ceiling and both output hashes.
+The option changes only the stop threshold, not the allocator, workloads or numerical gates.
 This polling watchdog is not a kernel-enforced memory cap.
 Native Instruments services can start processes outside the owned group. The watchdog does not contain those processes.
 

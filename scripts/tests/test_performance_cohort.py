@@ -64,7 +64,7 @@ exec bash "$RCA_TEST_QUALIFIER" "$RCA_TEST_ROOT/candidate.json" \
 
 
 class CanonicalPerformanceCohortTests(unittest.TestCase):
-    def preflight(self, version, build, runner=None):
+    def preflight(self, version, build, runner=None, memory_limit_bytes=8 * 1024**3):
         with tempfile.TemporaryDirectory(prefix="rca-cohort-test-") as directory:
             environment = dict(os.environ)
             for name in ("RCA_PERF_RUNNER", "RCA_QUALIFY_ALLOCATIONS", "RCA_DHAT_FILE"):
@@ -76,6 +76,9 @@ class CanonicalPerformanceCohortTests(unittest.TestCase):
                 RCA_TEST_OS_BUILD=build,
                 RCA_MAC_MEMORY_GUARD_RECEIPT=str(Path(directory) / "memory.json"),
             )
+            environment.pop("RCA_MAC_MEMORY_LIMIT_BYTES", None)
+            if memory_limit_bytes is not None:
+                environment["RCA_MAC_MEMORY_LIMIT_BYTES"] = str(memory_limit_bytes)
             if runner is not None:
                 environment["RCA_PERF_RUNNER"] = runner
             environment["PATH"] = str(Path(sys.executable).parent) + os.pathsep + environment["PATH"]
@@ -93,6 +96,17 @@ class CanonicalPerformanceCohortTests(unittest.TestCase):
         result = self.preflight("27.0", "26A428")
         self.assertEqual(result.returncode, 91, result.stderr)
         self.assertIn("cohort accepted; stopped before toolchain lookup", result.stderr)
+
+    def test_selected_cap_reaches_preflight_but_missing_or_invalid_caps_do_not(self):
+        for cap in (1024**3, 2 * 1024**3, 8 * 1024**3):
+            with self.subTest(cap=cap):
+                self.assertEqual(self.preflight("27.0", "26A428", memory_limit_bytes=cap).returncode, 91)
+        for cap in (None, 0, -1, 1024**3 + 1, 9 * 1024**3, "9" * 50, "02147483648"):
+            with self.subTest(cap=cap):
+                result = self.preflight("27.0", "26A428", memory_limit_bytes=cap)
+                self.assertEqual(result.returncode, 1)
+                self.assertIn("one-through-eight-GiB", result.stderr)
+                self.assertNotIn("cohort accepted", result.stderr)
 
     def test_other_os_cohorts_stop_before_any_build(self):
         for version, build in (("26.0", "25A354"), ("28.0", "27A100")):

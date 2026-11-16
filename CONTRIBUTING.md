@@ -101,7 +101,10 @@ The composition controller uses the same watchdog for command groups, including 
 Its receipts distinguish natural completion from forced cleanup.
 Slow host telemetry does not delay memory checks.
 For canonical qualification, choose an explicit timeout. Use the fixed `--qualify-performance` route.
-That route keeps its eight-GiB ceiling and rejects `--memory-limit-gib`.
+The route accepts the same stricter `--memory-limit-gib` ceiling for the complete candidate/reference capture.
+The default and maximum remain eight GiB. The host reserve remains four GiB.
+Both result files and the completion receipt must record the same selected ceiling.
+The composition controller also accepts this option for the complete Mac capture, including both comparison modes.
 The [performance commands](docs/performance/method.md#commands) show the full invocation.
 
 Do not run a controller that creates separate process groups locally until each compiler process has equivalent protection.
