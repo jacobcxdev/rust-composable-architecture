@@ -611,6 +611,7 @@ jobs:
               uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
               with:
                   key: native-task-fold-${{ matrix.target }}
+                  cache-on-failure: true
                   cache-all-crates: false
                   workspaces: |
                       tests/performance-profile -> ../../../rca-native-profile-candidate
@@ -638,12 +639,12 @@ jobs:
                   test "$(git -C "$baseline" rev-parse HEAD)" = "$PROFILE_BASELINE"
                   git diff --exit-code HEAD
                   git -C "$baseline" diff --exit-code HEAD
-                  inputs=(tests/performance-profile rca-core/tests/named_operation_allocations.rs rca-core/tests/fold_costs.rs rca-core/tests/fold/local_driver.rs)
+                  inputs=(tests/performance-profile rca-core/src/allocation_test/child.rs rca-core/tests/named_operation_allocations.rs rca-core/tests/fold_costs.rs rca-core/tests/fold/local_driver.rs)
                   git archive HEAD -- "${inputs[@]}" | tar -x -C "$baseline"
                   git ls-files -z -- "${inputs[@]}" | xargs -0 shasum -a 256 > "$output/harness.sha256"
                   (cd "$baseline" && shasum -a 256 -c "$output/harness.sha256") > "$output/baseline-harness-check.txt"
                   production_check() {
-                      git -C "$baseline" diff --exit-code HEAD -- . ':!tests/performance-profile' ':!rca-core/tests/named_operation_allocations.rs' ':!rca-core/tests/fold_costs.rs' ':!rca-core/tests/fold/local_driver.rs'
+                      git -C "$baseline" diff --exit-code HEAD -- . ':!tests/performance-profile' ':!rca-core/src/allocation_test/child.rs' ':!rca-core/tests/named_operation_allocations.rs' ':!rca-core/tests/fold_costs.rs' ':!rca-core/tests/fold/local_driver.rs'
                   }
                   production_check
                   git rev-parse HEAD 'HEAD^{tree}' > "$output/candidate-git.txt"

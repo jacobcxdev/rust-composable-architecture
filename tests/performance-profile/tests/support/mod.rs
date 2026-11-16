@@ -14,6 +14,20 @@ mod child {
         capture(command, timeout)
             .unwrap_or_else(|error| panic!("CLI child capture failed: {error}"))
     }
+
+    /// Retains explicit finite stdin for controller-driven CLI processes.
+    pub(crate) fn output_with_input(
+        command: &mut Command,
+        timeout: Duration,
+        input: Stdio,
+    ) -> Output {
+        capture_with_input(command, timeout, input)
+            .unwrap_or_else(|error| panic!("CLI child capture failed: {error}"))
+    }
 }
 
-pub(crate) use child::output;
+#[allow(
+    unused_imports,
+    reason = "each CLI test host selects either null-input or controller-input capture"
+)]
+pub(crate) use child::{output, output_with_input};

@@ -38,8 +38,9 @@ fn output(args: &[&str], commands: &str) -> Output {
     file.write_all(commands.as_bytes()).unwrap();
     file.rewind().unwrap();
     let mut command = Command::new(env!("CARGO_BIN_EXE_task_fold_cost"));
-    command.args(args).stdin(Stdio::from(file));
-    let result = support::output(&mut command, Duration::from_secs(30));
+    command.args(args);
+    let result =
+        support::output_with_input(&mut command, Duration::from_secs(30), Stdio::from(file));
     drop(command);
     result
 }

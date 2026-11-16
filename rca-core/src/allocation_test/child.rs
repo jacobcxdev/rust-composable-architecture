@@ -66,8 +66,20 @@ fn passed_one_test(stdout: &str) -> bool {
 /// These test cases own their pipe writers; they must not pass them to surviving
 /// descendants. This helper is not a process-tree supervisor.
 fn capture(command: &mut Command, timeout: Duration) -> Result<Output, String> {
+    capture_with_input(command, timeout, Stdio::null())
+}
+
+/// Uses explicit controller input while retaining the same timeout and pipe cleanup.
+///
+/// Callers must supply finite input or own its writer through timeout cleanup.
+/// This helper supervises only the direct child, like `capture`.
+fn capture_with_input(
+    command: &mut Command,
+    timeout: Duration,
+    input: Stdio,
+) -> Result<Output, String> {
     let mut child = command
-        .stdin(Stdio::null())
+        .stdin(input)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
