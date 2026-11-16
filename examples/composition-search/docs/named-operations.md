@@ -1,4 +1,4 @@
-# Two-task named search
+# Named search tasks and account groups
 
 The [runnable recipe](../examples/named_operations.rs) starts two independent
 search sources through `Task::run_named`. Its inline test executes the same trace:
@@ -57,3 +57,43 @@ The trace checks exact per-response destruction counts and original successful
 String allocations through task update and final state handoff. Its explicit
 polls are a bounded semantic witness, not a scheduler fairness test or benchmark.
 It makes no equal-work allocation or throughput claim.
+
+## Group independently replaceable jobs by account
+
+The same executable also runs `AccountJobs`, using the existing controlled host
+and client. Each job has an account and a job ID. The feature declares its task
+with two names:
+
+```rust
+Task::run(move |context| async move {
+    // Await the client, then record its outcome through this context.
+})
+.named(job, OperationPolicy::Replace)
+.named(job.account, OperationPolicy::Coexist)
+```
+
+The last `named` call forms the outer group. The job key includes its account,
+so account A's job 1 does not replace account B's job 1. The outer account name
+uses `Coexist`, so a new job does not cancel other jobs in that account.
+`Task::run_named(key, policy, body)` remains the convenience for one name.
+Owner-thread `local::Task` supports the same composition with non-`Send` task bodies.
+
+All jobs in this example belong to one feature scope. An operation endpoint must
+address that same scope. Equal keys in another scope or Store do not form a
+global group. Nested names do not change captured child authority.
+`store.operation(job).cancel()` targets that job's current generations.
+`store.operation(job.account).cancel()` targets the account's current generations.
+Both calls return futures that the caller must await.
+
+The trace starts A/1, A/2 and B/1, then replaces only A/1. A/2 and B/1 remain
+pending. A wait captured for account A before replacement excludes the new A/1
+generation. It completes after old A/1 ends and A/2 returns its result, while
+new A/1 remains pending. Cancelling account A then stops new A/1 without
+cancelling B/1. The account still reports one active generation until that
+cancelled body is destroyed.
+
+`status()` returns a snapshot at an ordered actor position, not a live property.
+The names supply cancellation and completion groups, not a generic error history.
+Represent client failures with domain actions or owned outcomes in State.
+Here, B/1's `Err("offline")` becomes a `JobResult` through a typed state update.
+Its operation still completes: completion does not mean business success.

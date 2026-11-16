@@ -12,12 +12,19 @@ mod allocation_test;
 #[path = "support/mod.rs"]
 mod support;
 
+#[cfg(feature = "local")]
+#[path = "fold/local_driver.rs"]
+mod local_driver;
+
 use std::pin::Pin;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::task::{Context, Poll, Waker};
 
-use rca_core::{Effect, OperationPolicy, OperationWait, Reduce, RuntimeFuture, Store};
+use rca_core::{
+    Effect, Feature, FeatureContext, OperationPolicy, OperationWait, Reduce, RuntimeFuture, Store,
+    Task,
+};
 
 /// Counts heap work only while the single assay's profiler is active.
 #[global_allocator]
@@ -179,10 +186,210 @@ fn unused_named_and_wait_costs_are_measured_separately() {
     }
 }
 
+/// Declares one typed body using the existing unnamed or single-name API.
+struct TypedWork {
+    /// Keeps the runtime body pending until the measured polls finish.
+    done: Arc<AtomicBool>,
+    /// Selects the existing single-name path without changing the body.
+    named: bool,
+}
+
+impl Feature for TypedWork {
+    type State = ();
+    type Action = ();
+
+    fn update(&mut self, (): &mut (), (): &(), context: &mut FeatureContext<'_, (), ()>) {
+        let done = Arc::clone(&self.done);
+        let run = move |_| {
+            std::future::poll_fn(move |_| {
+                if done.load(Ordering::SeqCst) {
+                    Poll::Ready(())
+                } else {
+                    Poll::Pending
+                }
+            })
+        };
+        context.task(if self.named {
+            Task::run_named(0, OperationPolicy::Coexist, run)
+        } else {
+            Task::run(run)
+        });
+    }
+}
+
+/// Separates typed-task registration and polling costs for both existing cheap paths.
+fn typed_task_zero_and_one_name_costs() {
+    if allocation_test::run_in_child("typed_task_zero_and_one_name_costs") {
+        return;
+    }
+
+    for named in [false, true] {
+        let host = support::ManualRuntime::new();
+        let done = Arc::new(AtomicBool::new(false));
+        let feature = TypedWork {
+            done: Arc::clone(&done),
+            named,
+        };
+        let profiler = dhat::Profiler::builder().testing().build();
+        let before = dhat::HeapStats::get();
+        let store = Store::new((), feature, host.runtime());
+        let mut actor = host.take_only_queued_task();
+        assert!(poll(actor.as_mut()).is_pending());
+        let constructed = dhat::HeapStats::get();
+        let receipt = store.try_send(()).unwrap();
+        assert!(poll(actor.as_mut()).is_pending());
+        let mut body = host.take_only_queued_task();
+        let registered = dhat::HeapStats::get();
+        assert!(poll(body.as_mut()).is_pending());
+        let started = dhat::HeapStats::get();
+        for _ in 0..16 {
+            assert!(poll(body.as_mut()).is_pending());
+        }
+        let repeated = dhat::HeapStats::get();
+        assert_eq!(repeated.total_blocks, started.total_blocks);
+        assert_eq!(repeated.total_bytes, started.total_bytes);
+
+        done.store(true, Ordering::SeqCst);
+        assert!(poll(body.as_mut()).is_ready());
+        drop(body);
+        assert!(poll(actor.as_mut()).is_pending());
+        drop((receipt, store));
+        assert!(poll(actor.as_mut()).is_ready());
+        drop(actor);
+        let finished = dhat::HeapStats::get();
+        drop(profiler);
+        eprintln!(
+            "typed_task named={named} owner_bytes={} construction_blocks={} construction_bytes={} register_blocks={} register_bytes={} first_poll_blocks={} first_poll_bytes={} repeated_poll_blocks={} repeated_poll_bytes={} live_after_finish={}/{}",
+            std::mem::size_of::<Task<(), ()>>(),
+            constructed.total_blocks - before.total_blocks,
+            constructed.total_bytes - before.total_bytes,
+            registered.total_blocks - constructed.total_blocks,
+            registered.total_bytes - constructed.total_bytes,
+            started.total_blocks - registered.total_blocks,
+            started.total_bytes - registered.total_bytes,
+            repeated.total_blocks - started.total_blocks,
+            repeated.total_bytes - started.total_bytes,
+            finished.curr_blocks,
+            finished.curr_bytes,
+        );
+    }
+}
+
+#[cfg(feature = "local")]
+mod local_costs {
+    //! Measures the existing Local task APIs without introducing transferable captures.
+
+    use super::{OperationPolicy, allocation_test, local_driver, poll};
+    use rca_core::local::{Feature, FeatureContext, Runtime, Store, Task};
+    use std::cell::Cell;
+    use std::rc::Rc;
+    use std::task::Poll;
+
+    /// Keeps one owner-local body pending under the existing zero-or-one-name API.
+    struct TypedWork {
+        /// Controls physical task completion without a cross-thread flag.
+        done: Rc<Cell<bool>>,
+        /// Selects the existing single-name path without changing the body.
+        named: bool,
+    }
+
+    impl Feature for TypedWork {
+        type State = ();
+        type Action = ();
+
+        fn update(&mut self, (): &mut (), (): &(), context: &mut FeatureContext<'_, (), ()>) {
+            let done = Rc::clone(&self.done);
+            let run = move |_| {
+                std::future::poll_fn(move |_| {
+                    if done.get() {
+                        Poll::Ready(())
+                    } else {
+                        Poll::Pending
+                    }
+                })
+            };
+            context.task(if self.named {
+                Task::run_named(0, OperationPolicy::Coexist, run)
+            } else {
+                Task::run(run)
+            });
+        }
+    }
+
+    /// Separates Local construction and first-poll costs from allocation-free repeated polls.
+    pub(super) fn typed_task_zero_and_one_name_costs() {
+        if allocation_test::run_in_child("local_typed_task_zero_and_one_name_costs") {
+            return;
+        }
+
+        for named in [false, true] {
+            let host = local_driver::Driver::default();
+            let done = Rc::new(Cell::new(false));
+            let feature = TypedWork {
+                done: Rc::clone(&done),
+                named,
+            };
+            let profiler = dhat::Profiler::builder().testing().build();
+            let before = dhat::HeapStats::get();
+            let store = Store::new((), feature, Runtime::new(host.clone()));
+            let mut actor = host.take();
+            assert!(poll(actor.as_mut()).is_pending());
+            let constructed = dhat::HeapStats::get();
+            let receipt = store.try_send(()).unwrap();
+            assert!(poll(actor.as_mut()).is_pending());
+            let mut body = host.take();
+            let registered = dhat::HeapStats::get();
+            assert!(poll(body.as_mut()).is_pending());
+            let started = dhat::HeapStats::get();
+            for _ in 0..16 {
+                assert!(poll(body.as_mut()).is_pending());
+            }
+            let repeated = dhat::HeapStats::get();
+            assert_eq!(repeated.total_blocks, started.total_blocks);
+            assert_eq!(repeated.total_bytes, started.total_bytes);
+
+            done.set(true);
+            assert!(poll(body.as_mut()).is_ready());
+            drop(body);
+            assert!(poll(actor.as_mut()).is_pending());
+            drop((receipt, store));
+            assert!(poll(actor.as_mut()).is_ready());
+            drop(actor);
+            let finished = dhat::HeapStats::get();
+            drop(profiler);
+            eprintln!(
+                "local_typed_task named={named} owner_bytes={} construction_blocks={} construction_bytes={} register_blocks={} register_bytes={} first_poll_blocks={} first_poll_bytes={} repeated_poll_blocks={} repeated_poll_bytes={} live_after_finish={}/{}",
+                std::mem::size_of::<Task<(), ()>>(),
+                constructed.total_blocks - before.total_blocks,
+                constructed.total_bytes - before.total_bytes,
+                registered.total_blocks - constructed.total_blocks,
+                registered.total_bytes - constructed.total_bytes,
+                started.total_blocks - registered.total_blocks,
+                started.total_bytes - registered.total_bytes,
+                repeated.total_blocks - started.total_blocks,
+                repeated.total_bytes - started.total_bytes,
+                finished.curr_blocks,
+                finished.curr_bytes,
+            );
+        }
+    }
+}
+
 /// Preserves the exact names of the isolated allocation cases.
-const CASES: &[(&str, fn())] = &[(
-    "unused_named_and_wait_costs_are_measured_separately",
-    unused_named_and_wait_costs_are_measured_separately,
-)];
+const CASES: &[(&str, fn())] = &[
+    (
+        "unused_named_and_wait_costs_are_measured_separately",
+        unused_named_and_wait_costs_are_measured_separately,
+    ),
+    (
+        "typed_task_zero_and_one_name_costs",
+        typed_task_zero_and_one_name_costs,
+    ),
+    #[cfg(feature = "local")]
+    (
+        "local_typed_task_zero_and_one_name_costs",
+        local_costs::typed_task_zero_and_one_name_costs,
+    ),
+];
 
 include!("support/allocation_main.rs");

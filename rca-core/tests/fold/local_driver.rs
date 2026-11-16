@@ -48,6 +48,17 @@ impl RuntimeDriver for Driver {
     }
 }
 impl Driver {
+    /// Takes the sole queued task without polling it or allocating another queue.
+    #[allow(
+        dead_code,
+        reason = "only allocation assays need independently retained actor and body futures"
+    )]
+    pub(super) fn take(&self) -> RuntimeFuture {
+        let mut queued = self.0.borrow_mut();
+        assert_eq!(queued.len(), 1);
+        queued.pop().unwrap()
+    }
+
     /// Polls each task present at entry once, without holding a queue borrow.
     ///
     /// Tasks spawned during polling wait until the next turn. A task panic unwinds

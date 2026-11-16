@@ -149,6 +149,11 @@ harness = false
 required-features = ["allocation-measurement"]
 
 [[test]]
+name = "nested_task_allocations"
+harness = false
+required-features = ["allocation-measurement"]
+
+[[test]]
 name = "observation_registration_allocations"
 harness = false
 required-features = ["allocation-measurement"]

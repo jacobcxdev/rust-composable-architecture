@@ -97,6 +97,7 @@ impl<S: 'static, A: 'static> Task<S, A> {
     /// Captured waits include only generations present when captured. They
     /// complete after the task and its causal work release their owned payloads,
     /// not merely when cancellation is requested.
+    #[must_use]
     pub fn named<K>(mut self, key: K, policy: OperationPolicy) -> Self
     where
         K: Hash + Eq + Send + Sync + 'static,
@@ -1634,6 +1635,7 @@ pub(super) mod local {
         /// task. Names stay within the installed feature's scope. Captured waits
         /// exclude later generations and await payload release, not just a
         /// cancellation request. The task body may retain non-`Send` values.
+        #[must_use]
         pub fn named<K>(mut self, key: K, policy: super::OperationPolicy) -> Self
         where
             K: std::hash::Hash + Eq + Send + Sync + 'static,

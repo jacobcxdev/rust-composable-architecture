@@ -150,8 +150,89 @@ fn nested_typed_task_cancel_before_first_poll_releases_both_groups() {
     assert_eq!(poll(job_wait.as_mut()), Poll::Ready(Ok(())));
     assert_eq!(observation.starts.load(Ordering::SeqCst), 0);
     assert_eq!(observation.drops.load(Ordering::SeqCst), 1);
+    // Named waits release with the body; causal completion also needs actor harvesting.
+    assert!(!receipt.is_finished());
+    assert!(poll(actor.as_mut()).is_pending());
     assert!(receipt.is_finished());
 
+    drop(store);
+    assert!(poll(actor.as_mut()).is_ready());
+}
+
+/// Keeps one capture pending inside three independently addressable operation groups.
+struct ThreeNamedTask(Arc<TaskObservation>);
+
+impl Feature for ThreeNamedTask {
+    type State = ();
+    type Action = ();
+
+    fn update(&mut self, (): &mut (), (): &(), context: &mut FeatureContext<'_, (), ()>) {
+        let capture = TaskCapture(Arc::clone(&self.0));
+        context.task(
+            Task::run(move |_| {
+                capture.0.starts.fetch_add(1, Ordering::SeqCst);
+                async move {
+                    let _capture = capture;
+                    std::future::pending::<()>().await;
+                }
+            })
+            .named("job", OperationPolicy::Coexist)
+            .named("account", OperationPolicy::Coexist)
+            .named("service", OperationPolicy::Coexist),
+        );
+    }
+}
+
+/// A third name must cancel its enclosed task and retain completion until physical drop.
+#[test]
+fn third_typed_task_name_cancels_enclosed_work_and_joins_capture_destruction() {
+    let host = support::ManualRuntime::new();
+    let observation = Arc::new(TaskObservation::default());
+    let store = Store::new((), ThreeNamedTask(Arc::clone(&observation)), host.runtime());
+    let mut actor = host.take_only_queued_task();
+    let receipt = ordered(&mut actor, store.send(())).unwrap();
+    let mut body = host.take_only_queued_task();
+    assert!(poll(body.as_mut()).is_pending());
+    assert_eq!(observation.starts.load(Ordering::SeqCst), 1);
+    for key in ["job", "account", "service"] {
+        assert_eq!(
+            ordered(&mut actor, store.operation(key).status())
+                .unwrap()
+                .active_count(),
+            1
+        );
+    }
+
+    let service = store.operation("service");
+    let mut captured = Box::pin(ordered(&mut actor, service.capture()).unwrap());
+    ordered(&mut actor, service.cancel()).unwrap();
+    assert!(poll(captured.as_mut()).is_pending());
+    assert!(!receipt.is_finished());
+    assert_eq!(observation.drops.load(Ordering::SeqCst), 0);
+    for key in ["job", "account", "service"] {
+        assert_eq!(
+            ordered(&mut actor, store.operation(key).status())
+                .unwrap()
+                .active_count(),
+            1
+        );
+    }
+
+    assert!(poll(body.as_mut()).is_ready());
+    drop(body);
+    assert_eq!(observation.drops.load(Ordering::SeqCst), 1);
+    assert_eq!(poll(captured.as_mut()), Poll::Ready(Ok(())));
+    assert!(!receipt.is_finished());
+    assert!(poll(actor.as_mut()).is_pending());
+    assert!(receipt.is_finished());
+    for key in ["job", "account", "service"] {
+        assert_eq!(
+            ordered(&mut actor, store.operation(key).status())
+                .unwrap()
+                .active_count(),
+            0
+        );
+    }
     drop(store);
     assert!(poll(actor.as_mut()).is_ready());
 }
@@ -267,9 +348,11 @@ fn nested_typed_task_groups_isolate_jobs_and_capture_existing_generations() {
         assert_eq!(observations[0].drops.load(Ordering::SeqCst), 0);
         let mut captured = Box::pin(ordered(&mut actor, account_a.capture()).unwrap());
         assert!(poll(bodies[0].as_mut()).is_ready());
-        assert!(receipts[0].is_finished());
         assert_eq!(observations[0].drops.load(Ordering::SeqCst), 1);
         assert!(poll(captured.as_mut()).is_pending());
+        assert!(!receipts[0].is_finished());
+        assert!(poll(actor.as_mut()).is_pending());
+        assert!(receipts[0].is_finished());
 
         // This generation starts after capture, so its retained body cannot extend that wait.
         receipts.push(send(&mut actor, Job(Account(1), 3)));
@@ -287,9 +370,13 @@ fn nested_typed_task_groups_isolate_jobs_and_capture_existing_generations() {
 
         for index in [1, 3] {
             assert!(poll(bodies[index].as_mut()).is_ready());
-            assert!(receipts[index].is_finished());
+            assert!(!receipts[index].is_finished());
         }
         assert_eq!(poll(captured.as_mut()), Poll::Ready(Ok(())));
+        assert!(poll(actor.as_mut()).is_pending());
+        for index in [1, 3] {
+            assert!(receipts[index].is_finished());
+        }
         assert_eq!(
             ordered(&mut actor, account_a.status())
                 .unwrap()
@@ -310,6 +397,8 @@ fn nested_typed_task_groups_isolate_jobs_and_capture_existing_generations() {
         assert!(!receipts[4].is_finished());
 
         drop(later);
+        assert!(!receipts[4].is_finished());
+        assert!(poll(actor.as_mut()).is_pending());
         assert!(receipts[4].is_finished());
         assert_eq!(
             ordered(&mut actor, account_a.status())
@@ -319,6 +408,8 @@ fn nested_typed_task_groups_isolate_jobs_and_capture_existing_generations() {
         );
         ordered(&mut actor, account_b.cancel()).unwrap();
         assert!(poll(bodies[2].as_mut()).is_ready());
+        assert!(!receipts[2].is_finished());
+        assert!(poll(actor.as_mut()).is_pending());
         assert!(receipts[2].is_finished());
         assert_eq!(
             observations

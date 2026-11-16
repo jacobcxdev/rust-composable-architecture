@@ -1,4 +1,4 @@
-//! Runs two-source search with captured input, live settings and named cancellation.
+//! Runs named search tasks and independently replaceable jobs grouped by account.
 //!
 //! Run with `cargo run -p rca-example-composition-search --example named_operations`.
 //! The retaining host below is proof machinery, not required application architecture.
@@ -385,7 +385,157 @@ fn result_trace(
     addresses
 }
 
-/// Prints the checked operation trace without treating elapsed time as a performance measurement.
+/// Groups jobs belonging to one account within the feature's scope.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+struct Account(
+    /// Identifies the account within this feature's scope.
+    u8,
+);
+
+/// Identifies one replaceable job without colliding with another account's job.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+struct Job {
+    /// Selects the account group that owns this job.
+    account: Account,
+    /// Distinguishes jobs within that account.
+    id: u8,
+}
+
+/// Keeps a client outcome in domain State, separately from operation completion.
+#[derive(Debug, PartialEq, Eq)]
+struct JobResult {
+    /// Identifies the job whose response arrived.
+    job: Job,
+    /// Owns the successful response or the application's client failure.
+    result: Result<String, &'static str>,
+}
+
+/// Declares independently replaceable jobs under a shared account cancellation group.
+struct AccountJobs {
+    /// Supplies one controlled client response per submitted job.
+    responses: VecDeque<controlled::Response>,
+}
+
+impl Feature for AccountJobs {
+    type State = Vec<JobResult>;
+    type Action = Job;
+
+    fn update(
+        &mut self,
+        _: &mut Self::State,
+        job: &Job,
+        context: &mut FeatureContext<'_, Self::State, Job>,
+    ) {
+        let job = *job;
+        let response = self.responses.pop_front().expect("prepared job response");
+        context.task(
+            Task::run(move |context| async move {
+                let result = response.await;
+                let _receipt = context
+                    .update(move |results: &mut Vec<JobResult>| {
+                        results.push(JobResult { job, result });
+                    })
+                    .await
+                    .expect("live job result");
+            })
+            .named(job, OperationPolicy::Replace)
+            .named(job.account, OperationPolicy::Coexist),
+        );
+    }
+}
+
+/// Checks job replacement, account cancellation and captured waits with the same retaining host.
+///
+/// # Panics
+///
+/// Panics if named groups select the wrong work or the finite schedule fails.
+fn run_account_jobs() -> Vec<JobResult> {
+    let host = controlled::Host::new();
+    let mut responses = VecDeque::new();
+    let mut releases = Vec::new();
+    let mut drops = Vec::new();
+    // Three initial jobs and one replacement use four distinct client futures.
+    for _ in 0..4 {
+        let (response, release, destroyed) = controlled::response();
+        responses.push_back(response);
+        releases.push(release);
+        drops.push(destroyed);
+    }
+    let first = Job {
+        account: Account(1),
+        id: 1,
+    };
+    let second = Job { id: 2, ..first };
+    let other = Job {
+        account: Account(2),
+        id: 1,
+    };
+    let store = Store::new(
+        Vec::new(),
+        AccountJobs { responses },
+        Runtime::new(host.clone()),
+    );
+    let mut actor = host.take_one();
+    let mut bodies = Vec::new();
+    for job in [first, second, other] {
+        let _receipt = controlled::ordered(&mut actor, store.send(job)).unwrap();
+        bodies.push(host.take_one());
+    }
+    for body in &mut bodies {
+        assert!(controlled::poll(body.as_mut()).is_pending());
+    }
+    let account = store.operation(first.account);
+    let mut original = Box::pin(controlled::ordered(&mut actor, account.capture()).unwrap());
+
+    let _receipt = controlled::ordered(&mut actor, store.send(first)).unwrap();
+    let mut replacement = host.take_one();
+    assert!(controlled::poll(replacement.as_mut()).is_pending());
+    assert!(controlled::poll(bodies[0].as_mut()).is_ready());
+    assert!(controlled::poll(bodies[1].as_mut()).is_pending());
+    assert!(controlled::poll(bodies[2].as_mut()).is_pending());
+    assert!(controlled::poll(original.as_mut()).is_pending());
+
+    // The old account capture excludes the later replacement generation.
+    releases[1].complete(Ok("second job completed".into()));
+    controlled::finish_body(&mut actor, &mut bodies[1]);
+    assert_eq!(controlled::poll(original.as_mut()), Poll::Ready(Ok(())));
+    assert!(controlled::poll(replacement.as_mut()).is_pending());
+
+    controlled::ordered(&mut actor, account.cancel()).unwrap();
+    assert_eq!(
+        controlled::ordered(&mut actor, account.status())
+            .unwrap()
+            .active_count(),
+        1,
+    );
+    assert!(controlled::poll(replacement.as_mut()).is_ready());
+    assert_eq!(
+        controlled::ordered(&mut actor, account.status())
+            .unwrap()
+            .active_count(),
+        0,
+    );
+    assert!(controlled::poll(bodies[2].as_mut()).is_pending());
+    releases[2].complete(Err("offline"));
+    controlled::finish_body(&mut actor, &mut bodies[2]);
+    assert_eq!(
+        drops
+            .iter()
+            .map(|count| count.load(Ordering::SeqCst))
+            .collect::<Vec<_>>(),
+        [1; 4]
+    );
+
+    let mut shutdown = Box::pin(store.shutdown_into_state());
+    assert!(controlled::poll(shutdown.as_mut()).is_pending());
+    assert!(controlled::poll(actor.as_mut()).is_ready());
+    let Poll::Ready(Ok(results)) = controlled::poll(shutdown.as_mut()) else {
+        panic!("owned job results")
+    };
+    results
+}
+
+/// Prints the checked operation traces without treating elapsed time as a performance measurement.
 ///
 /// # Panics
 ///
@@ -396,10 +546,36 @@ async fn main() {
     println!("active generations: {:?}", trace.active_generations);
     println!("response destruction counts: {:?}", trace.response_drops);
     println!("owned final results: {:?}", trace.final_state.results);
+    println!("account job outcomes: {:?}", run_account_jobs());
 }
 
 #[cfg(test)]
 mod tests {
+    #[tokio::test]
+    async fn nested_job_names_preserve_siblings_and_account_boundaries() {
+        use super::{Account, Job, JobResult};
+
+        assert_eq!(
+            super::run_account_jobs(),
+            [
+                JobResult {
+                    job: Job {
+                        account: Account(1),
+                        id: 2,
+                    },
+                    result: Ok("second job completed".into()),
+                },
+                JobResult {
+                    job: Job {
+                        account: Account(2),
+                        id: 1,
+                    },
+                    result: Err("offline"),
+                },
+            ]
+        );
+    }
+
     #[tokio::test]
     async fn named_search_trace_uses_real_task_ownership() {
         let trace = super::run_trace();

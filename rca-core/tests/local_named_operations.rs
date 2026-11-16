@@ -237,6 +237,9 @@ fn local_nested_task_cancel_before_first_poll_releases_both_groups() {
     assert_eq!(poll(job_wait.as_mut()), Poll::Ready(Ok(())));
     assert_eq!(observation.starts.get(), 0);
     assert_eq!(observation.drops.get(), 1);
+    // Named waits release with the body; causal completion also needs actor harvesting.
+    assert!(!receipt.is_finished());
+    assert!(poll(actor.as_mut()).is_pending());
     assert!(receipt.is_finished());
     drop(store);
     assert!(poll(actor.as_mut()).is_ready());
@@ -353,9 +356,11 @@ fn local_nested_task_groups_isolate_jobs_and_capture_existing_generations() {
         assert_eq!(observations[0].drops.get(), 0);
         let mut captured = Box::pin(ordered(&mut actor, account_a.capture()).unwrap());
         assert!(poll(bodies[0].as_mut()).is_ready());
-        assert!(receipts[0].is_finished());
         assert_eq!(observations[0].drops.get(), 1);
         assert!(poll(captured.as_mut()).is_pending());
+        assert!(!receipts[0].is_finished());
+        assert!(poll(actor.as_mut()).is_pending());
+        assert!(receipts[0].is_finished());
 
         // The captured wait excludes this later generation even while its body stays owned.
         receipts.push(send(&mut actor, Job(Account(1), 3)));
@@ -373,9 +378,13 @@ fn local_nested_task_groups_isolate_jobs_and_capture_existing_generations() {
 
         for index in [1, 3] {
             assert!(poll(bodies[index].as_mut()).is_ready());
-            assert!(receipts[index].is_finished());
+            assert!(!receipts[index].is_finished());
         }
         assert_eq!(poll(captured.as_mut()), Poll::Ready(Ok(())));
+        assert!(poll(actor.as_mut()).is_pending());
+        for index in [1, 3] {
+            assert!(receipts[index].is_finished());
+        }
         assert_eq!(
             ordered(&mut actor, account_a.status())
                 .unwrap()
@@ -396,6 +405,8 @@ fn local_nested_task_groups_isolate_jobs_and_capture_existing_generations() {
         assert!(!receipts[4].is_finished());
 
         drop(later);
+        assert!(!receipts[4].is_finished());
+        assert!(poll(actor.as_mut()).is_pending());
         assert!(receipts[4].is_finished());
         assert_eq!(
             ordered(&mut actor, account_a.status())
@@ -405,6 +416,8 @@ fn local_nested_task_groups_isolate_jobs_and_capture_existing_generations() {
         );
         ordered(&mut actor, account_b.cancel()).unwrap();
         assert!(poll(bodies[2].as_mut()).is_ready());
+        assert!(!receipts[2].is_finished());
+        assert!(poll(actor.as_mut()).is_pending());
         assert!(receipts[2].is_finished());
         assert_eq!(
             observations.each_ref().map(|item| item.starts.get()),
