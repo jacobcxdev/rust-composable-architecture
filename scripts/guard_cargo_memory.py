@@ -230,6 +230,10 @@ def stop_group(process):
             os.killpg(process.pid, signal.SIGKILL)
         except ProcessLookupError:
             pass
+        except PermissionError:
+            # The group may have become zombies since the process-table read.
+            # Only a later process-table check can establish cleanup.
+            pass
         time.sleep(0.05)
 
 

@@ -129,7 +129,7 @@ pub(super) fn walk<R: 'static, A, K: FoldKey, C: Carriers<R, A>, L: CallbackLeas
 pub(super) fn walk_subtree<R: 'static, A, K: FoldKey, C: Carriers<R, A>, L: CallbackLease<R, K>>(
     root: &R,
     scopes: &ScopeRegistry,
-    subtree: SubtreeStart<'_, C::Mount>,
+    subtree: &SubtreeStart<'_, C::Mount>,
     lifecycle: &Lifecycle,
     acquire: impl FnMut(usize) -> Option<L>,
 ) -> Result<K::Value, TaskAccessError> {

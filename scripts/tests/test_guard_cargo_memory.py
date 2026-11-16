@@ -15,7 +15,7 @@ import threading
 import time
 from types import SimpleNamespace
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 
 SCRIPT = Path(__file__).resolve().parents[1] / "guard_cargo_memory.py"
@@ -636,6 +636,46 @@ class GuardTests(unittest.TestCase):
                 self.assertEqual(error.exception.code, 2)
                 prepare.assert_not_called()
                 self.assertFalse(receipt.exists())
+
+    def test_stop_group_rechecks_a_permission_error_after_a_live_snapshot(self):
+        # The group may become zombies between ps and the second killpg call.
+        for final_snapshot in ("", f"424242 {os.getuid()} Z\n"):
+            process = SimpleNamespace(pid=424242, wait=Mock())
+            with self.subTest(final_snapshot=final_snapshot), \
+                    patch.object(self.guard.os, "killpg", side_effect=[None, PermissionError(1, "not permitted")]) as kill, \
+                    patch.object(self.guard.subprocess, "check_output", side_effect=[
+                        f"424242 {os.getuid()} S\n", final_snapshot,
+                    ]) as inspect, \
+                    patch.object(self.guard.time, "sleep"):
+                self.guard.stop_group(process)
+            self.assertEqual(kill.call_count, 2)
+            self.assertEqual(inspect.call_count, 2)
+            process.wait.assert_called_once_with(timeout=5)
+
+    def test_stop_group_permission_error_cannot_hide_live_or_foreign_members(self):
+        for owner, error in ((os.getuid(), TimeoutError), (os.getuid() + 1, ValueError)):
+            process = SimpleNamespace(pid=424242, wait=Mock())
+            with self.subTest(owner=owner), \
+                    patch.object(self.guard.os, "killpg", side_effect=PermissionError(1, "not permitted")), \
+                    patch.object(self.guard.subprocess, "check_output", side_effect=[
+                        f"424242 {os.getuid()} S\n", f"424242 {owner} S\n",
+                    ]), \
+                    patch.object(self.guard.time, "monotonic", side_effect=[0, 0, 5]), \
+                    patch.object(self.guard.time, "sleep"):
+                with self.assertRaises(error):
+                    self.guard.stop_group(process)
+            process.wait.assert_not_called()
+
+    def test_stop_group_permission_error_cannot_hide_a_wait_timeout(self):
+        process = SimpleNamespace(pid=424242, wait=Mock(side_effect=subprocess.TimeoutExpired("owned", 5)))
+        with patch.object(self.guard.os, "killpg", side_effect=[None, PermissionError(1, "not permitted")]), \
+                patch.object(self.guard.subprocess, "check_output", side_effect=[
+                    f"424242 {os.getuid()} S\n", "",
+                ]), \
+                patch.object(self.guard.time, "sleep"):
+            with self.assertRaises(subprocess.TimeoutExpired):
+                self.guard.stop_group(process)
+        process.wait.assert_called_once_with(timeout=5)
 
     def test_cleanup_failure_cannot_preserve_a_successful_exit(self):
         original = self.guard.stop_group

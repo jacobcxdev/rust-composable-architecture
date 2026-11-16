@@ -375,7 +375,7 @@ impl<R: 'static, A, K: FoldKey> FoldCall<R, A, Shared> for Read<R, K> {
         self.reply.mark_entered();
         let acquire = |identity| self.fold.acquire(identity);
         let result = if let Some(subtree) = subtree {
-            walk::walk_subtree::<R, A, K, Shared, _>(root, scopes, subtree, lifecycle, acquire)
+            walk::walk_subtree::<R, A, K, Shared, _>(root, scopes, &subtree, lifecycle, acquire)
         } else {
             walk::walk::<R, A, K, Shared, _>(root, scopes, mounts, lifecycle, acquire)
         };

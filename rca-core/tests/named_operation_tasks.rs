@@ -396,6 +396,8 @@ fn nested_typed_task_groups_isolate_jobs_and_capture_existing_generations() {
         assert!(!receipts[2].is_finished());
         assert!(!receipts[4].is_finished());
 
+        // The host must poll requested cancellation before dropping its runtime wrapper.
+        assert!(poll(later.as_mut()).is_ready());
         drop(later);
         assert!(!receipts[4].is_finished());
         assert!(poll(actor.as_mut()).is_pending());
