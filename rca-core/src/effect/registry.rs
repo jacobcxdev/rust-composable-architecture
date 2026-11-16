@@ -871,6 +871,11 @@ impl TaskRegistry {
     /// The factory runs now, not on first poll; its returned future cannot retain
     /// the registration borrow because it must be `'static`.
     #[cfg(feature = "local")]
+    #[expect(
+        clippy::inline_always,
+        reason = "measured local task registration adds stack copies through an outlined wrapper"
+    )]
+    #[inline(always)]
     pub(crate) fn register_local<Fut: Future<Output = ()> + 'static>(
         &mut self,
         mut prepared: PreparedTask,
