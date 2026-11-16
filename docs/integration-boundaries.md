@@ -101,6 +101,32 @@ callbacks and shutdown on the selected actual platform. Synthetic host and
 owner-local engine tests alone do not establish that claim. Core supplies no
 turnkey native renderer or Swift/Objective-C runtime wrapper.
 
+## Define external notification delivery
+
+[`ExternalObservation`](../rca-core/src/observation/adapters.rs) owns one lazy
+subscription with initial and latest values. It is not an ordered broadcast or
+an all-listener completion barrier. Store observations also allow independent
+consumers to progress at different rates.
+
+Before shipping a notification adapter, define its delivery contract:
+
+- Specify which listeners receive each post and when that selection becomes fixed.
+- Specify delivery order, nested posts, and listener additions or removals during delivery.
+- Define cancellation before selection, after selection, and after callback admission.
+- State whether acknowledgement means callback return, consumer processing, or completion of explicitly owned asynchronous work.
+- Bound pending values and define overflow, slow-consumer, failure, and shutdown behavior.
+- Define source retention, owner-thread cleanup, and context transfer across asynchronous boundaries.
+
+If records require one total order, give that order to a domain-owned sink.
+Independent observation registration does not establish it. An admitted one-shot
+Store callback cannot be retracted by later authority closure.
+
+A producer's weak endpoint does not prevent user captures from retaining an
+external service. The adapter owns that retention policy. Its synchronous
+shutdown callback does not prove completion of asynchronous cleanup.
+Exercise the actual provider's delivery, cancellation, and cleanup boundaries.
+See [receipt lifetimes](receipt-lifetimes.md) for the distinct completion stages.
+
 ## Relational queries use a typed provider boundary
 
 Inject an existing engine/client through an application-owned dependency and

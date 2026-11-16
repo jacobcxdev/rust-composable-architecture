@@ -2,7 +2,8 @@
 """Run Cargo or canonical Mac qualification with a polling memory watchdog.
 
 The watchdog targets a 250 ms interval between samples. Physical footprint
-includes compressed memory. It stops the group at eight GiB, on host memory
+includes compressed memory. The default ceiling is eight GiB. Cargo builds can
+select a lower integer GiB ceiling. The watchdog also stops on host memory
 pressure, or when estimated reclaimable host memory falls below four GiB.
 The estimate counts free and file-backed pages, without counting speculative
 pages twice. It is not a promise that all file-backed pages are immediately free.
@@ -512,14 +513,19 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--receipt", type=Path, required=True, help="new JSON receipt path")
     parser.add_argument("--timeout", type=float, help="maximum seconds; Cargo default: 3600; required for qualification")
+    parser.add_argument("--memory-limit-gib", type=int, choices=range(1, 9),
+                        help="Cargo build ceiling in GiB, from 1 to 8; default: 8")
     parser.add_argument("--qualify-performance", action="store_true", help="run only the canonical qualification script")
     parser.add_argument("cargo_arguments", nargs=argparse.REMAINDER)
     args = parser.parse_args()
     if args.qualify_performance and args.timeout is None:
         parser.error("--qualify-performance requires an explicit --timeout")
+    if args.qualify_performance and args.memory_limit_gib is not None:
+        parser.error("--qualify-performance uses a fixed eight-GiB memory ceiling")
     if args.timeout is not None and (not math.isfinite(args.timeout) or args.timeout <= 0):
         parser.error("--timeout must be finite and positive")
     timeout = 3600 if args.timeout is None else args.timeout
+    memory_limit = MEMORY_LIMIT if args.memory_limit_gib is None else args.memory_limit_gib * GIB
     arguments = args.cargo_arguments
     if arguments[:1] == ["--"]:
         arguments = arguments[1:]
@@ -533,7 +539,8 @@ def main():
                 receipt_path = args.receipt.resolve()
                 env["RCA_MAC_MEMORY_GUARD_RECEIPT"] = str(receipt_path)
                 script_sha256 = hashlib.sha256(Path(command[1]).read_bytes()).hexdigest()
-            receipt = run_guarded(command, cwd=Path.cwd(), env=env, probe=MacProbe(), timeout=timeout)
+            receipt = run_guarded(command, cwd=Path.cwd(), env=env, probe=MacProbe(),
+                                  timeout=timeout, memory_limit=memory_limit)
             receipt["toolchain"] = TOOLCHAIN
             if args.qualify_performance:
                 receipt.update(entrypoint="qualify-performance", qualification_script_sha256=script_sha256)

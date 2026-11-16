@@ -33,10 +33,12 @@ one atomic update across both states.
 | Should work return an action or update State through a task? | [Choose an authoring form](#choose-an-authoring-form) and [work lifetimes](#4-declare-work-and-handle-ended-authority) |
 | Which send, wait, cancellation or shutdown operation do I need? | [Runtime](../runtime.md) and [receipt lifetimes](../receipt-lifetimes.md) |
 | Does observation record every event? When does a reaction run? | [Runtime observation](../runtime.md#observation) and [structural Features](../structural-features.md) |
+| Do I need a query of child contributions or a maintained total? | [Queries and maintained aggregates](../structural-features.md#choose-a-query-or-a-maintained-aggregate) |
 | How do I test tasks, real clients, clocks and move-only State? | [Testing](testing.md), [external clients](external-clients.md) and [owned resources](owned-resources.md) |
 | Which diagnostics run in production? | [Diagnostics](diagnostics.md) |
 | Does a save receipt prove durability or safe restart? | [Persistent counter](../../examples/persistent-counter/README.md) |
 | What remains the host's responsibility? | [Integration boundaries](../integration-boundaries.md) |
+| Does a notification acknowledgement mean that every consumer finished? | [Receipt lifetimes](../receipt-lifetimes.md#choose-the-wait-that-answers-your-question) and [adapter delivery rules](../integration-boundaries.md#define-external-notification-delivery) |
 
 ## 1. Choose the host and ownership model
 

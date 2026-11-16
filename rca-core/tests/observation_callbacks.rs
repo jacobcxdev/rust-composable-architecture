@@ -71,6 +71,7 @@ fn one_shot_callback_is_post_commit_detached_and_can_enqueue_ingress() {
         ));
         assert_eq!(calls.get(), 0);
         store.send(true).await.unwrap().finish().await;
+        assert_eq!(calls.get(), 0);
         assert!(callback.await);
         assert_eq!(store.read(|state| *state).await.unwrap(), 2);
         assert_eq!(calls.get(), 1);

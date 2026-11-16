@@ -54,6 +54,12 @@ An output transfers an owned result along its declared ancestor route.
 A fold answers a question about current descendants, such as their available capacity.
 Neither an output nor a fold creates a second state owner.
 
+Private mounted inputs reach the installed child without passing through ancestor
+action handlers. Integrated action routes involve those ancestors deliberately.
+This routing choice is separate from Shared versus Local execution.
+Both execution models support private mounted inputs. `local` instead selects
+owner-thread work whose values need not implement `Send`.
+
 The [uploader](../examples/composition-search/docs/uploader.md) uses one task for
 fetch, processing and upload. Progress uses serial updates. Domain completion
 uses an owned outcome. Separate actions for every internal task step are not
@@ -178,6 +184,23 @@ The [fold tests](../rca-core/tests/fold.rs) and
 [shape tests](../rca-core/tests/fold_shape.rs) show the actual ordering.
 The [capacity fixture](../rca-core/tests/fold_input_gate.rs) checks the literal
 `5 → 3 → 0` result as domain values change while both declarations stay installed.
+
+### Choose a query or a maintained aggregate
+
+`Store::fold` computes a value when the actor processes that read. It does not
+store the result in parent State or subscribe a parent callback to later changes.
+For example, a scheduler can query current worker capacity before assigning work.
+The query follows committed child order. It excludes removed installations and
+old instances superseded by replacements. Closing an input gate alone does not
+remove a contribution.
+The read does not reserve capacity for a later command.
+
+If the application needs a continuously published total, maintain that total in
+domain State through explicit updates, outputs, or reactions.
+Define which changes update the total and when consumers receive it.
+Include child installation, replacement, removal, and capacity changes in that policy.
+An observation can then select that State. It does not observe arbitrary fold
+callbacks.
 
 ## Choose input closure, removal or owned extraction
 

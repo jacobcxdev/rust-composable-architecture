@@ -107,6 +107,10 @@ impl<Failure: std::error::Error + 'static> std::error::Error for ObservationErro
 /// grant Store authority: forwarding a value still requires a live Store or
 /// scoped handle. Dropping endpoints does not implicitly finish the sequence;
 /// use [`Self::finish`], [`Self::fail`], or cancel the receiving owner.
+///
+/// The weak endpoint does not determine the external service's lifetime.
+/// The start closure, shutdown closure, and delivered values can retain that
+/// service. The adapter must prevent unwanted ownership cycles.
 pub struct ObservationProducer<Value, Failure> {
     /// Cannot keep the receiving subscription alive after its owner is dropped.
     state: Weak<RefCell<SourceState<Value, Failure>>>,
@@ -216,8 +220,13 @@ impl<Value, Failure> fmt::Debug for ObservationProducer<Value, Failure> {
 /// Its start closure runs once on the first polled [`Self::next`], returning one
 /// initial selection and an owned shutdown closure. Thereafter, unread updates
 /// coalesce into one latest slot. Finish and failure drain that slot; explicit
-/// cancellation discards it. Shutdown runs exactly once on terminal consumption,
-/// cancellation, or drop, with producer admission already closed and no borrow held.
+/// cancellation discards it.
+///
+/// After activation returns a shutdown closure, terminal consumption,
+/// cancellation, or drop invokes that closure exactly once.
+/// Producer admission closes before invocation, and no source-state borrow remains.
+/// A sequence cancelled or dropped before activation does not invoke shutdown.
+/// Returning from shutdown does not await asynchronous cleanup that it starts.
 ///
 /// No Store scope is inferred. A consumer forwarding these values must retain
 /// and use its existing scoped handle; a producer result cannot renew that handle.
@@ -381,9 +390,11 @@ impl<Value> Observation<Value> {
     ///
     /// Returns `true` after invocation, or `false` if authority closes first.
     /// Admission atomically deactivates the registration before invocation;
-    /// a later closure cannot retract an already admitted callback. Its owner is
-    /// dropped before invocation, outside actor reduction, locks, and borrows.
-    /// The callback may enqueue new ingress; it cannot perform nested reduction.
+    /// a later closure cannot retract an already admitted callback. The owner
+    /// drops before invocation. RCA invokes the callback outside actor publication.
+    /// It holds no observation metadata lock or borrow during invocation.
+    /// Application-held locks and borrows remain the caller's responsibility.
+    /// The callback can enqueue new ingress, but it cannot perform nested reduction.
     /// This is post-commit delivery,
     /// not `willSet` notification. Dropping the future cancels its registration.
     ///

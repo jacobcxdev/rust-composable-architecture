@@ -87,7 +87,9 @@ It uses one Cargo job and disables compiler wrappers that can launch work in a s
 It permits only one guarded build per user at a time.
 
 Every 250 milliseconds, it measures the owned process group's physical footprint, including compressed memory.
-It stops that group at an observed eight GiB, on elevated memory pressure, or below four GiB of estimated host headroom.
+Its default ceiling is eight GiB. For a bounded Cargo build, `--memory-limit-gib 4` selects a stricter four-GiB ceiling.
+The option accepts integers from one through eight. It does not change the four-GiB host reserve, pressure checks or cleanup.
+The watchdog stops the group at its selected ceiling, on elevated memory pressure, or below the host reserve.
 Startup requires headroom for both the build budget and the host reserve.
 Missing measurements also stop the build.
 
@@ -99,6 +101,7 @@ The composition controller uses the same watchdog for command groups, including 
 Its receipts distinguish natural completion from forced cleanup.
 Slow host telemetry does not delay memory checks.
 For canonical qualification, choose an explicit timeout. Use the fixed `--qualify-performance` route.
+That route keeps its eight-GiB ceiling and rejects `--memory-limit-gib`.
 The [performance commands](docs/performance/method.md#commands) show the full invocation.
 
 Do not run a controller that creates separate process groups locally until each compiler process has equivalent protection.

@@ -578,6 +578,65 @@ class GuardTests(unittest.TestCase):
                 start.assert_not_called()
             self.assertEqual(receipt.read_bytes(), saved)
 
+    def test_cli_lower_limit_controls_admission_enforcement_and_receipt(self):
+        # Ignoring the selected cap would refuse this safe startup or miss its stop.
+        cases = (
+            ([], 10, 0, "pass", "host-headroom", 8, False),
+            (["--memory-limit-gib", "4"], 10, 0, "pass", "command-exited", 4, True),
+            (["--memory-limit-gib", "4"], 10, 4, "import time; time.sleep(30)",
+             "memory-limit", 4, True),
+            (["--memory-limit-gib", "4"], 7, 0, "pass", "host-headroom", 4, False),
+        )
+        for index, (options, headroom, footprint, code, reason, limit, started) in enumerate(cases):
+            with self.subTest(options=options, reason=reason):
+                receipt = self.directory / f"limit-{index}.json"
+                command = [sys.executable, "-c", code]
+                probe = FakeProbe(headroom=headroom * 1024**3, footprint=footprint * 1024**3)
+                with redirect_stderr(io.StringIO()), \
+                        patch.object(sys, "argv", [str(SCRIPT), "--receipt", str(receipt),
+                                                   *options, "--", "test"]), \
+                        patch.object(self.guard, "cargo_command", return_value=(command, os.environ.copy())), \
+                        patch.object(self.guard, "MacProbe", return_value=probe):
+                    status = self.guard.main()
+                result = json.loads(receipt.read_text())
+                self.assertEqual(result["reason"], reason)
+                self.assertEqual(result["started"], started)
+                self.assertEqual(result["memory_limit_bytes"], limit * 1024**3)
+                self.assertEqual(result["host_reserve_bytes"], 4 * 1024**3)
+                self.assertTrue(result["cleanup_complete"])
+                self.assertEqual(status == 0, reason == "command-exited")
+                if reason == "memory-limit":
+                    self.assertEqual(result["peak_footprint_bytes"], 4 * 1024**3)
+
+    def test_cli_rejects_invalid_memory_limits_before_preparing_tools(self):
+        # A malformed or increased cap must never reach command setup.
+        for value in ("0", "-1", "9", "4.5", "nan", "inf"):
+            receipt = self.directory / "unused-limit.json"
+            with self.subTest(value=value), redirect_stderr(io.StringIO()), \
+                    patch.object(sys, "argv", [str(SCRIPT), "--receipt", str(receipt),
+                                               "--memory-limit-gib", value, "--", "test"]), \
+                    patch.object(self.guard, "cargo_command") as prepare:
+                with self.assertRaises(SystemExit) as error:
+                    self.guard.main()
+                self.assertEqual(error.exception.code, 2)
+                prepare.assert_not_called()
+                self.assertFalse(receipt.exists())
+
+    def test_canonical_qualification_rejects_a_selected_memory_limit(self):
+        # The qualification entrypoint must keep its fixed budget, even if equal.
+        for limit in ("4", "8"):
+            receipt = self.directory / "unused-qualification-limit.json"
+            with self.subTest(limit=limit), redirect_stderr(io.StringIO()), \
+                    patch.object(sys, "argv", [str(SCRIPT), "--receipt", str(receipt),
+                                               "--timeout", "10", "--memory-limit-gib", limit,
+                                               "--qualify-performance", "--", "a", "b", "c"]), \
+                    patch.object(self.guard, "qualification_command") as prepare:
+                with self.assertRaises(SystemExit) as error:
+                    self.guard.main()
+                self.assertEqual(error.exception.code, 2)
+                prepare.assert_not_called()
+                self.assertFalse(receipt.exists())
+
     def test_cleanup_failure_cannot_preserve_a_successful_exit(self):
         original = self.guard.stop_group
         def fail_after_cleanup(process):

@@ -27,6 +27,8 @@ state or provider acknowledgement.
 | Did all work caused by this action end? | `ActionTask::finish` | Cancelled or failed domain work also ends. Unrelated actions are not included. |
 | Is the feature structurally installed? | `Store::ready` | Business work and initial asynchronous tasks need not be complete. |
 | Has a selected state condition become false? | `Store::wait_while` | Transient states can coalesce. This is not task completion. |
+| Did this consumer receive a selected value? | `Observation::next` returns `Some(value)` | Other consumers can remain pending. Delivery does not imply processing. |
+| Did this one-shot callback return? | `Observation::on_change(...).await` returns `true` | Asynchronous work started by the callback can remain pending. This does not acknowledge other consumers. |
 | Did the Store close? | `Store::closed` | Closure can be abortive. This is not successful graceful shutdown. |
 | Did the actor process orderly shutdown? | `Store::shutdown` | Pending effects are cancelled, not drained to success. External cleanup is separate. |
 | Can I take the final owned state? | `Store::shutdown_into_state` | Extraction does not first finish every effect. Establish required completion before extraction. |
@@ -35,6 +37,12 @@ state or provider acknowledgement.
 different boundaries. The receipt yields a task after commit. The task's wait
 returns `()` when tracked work ends. Cloned tasks track the same lineage, not
 independent copies. Cancellation through any clone affects that shared lineage.
+
+Commit publishes selected state before its reply, but it does not wait for
+independent observation consumers. Their processing needs an explicit application
+acknowledgement when completion matters. Observations can coalesce intermediate
+values. See the [observation contract](runtime.md#observation) and
+[notification adapter rules](integration-boundaries.md#define-external-notification-delivery).
 
 The receipt remains fallible after successful admission. Store shutdown can win
 before commit. For `ScopedStore::try_send`, the child can also end before its
