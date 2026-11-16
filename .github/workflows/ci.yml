@@ -91,6 +91,11 @@ jobs:
                   cargo test --locked --manifest-path tests/performance-profile/Cargo.toml --features allocations --bin rca-performance-profile measurement:: -- --test-threads=1
                   cargo test --locked --manifest-path tests/performance-profile/Cargo.toml --bin controlled_cost --test controlled_cost_cli -- --test-threads=1
                   cargo test --locked --manifest-path tests/performance-profile/Cargo.toml --features allocations --bin controlled_cost --test controlled_cost_cli -- --test-threads=1
+                  cargo clippy --locked --manifest-path tests/performance-profile/Cargo.toml --features task-fold --bin task_fold_cost --test task_fold_cost_cli -- -D warnings
+                  cargo test --locked --manifest-path tests/performance-profile/Cargo.toml --features task-fold --bin task_fold_cost --test task_fold_cost_cli -- --test-threads=1
+                  cargo test --locked --manifest-path tests/performance-profile/Cargo.toml --features task-fold --test controlled_cost_cli -- --test-threads=1
+                  cargo clippy --locked --manifest-path tests/performance-profile/Cargo.toml --features task-fold-groups --bin task_fold_cost --test task_fold_cost_cli -- -D warnings
+                  cargo test --locked --manifest-path tests/performance-profile/Cargo.toml --features task-fold-groups --bin task_fold_cost --test task_fold_cost_cli -- --test-threads=1
 
             - name: Fetch consumer dependencies
               id: consumer_dependencies
@@ -577,6 +582,139 @@ jobs:
               if: matrix.tokio && matrix.native != false
               timeout-minutes: 10
               run: cargo test --locked -p rca-test --target ${{ matrix.target }} --test conformance_deterministic -- --test-threads=1
+
+            # This optional route builds public profiling tools; it does not run
+            # statistical benchmarks or upload private comparison sources.
+            - name: Validate optional profiling baseline
+              if: (matrix.target == 'aarch64-apple-darwin' || matrix.target == 'x86_64-unknown-linux-gnu') && vars.RCA_PROFILE_BASELINE != ''
+              shell: bash
+              env:
+                  PROFILE_BASELINE: ${{ vars.RCA_PROFILE_BASELINE }}
+              run: |
+                  [[ "$PROFILE_BASELINE" =~ ^[0-9a-f]{40}$ ]]
+                  df -h .
+                  available=$(df -Pk . | awk 'NR == 2 { print $4 }')
+                  [[ "$available" =~ ^[0-9]+$ ]]
+                  # Allow eight GiB for two isolated build trees and four GiB spare.
+                  (( available >= 12 * 1024 * 1024 ))
+
+            - name: Checkout exact profiling baseline
+              if: (matrix.target == 'aarch64-apple-darwin' || matrix.target == 'x86_64-unknown-linux-gnu') && vars.RCA_PROFILE_BASELINE != ''
+              uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+              with:
+                  ref: ${{ vars.RCA_PROFILE_BASELINE }}
+                  path: .ci-profile-baseline
+                  persist-credentials: false
+
+            - name: Restore isolated profiling dependency caches
+              if: (matrix.target == 'aarch64-apple-darwin' || matrix.target == 'x86_64-unknown-linux-gnu') && vars.RCA_PROFILE_BASELINE != ''
+              uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+              with:
+                  key: native-task-fold-${{ matrix.target }}
+                  cache-all-crates: false
+                  workspaces: |
+                      tests/performance-profile -> ../../../rca-native-profile-candidate
+                      .ci-profile-baseline/tests/performance-profile -> ../../../../rca-native-profile-baseline
+
+            - name: Build native task and fold profiling tools
+              id: native_profile
+              if: (matrix.target == 'aarch64-apple-darwin' || matrix.target == 'x86_64-unknown-linux-gnu') && vars.RCA_PROFILE_BASELINE != ''
+              timeout-minutes: 25
+              shell: bash
+              env:
+                  PROFILE_BASELINE: ${{ vars.RCA_PROFILE_BASELINE }}
+                  CARGO_BUILD_JOBS: 1
+                  CARGO_INCREMENTAL: 0
+                  RUSTUP_TOOLCHAIN: 1.100.0
+                  PROFILE_SOURCE_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+                  PROFILE_TARGET: ${{ matrix.target }}
+              run: |
+                  set -euo pipefail
+                  root="$PWD"
+                  baseline="$root/.ci-profile-baseline"
+                  build_parent="$(dirname "$root")"
+                  output="$RUNNER_TEMP/task-fold-tools"
+                  mkdir "$output"
+                  test "$(git -C "$baseline" rev-parse HEAD)" = "$PROFILE_BASELINE"
+                  git diff --exit-code HEAD
+                  git -C "$baseline" diff --exit-code HEAD
+                  inputs=(tests/performance-profile rca-core/tests/named_operation_allocations.rs rca-core/tests/fold_costs.rs rca-core/tests/fold/local_driver.rs)
+                  git archive HEAD -- "${inputs[@]}" | tar -x -C "$baseline"
+                  git ls-files -z -- "${inputs[@]}" | xargs -0 shasum -a 256 > "$output/harness.sha256"
+                  (cd "$baseline" && shasum -a 256 -c "$output/harness.sha256") > "$output/baseline-harness-check.txt"
+                  production_check() {
+                      git -C "$baseline" diff --exit-code HEAD -- . ':!tests/performance-profile' ':!rca-core/tests/named_operation_allocations.rs' ':!rca-core/tests/fold_costs.rs' ':!rca-core/tests/fold/local_driver.rs'
+                  }
+                  production_check
+                  git rev-parse HEAD 'HEAD^{tree}' > "$output/candidate-git.txt"
+                  printf '%s\n' "$PROFILE_SOURCE_HEAD" > "$output/candidate-source-head.txt"
+                  git -C "$baseline" rev-parse HEAD 'HEAD^{tree}' > "$output/baseline-git.txt"
+                  {
+                      rustc --version --verbose
+                      cargo --version --verbose
+                      uname -a
+                      if [[ "$RUNNER_OS" == macOS ]]; then
+                          sw_vers
+                          xcrun --show-sdk-version
+                          xcrun clang --version
+                      else
+                          ldd --version
+                          cc --version
+                      fi
+                      printf 'PROFILE_TARGET=%s\n' "$PROFILE_TARGET"
+                      printf 'CARGO_BUILD_JOBS=%s\nCARGO_INCREMENTAL=%s\nRUSTFLAGS=%s\n' "$CARGO_BUILD_JOBS" "$CARGO_INCREMENTAL" "${RUSTFLAGS-}"
+                  } > "$output/tools.txt"
+                  run_logged() {
+                      local label="$1"
+                      shift
+                      printf '%q ' "$@" > "$output/$label.command"
+                      printf '\n' >> "$output/$label.command"
+                      "$@" > "$output/$label.stdout" 2> "$output/$label.stderr" || {
+                          cat "$output/$label.stdout" "$output/$label.stderr"
+                          return 1
+                      }
+                  }
+                  # Hosted runners have their own memory allocation and timeout.
+                  # Local compilation continues to require the local watchdog.
+                  for role in baseline candidate; do
+                      source="$root"
+                      if [[ "$role" == baseline ]]; then source="$baseline"; fi
+                      export CARGO_TARGET_DIR="$build_parent/rca-native-profile-$role"
+                      printf '%s\n' "$CARGO_TARGET_DIR" > "$output/$role-target.txt"
+                      cd "$source"
+                      run_logged "$role-owned-clean" cargo clean --manifest-path tests/performance-profile/Cargo.toml --package rca-performance-profile --package rca-core --package rca-tokio
+                      run_logged "$role-cli" cargo test --locked --release --manifest-path tests/performance-profile/Cargo.toml --target "$PROFILE_TARGET" --features task-fold --bin task_fold_cost --test task_fold_cost_cli -- --test-threads=1
+                      if [[ "$RUNNER_OS" == macOS ]]; then
+                          run_logged "$role-task-allocations" cargo test --locked --release -p rca-core --features allocation-measurement,local --test named_operation_allocations -- typed_task_zero_and_one_name_costs --nocapture
+                          run_logged "$role-fold-allocations" cargo test --locked --release -p rca-core --features allocation-measurement,local --test fold_costs -- --nocapture
+                      fi
+                      run_logged "$role-build" cargo build --locked --release --manifest-path tests/performance-profile/Cargo.toml --target "$PROFILE_TARGET" --features task-fold --bin task_fold_cost
+                      cp "$CARGO_TARGET_DIR/$PROFILE_TARGET/release/task_fold_cost" "$output/$role-task-fold"
+                  done
+                  cd "$root"
+                  export CARGO_TARGET_DIR="$build_parent/rca-native-profile-candidate"
+                  run_logged candidate-groups-cli cargo test --locked --release --manifest-path tests/performance-profile/Cargo.toml --target "$PROFILE_TARGET" --features task-fold-groups --bin task_fold_cost --test task_fold_cost_cli -- --test-threads=1
+                  if [[ "$RUNNER_OS" == macOS ]]; then
+                      run_logged candidate-nested-allocations cargo test --locked --release -p rca-core --features allocation-measurement,local --test nested_task_allocations -- --nocapture
+                  fi
+                  run_logged candidate-groups-build cargo build --locked --release --manifest-path tests/performance-profile/Cargo.toml --target "$PROFILE_TARGET" --features task-fold-groups --bin task_fold_cost
+                  cp "$CARGO_TARGET_DIR/$PROFILE_TARGET/release/task_fold_cost" "$output/candidate-task-fold-groups"
+                  production_check
+                  git diff --exit-code HEAD
+                  cd "$output"
+                  shasum -a 256 baseline-task-fold candidate-task-fold candidate-task-fold-groups > binaries.sha256
+                  wc -c baseline-task-fold candidate-task-fold candidate-task-fold-groups > binary-sizes.txt
+                  file baseline-task-fold candidate-task-fold candidate-task-fold-groups > binary-formats.txt
+                  printf 'All selected checks passed; allocation assays run only on macOS. No statistical benchmark ran.\n' > complete.txt
+
+            - name: Retain native task and fold tools
+              if: always() && (matrix.target == 'aarch64-apple-darwin' || matrix.target == 'x86_64-unknown-linux-gnu') && vars.RCA_PROFILE_BASELINE != '' && steps.native_profile.outcome != 'skipped'
+              uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+              with:
+                  name: native-task-fold-${{ matrix.target }}-${{ github.run_id }}-${{ github.run_attempt }}
+                  path: ${{ runner.temp }}/task-fold-tools/
+                  if-no-files-found: error
+                  retention-days: 7
 
             - name: Verify native compiler diagnostics
               if: matrix.native != false
