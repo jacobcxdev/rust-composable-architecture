@@ -775,15 +775,17 @@ jobs:
 
     task-fold-instructions:
         name: Optional Task and fold instruction diagnostic
-        if: vars.RCA_TASK_FOLD_PROFILE_RUN != '' && vars.RCA_TASK_FOLD_PROFILE_HEAD != ''
+        needs: targets
+        if: vars.RCA_PROFILE_BASELINE != '' && vars.RCA_SKIP_PROFILE_BUILD != 'true'
         runs-on: ubuntu-24.04
         timeout-minutes: 35
         permissions:
             contents: read
             actions: read
         env:
-            PROFILE_RUN: ${{ vars.RCA_TASK_FOLD_PROFILE_RUN }}
-            PROFILE_HEAD: ${{ vars.RCA_TASK_FOLD_PROFILE_HEAD }}
+            PROFILE_RUN: ${{ github.run_id }}
+            PROFILE_ATTEMPT: ${{ github.run_attempt }}
+            PROFILE_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
             PROFILE_BASELINE: ${{ vars.RCA_PROFILE_BASELINE }}
             GH_TOKEN: ${{ github.token }}
             GH_REPO: ${{ github.repository }}
@@ -800,6 +802,7 @@ jobs:
               run: |
                   set -euo pipefail
                   [[ "$PROFILE_RUN" =~ ^[0-9]+$ ]]
+                  [[ "$PROFILE_ATTEMPT" =~ ^[1-9][0-9]*$ ]]
                   [[ "$PROFILE_HEAD" =~ ^[0-9a-f]{40}$ ]]
                   [[ "$PROFILE_BASELINE" =~ ^[0-9a-f]{40}$ ]]
                   mkdir -p "$RUNNER_TEMP/task-fold-instructions/build"
@@ -807,9 +810,23 @@ jobs:
                   gh api "repos/$GH_REPO/actions/runs/$PROFILE_RUN" > build-run.json
                   jq -e --arg head "$PROFILE_HEAD" '.head_sha == $head and .path == ".github/workflows/ci.yml"' build-run.json
                   gh api "repos/$GH_REPO/contents/.github/workflows/ci.yml?ref=$PROFILE_HEAD" --jq '{path,sha}' > workflow-source.json
-                  artifact="native-task-fold-x86_64-unknown-linux-gnu-$PROFILE_RUN-1"
-                  gh api "repos/$GH_REPO/actions/runs/$PROFILE_RUN/artifacts" > artifacts.json
-                  jq -e --arg name "$artifact" '[.artifacts[] | select(.name == $name and .expired == false)] | length == 1' artifacts.json
+                  gh api --paginate --slurp "repos/$GH_REPO/actions/runs/$PROFILE_RUN/artifacts" \
+                      | jq '{artifacts: [.[].artifacts[]]}' > artifacts.json
+                  jq -e --arg prefix "native-task-fold-x86_64-unknown-linux-gnu-$PROFILE_RUN-" \
+                      --argjson attempt "$PROFILE_ATTEMPT" '
+                      .artifacts as $all
+                      | [$all[] | select(.expired == false and (.name | startswith($prefix)))
+                          | (.name | ltrimstr($prefix)) as $suffix
+                          | select($suffix | test("^[1-9][0-9]*$"))
+                          | select(($suffix | tonumber) <= $attempt)
+                          | {attempt: ($suffix | tonumber), artifact: .}]
+                      | sort_by(.attempt) | last.artifact
+                      | select(. != null) as $selected
+                      | select([$all[] | select(.name == $selected.name)] | length == 1)
+                      | select($selected.id | type == "number" and . > 0 and floor == .)
+                      | select([$all[] | select(.id == $selected.id)] | length == 1)
+                      | $selected' artifacts.json > selected-artifact.json
+                  artifact=$(jq -er '.name' selected-artifact.json)
                   gh run download "$PROFILE_RUN" --repo "$GH_REPO" --name "$artifact" --dir build
                   chmod u+x build/baseline-task-fold-controlled build/candidate-task-fold-controlled
 
