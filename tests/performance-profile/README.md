@@ -1,5 +1,56 @@
 # Exact-work performance harness
 
+## Native Task and fold costs
+
+The opt-in `task_fold_cost` binary runs finite Shared and Local workloads with
+the system allocator. Build it with `--features task-fold --bin task_fold_cost`.
+This feature enables production Core Local support without the test runtime.
+The existing default executable and its features remain unchanged.
+
+Run `task_fold_cost WORKLOAD SIZE ITERATIONS 1`. Append `-shared` or `-local`
+to each name below. ITERATIONS must be positive. Counts must fit Int64.
+
+| Name | SIZE | Work per iteration |
+| --- | --- | --- |
+| `task-unnamed` | 1 | One typed body, one yield, one committed update and causal completion |
+| `task-named` | 1, 2 or 3 names | The same body with the requested operation names |
+| `fold-root-empty`, `fold-subtree-empty` | 1 sentinel | One read of three empty mounted groups |
+| `fold-root`, `fold-subtree` | 1, 3, 16, 256 or 1024 rows per group | One dense read |
+| `fold-root-sparse`, `fold-subtree-sparse` | The same finite widths | One read with contributions only at IDs divisible by 16 |
+| `fold-root-churn`, `fold-subtree-churn` | The same finite widths | Remove row 0, read, reinsert row 0, read |
+
+The three groups contain row values 1, 2 and 3. Subtree reads select only the
+middle group. Each read checks its sum and exact contribution count.
+Churn changes only the middle group. Tasks check entry, completion and committed
+state counts. Weak owners check physical release after shutdown.
+
+The binary requires a controller. It emits `READY`, then waits for `GO`.
+After the batch and host disposal, it emits `DONE` and waits for `REPORT`.
+It then emits one `rca-task-fold-cost-v1` JSON record and waits for `EXIT`.
+The controller must check the final exit status. EOF or a wrong command fails
+the process. Argument and feature errors produce no `READY` line.
+
+The non-inlined `profile_task_fold_work` boundary contains the complete batch.
+It includes construction, repeated work, assertions, shutdown and host disposal.
+JSON encoding stays outside the measured interval. The host uses Tokio's
+current-thread runtime. Local work uses an owned LocalSet on that thread.
+These are native batch costs, not isolated poll costs or deterministic
+instruction counts. The separate allocation assays retain their phase-specific
+scope. This binary rejects the other profiling features, including DHAT.
+
+For common-API comparisons, use `task-fold` on both product revisions.
+The one-name path uses `Task::run_named`. Two or three names require the separate
+`task-fold-groups` feature and the newer `Task::named` API. Without that feature,
+nested rows fail before host construction. Compare added-depth distributions
+within the same feature-enabled image. Do not invent baseline parity for an
+API that the baseline lacks.
+
+Use the same harness source, compiler, feature graph and release profile for
+paired product builds. Keep separate target directories and executable hashes.
+Retain all samples and same-image controls. Whole-image size changes do not
+establish per-method code-size costs. No runtime-speed claim follows from a
+successful fixture or instruction count alone.
+
 ## Controlled Store costs
 
 The separate `controlled_cost` binary profiles nine fixed Store schedules with

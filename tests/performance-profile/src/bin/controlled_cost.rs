@@ -71,7 +71,8 @@ impl Config {
             feature = "diagnostics",
             feature = "allocations",
             feature = "persistence",
-            feature = "local"
+            feature = "local",
+            feature = "task-fold"
         )) {
             return Err("controlled costs require the default production feature graph");
         }

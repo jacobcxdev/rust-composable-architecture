@@ -21,6 +21,8 @@ local = ["deterministic", "rca-core/local", "rca-test/local"]
 diagnostics = ["rca-core/diagnostics"]
 allocations = ["dep:dhat", "dep:serde_json"]
 persistence = ["dep:rca-persistence"]
+task-fold = ["rca-core/local"]
+task-fold-groups = ["task-fold"]
 
 [dependencies]
 async-channel = "=2.5.0"
@@ -36,6 +38,11 @@ serde_json = { version = "=1.0.151", optional = true }
 
 [dev-dependencies]
 serde_json = "=1.0.151"
+
+[[bin]]
+name = "task_fold_cost"
+path = "src/bin/task_fold_cost.rs"
+required-features = ["task-fold"]
 
 [profile.release]
 opt-level = 3

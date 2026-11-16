@@ -19,7 +19,8 @@ fn output(args: &[&str]) -> std::process::Output {
     feature = "diagnostics",
     feature = "allocations",
     feature = "persistence",
-    feature = "local"
+    feature = "local",
+    feature = "task-fold"
 )))]
 /// Checks the production graph independently of feature-rejection cases.
 mod production_graph {
@@ -186,7 +187,8 @@ fn invalid_arguments_never_emit_a_success_record() {
     feature = "diagnostics",
     feature = "allocations",
     feature = "persistence",
-    feature = "local"
+    feature = "local",
+    feature = "task-fold"
 ))]
 #[test]
 fn nonproduction_feature_graph_fails_before_work() {
