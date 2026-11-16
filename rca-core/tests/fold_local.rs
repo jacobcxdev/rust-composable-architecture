@@ -501,6 +501,135 @@ fn local_transform_only_group_preserves_its_first_descendant() {
     assert_eq!(Rc::strong_count(&calls), 1);
 }
 
+/// Stops the inner group without stopping its transformed value in the parent.
+struct StopAtTwo;
+
+impl FoldKey for StopAtTwo {
+    type Value = Owned;
+
+    fn identity() -> Owned {
+        Owned(Rc::new(Cell::new(0)))
+    }
+
+    fn reduce(accumulator: Owned, next: Owned) -> ControlFlow<Owned, Owned> {
+        let next = next.0.get();
+        accumulator.0.set(accumulator.0.get() + next);
+        if next == 2 {
+            ControlFlow::Break(accumulator)
+        } else {
+            ControlFlow::Continue(accumulator)
+        }
+    }
+}
+
+/// Selects the parent through independent declarations for the boundary fixture.
+fn boundary_parent() -> OptionalMount<Root, ParentFeature, ()> {
+    OptionalMount::new(
+        |root| root.parent.as_ref(),
+        |root| root.parent.as_mut(),
+        |root| {
+            root.parent.as_ref().map(|_| MountIdentity {
+                key: (),
+                replacement: 0,
+                configuration: 0,
+            })
+        },
+        |_| ParentFeature,
+    )
+}
+
+/// Selects the leaf whose contribution breaks only its transformed group.
+fn boundary_leaf() -> OptionalMount<Parent, LeafFeature, ()> {
+    OptionalMount::new(
+        |parent| parent.leaf.as_ref(),
+        |parent| parent.leaf.as_mut(),
+        |parent| {
+            parent.leaf.as_ref().map(|_| MountIdentity {
+                key: (),
+                replacement: parent.replacement,
+                configuration: 0,
+            })
+        },
+        |_| LeafFeature,
+    )
+}
+
+#[test]
+fn local_captured_nested_break_drains_transforms_before_outside_sibling() {
+    let driver = Driver::default();
+    let fold = Fold::<Root, StopAtTwo>::new();
+    let declared = fold.clone();
+    let trace = Rc::new(RefCell::new(Vec::new()));
+    let selected_trace = Rc::clone(&trace);
+    let (builder, site) = Store::builder(
+        Root {
+            parent: Some(Parent {
+                leaf: Some(Rc::new(Cell::new(2))),
+                replacement: 0,
+            }),
+        },
+        RootFeature,
+        Runtime::new(driver.clone()),
+    )
+    .mount_with_children(boundary_parent(), move |_, children| {
+        let trace = Rc::clone(&selected_trace);
+        children.transform_fold(&declared, move |value| {
+            value.0.set(value.0.get() * 10);
+            trace.borrow_mut().push(value.0.get());
+            value
+        });
+        let declared = declared.clone();
+        let selected_trace = Rc::clone(&selected_trace);
+        children.optional_with_children(boundary_leaf(), move |_, children| {
+            let contribution_trace = Rc::clone(&selected_trace);
+            let transform_trace = Rc::clone(&selected_trace);
+            children.contribute_transformed(
+                &declared,
+                move |value| {
+                    contribution_trace.borrow_mut().push(value.get());
+                    Owned(Rc::new(Cell::new(value.get())))
+                },
+                move |value| {
+                    value.0.set(value.0.get() + 1);
+                    transform_trace.borrow_mut().push(value.0.get());
+                    value
+                },
+            );
+        });
+    });
+    let outside_calls = Rc::new(Cell::new(0));
+    let selected_calls = Rc::clone(&outside_calls);
+    let outside_trace = Rc::clone(&trace);
+    let outside_fold = fold.clone();
+    let (builder, _) = builder.mount_with_children(boundary_parent(), move |_, children| {
+        let calls = Rc::clone(&selected_calls);
+        let trace = Rc::clone(&outside_trace);
+        children.contribute(&outside_fold, move |_| {
+            calls.set(calls.get() + 1);
+            trace.borrow_mut().push(4);
+            Owned(Rc::new(Cell::new(4)))
+        });
+    });
+    let store = builder.build().unwrap();
+    driver.finish(store.ready()).unwrap();
+    let view = driver
+        .finish(store.acquire_fold(&fold, &site))
+        .unwrap()
+        .unwrap();
+    assert!(trace.borrow().is_empty(), "acquisition runs no callbacks");
+    assert_eq!(driver.finish(view.read()).unwrap().0.get(), 30);
+    assert_eq!(*trace.borrow(), [2, 3, 30]);
+    assert_eq!(outside_calls.get(), 0);
+
+    trace.borrow_mut().clear();
+    assert_eq!(driver.finish(store.fold(&fold)).unwrap().0.get(), 34);
+    assert_eq!(*trace.borrow(), [2, 3, 30, 4]);
+    assert_eq!(outside_calls.get(), 1);
+    driver.finish(store.shutdown()).unwrap();
+    assert_eq!(Rc::strong_count(&trace), 1);
+    assert_eq!(Rc::strong_count(&outside_calls), 1);
+}
+
 #[test]
 fn duplicate_local_channel_drains_rc_captures_without_evaluating_them() {
     /// Counts release of each rejected or installed contribution capture.

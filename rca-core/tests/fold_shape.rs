@@ -47,7 +47,7 @@ struct Node {
 /// Makes the complete tree optional at the root mount.
 type Tree = Option<Node>;
 
-/// Declares each node once and records only actual contribution callbacks.
+/// Declares each node and records contribution and transform callbacks in order.
 ///
 /// Mode zero has no transforms. Mode one adds 100 at node one and multiplies
 /// node two by ten. Mode two multiplies both those nodes by ten.
@@ -67,13 +67,17 @@ fn declare<K: FoldKey<Value = Owned>>(
         Owned::new(node.value)
     };
     if transforms == 1 && node.value == 1 {
-        children.contribute_transformed(fold, value, |value| {
+        let trace = Arc::clone(trace);
+        children.contribute_transformed(fold, value, move |value| {
             value.0.set(value.0.get() + 100);
+            trace.lock().unwrap().push(value.0.get());
             value
         });
     } else if transforms != 0 && (node.value == 2 || node.value == 1) {
-        children.contribute_transformed(fold, value, |value| {
+        let trace = Arc::clone(trace);
+        children.contribute_transformed(fold, value, move |value| {
             value.0.set(value.0.get() * 10);
+            trace.lock().unwrap().push(value.0.get());
             value
         });
     } else {
@@ -247,7 +251,7 @@ fn nested_break_finishes_each_transform_once_and_skips_only_its_group() {
         .into_iter()
         .collect(),
     };
-    let (builder, _) = Store::builder(
+    let (builder, site) = Store::builder(
         Some(tree),
         Noop::<Tree>(PhantomData),
         Runtime::new(driver.clone()),
@@ -258,17 +262,30 @@ fn nested_break_finishes_each_transform_once_and_skips_only_its_group() {
     let last = declared_sibling();
     let last_fold = fold.clone();
     let last_trace = Arc::clone(&trace);
+    let last_calls = Arc::new(AtomicUsize::new(0));
+    let selected_calls = Arc::clone(&last_calls);
     let (builder, _) = builder.mount_with_children(last, move |_, children| {
         let trace = Arc::clone(&last_trace);
+        let calls = Arc::clone(&selected_calls);
         children.contribute(&last_fold, move |_| {
+            calls.fetch_add(1, Ordering::SeqCst);
             trace.lock().unwrap().push(4);
             Owned::new(4)
         });
     });
     let store = builder.build().unwrap();
     driver.finish(store.ready()).unwrap();
+    let view = driver
+        .finish(store.acquire_fold(&fold, &site))
+        .unwrap()
+        .unwrap();
+    assert_eq!(driver.finish(view.read()).unwrap().0.get(), 171);
+    assert_eq!(*trace.lock().unwrap(), [1, 2, 5, 70, 171]);
+    assert_eq!(last_calls.load(Ordering::SeqCst), 0);
+    trace.lock().unwrap().clear();
     assert_eq!(driver.finish(store.fold(&fold)).unwrap().0.get(), 175);
-    assert_eq!(*trace.lock().unwrap(), [1, 2, 5, 4]);
+    assert_eq!(*trace.lock().unwrap(), [1, 2, 5, 70, 171, 4]);
+    assert_eq!(last_calls.load(Ordering::SeqCst), 1);
     drop(store);
     driver.turn();
 }

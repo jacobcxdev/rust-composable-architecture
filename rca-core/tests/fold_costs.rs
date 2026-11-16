@@ -124,6 +124,13 @@ macro_rules! public_case {
             fn update(&mut self, _: &mut Rows, _: &(), _: &mut FeatureContext<'_, Rows, ()>) {}
         }
 
+        /// Sums repeated reads while keeping every returned value observable.
+        fn read_total(reads: usize, mut read: impl FnMut() -> Owned) -> usize {
+            (0..reads)
+                .map(|_| std::hint::black_box(read()).0.get())
+                .sum()
+        }
+
         /// Measures sparse root reads and repeated reads of the middle subtree.
         ///
         /// Literal fixture sums detect traversal outside the selected subtree.
@@ -213,16 +220,12 @@ macro_rules! public_case {
             assert_eq!(calls.swap(0, Ordering::Relaxed), contributors);
 
             let (sum, root_cost) = measure(|| {
-                (0..READS)
-                    .map(|_| std::hint::black_box(driver.finish(store.fold(&fold)).unwrap()).0.get())
-                    .sum::<usize>()
+                read_total(READS, || driver.finish(store.fold(&fold)).unwrap())
             });
             assert_eq!(sum, root_sum * READS);
             assert_eq!(calls.swap(0, Ordering::Relaxed), contributors * 3 * READS);
             let (sum, subtree_cost) = measure(|| {
-                (0..READS)
-                    .map(|_| std::hint::black_box(driver.finish(view.read()).unwrap()).0.get())
-                    .sum::<usize>()
+                read_total(READS, || driver.finish(view.read()).unwrap())
             });
             assert_eq!(sum, subtree_sum * READS);
             assert_eq!(calls.swap(0, Ordering::Relaxed), contributors * READS);
