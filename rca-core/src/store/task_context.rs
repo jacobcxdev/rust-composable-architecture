@@ -23,24 +23,24 @@ use crate::effect::operation::{OperationDeclaration, OperationPolicy};
 
 /// Keeps one name inline and allocates a list only for nested names.
 pub(crate) enum TaskDeclarations {
+    /// Registers unnamed work without constructing or dropping a list.
+    None,
     /// Registers one name without allocating a declaration list.
     One(OperationDeclaration),
-    /// Stores names from inner to outer; an empty list means unnamed work.
+    /// Stores two or more names from inner to outer.
     List(Vec<OperationDeclaration>),
 }
 
 impl TaskDeclarations {
     /// Adds an outer name without changing previously declared policies.
+    #[inline]
     fn named(self, declaration: OperationDeclaration) -> Self {
         match self {
+            Self::None => Self::One(declaration),
             Self::One(inner) => Self::List(vec![inner, declaration]),
             Self::List(mut declarations) => {
-                if declarations.is_empty() {
-                    Self::One(declaration)
-                } else {
-                    declarations.push(declaration);
-                    Self::List(declarations)
-                }
+                declarations.push(declaration);
+                Self::List(declarations)
             }
         }
     }
@@ -69,7 +69,7 @@ impl<S: 'static, A: 'static> Task<S, A> {
     {
         Self {
             run: Box::new(move |context| Box::pin(async move { run(context).await })),
-            declarations: TaskDeclarations::List(Vec::new()),
+            declarations: TaskDeclarations::None,
         }
     }
 
@@ -1642,7 +1642,7 @@ pub(super) mod local {
         {
             Self {
                 run: Box::new(move |context| Box::pin(async move { run(context).await })),
-                declarations: super::TaskDeclarations::List(Vec::new()),
+                declarations: super::TaskDeclarations::None,
             }
         }
 

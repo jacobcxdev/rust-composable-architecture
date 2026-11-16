@@ -887,33 +887,37 @@ pub(super) fn register_root_task<S: 'static, A: 'static, C: Execution<S, A>>(
         scope: parts.scopes.root(),
         ..origin.reborrow()
     };
-    parts.with_task_operations(declarations, origin, move |parts, origin| {
-        let lineage = Arc::clone(
-            origin
-                .lineage
-                .get_or_insert_with(|| LineageState::new(Arc::downgrade(parts.control))),
-        );
-        let scope = origin.scope;
-        let prepared = parts.registry.prepare_with_operations(
-            scope,
-            Arc::clone(&lineage),
-            origin.generations,
-            origin.operations,
-        );
-        let provenance = Provenance::Effect {
-            scope,
-            lineage,
-            task: prepared.sender_token(),
-            generations: prepared.generation_tokens(),
-            operations: prepared.operation_ancestry(),
-        };
-        let context = C::context(
-            Weak::clone(parts.ingress),
-            scope,
-            provenance,
-            parts.scopes.authority(scope),
-        );
-        launches.push(C::register_task(parts.registry, prepared, task, context));
+    parts.with_task_operations(declarations, origin, {
+        // Keep the common registration path in the caller, not a second frame.
+        #[inline(always)]
+        move |parts, origin| {
+            let lineage = Arc::clone(
+                origin
+                    .lineage
+                    .get_or_insert_with(|| LineageState::new(Arc::downgrade(parts.control))),
+            );
+            let scope = origin.scope;
+            let prepared = parts.registry.prepare_with_operations(
+                scope,
+                Arc::clone(&lineage),
+                origin.generations,
+                origin.operations,
+            );
+            let provenance = Provenance::Effect {
+                scope,
+                lineage,
+                task: prepared.sender_token(),
+                generations: prepared.generation_tokens(),
+                operations: prepared.operation_ancestry(),
+            };
+            let context = C::context(
+                Weak::clone(parts.ingress),
+                scope,
+                provenance,
+                parts.scopes.authority(scope),
+            );
+            launches.push(C::register_task(parts.registry, prepared, task, context));
+        }
     });
 }
 
@@ -993,13 +997,11 @@ impl<State: 'static, Action: 'static, C: Execution<State, Action>>
         register: impl FnOnce(&mut Self, WorkOrigin<'_>),
     ) {
         let declaration = match declarations {
+            TaskDeclarations::None => None,
             TaskDeclarations::One(declaration) => Some(declaration),
             TaskDeclarations::List(declarations) => {
-                if !declarations.is_empty() {
-                    self.with_task_operation_list(declarations, origin, register);
-                    return;
-                }
-                None
+                self.with_task_operation_list(declarations, origin, register);
+                return;
             }
         };
 

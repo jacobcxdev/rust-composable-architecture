@@ -1893,9 +1893,9 @@ where
                     let (task, declarations) = task.into_parts();
                     let route = &route;
                     let launches = &mut *launches;
-                    parts.with_task_operations(
-                        declarations,
-                        origin.reborrow(),
+                    parts.with_task_operations(declarations, origin.reborrow(), {
+                        // Keep single-task registration inside the common path.
+                        #[inline(always)]
                         move |parts, origin| {
                             let lineage = Arc::clone(origin.lineage.get_or_insert_with(|| {
                                 LineageState::new(Arc::downgrade(parts.control))
@@ -1919,8 +1919,8 @@ where
                                     provenance,
                                 }));
                             launches.push(parts.registry.register(prepared, task(context)));
-                        },
-                    );
+                        }
+                    });
                 }
             }
         }
@@ -2965,9 +2965,9 @@ where
                     let (task, declarations) = task.into_parts();
                     let route = &route;
                     let launches = &mut *launches;
-                    parts.with_task_operations(
-                        declarations,
-                        origin.reborrow(),
+                    parts.with_task_operations(declarations, origin.reborrow(), {
+                        // Keep single-task registration inside the common path.
+                        #[inline(always)]
                         move |parts, origin| {
                             let lineage = Arc::clone(origin.lineage.get_or_insert_with(|| {
                                 LineageState::new(Arc::downgrade(parts.control))
@@ -2996,8 +2996,8 @@ where
                                     .registry
                                     .register_local(prepared, move |_| task(context)),
                             );
-                        },
-                    );
+                        }
+                    });
                 }
             }
         }
