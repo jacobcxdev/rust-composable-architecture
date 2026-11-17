@@ -20,7 +20,15 @@ class RankProductDecisionTests(unittest.TestCase):
         temp = tempfile.TemporaryDirectory()
         self.addCleanup(temp.cleanup)
         self.directory = Path(temp.name).resolve()
-        runner.write_json(self.directory / "capture.json", {"experiment": runner.rank_method_identity()})
+        # Product verdict tests isolate the source verifier, covered separately with
+        # altered archive bytes and independently pinned controller/subject commits.
+        self.enterContext(patch.object(runner, "verify_rank_git_sources", return_value={
+            "controller_revision": "c"*40, "measured_subject_revision": "b"*40}))
+        sources = {"controller": {"revision": "c"*40}, "measured_subject": {"revision": "b"*40},
+                   "control": {"revision": runner.evidence.RELEASE_BASELINE_REVISION}}
+        runner.write_json(self.directory / "capture.json", {"experiment": runner.rank_method_identity(), **sources})
+        runner.write_json(self.directory / "source-identities-after.json", {
+            "capture_sha256": runner.evidence._sha256(self.directory / "capture.json"), **sources})
         self.diagnostics = {}
         self.observations = {}
 
@@ -100,3 +108,12 @@ class RankProductDecisionTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "unexpected products"):
             runner.experimental_composition_result(self.directory, timing, self.observations, self.diagnostics)
         self.assert_no_canonical_result()
+
+    def test_rejection_requires_the_same_real_subject_after_measurement(self):
+        import json
+        timing = self.seal_timing("fail")
+        path = self.directory / "source-identities-after.json"
+        after = json.loads(path.read_bytes())
+        path.write_text(json.dumps({**after, "measured_subject": after["controller"]}))
+        with self.assertRaisesRegex(ValueError, "changed after"):
+            runner.experimental_composition_result(self.directory, timing, {}, {})

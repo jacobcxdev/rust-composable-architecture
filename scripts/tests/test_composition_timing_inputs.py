@@ -66,6 +66,63 @@ class TimingInputTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             timing._identities(self.dir, self.protocol)
 
+    def test_v3_preserves_the_product_and_controller_as_separate_full_identities(self):
+        keys = {"Cargo.lock", "bench.rs"}
+        def identity(root, rev):
+            return {"root":"C:\\src\\"+root, "revision":rev, "tree":"a"*40,
+                    "hashes":{k:"b"*64 for k in keys}}
+        controller = identity("controller", "c"*40)
+        product = identity("measured", "e"*40)
+        reference = identity("reference", evidence.RELEASE_BASELINE_REVISION)
+        manifest = {"experiment":{"method":"finite-rank-v3"}, "controller": controller, "measured_subject":product,
+                    "control":reference}
+        meta = {"controller_revision":controller["revision"], "measured_subject_revision":product["revision"]}
+        for mode in timing.MODES:
+            subject = product if mode == "candidate-reference" else reference
+            inputs = {"controller":controller, "measured_subject":product, "subject":subject, "control":reference}
+            self.assertEqual(timing._source_bindings(manifest, inputs, meta, mode, keys), meta)
+            for changed in ({k:v for k,v in manifest.items() if k != "control"}, {**manifest, "control":product}):
+                with self.assertRaises(ValueError):
+                    timing._source_bindings(changed, inputs, meta, mode, keys)
+            for bad in ({k:v for k,v in inputs.items() if k!="measured_subject"},
+                        {**inputs,"measured_subject":controller}, {**inputs,"subject":controller},
+                        {**inputs,"control":product}):
+                with self.assertRaises(ValueError):
+                    timing._source_bindings(manifest, bad, meta, mode, keys)
+            for alias in ("controller_revision", "measured_subject_revision"):
+                with self.assertRaises(ValueError):
+                    timing._source_bindings(manifest, inputs, {**meta, alias:"1"*40}, mode, keys)
+        for bad in ({**product,"tree":0}, {**product,"root":"C:relative"},
+                    {**product,"root":"C:\\src\\..\\other"}, {**product,"hashes":{"Cargo.lock":"b"*64}},
+                    {**product,"extra":"x"}, {**product,"hashes":dict.fromkeys(keys,"wrong")}):
+            with self.subTest(product=bad), self.assertRaises(ValueError):
+                timing._source_bindings({**manifest,"measured_subject":bad},
+                    {**inputs,"measured_subject":bad,"subject":bad}, meta, "candidate-reference", keys)
+        inputs = {"controller":controller, "measured_subject":controller,"subject":controller,"control":reference}
+        default_meta = {**meta,"measured_subject_revision":controller["revision"]}
+        self.assertEqual(timing._source_bindings({**manifest,"measured_subject":controller}, inputs,
+                         default_meta, "candidate-reference", keys), default_meta)
+        for old in ({}, {"experiment":{"method":"finite-rank-v2"}}):
+            old_manifest = {**old, "controller":controller}
+            old_inputs = {k:v for k,v in inputs.items() if k!="measured_subject"}
+            self.assertEqual(timing._source_bindings(old_manifest, old_inputs, {}, "candidate-reference", keys), {})
+            with self.assertRaises(ValueError):
+                timing._source_bindings(old_manifest, {**old_inputs,"subject":product}, {}, "candidate-reference", keys)
+            with self.assertRaises(ValueError):
+                timing._source_bindings(old_manifest, inputs, {}, "candidate-reference", keys)
+
+    def test_v3_staging_checks_both_revisions_and_original_product_hashes(self):
+        tags = {"controller_revision":"c"*40,"measured_subject_revision":"f"*40}
+        recorded = {"hashes":{"Cargo.lock":"d"*64,"consumer.rs":"e"*64}}
+        staged = {**tags, "original":dict(recorded["hashes"])}
+        timing._check_staged_bindings(staged, recorded, tags)
+        for bad in ({**staged,"controller_revision":"a"*40}, {**staged,"measured_subject_revision":None},
+                    {**staged,"original":{"Cargo.lock":"d"*64}}):
+            with self.assertRaises(ValueError):
+                timing._check_staged_bindings(bad, recorded, tags)
+        with self.assertRaises(ValueError):
+            timing._check_staged_bindings(staged, recorded, {})
+
     def test_changed_collector_or_cargo_digest_cannot_borrow_a_capture_identity(self):
         root = PureWindowsPath("C:/rca")
         cargo = {"path": "C:\\rust\\cargo.exe", "sha256": "f"*64}
@@ -98,35 +155,37 @@ class TimingInputTests(unittest.TestCase):
                 timing._identities(self.dir, self.protocol)
 
     def test_runtime_launch_uses_only_its_declared_window(self):
-        job = next(j for j in timing._jobs(self.protocol, self.counts) if j[3] == "runtime/direct/1")
-        _, mode, role, _, rel = job
-        source = PureWindowsPath("C:/scratch") / mode / f"source-{role}"
-        image = source.parent / role / "composition.exe"
-        identities = {(mode, role): (source, PureWindowsPath("C:/rust/cargo.exe"), image)}
-        common = {"destination": str(PureWindowsPath("C:/capture") / rel),
-                  "job_memory_limit_bytes": self.protocol["process_memory_limit_bytes"]}
-        start = {**common, "phase": "start", "monotonic": 1, "command_kind": "runtime",
-                 "timeout_seconds": self.protocol["process_timeout_seconds"], "cwd": str(source)}
-        receipt = {"divan_arguments": ["--min-time", "0.5", "--max-time", "0.5"]}
-        finish = {**common, "phase": "finish", "monotonic": 2, "returncode": 0, "process_receipt": receipt}
-        resource = (self.dir / rel).with_suffix(".resources.json")
-        resource.parent.mkdir(parents=True)
-        resource.write_text(json.dumps({"process_receipt": receipt, "direct_process": {
-            "CreationTime100ns": 1, "ExitTime100ns": 2}}))
         trace = self.dir / "telemetry/processes.jsonl"
         trace.parent.mkdir()
-
-        for window, experimental, accepted in (("0.5", True, True), ("2", True, False),
-                                               ("0.25", True, False), ("0.5", False, False)):
-            command = [str(image), "--bench", "--exact", "composition::direct::1",
-                       "--min-time", window, "--max-time", window]
-            trace.write_text(json.dumps({**start, "command": command}) + "\n" + json.dumps(finish))
-            with self.subTest(window=window, experimental=experimental):
-                if accepted:
-                    timing._verify_processes(self.dir, [job], identities, self.protocol, experimental_rank=experimental)
-                else:
-                    with self.assertRaisesRegex(ValueError, "runtime image or command"):
-                        timing._verify_processes(self.dir, [job], identities, self.protocol, experimental_rank=experimental)
+        for job in timing._jobs(self.protocol, self.counts):
+            _, mode, role, work, rel = job
+            if not work.startswith("runtime/") or role != "subject":
+                continue
+            scenario = work.removeprefix("runtime/")
+            source = PureWindowsPath("C:/scratch") / mode / f"source-{role}"
+            image = source.parent / role / "composition.exe"
+            identities = {(mode, role): (source, PureWindowsPath("C:/rust/cargo.exe"), image)}
+            common = {"destination": str(PureWindowsPath("C:/capture") / rel),
+                      "job_memory_limit_bytes": self.protocol["process_memory_limit_bytes"]}
+            start = {**common, "phase": "start", "monotonic": 1, "command_kind": "runtime",
+                     "timeout_seconds": self.protocol["process_timeout_seconds"], "cwd": str(source)}
+            resource = (self.dir / rel).with_suffix(".resources.json")
+            resource.parent.mkdir(parents=True)
+            for window in ("0.5", "2"):
+                args = ["--min-time", window, "--max-time", window]
+                command = [str(image), "--bench", "--exact", "composition::"+scenario.replace("/", "::"), *args]
+                receipt = {"divan_arguments": args}
+                finish = {**common, "phase": "finish", "monotonic": 2, "returncode": 0, "process_receipt": receipt}
+                resource.write_text(json.dumps({"process_receipt": receipt, "direct_process": {
+                    "CreationTime100ns": 1, "ExitTime100ns": 2}}))
+                trace.write_text(json.dumps({**start, "command": command}) + "\n" + json.dumps(finish))
+                for experimental in (False, True):
+                    with self.subTest(mode=mode, scenario=scenario, window=window, experimental=experimental):
+                        if window == "2":
+                            timing._verify_processes(self.dir, [job], identities, self.protocol, experimental_rank=experimental)
+                        else:
+                            with self.assertRaisesRegex(ValueError, "runtime image or command"):
+                                timing._verify_processes(self.dir, [job], identities, self.protocol, experimental_rank=experimental)
 
     def test_each_cold_process_must_use_its_own_empty_target_and_elapsed_receipt(self):
         jobs = [job for job in timing._jobs(self.protocol, self.counts) if job[3] == "compile/direct"]
@@ -155,9 +214,9 @@ class TimingInputTests(unittest.TestCase):
                            {**common, "phase":"finish", "monotonic":i*20+15, "returncode":0,
                             "process_receipt":receipt}])
 
-        def verify(items):
+        def verify(items, *, v3=False):
             trace.write_text("\n".join(json.dumps(x) for x in items))
-            timing._verify_processes(self.dir, jobs, roles, self.protocol)
+            timing._verify_processes(self.dir, jobs, roles, self.protocol, experimental_rank=v3)
 
         verify(events)
         for name, at, key, wrong in [
@@ -178,6 +237,30 @@ class TimingInputTests(unittest.TestCase):
         blob.write_text(json.dumps(resources))
         with self.assertRaisesRegex(ValueError, "reused"):
             verify(events)
+        resources["direct_process"] = {"CreationTime100ns": i*20, "ExitTime100ns": i*20+15}
+        blob.write_text(json.dumps(resources))
+        with self.assertRaisesRegex(ValueError, "build directory"):
+            verify(events, v3=True)
+        for i, job in enumerate(jobs):
+            start, finish = events[2*i:2*i+2]
+            start["build_dir"] = start["target"]
+            finish["process_receipt"]["build_dir"] = start["target"]
+            path = (self.dir / job[-1]).with_suffix(".resources.json")
+            path.write_text(json.dumps({"process_receipt": finish["process_receipt"], "direct_process": {
+                "CreationTime100ns": i*20, "ExitTime100ns": i*20+15}}))
+        verify(events, v3=True)
+        with self.assertRaisesRegex(ValueError, "build directory"):
+            verify([{**events[0], "build_dir": events[2]["target"]}, *events[1:]], v3=True)
+        for redirect in (None, events[2]["target"]):
+            path = (self.dir / jobs[0][-1]).with_suffix(".resources.json")
+            raw = json.loads(path.read_text())
+            if redirect is None:
+                raw["process_receipt"].pop("build_dir")
+            else:
+                raw["process_receipt"]["build_dir"] = redirect
+            path.write_text(json.dumps(raw))
+            with self.subTest(receipt=redirect), self.assertRaisesRegex(ValueError, "build directory"):
+                verify([events[0], {**events[1], "process_receipt":raw["process_receipt"]}, *events[2:]], v3=True)
 
     def test_terminal_allocation_requires_its_exact_dispatch_and_finished_receipt(self):
         stage, cwd = PureWindowsPath("C:/capture"), PureWindowsPath("C:/scratch/source-subject")

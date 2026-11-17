@@ -93,6 +93,49 @@ def _verify_tools(inputs, meta):
             raise ValueError("timing tool identity differs")
 
 
+def _source_bindings(manifest, inputs, meta, mode, files):
+    """Bind the v3 measured checkout separately from the scripts that ran the capture."""
+    controller = manifest["controller"]
+    version = manifest.get("experiment", {}).get("method")
+    names = ("controller_revision", "measured_subject_revision")
+    if version != "finite-rank-v3":
+        if ("measured_subject" in manifest or "measured_subject" in inputs or any(k in meta for k in names)
+                or (mode == "candidate-reference" and inputs["subject"] != controller)):
+            raise ValueError("legacy timing inputs cannot substitute a separate measured checkout")
+        return {}
+    measured = manifest.get("measured_subject")
+    if (inputs.get("controller") != controller or inputs.get("measured_subject") != measured
+            or inputs["control"] != manifest.get("control")):
+        raise ValueError("detached timing controller, reference or measured checkout")
+    for identity in (controller, measured, inputs["control"], inputs["subject"]):
+        if (not isinstance(identity, dict) or set(identity) != {"root", "revision", "tree", "hashes"}
+                or not all(isinstance(identity[k], str) and evidence._REVISION.fullmatch(identity[k])
+                           for k in ("revision", "tree"))
+                or not isinstance(identity["root"], str) or not PureWindowsPath(identity["root"]).is_absolute()
+                or ".." in PureWindowsPath(identity["root"]).parts
+                or not isinstance(identity["hashes"], dict) or set(identity["hashes"]) != files
+                or any(not isinstance(v, str) or not evidence._HASH.fullmatch(v) for v in identity["hashes"].values())):
+            raise ValueError("incomplete or malformed timing source identity")
+    if (measured["revision"] == evidence.RELEASE_BASELINE_REVISION
+            or inputs["control"]["revision"] != evidence.RELEASE_BASELINE_REVISION
+            or inputs["subject"] != (measured if mode == "candidate-reference" else inputs["control"])
+            or (PureWindowsPath(controller["root"]) == PureWindowsPath(measured["root"]) and controller != measured)
+            or (controller["revision"] == measured["revision"] and
+                (controller["tree"], controller["hashes"]) != (measured["tree"], measured["hashes"]))):
+        raise ValueError("wrong measured product or reference checkout for timing role")
+    tags = dict(zip(names, (controller["revision"], measured["revision"])))
+    if any(meta.get(k) != v for k,v in tags.items()):
+        raise ValueError("timing metadata does not bind both source revisions")
+    return tags
+
+
+def _check_staged_bindings(staged, recorded, tags):
+    names = ("controller_revision", "measured_subject_revision")
+    if (any((k in staged) != (k in tags) or staged.get(k) != tags.get(k) for k in names)
+            or (tags and any(staged["original"].get(k) != digest for k,digest in recorded["hashes"].items()))):
+        raise ValueError("staged source differs from the measured inputs or controller binding")
+
+
 def _identities(directory, protocol):
     manifest = _json(directory / "capture.json")
     digest = evidence._sha256(directory / "capture.json")
@@ -101,6 +144,12 @@ def _identities(directory, protocol):
         from composition_runner import rank_method_identity
         if manifest["experiment"] != rank_method_identity():
             raise ValueError("missing or changed prospective method identity")
+    v3 = manifest.get("experiment", {}).get("method") == "finite-rank-v3"
+    files = set()
+    if v3:
+        from composition_runner import BUDGET
+        files = {r["workload_source"] for r in evidence.validate_budget_document(BUDGET)["rows"]}
+        files.update(("Cargo.lock", "benches/compile/Cargo.lock", "scripts/capture-composition-performance.sh"))
     schedule = [{"block": n, "mode": m} for n in range(1, 21)
                 for m in evidence.interleaved_mode_order(protocol, n)]
     if (manifest.get("protocol_sha256") != evidence.WINDOWS_V6_PROTOCOL_SHA256
@@ -134,18 +183,18 @@ def _identities(directory, protocol):
         if shared_tools is not None and tools != shared_tools:
             raise ValueError("timing modes used different tools")
         shared_tools = tools
-        if mode == "candidate-reference" and inputs["subject"] != manifest["controller"]:
-            raise ValueError("candidate inputs differ from controller")
+        tags = _source_bindings(manifest, inputs, meta, mode, files)
         for role in ("subject", "control"):
             source = _json(arm / "sources" / f"{role}.json")
             recorded = inputs[role]
+            _check_staged_bindings(source, recorded, tags)
             if (source["revision"] != recorded["revision"] or source["tree"] != recorded["tree"]
                     or meta[f"{role}_lock_sha256"] != recorded["hashes"]["Cargo.lock"]
                     or source["effective"]["Cargo.lock"] != recorded["hashes"]["Cargo.lock"]
                     or source["effective"]["benches/compile/Cargo.lock"] != recorded["hashes"]["benches/compile/Cargo.lock"]):
                 raise ValueError("source tree or lock differs from timing inputs")
             if role == "control" or mode == "reference-reference-aa":
-                identity = (source["tree"], source["original"], source["effective"])
+                identity = (source["tree"], source["original"], source["effective"], recorded if v3 else None)
                 if frozen_reference is not None and identity != frozen_reference:
                     raise ValueError("three independently staged reference arms differ")
                 frozen_reference = identity
@@ -155,7 +204,7 @@ def _identities(directory, protocol):
                     or any(cwd == old[0] or executable == old[2] for old in result.values())):
                 raise ValueError("source or runtime product is not independent by role")
             result[mode, role] = (cwd, PureWindowsPath(tools["cargo"]["path"]), executable)
-    return result, experimental
+    return result, v3
 
 
 def _verify_processes(directory, jobs, identities, protocol, *, experimental_rank=False):
@@ -183,25 +232,30 @@ def _verify_processes(directory, jobs, identities, protocol, *, experimental_ran
                     or instant < last_time or event.get("job_memory_limit_bytes") != protocol["process_memory_limit_bytes"]):
                 raise ValueError("timed process belongs to another capture or is out of order")
             last_time = instant
+            kind, name = work.split("/", 1)
+            cwd, cargo, executable = identities[mode, role]
+            expected_target = cwd.parent / f"compile-{name}-{n:02d}-{role}" if kind == "compile" else None
             if phase == "finish":
                 resources = _json((directory/rel).with_suffix(".resources.json"))
                 if event.get("returncode") != 0 or event.get("process_receipt") != resources["process_receipt"]:
                     raise ValueError("timed process finish differs from sealed receipt")
+                if expected_target and experimental_rank and resources["process_receipt"].get("build_dir") != str(expected_target):
+                    raise ValueError("cold build directory in sealed receipt differs from fresh target")
                 counters = resources["direct_process"]
                 lifetime = (counters["CreationTime100ns"], counters["ExitTime100ns"])
                 if lifetime in lifetimes:
                     raise ValueError("timed process measurement was reused")
                 lifetimes.add(lifetime)
                 continue
-            kind, name = work.split("/", 1)
-            cwd, cargo, executable = identities[mode, role]
             cmd = event["command"]
             if (event.get("command_kind") != kind or PureWindowsPath(event["cwd"]) != cwd
                     or event.get("timeout_seconds") != protocol["process_timeout_seconds"]):
                 raise ValueError("timed process command is detached from source or policy")
             if kind == "compile":
                 target = PureWindowsPath(event["target"])
-                if (target != cwd.parent / f"compile-{name}-{n:02d}-{role}" or target in targets
+                if experimental_rank and event.get("build_dir") != str(expected_target):
+                    raise ValueError("cold build directory in process launch differs from fresh target")
+                if (target != expected_target or target in targets
                         or event.get("incremental") != "0" or event.get("compiler_telemetry") != protocol["compiler_telemetry"]
                         or cmd != [str(cargo), "check", "--manifest-path", str(cwd / "benches/compile/Cargo.toml"),
                                    "-p", f"rca-compile-{name}", "--locked", "-j", "1"]):
@@ -236,7 +290,7 @@ def load_timing_prefixes(directory, protocol, budget_path, counts_by_workload, s
         for mode in MODES:
             paired = directory / mode / "paired"
             both.append(load(paired/"subject", paired/"control", name, protocol, block_count=counts_by_workload[work],
-                             **({"experimental_rank": experimental} if kind == "runtime" else {})))
+                             experimental_rank=experimental))
         result[work] = []
         for row in rows:
             arms = both if kind == "compile" else [

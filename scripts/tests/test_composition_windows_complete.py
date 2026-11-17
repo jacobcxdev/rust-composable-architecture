@@ -150,6 +150,19 @@ class WindowsCompleteTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     complete.experimental_product_gates(policy, path, aa, aa_raw, candidate, raw)
 
+    def test_v3_product_reports_require_and_name_one_controller_and_measured_subject(self):
+        args = self.product_inputs()
+        aa, candidate = args[2], args[4]
+        sources = {"controller_revision": "c"*40, "measured_subject_revision": candidate["subject_revision"]}
+        aa.update(sources)
+        candidate.update(sources)
+        result = complete.experimental_product_gates(*args)
+        for mode in ("candidate-reference", "reference-reference-aa"):
+            self.assertEqual({k: result["evidence"][mode][k] for k in sources}, sources)
+        aa["controller_revision"] = "d"*40
+        with self.assertRaisesRegex(ValueError, "different controller"):
+            complete.experimental_product_gates(*args)
+
     def test_file_backed_products_reject_changed_sealed_observation_bytes(self):
         with tempfile.TemporaryDirectory() as temporary:
             directory = Path(temporary).resolve()

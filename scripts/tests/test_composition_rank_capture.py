@@ -12,12 +12,11 @@ import composition_runner as runner
 
 
 class RankCaptureTests(unittest.TestCase):
-    def test_rank_window_commands_match_the_precommitted_five_rows_only(self):
+    def test_rank_window_commands_keep_all_nine_original_windows(self):
         protocol = runner.evidence.load_protocol(runner.WINDOWS_PROTOCOL)
         rows = protocol["runtime"]["gated_scenarios"]
-        short = {"direct/1", "nonmatching_scope/16", "combine_arity/4",
-                 "descendant_cancellation/10000", "scoped_concurrent_senders_32"}
-        expected = {name: "0.5" if name in short else "2" for name in rows}
+        self.assertEqual(len(rows), 9)
+        expected = {name: "2" for name in rows}
         self.assertEqual(runner.rank_method_identity()["runtime_window_seconds"], expected)
 
         with tempfile.TemporaryDirectory() as temp:
@@ -55,6 +54,19 @@ class RankCaptureTests(unittest.TestCase):
             execute.assert_not_called()
             self.assertFalse((root / "experimental-blocks.jsonl").exists())
 
+    def test_old_short_window_cannot_run_under_a_correct_v3_capture_header(self):
+        protocol = runner.evidence.load_protocol(runner.WINDOWS_PROTOCOL)
+        protocol["runtime"]["isolated_divan_arguments_by_scenario"] = {
+            "direct/1": ["--min-time", "0.5", "--max-time", "0.5"]}
+        with tempfile.TemporaryDirectory() as temp, patch.object(runner, "execute_pairs") as execute:
+            root = Path(temp)
+            runner.write_json(root/"capture.json", {"experiment":runner.rank_method_identity()})
+            with self.assertRaisesRegex(ValueError, "window"):
+                runner.collect_rank_timing(protocol, {m:{} for m in ("candidate-reference", "reference-reference-aa")},
+                                           "cargo", {}, None, root, None)
+            execute.assert_not_called()
+            self.assertFalse((root/"experimental-blocks.jsonl").exists())
+
     def test_only_the_borderline_fixture_gets_another_fresh_build(self):
         protocol = runner.evidence.load_protocol(runner.WINDOWS_PROTOCOL)
         protocol["compile"]["fixtures"] = ["direct", "scoped"]
@@ -74,6 +86,7 @@ class RankCaptureTests(unittest.TestCase):
 
                 def run(self, args, log, _cwd, env):
                     target = Path(env["CARGO_TARGET_DIR"])
+                    self_outer.assertEqual(env.get("CARGO_BUILD_BUILD_DIR"), str(target))
                     self_outer.assertFalse(target.exists())
                     self_outer.assertEqual(env["CARGO_INCREMENTAL"], "0")
                     self_outer.assertIn("--locked", args)

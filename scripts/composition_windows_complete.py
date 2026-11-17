@@ -273,13 +273,23 @@ def experimental_product_gates(policy, budget_path, aa_capture_metadata, aa_raw,
     limits = _reference_rows(policy, product_rows, aa_values)
     _experimental_product_input(policy, cand, candidate_capture_metadata, candidate_raw)
     shared = ("capture_sha256", "platform", "target", "os_version", "os_build", "control_lock_sha256", "tools")
+    rank_sources = ("controller_revision", "measured_subject_revision")
+    if any(k in m for k in rank_sources for m in (aa_capture_metadata, candidate_capture_metadata)):
+        for key in rank_sources:
+            value = candidate_capture_metadata.get(key)
+            if (not isinstance(value, str) or not evidence._REVISION.fullmatch(value)
+                    or aa_capture_metadata.get(key) != value):
+                raise ValueError("experimental product modes refer to different controller or subject commits")
+        if candidate_capture_metadata["measured_subject_revision"] != candidate_capture_metadata["subject_revision"]:
+            raise ValueError("experimental candidate product is not the measured subject")
     if (any(aa_capture_metadata[k] != candidate_capture_metadata[k] for k in shared)
             or aa_capture_metadata["subject_lock_sha256"] != aa_capture_metadata["control_lock_sha256"]):
         raise ValueError("experimental product modes differ in capture, host, tools or reference lock")
     cand_values = _product_observations(budget, candidate_capture_metadata, candidate_raw)
     rows = {mode: [_result(row, values) for row in limits] for mode, values in ((aa, aa_values), (cand, cand_values))}
     failures = {mode: [row for row in results if not row["passed"]] for mode, results in rows.items()}
-    bindings = {mode: {"subject_revision": meta["subject_revision"], "source_receipt_sha256": raw["source_receipt_sha256"],
+    bindings = {mode: {"subject_revision": meta["subject_revision"], **{k:meta[k] for k in rank_sources if k in meta},
+                       "source_receipt_sha256": raw["source_receipt_sha256"],
                        "root_lock_sha256": raw["root_lock_sha256"], "raw_content_sha256": meta["raw_content_sha256"],
                        "allocation_binary_sha256": raw["allocation_binary_sha256"], "allocation_workloads": len(raw["allocations"]),
                        "zero_tests": raw["zero_tests"], "tools_sha256": _digest(meta["tools"])}
@@ -370,6 +380,11 @@ def _read_experimental_mode(directory, mode, sha):
     inputs = json.loads(_retained(arm, "inputs.json").read_bytes())
     if inputs["mode"] != mode or meta["mode"] != mode:
         raise ValueError("experimental product mode differs")
+    for field, identity in (("controller_revision", "controller"), ("measured_subject_revision", "measured_subject")):
+        revision = inputs[identity]["revision"]
+        if (meta.get(field) != revision or obs.get(field) != revision
+                or obs.get("input_hashes_after", {}).get(field) != revision):
+            raise ValueError("experimental product controller or measured subject changed")
     for role in ("subject", "control"):
         identity = inputs[role]
         path = _retained(arm, f"sources/{role}.json")

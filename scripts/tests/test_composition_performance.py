@@ -1466,7 +1466,7 @@ class WindowsPairedProtocolTests(unittest.TestCase):
             self.assertEqual(composition_performance.isolated_divan_arguments(current, scenario),
                              ["--min-time", "2", "--max-time", "2"])
 
-    def test_rank_windows_reject_mismatched_receipts_and_canonical_relabelling(self):
+    def test_both_windows_methods_require_the_full_observation_window(self):
         protocol = composition_performance.load_protocol(
             REPO_ROOT / "docs/performance/composition/composition-windows-paired-v6.json")
         placement = {"mask": 1, "previous_mask": 0xffffff, "group": 0, "process_mask": 0xffffff,
@@ -1474,8 +1474,8 @@ class WindowsPairedProtocolTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             subject, control = (pathlib.Path(directory) / role for role in ("subject", "control"))
             for scenario, observed, rank, accepted in [
-                ("direct/1", "0.5", True, True), ("direct/1", "2", False, True),
-                ("direct/1", "0.5", False, False), ("direct/1", "2", True, False),
+                ("direct/1", "0.5", True, False), ("direct/1", "2", False, True),
+                ("direct/1", "0.5", False, False), ("direct/1", "2", True, True),
                 ("direct/1", "0.25", True, False), ("combine_arity/12", "0.5", True, False),
                 ("combine_arity/12", "2", True, True),
             ]:

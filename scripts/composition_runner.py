@@ -7,6 +7,7 @@ import argparse
 from contextlib import contextmanager
 import ctypes
 from datetime import datetime, timezone
+import hashlib
 import json
 import io
 import importlib.util
@@ -502,6 +503,30 @@ def source_identity(root, reference=False):
             "tree": read(["git", "rev-parse", "HEAD^{tree}"], cwd=root), "hashes": hashes}
 
 
+def rank_revisions(controller, subject, expected_controller, expected_subject):
+    """Compare independently supplied full commits, never identity claims from the result."""
+    for name, identity, expected in (("controller", controller, expected_controller),
+                                     ("measured subject", subject, expected_subject)):
+        if (not isinstance(expected, str) or not evidence._REVISION.fullmatch(expected)
+                or not isinstance(identity, dict) or identity.get("revision") != expected):
+            raise ValueError(f"missing or mismatched expected {name} revision")
+    return {"controller_revision": expected_controller, "measured_subject_revision": expected_subject}
+
+
+def rank_subject(checkout, controller, expected_controller, expected_subject):
+    """An optional product checkout supplies only product source, never the controller."""
+    if checkout is None and expected_controller is None and expected_subject is None:
+        return controller
+    subject = controller
+    if checkout is not None:
+        root = Path(checkout).resolve(strict=True)
+        if Path(read(["git", "rev-parse", "--show-toplevel"], cwd=root)).resolve() != root:
+            raise ValueError("--subject must name the clean product checkout root")
+        subject = source_identity(root)
+    rank_revisions(controller, subject, expected_controller, expected_subject)
+    return subject
+
+
 def canonical_host():
     values = {
         "architecture": read(["uname", "-m"]),
@@ -809,7 +834,7 @@ class WindowsMonitor(HostMonitor):
     """Record owned process trees without rejecting background desktop load."""
 
     def __init__(self, directory, protocol, *, cargo=None, provider=None, run_process=None,
-                 complete=False):
+                 complete=False, experimental_rank=False):
         super().__init__(directory, protocol)
         if run_process is None:
             from windows_process import run_process
@@ -817,6 +842,7 @@ class WindowsMonitor(HostMonitor):
         self.provider = windows_provider().WindowsCounters() if provider is None else provider
         self.cargo = cargo
         self.complete = complete
+        self.experimental_rank = experimental_rank
 
     def idle(self, phase, sustained=False):
         self.event("telemetry.jsonl", {"phase": phase, "admission": "recorded-background-load"})
@@ -844,9 +870,13 @@ class WindowsMonitor(HostMonitor):
 
         timeout = self.protocol["process_timeout_seconds"] if timeout is None else timeout
         memory_limit = self.protocol["process_memory_limit_bytes"]
+        cold = self.experimental_rank and compiler and executed[1] == "check"
+        if cold and (not env.get("CARGO_BUILD_BUILD_DIR") or env["CARGO_BUILD_BUILD_DIR"] != env.get("CARGO_TARGET_DIR")):
+            raise ValueError("rank cold build directory must equal its fresh target")
         self.event("processes.jsonl", {
             "phase": "start", "command": executed, "cwd": str(cwd),
             "destination": str(destination), "target": env.get("CARGO_TARGET_DIR"),
+            **({"build_dir": env["CARGO_BUILD_BUILD_DIR"]} if cold else {}),
             "incremental": env.get("CARGO_INCREMENTAL"), "timeout_seconds": timeout,
             **({"allocation_scenario": env["RCA_COMPOSITION_ALLOCATION_SCENARIO"],
                 "allocation_samples": env["RCA_COMPOSITION_ALLOCATION_SAMPLES"]}
@@ -868,6 +898,8 @@ class WindowsMonitor(HostMonitor):
             receipt = {key: value for key, value in result.items() if key != "counters"}
             receipt.update(command_kind="compile" if compiler else "runtime",
                            compiler_telemetry_sha256=None if telemetry is None else telemetry["sha256"])
+            if cold:
+                receipt["build_dir"] = env["CARGO_BUILD_BUILD_DIR"]
             if executed[1:3] == ["--bench", "--exact"] or (primary_thread_affinity and divan_timing):
                 receipt["divan_arguments"] = executed[1:]
             if result["returncode"]:
@@ -880,7 +912,8 @@ class WindowsMonitor(HostMonitor):
             resources = {"real_seconds": result["leader_elapsed_seconds"] if compiler else result["elapsed_seconds"],
                          "direct_process": result["counters"], "process_receipt": receipt}
             evidence.validate_windows_resource_counters(resources, expected_kind="compile" if compiler else "runtime",
-                                                       primary_thread_affinity_required=primary_thread_affinity)
+                                                       primary_thread_affinity_required=primary_thread_affinity,
+                                                       rank_cold=cold)
             if timed:
                 write_json(destination.with_suffix(".resources.json"), resources)
         except BaseException as error:
@@ -899,6 +932,8 @@ class WindowsMonitor(HostMonitor):
 
 def execute_pairs(protocol, roots, executables, targets, paired, cargo, env, monitor, *,
                   blocks=None, workloads=None, experimental_rank=False):
+    if experimental_rank and "CARGO_BUILD_BUILD_DIR" in env:
+        raise ValueError("ambient Cargo build directory is not permitted in rank capture")
     schedule = enumerate(evidence.seeded_order_schedule(protocol), 1) if blocks is None else blocks
     for block, order in schedule:
         monitor.idle(f"block-{block:02d}", sustained=True)
@@ -932,7 +967,7 @@ def execute_pairs(protocol, roots, executables, targets, paired, cargo, env, mon
                 continue
             for role in order.split("-"):
                 target = targets / f"compile-{fixture}-{block:02d}-{role}"
-                if target.exists():
+                if target.exists() or (experimental_rank and target.is_symlink()):
                     raise ValueError("compile target is not clean")
                 monitor.run(
                     [
@@ -948,7 +983,8 @@ def execute_pairs(protocol, roots, executables, targets, paired, cargo, env, mon
                     ],
                     paired / role / "compile" / fixture / f"block-{block:02d}.txt",
                     roots[role],
-                    {**env, "CARGO_TARGET_DIR": str(target), "CARGO_INCREMENTAL": "0"},
+                    {**env, "CARGO_TARGET_DIR": str(target), "CARGO_INCREMENTAL": "0",
+                     **({"CARGO_BUILD_BUILD_DIR": str(target)} if experimental_rank else {})},
                 )
                 # The completed transcript owns the measurements, not this check-only target.
                 # Each next sample still receives a distinct, initially absent directory.
@@ -1035,8 +1071,15 @@ def collect_rank_timing(protocol, captures, cargo, env, monitor, directory, deci
     seals = {mode: {} for mode in captures}
     capture_hash = evidence._sha256(directory / "capture.json")
     decision = "continue"
-    if json.loads((directory / "capture.json").read_text(encoding="utf-8")).get("experiment") != rank_method_identity():
+    method = rank_method_identity()
+    if json.loads((directory / "capture.json").read_text(encoding="utf-8")).get("experiment") != method:
         raise ValueError("missing or changed prospective method identity before measurement")
+    for scenario in protocol["runtime"]["gated_scenarios"]:
+        seconds = method["runtime_window_seconds"].get(scenario)
+        if evidence.isolated_divan_arguments(protocol, scenario, experimental_rank=True) != [
+            "--min-time", seconds, "--max-time", seconds,
+        ]:
+            raise ValueError("runtime window differs from frozen v6 before measurement")
     with (directory / "experimental-blocks.jsonl").open("x", encoding="utf-8") as events:
         for block, order in enumerate(evidence.seeded_order_schedule(protocol), 1):
             for mode in evidence.interleaved_mode_order(protocol, block):
@@ -1196,15 +1239,20 @@ def registry_benchmark_preparation(donor, cargo_home, backend):
 
 
 def prepare_pair_capture(protocol, budget, mode, staging, targets, reference, controller, control,
-                         host, tools, env, monitor, hashes, registry_build=None):
+                         host, tools, env, monitor, hashes, registry_build=None, *, measured_subject=None):
     """Prepare independently built arms without starting the measured blocks."""
-    subject_root = ROOT if mode == "candidate-reference" else reference
-    subject = controller if mode == "candidate-reference" else control
+    candidate = measured_subject if measured_subject is not None else controller
+    subject = candidate if mode == "candidate-reference" else control
+    candidate_root = ROOT if measured_subject is None else Path(candidate["root"])
+    subject_root = candidate_root if mode == "candidate-reference" else reference
+    revisions = ({"controller_revision": controller["revision"], "measured_subject_revision": candidate["revision"]}
+                 if measured_subject is not None else {})
     staging.mkdir()
     targets.mkdir()
     write_json(staging / "inputs.json", {
         "mode": mode, "recorded_at": now(), "controller": controller,
         "subject": subject, "control": control, "host": host, "input_hashes": hashes,
+        **({"measured_subject": measured_subject} if measured_subject is not None else {}),
         "tools": {name: {"path": path, "sha256": evidence._sha256(Path(path))}
                   for name, path in tools.items()},
         **({"memory_limit_bytes": monitor.memory_limit_bytes}
@@ -1222,6 +1270,7 @@ def prepare_pair_capture(protocol, budget, mode, staging, targets, reference, co
     }
     (staging / "sources").mkdir()
     for role, receipt in sources.items():
+        receipt.update(revisions)
         write_json(staging / "sources" / f"{role}.json", receipt)
     executables = {
         role: (registry_build or benchmark)(
@@ -1260,6 +1309,7 @@ def prepare_pair_capture(protocol, budget, mode, staging, targets, reference, co
         "control_role": roles["control"],
         "subject_revision": subject["revision"],
         "control_revision": control["revision"],
+        **revisions,
         "subject_lock_sha256": subject["hashes"]["Cargo.lock"],
         "control_lock_sha256": control["hashes"]["Cargo.lock"],
         "qualification_script_sha256": evidence._sha256(Path(__file__)),
@@ -1438,11 +1488,48 @@ def rank_method_identity():
              "composition_timing_inputs.py", "composition_product_commands.py",
              "composition_windows_complete.py", "composition_windows_absolute.py",
              "composition_registry_seed.py", "windows_strip.py", "windows_process.py", "capture-windows-performance.py")
-    return {"method": "finite-rank-v2", "runtime_window_seconds": dict(evidence.RANK_RUNTIME_WINDOW_SECONDS),
+    protocol = evidence.load_protocol(WINDOWS_PROTOCOL)
+    if evidence._protocol_sha256(protocol) != evidence.WINDOWS_V6_PROTOCOL_SHA256:
+        raise ValueError("experimental rank windows require the frozen Windows v6 protocol")
+    windows = {s: evidence.isolated_divan_arguments(protocol, s)[1] for s in protocol["runtime"]["gated_scenarios"]}
+    return {"method": "finite-rank-v3", "runtime_window_seconds": windows,
             "scripts": {n: evidence._sha256(ROOT / "scripts" / n) for n in names}}
 
 
-def experimental_composition_result(directory, timing_digest, products, diagnostics):
+def verify_rank_git_sources(directory, manifest, expected_controller, expected_subject):
+    """Anchor archived product bytes and controller scripts to the externally requested commits."""
+    revisions = rank_revisions(manifest.get("controller"), manifest.get("measured_subject"),
+                               expected_controller, expected_subject)
+    reference = evidence.RELEASE_BASELINE_REVISION
+    archives = {}
+    for rev in {expected_controller, expected_subject, reference}:
+        archive = subprocess.check_output(["git", "archive", "--format=tar", rev], cwd=ROOT)
+        with tarfile.open(fileobj=io.BytesIO(archive)) as stream:
+            hashes = {p.name: hashlib.sha256(stream.extractfile(p).read()).hexdigest()
+                      for p in stream if p.isfile()}
+        archives[rev] = (read(["git", "rev-parse", f"{rev}^{{tree}}"], cwd=ROOT), hashes)
+    for name in ("controller", "measured_subject"):
+        identity = manifest[name]
+        tree, original = archives[identity["revision"]]
+        if identity.get("tree") != tree or not isinstance(identity.get("hashes"), dict) or any(
+            original.get(key) != digest for key, digest in identity["hashes"].items()
+        ):
+            raise ValueError(f"rank {name} tree or source hashes differ from expected Git commit")
+    if any(archives[expected_controller][1].get(f"scripts/{name}") != digest
+           for name, digest in manifest["experiment"]["scripts"].items()):
+        raise ValueError("rank method scripts differ from expected controller commit")
+    for mode in ("reference-reference-aa", "candidate-reference"):
+        for role in ("subject", "control"):
+            rev = expected_subject if (mode, role) == ("candidate-reference", "subject") else reference
+            source = json.loads((directory / mode / "sources" / f"{role}.json").read_bytes())
+            if (source.get("revision") != rev or (source.get("tree"), source.get("original")) != archives[rev]
+                    or any(source.get(k) != v for k, v in revisions.items())):
+                raise ValueError(f"rank {mode} {role} source differs from expected Git archive")
+    return revisions
+
+
+def experimental_composition_result(directory, timing_digest, products, diagnostics, *,
+                                    expected_controller=None, expected_subject=None):
     """Recompute a prospective decision from raw evidence; never approve a release."""
     import composition_cold_timing as bounds
     import composition_windows_complete as complete
@@ -1452,6 +1539,15 @@ def experimental_composition_result(directory, timing_digest, products, diagnost
     manifest = json.loads((directory / "capture.json").read_text(encoding="utf-8"))
     if manifest.get("experiment") != rank_method_identity():
         raise ValueError("missing or changed prospective method identity")
+    revisions = verify_rank_git_sources(directory, manifest, expected_controller, expected_subject)
+    after_path = directory / "source-identities-after.json"
+    if after_path.resolve() != after_path.absolute() or not after_path.is_file():
+        raise ValueError("missing or redirected final rank source identities")
+    after = json.loads(after_path.read_bytes())
+    if after != {"capture_sha256": evidence._sha256(directory / "capture.json"),
+                 "controller": manifest["controller"], "measured_subject": manifest["measured_subject"],
+                 "control": manifest["control"]}:
+        raise ValueError("rank source identities changed after measurement")
     timing_path = directory / "experimental-timing.json"
     if timing_path.is_symlink() or evidence._sha256(timing_path) != timing_digest:
         raise ValueError("changed experimental timing result")
@@ -1478,20 +1574,23 @@ def experimental_composition_result(directory, timing_digest, products, diagnost
             decision = "fail"
     elif diagnostics or products:
         raise ValueError("unexpected products after a decisive timing rejection")
-    return {"schema": "experimental-windows-composition-finite-rank-v1", "decision": decision,
+    return {"schema": "experimental-windows-composition-finite-rank-v3", "decision": decision,
+            **revisions, "reference_revision": evidence.RELEASE_BASELINE_REVISION,
+            "source_identities_after_sha256": evidence._sha256(after_path),
             "scope": "windows-composition-only", "release_authorised": False,
             "timing_sha256": timing_digest, "capture_sha256": timing["capture_sha256"],
             "diagnostics": diagnostics, "raw_product_sha256": products, "product_gates": product_report}
 
 
-def verify_experimental_composition(directory):
+def verify_experimental_composition(directory, *, expected_controller=None, expected_subject=None):
     """Read an experimental result back without writing a legacy completion receipt."""
     path = directory / "experimental-rank-result.json"
     if path.is_symlink() or (directory / "complete.json").exists():
         raise ValueError("mixed or redirected experimental completion receipt")
     claimed = json.loads(path.read_text(encoding="utf-8"))
     actual = experimental_composition_result(directory, claimed["timing_sha256"],
-                                              claimed["raw_product_sha256"], claimed["diagnostics"])
+                                              claimed["raw_product_sha256"], claimed["diagnostics"],
+                                              expected_controller=expected_controller, expected_subject=expected_subject)
     if actual != claimed:
         raise ValueError("experimental decision differs from independent replay")
     return actual
@@ -1593,12 +1692,15 @@ def validate_interleaved_capture(directory, protocol):
 
 
 def qualify(output, staging, reference, mode, aa_evidence=None, *, platform_name="macos",
-            windows_complete=False, memory_limit_bytes=8 * 1024**3, experimental_rank=False):
+            windows_complete=False, memory_limit_bytes=8 * 1024**3, experimental_rank=False,
+            subject=None, expected_controller=None, expected_subject=None):
     if mode != "candidate-reference" or aa_evidence is not None:
         raise ValueError("composition qualification needs one contemporaneous two-mode capture")
     windows = platform_name == "windows"
     if experimental_rank and not (windows and windows_complete):
         raise ValueError("experimental rank capture requires complete Windows qualification")
+    if not experimental_rank and any(v is not None for v in (subject, expected_controller, expected_subject)):
+        raise ValueError("independent product source applies only to experimental rank capture")
     if windows_complete and not windows:
         raise ValueError("--windows-complete requires --platform windows")
     if windows and sys.platform != "win32":
@@ -1624,8 +1726,11 @@ def qualify(output, staging, reference, mode, aa_evidence=None, *, platform_name
     reference = Path(read(["git", "rev-parse", "--show-toplevel"], cwd=reference)).resolve()
     controller = source_identity(ROOT)
     control = source_identity(reference, reference=True)
-    if controller["revision"] == control["revision"]:
+    candidate = rank_subject(subject, controller, expected_controller, expected_subject) if experimental_rank else controller
+    if candidate["revision"] == control["revision"]:
         raise ValueError("candidate and reference revisions must differ")
+    if experimental_rank and "CARGO_BUILD_BUILD_DIR" in env:
+        raise ValueError("ambient Cargo build directory is not permitted in rank capture")
     capture_tool = None if windows else check_capture_tool(ROOT, tools["cargo"], env)
     # Historical budget hashes retain their original source provenance. The
     # active baseline supplies new paired measurements, not those old receipts.
@@ -1662,6 +1767,7 @@ def qualify(output, staging, reference, mode, aa_evidence=None, *, platform_name
     staging.parent.mkdir(parents=True, exist_ok=True)
     staging.mkdir()
     monitor = (WindowsMonitor(staging / "telemetry", protocol, cargo=tools["cargo"],
+                              **({"experimental_rank": True} if experimental_rank else {}),
                               **({"complete": True} if windows_complete else {})) if windows
                else HostMonitor(staging / "telemetry", protocol, memory_limit_bytes=memory_limit_bytes))
     monitor.idle("initial", sustained=True)
@@ -1681,10 +1787,12 @@ def qualify(output, staging, reference, mode, aa_evidence=None, *, platform_name
                 )
         captures = {item: prepare_pair_capture(
             protocol, budget, item, staging / item, targets / item, reference,
-            controller, control, host, tools, env, monitor, hashes, registry_build) for item in modes}
+            controller, control, host, tools, env, monitor, hashes, registry_build,
+            **({"measured_subject": candidate} if experimental_rank else {})) for item in modes}
         write_json(staging / "capture.json", {
             "protocol_sha256": evidence._protocol_sha256(protocol), "controller": controller, "host": host,
-            **({"experiment": rank_method_identity()} if experimental_rank else {}),
+            **({"experiment": rank_method_identity(), "measured_subject": candidate, "control": control}
+               if experimental_rank else {}),
             "modes": {item: {name: evidence._sha256(staging / item / name)
                              for name in ("inputs.json", "plan.json")} for item in modes},
             "schedule": [{"block": block, "mode": item}
@@ -1700,7 +1808,14 @@ def qualify(output, staging, reference, mode, aa_evidence=None, *, platform_name
         if experimental_rank:
             rank_evidence = collect_experimental_composition(protocol, captures, env, tools, monitor, staging)
             check_host_unchanged(host, monitor)
-            result = experimental_composition_result(staging, *rank_evidence)
+            after_controller = source_identity(ROOT)
+            after_subject = rank_subject(subject, after_controller, controller["revision"], candidate["revision"])
+            write_json(staging / "source-identities-after.json", {
+                "capture_sha256": capture_hash, "controller": after_controller, "measured_subject": after_subject,
+                "control": source_identity(reference, reference=True),
+            })
+            result = experimental_composition_result(staging, *rank_evidence, expected_controller=controller["revision"],
+                                                     expected_subject=candidate["revision"])
             if result["decision"] == "fail":
                 for capture in captures.values():
                     retain_runtime_products(capture)
@@ -1722,8 +1837,8 @@ def qualify(output, staging, reference, mode, aa_evidence=None, *, platform_name
                 raise ValueError("interleaved capture manifest changed")
     if not experimental_rank:
         check_host_unchanged(host, monitor)
-    if source_identity(ROOT) != controller or source_identity(reference, reference=True) != control:
-        raise ValueError("source or host identity changed during qualification")
+        if source_identity(ROOT) != controller or source_identity(reference, reference=True) != control:
+            raise ValueError("source or host identity changed during qualification")
     if any(evidence._sha256(Path(path)) != value for path, value in hashes.items()):
         raise ValueError("qualification input hash changed")
     if experimental_rank:
@@ -2715,6 +2830,10 @@ def main():
                         help="exercise finite-rank Windows decisions without issuing a release receipt")
     parser.add_argument("--verify-experimental-rank", metavar="DIRECTORY",
                         help="replay an experimental decision from its retained raw observations")
+    parser.add_argument("--subject", type=Path, metavar="CHECKOUT",
+                        help="measure this clean product checkout with the experimental Windows controller")
+    parser.add_argument("--expected-controller", metavar="COMMIT", help="externally pinned full controller commit")
+    parser.add_argument("--expected-subject", metavar="COMMIT", help="externally pinned full measured product commit")
     parser.add_argument("--memory-limit-gib", type=int, choices=range(1, 9),
                         help="Mac qualification ceiling in GiB, from 1 to 8; default: 8")
     parser.add_argument(
@@ -2742,13 +2861,21 @@ def main():
     args = parser.parse_args()
     try:
         if args.verify_experimental_rank:
-            if (args.output or args.reference or args.windows_complete or args.experimental_rank
+            if (args.output or args.reference or args.windows_complete or args.experimental_rank or args.subject
                     or args.mode != "candidate-reference" or args.memory_limit_gib or args.aa_evidence
                     or any((args.check_prerequisites, args.check_staged_source, args.check_publication, args.check_lock))):
                 raise ValueError("experimental readback cannot run a capture")
-            decision = verify_experimental_composition(Path(args.verify_experimental_rank))
-            print(json.dumps({"scope": decision["scope"], "decision": decision["decision"], "release_authorised": False}))
+            decision = verify_experimental_composition(Path(args.verify_experimental_rank),
+                                                      expected_controller=args.expected_controller,
+                                                      expected_subject=args.expected_subject)
+            print(json.dumps({key: decision[key] for key in ("scope", "decision", "controller_revision",
+                                                              "measured_subject_revision", "release_authorised")}))
             return 0
+        if not args.experimental_rank and any(v is not None for v in (args.subject, args.expected_controller, args.expected_subject)):
+            raise ValueError("independent product source applies only to experimental rank capture")
+        if args.experimental_rank and (args.subject or args.expected_subject or args.expected_controller):
+            if not all(v and evidence._REVISION.fullmatch(v) for v in (args.expected_controller, args.expected_subject)):
+                raise ValueError("rank source selection requires expected full controller and subject commits")
         if args.experimental_rank and (args.platform != "windows" or not args.windows_complete
                                       or args.mode != "candidate-reference" or args.aa_evidence
                                       or any((args.check_prerequisites, args.check_staged_source,
@@ -2831,6 +2958,8 @@ def main():
                 **({"platform_name": "windows"} if args.platform == "windows" else {}),
                 **({"windows_complete": True} if args.windows_complete else {}),
                 **({"experimental_rank": True} if args.experimental_rank else {}),
+                **({"subject": args.subject, "expected_controller": args.expected_controller,
+                    "expected_subject": args.expected_subject} if args.experimental_rank else {}),
                 **({"memory_limit_bytes": (args.memory_limit_gib or 8) * 1024**3}
                    if args.platform == "macos" else {}),
             )

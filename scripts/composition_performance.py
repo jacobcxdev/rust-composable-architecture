@@ -1357,7 +1357,7 @@ def validate_isolated_transcript(
 
 
 def _load_resource_counters(
-    path: pathlib.Path, protocol: dict[str, Any], *, command_kind: str = "runtime"
+    path: pathlib.Path, protocol: dict[str, Any], *, command_kind: str = "runtime", rank_cold: bool = False,
 ) -> dict[str, Any]:
     try:
         document = json.loads(path.read_text(encoding="utf-8"))
@@ -1368,6 +1368,7 @@ def _load_resource_counters(
         raise ValueError(f"per-process resource counter set is invalid: {path}")
     if is_windows_protocol(protocol):
         validate_windows_resource_counters(document, expected_kind=command_kind,
+            rank_cold=rank_cold,
             primary_thread_affinity_required=(protocol["method_version"] == WINDOWS_V6_METHOD
                                               and command_kind == "runtime"))
         return document
@@ -1388,7 +1389,7 @@ def _load_resource_counters(
 
 def validate_windows_resource_counters(
     document: dict[str, Any], *, expected_kind: str | None = None,
-    primary_thread_affinity_required: bool = False,
+    primary_thread_affinity_required: bool = False, rank_cold: bool = False,
 ) -> None:
     """Keep command timing, owned cleanup and direct-process counters separate."""
     if not isinstance(document, dict) or set(document) != {"real_seconds", "direct_process", "process_receipt"}:
@@ -1415,6 +1416,11 @@ def validate_windows_resource_counters(
     fields = {"command_kind", "returncode", "elapsed_seconds", "leader_elapsed_seconds",
               "descendants_exited", "descendants_exited_naturally", "compiler_telemetry_path",
               "compiler_telemetry_sha256", "terminated_telemetry", "job_memory_limit_bytes"}
+    if rank_cold:
+        fields.add("build_dir")
+        if (expected_kind != "compile" or not isinstance(receipt, dict)
+                or not isinstance(receipt.get("build_dir"), str) or not ntpath.isabs(receipt["build_dir"])):
+            raise ValueError("rank cold build directory is missing or invalid")
     if isinstance(receipt, dict) and "divan_arguments" in receipt:
         fields.add("divan_arguments")
         if (receipt.get("command_kind") != "runtime"
@@ -1538,28 +1544,12 @@ def _measurement_suffixes(protocol: dict[str, Any]) -> tuple[str, ...]:
     return suffixes
 
 
-RANK_RUNTIME_WINDOW_SECONDS = {
-    "direct/1": "0.5",
-    "nonmatching_scope/16": "0.5",
-    "combine_arity/4": "0.5",
-    "keyed_matching_route/100000": "2",
-    "effect_map_depth/16": "2",
-    "descendant_cancellation/10000": "0.5",
-    "scoped_concurrent_senders_32": "0.5",
-    "matching_scope/16": "2",
-    "combine_arity/12": "2",
-}
-
-
 def isolated_divan_arguments(protocol: dict[str, Any], scenario: str, *, experimental_rank: bool = False) -> list[str]:
     """Return the frozen duration arguments for one Windows runtime scenario."""
     if not is_windows_protocol(protocol) or scenario not in protocol["runtime"]["gated_scenarios"]:
         raise ValueError("Windows runtime scenario is not frozen in the protocol")
-    if experimental_rank:
-        if protocol["method_version"] != WINDOWS_V6_METHOD or scenario not in RANK_RUNTIME_WINDOW_SECONDS:
-            raise ValueError("experimental rank window is not frozen for this scenario or protocol")
-        seconds = RANK_RUNTIME_WINDOW_SECONDS[scenario]
-        return ["--min-time", seconds, "--max-time", seconds]
+    if experimental_rank and protocol["method_version"] != WINDOWS_V6_METHOD:
+        raise ValueError("experimental rank windows require the frozen Windows v6 protocol")
     runtime = protocol["runtime"]
     return list(runtime.get("isolated_divan_arguments_by_scenario", {}).get(
         scenario, runtime["isolated_divan_arguments"]))
@@ -1639,7 +1629,7 @@ def load_compile_pairs(
     protocol: dict[str, Any],
     memory_watchdog_sha256: str | None = None,
     memory_limit_bytes: int | None = None,
-    *, block_count: int | None = None,
+    *, block_count: int | None = None, experimental_rank: bool = False,
 ) -> list[dict[str, Any]]:
     """Load balanced, clean compile observations from isolated targets."""
     if fixture not in protocol["compile"]["fixtures"]:
@@ -1674,10 +1664,10 @@ def load_compile_pairs(
         ).strip():
             raise ValueError(f"paired compile transcript is empty: {fixture} block {block}")
         subject_resources = _load_resource_counters(
-            subject_path.with_suffix(".resources.json"), protocol, command_kind="compile"
+            subject_path.with_suffix(".resources.json"), protocol, command_kind="compile", rank_cold=experimental_rank
         )
         control_resources = _load_resource_counters(
-            control_path.with_suffix(".resources.json"), protocol, command_kind="compile"
+            control_path.with_suffix(".resources.json"), protocol, command_kind="compile", rank_cold=experimental_rank
         )
         pairs.append(
             {

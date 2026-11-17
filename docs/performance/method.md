@@ -296,6 +296,15 @@ For a split build, pass the independently recorded build-receipt hash with `--so
 Use the original candidate workspace for support. Use its matching native executables for the normal and allocation measurements.
 The support capture checks the source inventories, build logs and tool identities before and after measurement.
 
+After independent replay of both numerical results, compare their inputs with the support capture:
+
+```sh
+python3 scripts/check_windows_performance_inputs.py --native NATIVE --composition COMPOSITION --support SUPPORT_JSON --controller CONTROLLER_SHA --subject SUBJECT_SHA --reference REFERENCE_SHA
+```
+
+Use the full hashes of the signed revisions selected for the run. The command detects mixed source, host or toolchain records.
+Matching inputs do not qualify a release. The numerical verdicts must pass, and the support measurements and both CPU profiles must be complete.
+
 Windows support and complete composition captures also require LIEF 1.0.0 for PE stripping.
 LLVM removes COFF symbols but can retain an embedded debug directory in `.rdata`.
 The shared helper removes that directory with LIEF's `clear_debug()` API.

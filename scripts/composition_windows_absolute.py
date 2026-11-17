@@ -368,9 +368,12 @@ def capture_windows_absolute(capture, protocol, env, monitor, tools):
         raise ValueError("absolute subject receipt changed during capture")
     if evidence._sha256(root / "Cargo.lock") != capture["subject"]["hashes"]["Cargo.lock"]:
         raise ValueError("absolute subject lock changed during capture")
+    rank_sources = {k: capture["metadata"][k] for k in ("controller_revision", "measured_subject_revision")
+                    if k in capture["metadata"]}
     result = {
         "schema": "composition-windows-absolute-raw-v1",
         "subject_revision": source["revision"],
+        **rank_sources,
         "source_receipt_sha256": receipt_hash,
         "root_lock_sha256": evidence._sha256(root / "Cargo.lock"),
         "allocation_manifest_sha256": evidence._sha256(evidence.DEFAULT_ALLOCATION_MANIFEST),
@@ -378,6 +381,7 @@ def capture_windows_absolute(capture, protocol, env, monitor, tools):
         "allocations": rows, "zero_tests": zero, "binaries": binaries,
         "selected": selected_allocation_values(rows, {name: True for name in zero}),
         "input_hashes_after": {
+            **rank_sources,
             "source_receipt_sha256": evidence._sha256(receipt),
             "root_lock_sha256": evidence._sha256(root / "Cargo.lock"),
             "allocation_manifest_sha256": evidence._sha256(evidence.DEFAULT_ALLOCATION_MANIFEST),

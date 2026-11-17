@@ -97,17 +97,17 @@ Each additional block keeps the prescribed order and includes a fresh reference 
 An unresolved result cannot pass. A passing timing result still requires all allocation, executable-size and diagnostic checks.
 This experiment does not authorise a release or create a `complete.json` receipt.
 
-Five workloads use a half-second timing window:
-`direct/1`, `nonmatching_scope/16`, `combine_arity/4`, `descendant_cancellation/10000` and `scoped_concurrent_senders_32`.
-The other four workloads keep their two-second window. All measured cold builds still start with an empty target directory.
-The capture records the window for each workload before measurement. Replay checks the window that each process used.
+All nine workloads keep the original two-second window. A half-second experiment caught a steady slowdown but missed work that started after 750 milliseconds.
+The runner saves time by omitting later runs whose results cannot change the verdict. It does not shorten the remaining runs.
+Each measured cold build starts with empty storage.
 
 ```sh
-python3 scripts/composition_runner.py --platform windows --windows-complete --experimental-rank OUTPUT REFERENCE
-python3 scripts/composition_runner.py --verify-experimental-rank OUTPUT
+python3 scripts/composition_runner.py --platform windows --windows-complete --experimental-rank --subject SUBJECT --expected-subject SUBJECT_SHA --expected-controller CONTROLLER_SHA OUTPUT REFERENCE
+python3 scripts/composition_runner.py --verify-experimental-rank OUTPUT --expected-subject SUBJECT_SHA --expected-controller CONTROLLER_SHA
 ```
 
-Use the same version of the runner for both commands.
+The subject is the checkout under test. The controller supplies the capture and replay code.
+Use full commit hashes from the signed revisions selected before the run. Use the same controller for both commands.
 The second command checks the evidence. It can verify a recorded failure.
 Read the `decision` field for the numerical result.
 
