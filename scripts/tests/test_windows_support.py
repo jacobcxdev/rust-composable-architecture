@@ -80,10 +80,105 @@ class WindowsSupportTests(unittest.TestCase):
     def validate(self, args):
         # The fixture bytes live on the test host; native execution still uses
         # WindowsProcessApi's independent absolute-Windows-path validation.
-        with patch.object(self.capture.ntpath, "isabs", side_effect=lambda path: Path(path).is_absolute()):
+        with patch.object(self.capture.ntpath, "isabs", side_effect=lambda path: Path(path).is_absolute()), \
+                patch.object(self.capture.runner.evidence, "load_protocol", return_value={
+                    "compiler_telemetry": json.loads(args.tools.read_bytes())["compiler_telemetry"]}):
             return self.capture.validate_inputs(args.source, args.source_manifest, args.metadata, args.tools,
                                                 args.candidate_normal, args.candidate_allocation,
-                                                args.candidate_revision)
+                                                args.candidate_revision, **({"source_build_sha256": args.pin}
+                                                                          if hasattr(args, "pin") else {}))
+
+    def split_inputs(self):
+        from scripts.tests import test_windows_performance as fixtures
+
+        args = self.inputs()
+        cohort = fixtures.WindowsPerformanceTests()
+        cohort.root = self.root / "cohort"
+        cohort.root.mkdir()
+        cohort.runner = self.capture.provider_module
+        binaries, receipt = cohort.capture_inputs()
+        meta = json.loads(receipt.read_bytes())
+        roster = (SCRIPTS.parent / "docs/performance/scenarios.txt").read_bytes()
+        for role in ("candidate", "reference"):
+            for config in ("", "deterministic_"):
+                record = meta["binaries"][f"{role}_{config}normal"]
+                stage = Path(record["source_root"])
+                path = stage / "docs/performance/scenarios.txt"
+                path.parent.mkdir(parents=True)
+                path.write_bytes(roster)
+                inventory = Path(record["source_manifest"])
+                inventory.write_text(json.dumps(self.capture.runner.source_hashes(stage)))
+                digest = self.capture.file_record(inventory)["sha256"]
+                for mode in ("normal", "allocation"):
+                    meta["binaries"][f"{role}_{config}{mode}"]["source_manifest_sha256"] = digest
+                if config:
+                    meta[f"{role}_source_manifest_sha256"] = digest
+        original = meta["binaries"]["candidate_deterministic_normal"]
+        tools = json.loads(args.tools.read_bytes())
+        builder = self.write_json("native-build.json", {"complete": True, "measurement_toolchain": "1.100.0",
+            "source_roles": {"candidate": {"original_root": original["source_root"],
+                                           "original_files": json.loads(Path(original["source_manifest"]).read_bytes())}},
+            "tools": {key+".exe": tools[key] for key in ("cargo","rustc","rustdoc")}})
+        meta["candidate"]["original_harness_sha256"] = meta["harness_sha256"]
+        meta.update(build_exit_code=0, profile_environment={},
+                    input_hashes={str(builder): self.capture.file_record(builder)["sha256"]},
+                    git_source_verification={r: meta[r] for r in ("candidate", "reference")})
+        receipt.write_text(json.dumps(meta))
+        workspace = meta["binaries"]["candidate_deterministic_normal"]
+        args.metadata = receipt
+        args.source = Path(workspace["source_root"])
+        args.source_manifest = Path(workspace["source_manifest"])
+        args.candidate_normal, args.candidate_allocation = binaries["candidate_normal"], binaries["candidate_allocation"]
+        args.pin = self.capture.file_record(receipt)["sha256"]
+        return args
+
+    def test_split_receipt_binds_both_native_binaries_and_the_original_workspace(self):
+        args = self.split_inputs()
+        self.validate(args)
+        original = args.pin
+        for pin in (None, "0" * 64):
+            args.pin = pin
+            with self.subTest(pin=pin), self.assertRaises(ValueError):
+                self.validate(args)
+        args.pin = original
+        record = json.loads(args.metadata.read_bytes())
+        Path(record["binaries"]["candidate_normal"]["source_manifest"]).write_text("{}")
+        with self.assertRaises(ValueError):
+            self.validate(args)
+
+    def test_split_receipt_cannot_replace_git_proof_with_legacy_success(self):
+        args = self.split_inputs()
+        metadata = json.loads(args.metadata.read_bytes())
+        metadata["git_source_verification"]["candidate"]["tree"] = "9" * 40
+        metadata["post_build_source_verification"] = {
+            "candidate": {"files": len(json.loads(args.source_manifest.read_bytes())), "exact_manifest_match": True}}
+        args.metadata.write_text(json.dumps(metadata))
+        args.pin = self.capture.file_record(args.metadata)["sha256"]
+        with self.assertRaises(ValueError):
+            self.validate(args)
+
+    def test_split_build_rejects_missing_original_inventory_and_swapped_compiler(self):
+        args = self.split_inputs()
+        descriptor = json.loads(args.tools.read_bytes())
+        descriptor["cargo"], descriptor["rustc"] = descriptor["rustc"], descriptor["cargo"]
+        original_tools = args.tools.read_bytes()
+        args.tools.write_text(json.dumps(descriptor))
+        with self.assertRaisesRegex(ValueError, "cargo"):
+            self.validate(args)
+        args.tools.write_bytes(original_tools)
+
+        metadata = json.loads(args.metadata.read_bytes())
+        path, = map(Path, metadata["input_hashes"])
+        build = json.loads(path.read_bytes())
+        build["source_roles"]["candidate"]["original_files"].pop("rca-core/src/lib.rs")
+        path.write_text(json.dumps(build))
+        with self.assertRaisesRegex(ValueError, "hash"):
+            self.validate(args)
+        metadata["input_hashes"][str(path)] = self.capture.file_record(path)["sha256"]
+        args.metadata.write_text(json.dumps(metadata))
+        args.pin = self.capture.file_record(args.metadata)["sha256"]
+        with self.assertRaisesRegex(ValueError, "inventory"):
+            self.validate(args)
 
     def test_inputs_require_successful_build_exact_candidate_manifest_and_binaries(self):
         args = self.inputs()
@@ -160,13 +255,15 @@ class WindowsSupportTests(unittest.TestCase):
                     "CARGO_BUILD_RUSTC_WRAPPER", "RUSTC_BOOTSTRAP", "LLVM_PROFILE_FILE"):
             with self.subTest(key=key), self.assertRaises(ValueError):
                 self.capture.build_environment({key: "changed"}, tools, self.root)
-        env = self.capture.build_environment({"PATH": "tools"}, tools, self.root)
+        env = self.capture.build_environment({"PATH": "tools", "cargo_build_build_dir": "foreign-warm-directory"}, tools, self.root)
         self.assertEqual(env["CARGO_BUILD_JOBS"], "1")
         self.assertEqual(env["RUSTC_WRAPPER"], "")
         self.assertEqual(env["RUSTC"], "C:\\tools\\rustc.exe")
         self.assertEqual(env["RUSTUP_TOOLCHAIN"], "1.100.0")
         self.assertTrue(env["PATH"].endswith("tools"))
         self.assertEqual(env["CARGO_TARGET_DIR"], str(self.root))
+        self.assertEqual(env.get("CARGO_BUILD_BUILD_DIR"), str(self.root))
+        self.assertNotIn("cargo_build_build_dir", env)
 
     def pe_image(self, *, symbols=0, debug_size=0):
         data = bytearray(512)
@@ -289,7 +386,7 @@ class WindowsSupportTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 self.capture.bench_artifact(output, "effects", target)
 
-    def capture_fixture(self, args, *, mutate_receipt=False, stripped=True):
+    def capture_fixture(self, args, *, mutate_receipt=False, stripped=True, warm_dependency=False):
         monitor = Mock()
         commands = []
         self.strip_tools = tool_fixture(self.root)
@@ -298,7 +395,14 @@ class WindowsSupportTests(unittest.TestCase):
             commands.append((command, dict(env)))
             destination.write_text("completed\n")
             destination.with_suffix(".resources.json").write_text(json.dumps({"real_seconds": 1}))
-            if command[1] == "build" and "rca-size-probe" in command:
+            if command[1] == "build" and "--workspace" in command:
+                rows = []
+                for package, fresh in (("path+file:///src#rca-core@0.1.0", False),
+                                       ("registry+crates.io#syn@2.0.0", warm_dependency)):
+                    rows.append({"reason": "compiler-artifact", "package_id": package, "fresh": fresh})
+                rows.append({"reason": "build-finished", "success": True})
+                destination.write_text("\n".join(map(json.dumps, rows)))
+            elif command[1] == "build" and "rca-size-probe" in command:
                 executable = Path(env["CARGO_TARGET_DIR"]) / "release/rca-size-probe.exe"
                 executable.parent.mkdir(parents=True)
                 executable.write_bytes(self.pe_image(debug_size=28))
@@ -356,7 +460,11 @@ class WindowsSupportTests(unittest.TestCase):
             [str(args.candidate_normal), "external_commit/multi/8_producers/saturated", "100000"]])
         self.assertIsNone(result["instructions_retired"])
         self.assertEqual(commands[0][0][1:], ["build", "--locked", "--workspace", "--all-features",
-                                             "--features", "critical-section/std", "--release"])
+                                             "--features", "critical-section/std", "--release", "--message-format=json"])
+        self.assertEqual(result["clean_compile"]["compiled_units"], {"registry": 1, "path": 1})
+        for command, env in commands:
+            if command[1] in ("build", "bench"):
+                self.assertEqual(env["CARGO_BUILD_BUILD_DIR"], env["CARGO_TARGET_DIR"])
         self.assertEqual([command[command.index("--bench") + 1] for command, _ in commands if command[1] == "bench"],
                          ["effects", "observation", "store_actor", "deterministic", "runtime"])
         runtime = [command[1:] for command, _ in commands if command[1] == "--bench"]
@@ -368,6 +476,25 @@ class WindowsSupportTests(unittest.TestCase):
         self.assertEqual(Path(removal["intermediate"]["path"]).read_bytes(), image())
         self.assertEqual(removal["verification"]["padding_changed_bytes"], 32)
         self.assertTrue((args.output / "support.json").is_file())
+
+    def test_clean_support_compile_rejects_reused_registry_dependency(self):
+        args = self.inputs()
+        monitor, _ = self.capture_fixture(args, warm_dependency=True)
+        with self.assertRaisesRegex(ValueError, "reused"):
+            self.run_capture_fixture(args, monitor)
+        self.assertFalse((args.output / "support.json").exists())
+
+    def test_clean_compile_needs_real_workspace_units_and_successful_completion(self):
+        log = self.root / "compile.jsonl"
+        dep = {"reason": "compiler-artifact", "package_id": "registry+crates.io#syn@2", "fresh": False}
+        local = {**dep, "package_id": "path+file:///src#rca-core@0.1.0"}
+        finished = {"reason": "build-finished", "success": True}
+        for rows in ([], [dep, local], [dep, {**local, "package_id": "git+https://example.org/dependency"}, finished],
+                     [dep, local, {**finished, "success": False}], [dep, local, finished, finished]):
+            with self.subTest(rows=rows):
+                log.write_text("\n".join(map(json.dumps, rows)))
+                with self.assertRaises(ValueError):
+                    self.capture.clean_compilation_units(log)
 
     def test_full_capture_rejects_rewritten_receipt_before_acceptance(self):
         args = self.inputs()

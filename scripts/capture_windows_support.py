@@ -75,7 +75,8 @@ def build_environment(inherited, tools, target):
     # Windows environment names are case-insensitive. Replace, do not duplicate.
     explicit = {"RUSTC": tools["rustc"]["path"], "RUSTDOC": tools["rustdoc"]["path"],
                 "RUSTC_WRAPPER": "", "RUSTC_WORKSPACE_WRAPPER": "", "CARGO_BUILD_JOBS": "1",
-                "CARGO_INCREMENTAL": "0", "CARGO_TARGET_DIR": str(target), "RUSTUP_TOOLCHAIN": "1.100.0"}
+                "CARGO_INCREMENTAL": "0", "CARGO_TARGET_DIR": str(target), "CARGO_BUILD_BUILD_DIR": str(target),
+                "RUSTUP_TOOLCHAIN": "1.100.0"}
     env = {key: value for key, value in env.items() if key.upper() not in explicit}
     env.update(explicit)
     path_key = next((key for key in env if key.upper() == "PATH"), "PATH")
@@ -83,7 +84,40 @@ def build_environment(inherited, tools, target):
     return env
 
 
-def validate_inputs(source, manifest_path, metadata_path, tools_path, normal, allocation, revision):
+def split_build_tool_pins(metadata, source, manifest_path, manifest, normal, allocation):
+    """Verify a Git-checked build, its four staged inventories and the actual Cargo records."""
+    provider_module.validate_metadata(metadata)
+    if metadata.get("git_source_verification") != {role: metadata[role] for role in ("candidate", "reference")}:
+        raise ValueError("split build lacks the original Git source identities")
+    provider_module.validate_staged_sources(metadata)
+    provider_module.validate_build_transcripts(metadata)
+    workspace = metadata["binaries"]["candidate_deterministic_normal"]
+    if (source.resolve() != Path(workspace["source_root"]).resolve(strict=True)
+            or manifest_path.resolve() != Path(workspace["source_manifest"]).resolve(strict=True)
+            or metadata["candidate"]["original_harness_sha256"] != metadata["harness_sha256"]):
+        raise ValueError("support needs the original candidate workspace")
+    for role, path in (("candidate_normal", normal), ("candidate_allocation", allocation)):
+        if path.resolve(strict=True) != Path(metadata["binaries"][role]["path"]).resolve(strict=True):
+            raise ValueError(f"{role} is not the recorded native build")
+
+    # The verified assembler records the Git-blob inventory and compiler inputs
+    # in its hash-pinned build record, not as top-level tool hashes.
+    records = [{"path": path, "sha256": digest} for path, digest in metadata["input_hashes"].items()
+               if Path(path).name == "native-build.json"]
+    if len(records) != 1:
+        raise ValueError("missing a unique native build record")
+    build = read_json(Path(checked_file(records[0])["path"]))
+    original = build["source_roles"]["candidate"]
+    if (build.get("complete") is not True or build.get("measurement_toolchain") != "1.100.0"
+            or original["original_files"] != manifest):
+        raise ValueError("candidate workspace differs from its Git-verified source inventory")
+    verify_source(Path(original["original_root"]), manifest)
+    pins = {name: build["tools"][name + ".exe"] for name in ("cargo", "rustc", "rustdoc")}
+    pins["compiler_telemetry"] = runner.evidence.load_protocol(runner.WINDOWS_PROTOCOL)["compiler_telemetry"]
+    return pins
+
+
+def validate_inputs(source, manifest_path, metadata_path, tools_path, normal, allocation, revision, *, source_build_sha256=None):
     """Bind source, tools and existing workload binaries to one successful build."""
     metadata = read_json(metadata_path)
     provider_module.validate_source_metadata(metadata)
@@ -91,10 +125,16 @@ def validate_inputs(source, manifest_path, metadata_path, tools_path, normal, al
             or metadata.get("profile_environment") != {}):
         raise ValueError("candidate build identity or clean profile environment is unverified")
     manifest = read_json(manifest_path)
-    if (provider_module.sha256(manifest_path) != metadata.get("candidate_source_manifest_sha256")
-            or metadata.get("post_build_source_verification", {}).get("candidate")
-            != {"files": len(manifest), "exact_manifest_match": True}):
+    if provider_module.sha256(manifest_path) != metadata.get("candidate_source_manifest_sha256"):
+        raise ValueError("candidate source manifest hash differs")
+    if source_build_sha256 is not None or "git_source_verification" in metadata:
+        if file_record(metadata_path)["sha256"] != source_build_sha256:
+            raise ValueError("split builds require the independently verified source/build receipt hash")
+        split_pins = split_build_tool_pins(metadata, source, manifest_path, manifest, normal, allocation)
+    elif metadata.get("post_build_source_verification", {}).get("candidate") != {"files": len(manifest), "exact_manifest_match": True}:
         raise ValueError("candidate source manifest was not verified after its build")
+    else:
+        split_pins = None
     verify_source(source, manifest)
     if (manifest.get("Cargo.lock") != metadata["candidate"]["lock_sha256"]
             or manifest.get("Cargo.toml") != metadata["candidate"]["manifest_sha256"]
@@ -110,9 +150,33 @@ def validate_inputs(source, manifest_path, metadata_path, tools_path, normal, al
         checked_file(tools[name])
         if not ntpath.isabs(tools[name]["path"]) or not tools[name]["path"].lower().endswith(".exe"):
             raise ValueError(f"{name} needs an absolute Windows executable")
-        if name != "objcopy" and metadata["input_hashes"].get(tools[name]["path"]) != tools[name]["sha256"]:
+        if split_pins is not None and name in split_pins:
+            if any(tools[name][field] != split_pins[name][field] for field in ("path", "sha256")):
+                raise ValueError(f"{name} differs from its pinned source-build tool")
+        elif name != "objcopy" and metadata["input_hashes"].get(tools[name]["path"]) != tools[name]["sha256"]:
             raise ValueError(f"{name} differs from the pinned source-build tool")
     return metadata, manifest, tools
+
+
+def clean_compilation_units(log):
+    """Require Cargo to report actual compilation of the workspace and its dependencies."""
+    transcript = log.read_text(encoding="utf-8")
+    if "stripping debug info" in transcript and "failed" in transcript:
+        raise ValueError("clean release build reported a stripping failure")
+    records = [json.loads(line) for line in transcript.splitlines() if line.startswith("{")]
+    endings = [row for row in records if row.get("reason") == "build-finished"]
+    if len(endings) != 1 or records[-1] != endings[0] or endings[0].get("success") is not True:
+        raise ValueError("clean compile lacks a successful terminal Cargo record")
+    counts = {}
+    for row in records:
+        if row.get("reason") == "compiler-artifact":
+            if row.get("fresh") is not False:
+                raise ValueError("clean compile reused an artifact or did not attest fresh compilation")
+            kind = row["package_id"].partition("+")[0]
+            counts[kind] = counts.get(kind, 0) + 1
+    if not counts.get("registry") or not counts.get("path"):
+        raise ValueError("clean compile did not report both workspace units and registry dependencies")
+    return counts
 
 
 def stripped_pe_size(path):
@@ -228,7 +292,7 @@ def capture(args):
         raise ValueError("output and immutable source must be separate directories")
     metadata, manifest, tools = validate_inputs(source, args.source_manifest, args.metadata, args.tools,
                                                args.candidate_normal, args.candidate_allocation,
-                                               args.candidate_revision)
+                                               args.candidate_revision, source_build_sha256=getattr(args, "source_build_sha256", None))
     strip_tools = windows_strip.preflight(os.environ)
     strip_identities = {name: file_record(path) for name, path in strip_tools.items()}
     controllers = [file_record(Path(path)) for path in (
@@ -256,10 +320,9 @@ def capture(args):
         cargo = tools["cargo"]["path"]
         compile_log = output / "clean-compile.txt"
         monitor.run([cargo, "build", "--locked", "--workspace", "--all-features", "--features",
-                     "critical-section/std", "--release"], compile_log, source, base_env)
-        if "stripping debug info" in compile_log.read_text(encoding="utf-8") and "failed" in compile_log.read_text(encoding="utf-8"):
-            raise ValueError("clean release build reported a stripping failure")
+                     "critical-section/std", "--release", "--message-format=json"], compile_log, source, base_env)
         result["clean_compile"] = {"transcript": file_record(compile_log),
+                                   "compiled_units": clean_compilation_units(compile_log),
                                    "resources": read_json(compile_log.with_suffix(".resources.json"))}
 
         stage = "stripped-binary-sizes"
@@ -335,7 +398,8 @@ def capture(args):
             checked_file(record)
         verify_source(source, manifest)
         validate_inputs(source, args.source_manifest, args.metadata, args.tools,
-                        args.candidate_normal, args.candidate_allocation, args.candidate_revision)
+                        args.candidate_normal, args.candidate_allocation, args.candidate_revision,
+                        source_build_sha256=getattr(args, "source_build_sha256", None))
         runner.check_host_unchanged(host, monitor)
         result["non_profile_support_captured"] = True
         result["finished_at"] = runner.now()
@@ -355,6 +419,7 @@ def main():
                  "candidate-allocation", "output"):
         parser.add_argument(f"--{name}", type=Path, required=True)
     parser.add_argument("--candidate-revision", required=True)
+    parser.add_argument("--source-build-sha256", help="independently verified Git-backed build receipt hash; required for split-build evidence")
     args = parser.parse_args()
     if sys.platform != "win32":
         parser.error("native support capture requires Windows")

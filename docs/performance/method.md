@@ -292,6 +292,9 @@ Missing profiles leave qualification incomplete.
 
 Run the support capture inside the reviewed Windows memory guard.
 Every child job retains the two-GiB limit.
+For a split build, pass the independently recorded build-receipt hash with `--source-build-sha256`.
+Use the original candidate workspace for support. Use its matching native executables for the normal and allocation measurements.
+The support capture checks the source inventories, build logs and tool identities before and after measurement.
 
 Windows support and complete composition captures also require LIEF 1.0.0 for PE stripping.
 LLVM removes COFF symbols but can retain an embedded debug directory in `.rdata`.
