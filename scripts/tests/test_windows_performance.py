@@ -6,7 +6,9 @@ import hashlib
 import importlib.util
 import json
 from pathlib import Path
+import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 from unittest.mock import Mock, patch
@@ -390,6 +392,72 @@ class WindowsPerformanceTests(unittest.TestCase):
         self.assertEqual(sum("RCA_DHAT_FILE" in call[2] for call in calls), 24)
         with self.assertRaises(FileExistsError):
             self.runner.capture(binaries, metadata, self.root / "result", 1)
+
+    @unittest.skipUnless(shutil.which("jq"), "native row comparison needs jq")
+    def test_known_row_regression_stops_before_budget_and_keeps_evidence(self):
+        binaries, metadata = self.capture_inputs()
+        scenarios = ["query/multi", "deterministic/budget"]
+        output = self.root / "failed"
+        launches = []
+
+        def process(command, stem, env, *_):
+            key = Path(command[0]).name
+            if command[1:] == ["--list"]:
+                listed = scenarios if "_deterministic_" in key else scenarios[:1]
+                stem.with_suffix(".stdout").write_text("\n".join(listed) + "\n")
+            else:
+                scenario, samples = command[1], int(command[2])
+                launches.append(scenario)
+                value = self.measurement(scenario, samples, samples * self.runner.operations_per_sample(scenario))
+                if "RCA_DHAT_FILE" in env:
+                    Path(env["RCA_DHAT_FILE"]).write_text('{"dhatFileVersion":2,"pps":[]}')
+                    value.update(allocations=4 if key.startswith("candidate") else 2,
+                                 allocated_bytes=32, peak_bytes=16)
+                stem.with_suffix(".stdout").write_text(json.dumps(value))
+            return self.counters()
+
+        with patch.object(self.runner, "load_scenarios", return_value=scenarios), \
+                patch.object(self.runner, "host_metadata", return_value={"system": "Windows"}), \
+                patch.object(self.runner, "WindowsCounters"), patch.object(self.runner, "run_process", side_effect=process):
+            jq = Path(shutil.which("jq"))
+            with patch.object(shutil, "which", return_value=None), \
+                    self.assertRaisesRegex(ValueError, "query/multi.*allocation_ratio"):
+                self.runner.capture(binaries, metadata, output, 1, jq=jq)
+            self.assertEqual(launches, ["query/multi"] * 96)
+            self.assertEqual(json.loads((output / "failure.json").read_text())["completed_rows"], 1)
+            self.assertTrue((output / "raw/completed-row-00.json").is_file())
+            for name in ("candidate.json", "reference.json", "complete.json"):
+                self.assertFalse((output / name).exists())
+            launches.clear()
+            retained = self.runner.capture(binaries, metadata, self.root / "diagnosis", 1, keep_going=True)
+            self.assertEqual(launches.count("deterministic/budget"), 32)
+            self.assertEqual(retained["accepted_regressions"], [])
+
+    def test_unusable_jq_stops_before_any_benchmark_launch(self):
+        binaries, metadata = self.capture_inputs()
+        # The module search directory is empty. A working jq must reject it.
+        for executable in (self.root / "missing-jq", Path(sys.executable), shutil.which("jq")):
+            if executable is None:
+                continue
+            with self.subTest(executable=executable), \
+                    patch.object(self.runner, "__file__", str(self.root / "capture.py")), \
+                    patch.object(self.runner, "host_metadata", return_value={"system": "Windows"}), \
+                    patch.object(self.runner, "WindowsCounters"), patch.object(self.runner, "run_process") as process:
+                output = self.root / ("result-" + Path(executable).name)
+                with self.assertRaisesRegex(ValueError, "jq"):
+                    self.runner.capture(binaries, metadata, output, 1, jq=Path(executable))
+                process.assert_not_called()
+                self.assertFalse((output / "complete.json").exists())
+
+    def test_broken_jq_on_path_stops_before_any_benchmark_launch(self):
+        binaries, metadata = self.capture_inputs()
+        with patch.object(shutil, "which", return_value=str(self.root / "broken-jq")), \
+                patch.object(self.runner, "host_metadata", return_value={"system": "Windows"}), \
+                patch.object(self.runner, "WindowsCounters"), \
+                patch.object(self.runner, "run_process", side_effect=AssertionError("started a benchmark")) as process:
+            with self.assertRaisesRegex(ValueError, "jq"):
+                self.runner.capture(binaries, metadata, self.root / "bad-path", 1)
+            process.assert_not_called()
 
     def test_capture_rejects_wrong_binary_before_any_process(self):
         binaries, metadata = self.capture_inputs()

@@ -228,6 +228,8 @@ python scripts/composition_runner.py --platform windows --windows-complete <capt
 Both paired modes and all 33 native absolute gates must pass. The thirteen
 allocation limits keep their original values, including three exact-zero contracts.
 The capture runs all forty-seven allocation workloads and both exact zero-test hosts.
+Each allocation build uses dependencies from its own subject's earlier timing build. It compiles a new executable with allocation measurement enabled.
+The candidate and reference do not share build outputs. Each timed cold compile still starts with an empty target directory.
 
 Timing and binary sizes need native reference values. The runner uses all twenty
 reference-b observations from the same A/A capture to set each timing limit.
@@ -235,6 +237,8 @@ Maximum limits are the reference median times 1.10. The throughput minimum is th
 reference median divided by 1.10. Each of the six size limits is the freshly built,
 stripped reference PE size times 1.10, rounded up. Candidate values never set limits.
 The runner seals these reference-only limits before evaluating the candidate.
+If the completed timing data already fails a limit, the runner records the failure before the allocation and size checks.
+That incomplete run cannot pass qualification.
 
 The capture retains the policy, reference observations, derived limits and both
 absolute reports with their hashes. Mac protocols, limits and failed observations

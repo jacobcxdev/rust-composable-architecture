@@ -133,6 +133,48 @@ class WindowsAbsoluteTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "source"):
                 absolute._artifact(log, target, "composition", "bench", expected)
 
+    def test_allocation_dependency_reuse_rejects_foreign_or_changed_subject(self):
+        for change in ("other-mode", "control-root", "control-product", "changed-bytes",
+                       "allocation-feature", "target-link", "product-link"):
+            with self.subTest(change=change), tempfile.TemporaryDirectory() as directory:
+                base = Path(directory).resolve()
+                mode = "candidate-reference"
+                staging, targets = base / "records" / mode, base / "targets" / mode
+                root, target = targets / "source-subject", targets / "subject"
+                (staging / "builds").mkdir(parents=True)
+                root.mkdir(parents=True)
+                target.mkdir()
+                exe = target / "ordinary.exe"
+                exe.write_bytes(b"ordinary")
+                record = {"reason": "compiler-artifact", "fresh": False, "features": ["default"],
+                          "target": {"name": "composition", "kind": ["bench"],
+                                     "src_path": str(root / "rca-core/benches/composition.rs")},
+                          "executable": str(exe)}
+                capture = {"staging": staging, "targets": targets, "mode": mode,
+                           "roots": {"subject": root}, "executables": {"subject": exe},
+                           "metadata": {"subject_executable_sha256": hashlib.sha256(b"ordinary").hexdigest()}}
+                if change == "other-mode":
+                    capture["mode"] = "reference-reference-aa"
+                elif change == "control-root":
+                    capture["roots"]["subject"] = targets / "source-control"
+                elif change == "control-product":
+                    capture["executables"]["subject"] = targets / "control" / "ordinary.exe"
+                elif change == "changed-bytes":
+                    exe.write_bytes(b"changed")
+                elif change == "allocation-feature":
+                    record["features"].append("allocation-measurement")
+                elif change == "target-link":
+                    control = targets / "control"
+                    target.rename(control)
+                    target.symlink_to(control, target_is_directory=True)
+                elif change == "product-link":
+                    old = target / "old.exe"
+                    exe.rename(old)
+                    exe.symlink_to(old)
+                (staging / "builds/subject.txt").write_text(json.dumps(record))
+                with self.assertRaises(ValueError):
+                    absolute._subject_bench(capture)
+
     def test_changed_subject_source_stops_before_launch(self):
         with tempfile.TemporaryDirectory() as temporary:
             staging = Path(temporary) / "capture"
@@ -144,6 +186,35 @@ class WindowsAbsoluteTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "source changed"):
                     absolute.capture_windows_absolute(capture, {}, {}, monitor, {})
             monitor.run.assert_not_called()
+
+    def test_reuse_needs_a_new_allocation_product_and_preserves_measured_bytes(self):
+        for change in ("cached", "wrong-feature", "same-product", "overwritten"):
+            with self.subTest(change=change), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory).resolve()
+                target = root / "subject"
+                target.mkdir()
+                measured = target / "normal.exe"
+                measured.write_bytes(b"normal")
+                digest = hashlib.sha256(b"normal").hexdigest()
+                allocation = measured if change == "same-product" else target / "allocation.exe"
+
+                def build(_command, log, _cwd, _env):
+                    allocation.touch()
+                    if change == "overwritten":
+                        measured.write_bytes(b"changed")
+                    log.write_text(json.dumps({
+                        "reason": "compiler-artifact", "fresh": change == "cached",
+                        "features": [] if change == "wrong-feature" else ["allocation-measurement"],
+                        "target": {"name": "composition", "kind": ["bench"],
+                                   "src_path": str(root / "rca-core/benches/composition.rs")},
+                        "executable": str(allocation),
+                    }))
+
+                monitor = Mock()
+                monitor.run.side_effect = build
+                with self.assertRaisesRegex(ValueError, "freshly compiled|feature mismatch|replaced"):
+                    absolute._run_allocations(root, target, root, {}, monitor, "cargo", ordinary=(measured, digest))
+                self.assertEqual(monitor.run.call_count, 1)
 
     def test_changed_receipt_hash_stops_before_launch(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -263,13 +334,25 @@ class WindowsAbsoluteTests(unittest.TestCase):
 
     def test_subject_capture_retains_all_raw_work_and_six_compiled_pes(self):
         with tempfile.TemporaryDirectory() as temporary:
-            base = Path(temporary)
-            staging = base / "capture"
+            base = Path(temporary).resolve()
+            mode = "candidate-reference"
+            targets = base / "targets" / mode
+            staging = base / "capture" / mode
             (staging / "sources").mkdir(parents=True)
             receipt = staging / "sources/subject.json"
             receipt.write_text("{}", encoding="utf-8")
-            root = base / "source"
-            root.mkdir()
+            root = targets / "source-subject"
+            root.mkdir(parents=True)
+            ordinary = targets / "subject" / "ordinary.exe"
+            ordinary.parent.mkdir()
+            ordinary.write_bytes(b"normal-bench")
+            (staging / "builds").mkdir()
+            (staging / "builds/subject.txt").write_text(json.dumps({
+                "reason": "compiler-artifact", "fresh": False, "features": ["default"],
+                "target": {"name": "composition", "kind": ["bench"],
+                           "src_path": str(root / "rca-core/benches/composition.rs")},
+                "executable": str(ordinary),
+            }))
             (root / "Cargo.lock").write_text("lock", encoding="utf-8")
             tools = {name: str(base / f"{name}.exe") for name in ("cargo", "objcopy")}
             for tool in tools.values():
@@ -282,10 +365,11 @@ class WindowsAbsoluteTests(unittest.TestCase):
             }}), encoding="utf-8")
             lock_hash = hashlib.sha256(b"lock").hexdigest()
             capture = {
-                "staging": staging, "targets": base / "targets",
-                "roots": {"subject": root},
+                "staging": staging, "targets": targets, "mode": mode,
+                "roots": {"subject": root}, "executables": {"subject": ordinary},
                 "subject": {"revision": "a" * 40, "hashes": {"Cargo.lock": lock_hash}},
-                "metadata": {"workload_provenance": {"subject": {
+                "metadata": {"subject_executable_sha256": hashlib.sha256(b"normal-bench").hexdigest(),
+                             "workload_provenance": {"subject": {
                     "receipt_sha256": hashlib.sha256(b"{}").hexdigest()}}},
             }
             raw_lines = {line.split()[0].removeprefix("scenario="): line
@@ -298,6 +382,7 @@ class WindowsAbsoluteTests(unittest.TestCase):
                 target = Path(environment.get("CARGO_TARGET_DIR", base / "unused"))
                 if "--message-format=json" in command:
                     if "--bench" in command:
+                        self.assertEqual(target, targets / "subject")
                         names = [("composition", "bench")]
                     elif "composition_zero" in command:
                         names = [("composition_zero", "test")]
@@ -318,6 +403,7 @@ class WindowsAbsoluteTests(unittest.TestCase):
                                   root / "examples/composition-search/src/main.rs" if name == "rca-example-composition-search" else
                                   root / f"benches/compile/{name.removeprefix('rca-compile-')}/src/main.rs")
                         records.append(json.dumps({"reason": "compiler-artifact", "fresh": False,
+                                                   "features": ["allocation-measurement", "default"],
                                                    "target": {"name": name, "kind": [kind],
                                                               "src_path": str(source)},
                                                    "executable": str(binary)}))

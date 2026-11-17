@@ -262,7 +262,7 @@ rustup run 1.100.0 cargo doc --locked -p rca-event-listener --all-features --no-
 rustup run 1.100.0 cargo doc --locked --workspace --all-features --no-deps
 ```
 
-Start with focused checks during development. Before completion, run checks for the
+Start with [checks for the changed behaviour](docs/qualification.md#start-with-the-changed-behaviour) during development. Before completion, run checks for the
 affected integration boundaries. CI adds feature, platform, compiler-contract and
 dependency checks. Release qualification also requires applicable performance and
 100% executable-production coverage evidence. Test-only code has a separate audit scope.

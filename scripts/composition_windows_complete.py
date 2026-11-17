@@ -50,8 +50,8 @@ def _hash(value):
     return isinstance(value, str) and evidence._HASH.fullmatch(value) is not None
 
 
-def _observations(budget, timing, raw):
-    """Bind native measurements to the paired subject, source and workload set."""
+def _timing_observations(budget, timing):
+    """Bind all runtime and compile medians to the measured subject."""
     metadata = timing["metadata"]
     evidence._validate_protocol_pair_metadata(metadata, timing.get("method_version"))
     if (not evidence.is_windows_protocol(timing)
@@ -63,16 +63,6 @@ def _observations(budget, timing, raw):
             or timing.get("role") != metadata["subject_role"]
             or timing.get("revision") != metadata["subject_revision"]):
         raise ValueError("Windows timing report does not match its subject metadata")
-    if (raw.get("schema") != "composition-windows-absolute-raw-v1"
-            or raw.get("subject_revision") != timing["revision"]
-            or raw.get("allocation_manifest_sha256") != evidence.ALLOCATION_MANIFEST_SHA256
-            or raw.get("source_receipt_sha256") != metadata["workload_provenance"]["subject"]["receipt_sha256"]
-            or raw.get("root_lock_sha256") != metadata["subject_lock_sha256"]):
-        raise ValueError("Windows absolute observation has different source provenance")
-    for field in ("source_receipt_sha256", "root_lock_sha256", "allocation_manifest_sha256"):
-        if not _hash(raw.get(field)) or raw.get("input_hashes_after", {}).get(field) != raw[field]:
-            raise ValueError("Windows absolute input hash changed")
-
     expected_timing = {(row["scenario"], row["measured_statistic"]): row for row in budget["rows"]
                        if row["scenario"].startswith(("runtime/", "compile/"))}
     values = {}
@@ -89,6 +79,22 @@ def _observations(budget, timing, raw):
         values[key] = statistics.median(item["value"] for item in samples)
     if set(values) != set(expected_timing):
         raise ValueError("Windows timing row set is incomplete")
+    return values
+
+
+def _observations(budget, timing, raw):
+    """Bind native measurements to the paired subject, source and workload set."""
+    values = _timing_observations(budget, timing)
+    metadata = timing["metadata"]
+    if (raw.get("schema") != "composition-windows-absolute-raw-v1"
+            or raw.get("subject_revision") != timing["revision"]
+            or raw.get("allocation_manifest_sha256") != evidence.ALLOCATION_MANIFEST_SHA256
+            or raw.get("source_receipt_sha256") != metadata["workload_provenance"]["subject"]["receipt_sha256"]
+            or raw.get("root_lock_sha256") != metadata["subject_lock_sha256"]):
+        raise ValueError("Windows absolute observation has different source provenance")
+    for field in ("source_receipt_sha256", "root_lock_sha256", "allocation_manifest_sha256"):
+        if not _hash(raw.get(field)) or raw.get("input_hashes_after", {}).get(field) != raw[field]:
+            raise ValueError("Windows absolute input hash changed")
 
     manifest = evidence.validate_allocation_manifest(evidence.DEFAULT_ALLOCATION_MANIFEST)
     allocations = raw.get("allocations", {})
@@ -182,8 +188,8 @@ def seal_reference(policy, budget_path, timing_report, raw_observation):
             "reference_timing": reference_timing, "reference_raw": raw_observation, "rows": rows}
 
 
-def evaluate(policy, budget_path, timing_report, raw_observation, baseline):
-    """Apply sealed limits without changing them or certifying macOS results."""
+def _validated_budget(policy, budget_path, timing_report, baseline):
+    """Recompute the reference limits and check that the subject belongs to this capture."""
     expected = seal_reference(policy, budget_path, baseline["reference_timing"], baseline["reference_raw"])
     if baseline != expected:
         raise ValueError("Windows reference baseline differs from its source observations")
@@ -193,15 +199,31 @@ def evaluate(policy, budget_path, timing_report, raw_observation, baseline):
     if any(timing_report["metadata"].get(field) != reference_host.get(field)
            for field in ("platform", "target", "os_version", "os_build")):
         raise ValueError("Windows baseline belongs to another host")
-    budget = evidence.validate_budget_document(Path(budget_path))
     if timing_report.get("protocol_sha256") != policy["paired_protocol_sha256"]:
         raise ValueError("Windows complete policy belongs to another paired protocol")
+    return evidence.validate_budget_document(Path(budget_path))
+
+
+def _result(row, values):
+    value = values[row["scenario"], row["measured_statistic"]]
+    return {**row, "measured_value": value,
+            "passed": evidence._passes(value, row["absolute_budget"], row["direction"])}
+
+
+def timing_failures(policy, budget_path, timing_report, baseline):
+    """Reject an already-failed timing gate; an empty list cannot certify the candidate."""
+    budget = _validated_budget(policy, budget_path, timing_report, baseline)
+    values = _timing_observations(budget, timing_report)
+    rows = (_result(row, values) for row in baseline["rows"]
+            if row["scenario"].startswith(("runtime/", "compile/")))
+    return [row for row in rows if not row["passed"]]
+
+
+def evaluate(policy, budget_path, timing_report, raw_observation, baseline):
+    """Apply sealed limits without changing them or certifying macOS results."""
+    budget = _validated_budget(policy, budget_path, timing_report, baseline)
     values = _observations(budget, timing_report, raw_observation)
-    rows = []
-    for row in baseline["rows"]:
-        value = values[row["scenario"], row["measured_statistic"]]
-        rows.append({**row, "measured_value": value,
-                     "passed": evidence._passes(value, row["absolute_budget"], row["direction"])})
+    rows = [_result(row, values) for row in baseline["rows"]]
     failed = [row for row in rows if not row["passed"]]
     return {"schema_version": 1, "method_version": policy["method_version"],
             "policy_sha256": baseline["policy_sha256"],

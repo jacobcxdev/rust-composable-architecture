@@ -4,7 +4,8 @@
 This script consumes eight existing binaries and their source/build receipt.
 Native rows use default-Core binaries; deterministic rows use test-runtime
 binaries. All 54 scenarios remain required in one paired cohort.
-It does not build code, compare products, retry failures or publish evidence.
+With jq available, an unexplained regression in a completed row stops the
+remaining work. Only the separate full comparison can qualify a product.
 PeakWorkingSetSize measures peak resident working-set bytes. PeakPagefileUsage
 measures peak process commit charge, not physical memory or macOS footprint.
 QueryProcessCycleTime includes user and kernel cycles across process threads.
@@ -24,6 +25,7 @@ import os
 from pathlib import Path
 import platform
 import re
+import shutil
 import statistics
 import subprocess
 import sys
@@ -473,12 +475,50 @@ def aggregate(normal, allocation, pairs, revision, runner):
     return row
 
 
-def capture(binaries, metadata_path, output, timeout):
+def check_completed_row(jq, path):
+    """Stop a doomed capture without issuing a partial qualification result."""
+    result = subprocess.run([
+        jq, "-L", str(Path(__file__).resolve().parent), "-r",
+        'include "native_performance_rows"; native_row_comparison(.candidate; true; null)'
+        ' | select(.regressed and (.accepted | not)) | .scenario + ": "'
+        ' + ([.regressed_metrics[] as $metric | $metric + "=" + (.[$metric] | tostring)] | join(", "))',
+        str(path),
+    ], capture_output=True, text=True)
+    if result.returncode:
+        raise ValueError(f"cannot compare {path.name}: {result.stderr.strip()}")
+    if result.stdout.strip():
+        raise ValueError(f"completed row exceeded performance limit: {result.stdout.strip()}")
+
+
+def select_row_checker(jq, keep_going):
+    """Check that the selected executable can load the row comparison before capture."""
+    if keep_going:
+        if jq is not None:
+            raise ValueError("--jq and --keep-going cannot be used together")
+        return None
+    executable = str(Path(jq).absolute()) if jq is not None else shutil.which("jq")
+    if executable is None:
+        print("jq not found: collecting all rows; the full comparison is still required", file=sys.stderr)
+        return None
+    try:
+        result = subprocess.run([
+            executable, "-L", str(Path(__file__).resolve().parent), "-ne",
+            'include "native_performance_rows"; [] | map(native_row_comparison(.; true; null)) == []',
+        ], capture_output=True, text=True, timeout=10)
+    except (OSError, subprocess.TimeoutExpired) as error:
+        raise ValueError(f"cannot run jq at {executable}: {error}") from error
+    if result.returncode or result.stdout.strip() != "true":
+        raise ValueError(f"jq at {executable} cannot load the row comparison: {result.stderr.strip()}")
+    return executable
+
+
+def capture(binaries, metadata_path, output, timeout, *, keep_going=False, jq=None):
     """Run one fixed cohort, retaining incomplete evidence on every failure."""
     if output.exists():
         raise FileExistsError(output)
     if not math.isfinite(timeout) or timeout <= 0:
         raise ValueError("process timeout must be positive")
+    jq = select_row_checker(jq, keep_going)
     source_bytes = metadata_path.read_bytes()
     source = json.loads(source_bytes.decode("utf-8"))
     validate_metadata(source)
@@ -575,7 +615,10 @@ def capture(binaries, metadata_path, output, timeout):
             for role in rows:
                 rows[role].append(aggregate(observations[role]["normal"], observations[role]["allocation"], pairs,
                                             source[role]["revision"], runner))
-            write_json(raw / f"completed-row-{index:02d}.json", {role: rows[role][-1] for role in rows})
+            completed = raw / f"completed-row-{index:02d}.json"
+            write_json(completed, {role: rows[role][-1] for role in rows})
+            if jq and index + 1 < len(scenarios):
+                check_completed_row(jq, completed)
         if any(sha256(path) != identities[key]["sha256"] for key, path in binaries.items()):
             raise ValueError("binary changed during capture")
         if sha256(metadata_path) != metadata["source_build_sha256"] or sha256(Path(__file__)) != script_hash or sha256(MANIFEST) != manifest_hash:
@@ -609,9 +652,13 @@ def main():
     parser.add_argument("--metadata", required=True, type=Path)
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--timeout-seconds", type=float, default=1800)
+    checker = parser.add_mutually_exclusive_group()
+    checker.add_argument("--jq", type=Path, metavar="PATH", help="use this jq executable to check completed rows")
+    checker.add_argument("--keep-going", action="store_true",
+                         help="collect all rows for diagnosis even if a performance limit is exceeded")
     args = parser.parse_args()
     binaries = {key: getattr(args, key) for key in BINARY_ROLES}
-    capture(binaries, args.metadata, args.output.resolve(), args.timeout_seconds)
+    capture(binaries, args.metadata, args.output.resolve(), args.timeout_seconds, keep_going=args.keep_going, jq=args.jq)
 
 
 if __name__ == "__main__":

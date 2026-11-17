@@ -128,7 +128,7 @@ fi
 
 requested_baseline=$1
 requested_candidate=$2
-regression_limit=1.10
+script_dir=$(cd "$(dirname "$0")" && pwd -P)
 
 for command in basename dirname git jq mktemp shasum tr; do
   if ! command -v "${command}" >/dev/null 2>&1; then
@@ -263,16 +263,17 @@ for result in "${baseline}" "${candidate}"; do
         .configuration == (if (.scenario | startswith("deterministic/"))
                            then "deterministic" else "native" end)
       else true end;
+    def valid_latency($raw):
+      .latency_ns | [.p50, .p95, .p99]
+      | all(.[]; type == "number" and isfinite and . > 0 and (floor == . or ($raw | not)))
+        and .[0] <= .[1] and .[1] <= .[2];
     def valid_normal:
       same_workload
       and (.candidate | valid_shutdown_lifetime) and (.reference | valid_shutdown_lifetime)
       and (.candidate | valid_configuration) and (.reference | valid_configuration)
       and .candidate.throughput_per_second > 0
       and .reference.throughput_per_second > 0
-      and .candidate.latency_ns.p50 > 0
-      and .reference.latency_ns.p50 > 0
-      and .candidate.latency_ns.p99 > 0
-      and .reference.latency_ns.p99 > 0
+      and (.candidate | valid_latency(true)) and (.reference | valid_latency(true))
       and .candidate.cpu_cycles > 0
       and .reference.cpu_cycles > 0
       and .candidate.task_wakes > 0
@@ -281,6 +282,7 @@ for result in "${baseline}" "${candidate}"; do
       and (.reference | valid_memory);
     def valid_allocation:
       same_workload
+      and (.candidate | valid_latency(true)) and (.reference | valid_latency(true))
       and (.candidate | valid_shutdown_lifetime) and (.reference | valid_shutdown_lifetime)
       and (.candidate | valid_configuration) and (.reference | valid_configuration)
       and .candidate.allocations > 0
@@ -334,9 +336,7 @@ for result in "${baseline}" "${candidate}"; do
       and (.normal_repetitions == expected_normal_repetitions)
       and (.allocation_repetitions == 6)
       and (.throughput_per_second > 0)
-      and (.latency_ns.p50 > 0)
-      and (.latency_ns.p95 > 0)
-      and (.latency_ns.p99 > 0)
+      and valid_latency(false)
       and (.cpu_cycles > 0)
       and (.allocations > 0)
       and (.allocation_samples > 0)
@@ -489,48 +489,11 @@ fi
 
 temporary=$(mktemp /tmp/rca-performance-comparison.XXXXXX)
 trap 'rm -f -- "${temporary}"' EXIT
-jq -n \
+jq -L "${script_dir}" -n \
   --slurpfile baseline "${baseline}" \
   --slurpfile candidate "${candidate}" \
-  --argjson windows "${windows}" \
-  --argjson limit "${regression_limit}" '
-  def median:
-    sort as $values
-    | ($values | length) as $count
-    | if ($count % 2) == 1 then
-        $values[$count / 2 | floor]
-      else
-        (($values[$count / 2 - 1] + $values[$count / 2]) / 2)
-      end;
-  def stratified_ratio($pairs; metric):
-    ([$pairs[] | select(.order == "reference-candidate") | metric] | median) as $ab
-    | ([$pairs[] | select(.order == "candidate-reference") | metric] | median) as $ba
-    | (($ab * $ba) | sqrt);
-  def gated_metrics:
-    ["median_ratio", "p99_ratio", "throughput_ratio", "allocation_ratio",
-     "allocated_bytes_ratio", "peak_memory_ratio", "resident_memory_ratio",
-     "cpu_cycles_ratio", "task_wakes_ratio"];
-  def scenario_gated_metrics:
-    if (.scenario == "shutdown/abortive/live/1"
-        or .scenario == "shutdown/abortive/live/8"
-        or .scenario == "shutdown/abortive/burst/8"
-        or .scenario == "shutdown/abortive/burst/64")
-    then ["peak_memory_ratio", "resident_memory_ratio"]
-    elif .scenario == "shutdown/abortive"
-    then gated_metrics - ["peak_memory_ratio", "resident_memory_ratio"]
-    else gated_metrics
-    end;
-  def accepted($candidate; $comparison):
-    $comparison.rationale_id != null
-    and any($candidate.accepted_regressions[]?;
-      .id == $comparison.rationale_id
-      and .scenario == $comparison.scenario
-      and (.review | type == "string" and test("\\S"))
-      and (.metrics | if type == "array" then
-        length > 0 and ((. - gated_metrics) | length == 0)
-        else false end)
-      and (($comparison.regressed_metrics - .metrics) | length == 0)
-    );
+  --argjson windows "${windows}" '
+  include "native_performance_rows";
   $baseline[0] as $base
   | $candidate[0] as $next
   | if $base.metadata.cohort != $next.metadata.cohort
@@ -559,39 +522,7 @@ jq -n \
               or $after.allocation_operations != $before.allocation_operations
               or $after.pairs != $before.pairs
             then error("candidate and reference workload evidence differs: \($before.scenario)")
-            else {
-              scenario: $before.scenario,
-              median_ratio: stratified_ratio($after.pairs.normal;
-                .candidate.latency_ns.p50 / .reference.latency_ns.p50),
-              p99_ratio: stratified_ratio($after.pairs.normal;
-                .candidate.latency_ns.p99 / .reference.latency_ns.p99),
-              throughput_ratio: stratified_ratio($after.pairs.normal;
-                .reference.throughput_per_second / .candidate.throughput_per_second),
-              allocation_ratio: stratified_ratio($after.pairs.allocation;
-                .candidate.allocations / .reference.allocations),
-              allocated_bytes_ratio: stratified_ratio($after.pairs.allocation;
-                .candidate.allocated_bytes / .reference.allocated_bytes),
-              peak_memory_ratio: stratified_ratio($after.pairs.normal;
-                if $windows then .candidate.peak_commit_bytes / .reference.peak_commit_bytes
-                else .candidate.peak_memory_footprint_bytes / .reference.peak_memory_footprint_bytes end),
-              resident_memory_ratio: stratified_ratio($after.pairs.normal;
-                if $windows then .candidate.peak_working_set_bytes / .reference.peak_working_set_bytes
-                else .candidate.peak_resident_bytes / .reference.peak_resident_bytes end),
-              peak_live_heap_ratio: stratified_ratio($after.pairs.allocation;
-                .candidate.peak_bytes / .reference.peak_bytes),
-              cpu_cycles_ratio: stratified_ratio($after.pairs.normal;
-                .candidate.cpu_cycles / .reference.cpu_cycles),
-              task_wakes_ratio: stratified_ratio($after.pairs.normal;
-                .candidate.task_wakes / .reference.task_wakes),
-              rationale_id: ($after.rationale_id // null)
-            }
-            | .gated_metrics = scenario_gated_metrics
-            | .diagnostic_metrics = (gated_metrics - .gated_metrics + ["peak_live_heap_ratio"])
-            | .regressed_metrics = [
-                .gated_metrics[] as $metric | select(.[$metric] > $limit) | $metric
-              ]
-            | .regressed = (.regressed_metrics | length > 0)
-            | .accepted = (if .regressed then accepted($next; .) else false end)
+            else native_row_comparison($after; $windows; $next)
             end
         end
     ] as $comparisons
@@ -600,7 +531,7 @@ jq -n \
       resource_provider: (if $windows then "win32-process-v1" else "darwin-time-lp" end),
       memory_metric: (if $windows then "peak_commit_bytes" else "peak_memory_footprint_bytes" end),
       resident_memory_metric: (if $windows then "peak_working_set_bytes" else "peak_resident_bytes" end),
-      regression_limit: $limit,
+      regression_limit: native_regression_limit,
       cohort_id: $next.metadata.cohort.id,
       aggregation: "geometric mean of order-stratified paired medians",
       baseline: {revision: $base.revision, runner: $base.runner},

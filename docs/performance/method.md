@@ -207,6 +207,14 @@ python scripts/capture-windows-performance.py \
 
 Use the actual executable paths from the build receipt.
 The output directory must not exist.
+The collector looks for `jq` on `PATH`. To select a specific executable, pass `--jq PATH`.
+If the selected executable cannot load the comparison rules, the collector stops before it runs any benchmark.
+If `jq` is absent from `PATH` and you did not specify a path, the collector warns and measures all rows.
+
+With `jq`, the collector checks each completed row before it starts the next one.
+If a measured ratio exceeds its limit, the collector keeps the measurements and stops.
+To collect all rows for review, pass `--keep-going` instead of `--jq`.
+Only the full comparison applies reviewed exceptions and can establish a pass.
 Keep the complete output directory together when transferring it to the review checkout.
 Then run `scripts/compare-performance.sh <capture>/reference.json <capture>/candidate.json`.
 

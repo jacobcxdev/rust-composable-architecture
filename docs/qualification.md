@@ -4,6 +4,67 @@ This guide separates local qualification, hosted CI and publication.
 Results apply only to their recorded source and configuration.
 None of these checks establishes that software has no defects.
 
+## Start with the changed behaviour
+
+For a change to typed task names, run the Shared and Local behaviour and allocation tests together.
+On macOS, use the memory guard with a new receipt. With the locked dependencies already downloaded, run:
+
+```sh
+mkdir -p target
+receipt_dir=$(mktemp -d target/task-check.XXXXXX)
+CARGO_PROFILE_TEST_DEBUG=0 CARGO_INCREMENTAL=0 python3 scripts/guard_cargo_memory.py \
+  --receipt "$receipt_dir/memory.json" --memory-limit-gib 2 --timeout 300 -- \
+  test --offline --locked -p rca-core --features local,allocation-measurement \
+  --test named_operation_tasks --test local_named_operations \
+  --test named_operation_allocations --test nested_task_allocations
+```
+
+This command checks cancellation, ownership and allocation assertions. It does not measure native latency or compile cost.
+For a change to task registration, compare the four named and unnamed task workloads on the Linux profiling host.
+Use the build artefact for the exact candidate and baseline commits. Set `output` to a directory that does not exist.
+If your change must not increase instruction counts, run:
+
+```sh
+python3 scripts/profile_task_fold_cost.py "$artifact" "$candidate" "$baseline" "$output" --tasks-only &&
+  jq -e '.complete == true and .scope == "tasks-only" and
+  (.comparisons | length == 4 and all(.[]; .candidate <= .baseline))' "$output/comparison.json"
+```
+
+The profiler checks that the counts repeat. The second command fails if any task workload uses more instructions.
+Neither command measures native timing or energy use.
+
+For a scheduler change, test the poll limit before measuring its cost. On macOS, use a fresh memory receipt:
+
+```sh
+mkdir -p target
+receipt_dir=$(mktemp -d target/budget-check.XXXXXX)
+CARGO_PROFILE_TEST_DEBUG=0 CARGO_INCREMENTAL=0 python3 scripts/guard_cargo_memory.py \
+  --receipt "$receipt_dir/memory.json" --memory-limit-gib 2 --timeout 240 -- \
+  test --locked -p rca-test --test conformance_deterministic \
+  failed_factory_advance_retains_work_without_committing_requested_time -- --exact
+```
+
+At 100,000 polls, the task must remain queued, own its value and leave virtual time unchanged.
+The next poll must complete the task and release the value. The release benchmark measures the cost of reaching that boundary.
+
+For a change to generated child paths, use the same memory guard with a new receipt and these Cargo arguments:
+
+```sh
+check --offline --locked --manifest-path benches/compile/Cargo.toml -p rca-compile-composed-macro
+```
+
+This fixture compiles required, optional and keyed children. Keep its build directory between edits.
+Use runtime tests for routing behaviour. Use fresh build directories for the release measurement of cold compile time.
+
+For release review, start with the last accepted evidence for each affected suite.
+If its measured inputs, toolchain, runner conditions and contract still apply, reuse the complete evidence.
+For example, `scripts/compare-performance.sh REFERENCE.json CANDIDATE.json` checks the native pair against the checkout and recomputes the result.
+Use the checkout that matches the recorded collector. An earlier collector's result remains evidence for that earlier run.
+Keep the accompanying source and guard receipts as specified in the [performance method](performance/method.md).
+Replay checks a past measurement. It cannot establish how a changed executable performs.
+If the evidence is missing, inapplicable or uncertain, run the affected qualification on the final candidate.
+Do not substitute a focused test for a release measurement or combine rows from different runs.
+
 ## Historical local results
 
 Local release-readiness qualification completed on 29 October 2026 for the recorded

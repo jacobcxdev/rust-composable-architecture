@@ -265,6 +265,8 @@ class WindowsCompleteTests(unittest.TestCase):
                     raw["allocations"]["effect_map_depth_16_outputs_1"]["allocations"] = 6323
                 report = complete.evaluate(self.policy, BUDGET, timing, raw, baseline)
                 self.assertFalse(report["passed"])
+                expected = report["failed_budgets"] if category in ("runtime", "throughput") else []
+                self.assertEqual(complete.timing_failures(self.policy, BUDGET, timing, baseline), expected)
                 self.assertEqual(len(report["failed_budgets"]), 1)
                 self.assertEqual(baseline, original)
 

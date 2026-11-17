@@ -491,6 +491,31 @@ esac
         result = self.compare(reference, candidate)
         self.assertNotEqual(result.returncode, 0, result.stdout)
 
+    def test_rejects_malformed_latency_percentiles_in_stored_evidence(self):
+        for location, value in (("summary", "invalid"), ("normal", None),
+                                ("normal", 201), ("allocation", 149.5)):
+            with self.subTest(location=location, value=value):
+                reference, candidate = self.evidence(True)
+                for document in (candidate, reference):
+                    row = document["rows"][0]
+                    sample = row if location == "summary" else row["pairs"][location][0]["reference"]
+                    if value is None:
+                        del sample["latency_ns"]["p95"]
+                    else:
+                        sample["latency_ns"]["p95"] = value
+                result = self.compare(reference, candidate)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("invalid performance result schema", result.stderr)
+
+    def test_accepts_a_valid_fractional_p95_without_gating_it(self):
+        reference, candidate = self.evidence(True)
+        for document in (reference, candidate):
+            for index, pair in enumerate(document["rows"][0]["pairs"]["normal"]):
+                pair["candidate"]["latency_ns"]["p95"] = 180 + index % 2
+        candidate["rows"][0]["latency_ns"]["p95"] = 180.5
+        result = self.compare(reference, candidate)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_each_windows_resource_and_latency_gate_rejects_an_eleven_percent_regression(self):
         cases = (("normal", "cpu_cycles"), ("normal", "task_wakes"),
                  ("normal", "peak_working_set_bytes"), ("normal", "peak_commit_bytes"),
@@ -502,7 +527,7 @@ esac
                 for pair in candidate["rows"][0]["pairs"][kind]:
                     sample = pair["candidate"]
                     if metric in ("p50", "p99"):
-                        sample["latency_ns"][metric] *= 1.11
+                        sample["latency_ns"][metric] = sample["latency_ns"][metric] * 111 // 100
                     elif metric == "throughput_per_second":
                         sample[metric] /= 1.11
                     else:

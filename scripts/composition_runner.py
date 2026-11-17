@@ -1263,6 +1263,18 @@ def finish_windows_complete(capture, protocol, env, monitor, tools, policy,
                 or evidence._sha256(baseline_path) != capture["windows_baseline_sha256"]):
             raise ValueError("Windows reference baseline changed")
         baseline = json.loads(baseline_path.read_text(encoding="utf-8"))
+        if protocol.get("method_version") == evidence.WINDOWS_V6_METHOD:
+            failed = complete.timing_failures(policy, BUDGET, timing_report, baseline)
+            if failed:
+                staging = capture["staging"]
+                for name, report in reports.items():
+                    write_json(staging / name, report_paths(report, staging))
+                write_json(staging / "absolute-timing-rejection.json", {
+                    "complete": False, "passed": False, "failed_gates": failed,
+                    "windows_reference_baseline_sha256": capture["windows_baseline_sha256"],
+                    "retained_runtime_products": retain_runtime_products(capture),
+                })
+                raise ValueError("candidate failed an absolute timing gate before allocation and binary capture")
     raw = absolute_capture.capture_windows_absolute(capture, protocol, env, monitor, tools)
     if reference:
         baseline = complete.seal_reference(policy, BUDGET, timing_report, raw)

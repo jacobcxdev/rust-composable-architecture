@@ -49,7 +49,7 @@ def selected_allocation_values(rows, zero_tests):
     return result
 
 
-def _artifact(log, target, name, kind, source):
+def _artifact(log, target, name, kind, source, *, allocation=None):
     """Bind one fresh Cargo executable to the isolated target directory."""
     found = []
     for line in log.read_text(encoding="utf-8").splitlines():
@@ -61,16 +61,49 @@ def _artifact(log, target, name, kind, source):
                 and kind in info.get("kind", ()) and record.get("executable")):
             if record.get("fresh") is not False:
                 raise ValueError(f"{name} executable was not freshly compiled")
+            if allocation is not None:
+                features = record.get("features")
+                if not isinstance(features, list) or ("allocation-measurement" in features) != allocation:
+                    raise ValueError(f"{name} allocation feature mismatch")
             if Path(info.get("src_path", "")).resolve() != Path(source).resolve():
                 raise ValueError(f"{name} artifact source changed")
             executable = Path(record["executable"])
             if executable.is_symlink():
                 raise ValueError(f"{name} artifact became a symlink")
+            if allocation is not None and (
+                not executable.is_relative_to(target)
+                or executable.resolve() != executable
+            ):
+                raise ValueError(f"{name} artifact path was redirected outside its recorded location")
             found.append(executable.resolve())
     if (len(found) != 1 or not found[0].is_relative_to(target.resolve())
             or not found[0].is_file() or found[0].is_symlink()):
         raise ValueError(f"expected one fresh isolated {name} executable")
     return found[0]
+
+
+def _subject_bench(capture):
+    """Reuse dependencies from this subject's own measured build, never from its control."""
+    targets, staging = Path(capture["targets"]), Path(capture["staging"])
+    mode = capture["mode"]
+    root = Path(capture["roots"]["subject"])
+    anchor = targets.parent.resolve() / mode
+    target = anchor / "subject"
+    if (mode not in ("candidate-reference", "reference-reference-aa") or staging.name != mode
+            or targets.name != mode or targets.resolve() != anchor
+            or target.resolve() != target or not target.is_dir() or root != targets / "source-subject"
+            or root.resolve() != anchor / "source-subject" or root.is_symlink()):
+        raise ValueError("allocation dependency target is not the measured subject's own directory")
+    log = staging / "builds/subject.txt"
+    if log.resolve() != staging.resolve() / "builds/subject.txt":
+        raise ValueError("ordinary subject benchmark build log was redirected")
+    ordinary = _artifact(log, target, "composition", "bench",
+                         root / "rca-core/benches/composition.rs", allocation=False)
+    measured = Path(capture["executables"]["subject"])
+    digest = capture["metadata"]["subject_executable_sha256"]
+    if measured.is_symlink() or ordinary != measured or evidence._sha256(ordinary) != digest:
+        raise ValueError("ordinary subject benchmark differs from its measured executable")
+    return target, (ordinary, digest)
 
 
 def _zero_test(log, name):
@@ -200,21 +233,25 @@ def _run_zero_tests(raw, target, root, env, monitor, cargo):
     return results
 
 
-def _run_allocations(raw, target, root, env, monitor, cargo):
+def _run_allocations(raw, target, root, env, monitor, cargo, *, ordinary=None):
     """Run all forty-seven unchanged workload rows, retaining every raw result."""
     build = raw / "allocation-build.jsonl"
-    _run_build(
-        monitor,
-        [cargo, "bench", "-p", "rca-core", "--bench", "composition",
-         "--features", "allocation-measurement", "--locked", "-j", "1",
-         "--no-run", "--message-format=json"],
-        build, root,
-        {**env, "CARGO_PROFILE_BENCH_DEBUG": "false", "CARGO_PROFILE_BENCH_LTO": "false",
-         "CARGO_PROFILE_BENCH_STRIP": "true"},
-        target,
-    )
+    command = [cargo, "bench", "-p", "rca-core", "--bench", "composition",
+               "--features", "allocation-measurement", "--locked", "-j", "1",
+               "--no-run", "--message-format=json"]
+    build_env = {**env, "CARGO_PROFILE_BENCH_DEBUG": "false", "CARGO_PROFILE_BENCH_LTO": "false",
+                 "CARGO_PROFILE_BENCH_STRIP": "true"}
+    if ordinary is None:
+        _run_build(monitor, command, build, root, build_env, target)
+    else:
+        monitor.run(command, build, root, {**build_env, "CARGO_TARGET_DIR": str(target)})
     binary = _artifact(build, target, "composition", "bench",
-                       root / "rca-core/benches/composition.rs")
+                       root / "rca-core/benches/composition.rs", allocation=True if ordinary else None)
+    if ordinary:
+        measured, digest = ordinary
+        if (target.resolve() != target or measured.resolve() != measured or binary == measured
+                or evidence._sha256(measured) != digest):
+            raise ValueError("allocation build replaced the measured subject benchmark")
     manifest = evidence.validate_allocation_manifest(evidence.DEFAULT_ALLOCATION_MANIFEST)
     lines = []
     for scenario, policy in manifest.items():
@@ -297,9 +334,12 @@ def capture_windows_absolute(capture, protocol, env, monitor, tools):
     raw = staging / "absolute-windows-raw"
     raw.mkdir()
     targets = Path(capture["targets"])
-    rows, allocation_binary = _run_allocations(
-        raw, targets / "absolute-windows-allocation", root, env, monitor, tools["cargo"],
+    allocation_target, ordinary = (
+        _subject_bench(capture) if protocol["method_version"] == evidence.WINDOWS_V6_METHOD
+        else (targets / "absolute-windows-allocation", None)
     )
+    rows, allocation_binary = _run_allocations(raw, allocation_target, root, env, monitor,
+                                               tools["cargo"], ordinary=ordinary)
     zero = _run_zero_tests(
         raw, targets / "absolute-windows-zero", root, env, monitor, tools["cargo"],
     )

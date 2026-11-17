@@ -99,6 +99,30 @@ class WindowsCompleteRunnerTests(unittest.TestCase):
                     runner.finish_windows_complete(reference, {}, {}, None, {}, {},
                                                    {"revision": "reference"}, {}, baseline_path)
 
+    def test_failed_timing_preserves_evidence_without_running_native_absolute_builds(self):
+        failures = [{"scenario": "compile/scoped", "measured_value": 111, "absolute_budget": 110}]
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            baseline = root / "baseline.json"
+            runner.write_json(baseline, {})
+            capture = {"mode": "candidate-reference", "staging": root,
+                       "windows_baseline_sha256": runner.evidence._sha256(baseline)}
+            reports = {"comparison.json": {"passed": True}}
+            with patch("composition_windows_complete.timing_failures", return_value=failures), \
+                    patch("composition_windows_absolute.capture_windows_absolute") as expensive, \
+                    patch.object(runner, "retain_runtime_products", return_value={"subject": "hash"}) as retain:
+                with self.assertRaisesRegex(ValueError, "absolute timing"):
+                    runner.finish_windows_complete(capture, {"method_version": runner.evidence.WINDOWS_V6_METHOD},
+                                                   {}, None, {}, {}, {}, reports, baseline)
+            expensive.assert_not_called()
+            retain.assert_called_once_with(capture)
+            self.assertTrue(json.loads((root / "comparison.json").read_text())["passed"])
+            rejected = json.loads((root / "absolute-timing-rejection.json").read_text())
+            self.assertEqual(rejected["failed_gates"], failures)
+            self.assertIs(rejected["complete"], False)
+            self.assertIs(rejected["passed"], False)
+            self.assertFalse((root / "complete.json").exists())
+
     def test_candidate_rejects_changed_baseline_before_native_capture(self):
         with tempfile.TemporaryDirectory() as tmp:
             baseline = Path(tmp) / "Windows-reference-baseline.json"
