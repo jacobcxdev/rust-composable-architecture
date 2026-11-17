@@ -102,7 +102,7 @@ The revision pin and lockfile identify the exact implementation and dependencies
 Earlier reference objects and results retain their original identities outside the public source tree.
 Parser tests do not qualify candidate performance. A different release baseline requires explicit review.
 
-Qualification runner builds four distinct bench executables, two from each revision, and balances execution order within every scenario:
+The Mac qualification runner builds four distinct bench executables, two from each revision, and balances execution order within every scenario:
 
 - normal system allocator for latency, throughput, CPU, scheduler, and resident-memory evidence, repeated ten times per revision; and
 - `qualification-dhat` build for allocation counts, allocated bytes, and peak live heap, repeated six times per revision.
@@ -111,9 +111,9 @@ Odd repetitions run reference then candidate; even repetitions run candidate the
 
 ## Stable result schema
 
-Schema version 4 rejects single-process, unbalanced, stale, or unpaired evidence. Both files record identical cohort identity, environment, protocol hash, lockfile hashes, reference/candidate revision pair, raw process pairs, and fixed repetition policy.
+Mac schema version 4 rejects single-process, unbalanced, stale, or unpaired evidence. Both files record identical cohort identity, environment, protocol hash, lockfile hashes, reference/candidate revision pair, raw process pairs, and fixed repetition policy.
 
-Each row contains these required fields:
+Each Mac row contains these required fields:
 
 ```json
 {
@@ -138,7 +138,9 @@ Each row contains these required fields:
 }
 ```
 
-All values shown as `1` are placeholders; captured values must be non-zero. Pair arrays above are abbreviated; actual rows require ten normal and six allocation pairs. Rows also retain operation count, retired instructions, maximum resident set size, peak memory footprint, and optional reviewed regression rationale.
+All values shown as `1` are placeholders. Captured values must be non-zero.
+The pair arrays are abbreviated. Actual Mac rows require ten normal and six allocation pairs.
+Rows also retain operation count, retired instructions, maximum resident set size, peak memory footprint, and optional reviewed regression rationale.
 
 Top-level metadata records cohort ID, compiler and Cargo versions, compiler commit, OS, non-sensitive runner hardware, power mode, protocol, qualification-source, qualification-script, scenario-manifest and lockfile hashes, commands, compile evidence, binary sizes, idle Store RSS, Divan log hash, canonical supporting-artefact paths, and local raw-profile paths. Raw Instruments traces stay under ignored `target/qualification-profiles`: trace packages contain host identifiers and must be redacted before publication.
 
@@ -148,6 +150,14 @@ Windows provides a separate native measurement route when the Mac is busy.
 It does not require an idle host or a Linux virtual machine.
 Its results never share a cohort with Mac results.
 It uses the same reference revision, common workload, dependency locks, 54 scenarios, samples, balanced pairs and `1.10` regression limit.
+
+Windows uses 42 normal repetitions per product for every row except `deterministic/budget`.
+That exact row retains ten normal repetitions. The other deterministic rows use 42.
+Alternating order gives 21 pairs per order for 42 repetitions, or five pairs per order for ten repetitions.
+
+Both platforms retain six allocation pairs per row, with three pairs per order.
+The number of samples within each process and every numerical limit remain unchanged.
+Mac normal repetitions remain ten per product for every row.
 
 `scripts/capture-windows-performance.py` consumes eight prebuilt executables and their source/build receipt.
 Each product has normal and DHAT builds for two configurations:
@@ -282,7 +292,10 @@ not a paired-only capture.
 
 ## Measurements
 
-- Latency uses `Instant` around each completed operation after up to 20 warm-up operations. For `n` sorted samples and percentile `p`, the runner selects zero-based index `ceil((n - 1) * p / 100)`. This upper indexed percentile is not the nearest-rank method. p50, p95, and p99 describe whole-operation latency. Every normal scenario uses 10,000 outer samples so each process has 100 observations at or beyond p99. Aggregate fields use medians of ten process-level results; acceptance uses geometric mean of two order-stratified medians from ten paired candidate/reference ratios.
+- Latency uses `Instant` around each completed operation after up to 20 warm-up operations. For `n` sorted samples and percentile `p`, the runner selects zero-based index `ceil((n - 1) * p / 100)`. This upper indexed percentile is not the nearest-rank method. p50, p95, and p99 describe whole-operation latency. Every normal scenario uses 10,000 outer samples so each process has 100 observations at or beyond p99.
+
+  Aggregate fields use medians of the configured number of process-level results.
+  Acceptance uses the geometric mean of two order-stratified medians from all paired candidate/reference ratios.
 - Throughput divides completed logical operations by measured sample-loop time. Producer and fan-out scenarios report all inner operations, not only outer iterations.
 - On Mac, CPU cycles and retired instructions come from `/usr/bin/time -lp` for the complete scenario process. These counters aggregate runtime threads. Windows uses the separate definitions above.
 - Allocations and allocated bytes come from six separate DHAT processes. Aggregate allocation counts, allocated bytes, and peak live heap are their medians; allocation acceptance uses geometric mean of two three-pair order-stratified medians. Odd stratum sizes preserve reciprocal symmetry. DHAT uses a separate bounded sample policy recorded by `allocation_samples`; deterministic budget exhaustion uses five samples per repetition because each one already performs 100,000 non-allocating self-wake polls.
@@ -447,7 +460,16 @@ prior reference. Retain both paired result files together.
 
 ## Variance and interpretation
 
-One process can expose large regression but cannot prove tiny improvement. Qualification publishes aggregate medians from ten normal and six DHAT processes per revision, while release decisions use order-stratified paired ratios. Keep runner, power, OS major, compiler, dependency locks, workload, pairing policy, repetition policy, and sample policy fixed. Treat changes near 10% as prompts for another full paired cohort and profile inspection, not universal hardware claims. Compile and process counters include toolchain and OS effects; row metrics describe this qualification pair only.
+One process can expose a large regression but cannot prove a tiny improvement.
+Qualification publishes aggregate medians, while release decisions use order-stratified paired ratios.
+Mac uses ten normal processes per revision and row.
+Windows uses 42, except for ten on `deterministic/budget`.
+Both platforms use six DHAT processes per revision and row.
+Larger cohorts do not guarantee a fixed error bound or remove host interference.
+
+Keep runner, power, OS major, compiler, dependency locks, workload, pairing policy, repetition policy, and sample policy fixed.
+Treat changes near 10% as prompts for another full paired cohort and profile inspection, not universal hardware claims.
+Compile and process counters include toolchain and OS effects. Row metrics describe this qualification pair only.
 
 Background load is telemetry, not a reason to stop all qualification work.
 CPU time excludes time when a process waits for CPU scheduling.

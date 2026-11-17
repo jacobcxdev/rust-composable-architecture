@@ -333,19 +333,21 @@ class WindowsPerformanceTests(unittest.TestCase):
         def process(command, stem, env, timeout, provider):
             calls.append((Path(command[0]).name, command[1:], dict(env)))
             if command[1:] == ["--list"]:
-                stem.with_suffix(".stdout").write_text("query/multi\n")
+                names = "query/multi\ndeterministic/budget\n" if "deterministic" in command[0] else "query/multi\n"
+                stem.with_suffix(".stdout").write_text(names)
             else:
+                scenario = command[1]
                 samples = int(command[2])
-                stem.with_suffix(".stdout").write_text(json.dumps(self.measurement(samples=samples, operations=samples)))
+                operations = samples * (100000 if scenario == "deterministic/budget" else 1)
+                value = self.measurement(scenario=scenario, samples=samples, operations=operations)
                 if "RCA_DHAT_FILE" in env:
                     Path(env["RCA_DHAT_FILE"]).write_text('{"dhatFileVersion":2,"pps":[]}')
-                    value = self.measurement(samples=samples, operations=samples)
                     value.update(allocations=2, allocated_bytes=32, peak_bytes=16)
-                    stem.with_suffix(".stdout").write_text(json.dumps(value))
+                stem.with_suffix(".stdout").write_text(json.dumps(value))
             stem.with_suffix(".stderr").write_text("")
             return self.counters()
 
-        with patch.object(self.runner, "load_scenarios", return_value=["query/multi"]), \
+        with patch.object(self.runner, "load_scenarios", return_value=["query/multi", "deterministic/budget"]), \
                 patch.object(self.runner, "host_metadata", return_value={"system": "Windows"}), \
                 patch.object(self.runner, "WindowsCounters"), \
                 patch.object(self.runner, "run_process", side_effect=process):
@@ -355,10 +357,22 @@ class WindowsPerformanceTests(unittest.TestCase):
         self.assertEqual(result["rows"][0]["configuration"], "native")
         self.assertRegex(result["metadata"]["cohort"]["id"], r"^[0-9a-f]{64}$")
         row = result["rows"][0]
-        self.assertEqual(len(row["pairs"]["normal"]), 10)
+        self.assertEqual(result["metadata"]["method"]["normal_repetitions"], 42)
+        self.assertEqual(result["metadata"]["method"]["normal_repetition_overrides"], {"deterministic/budget": 10})
+        self.assertEqual(row["normal_repetitions"], 42)
+        self.assertEqual(len(row["pairs"]["normal"]), 42)
         self.assertEqual(len(row["pairs"]["allocation"]), 6)
         self.assertEqual([p["order"] for p in row["pairs"]["normal"]],
+                         ["reference-candidate", "candidate-reference"] * 21)
+        self.assertEqual([p["repetition"] for p in row["pairs"]["normal"]], list(range(1, 43)))
+        budget = result["rows"][1]
+        self.assertEqual(budget["normal_repetitions"], 10)
+        self.assertEqual(len(budget["pairs"]["normal"]), 10)
+        self.assertEqual(len(budget["pairs"]["allocation"]), 6)
+        self.assertEqual([p["order"] for p in budget["pairs"]["normal"]],
                          ["reference-candidate", "candidate-reference"] * 5)
+        self.assertEqual(budget["allocation_samples"], 5)
+        self.assertEqual(budget["operations"], 1000000000)
         self.assertEqual(row["allocation_samples"], 1000)
         self.assertIsNone(row["instructions_retired"])
         self.assertEqual(row["peak_working_set_bytes"], 4096)
@@ -370,10 +384,10 @@ class WindowsPerformanceTests(unittest.TestCase):
         self.assertEqual(receipt.read_bytes(), metadata.read_bytes())
         self.assertEqual(hashlib.sha256(receipt.read_bytes()).hexdigest(),
                          result["metadata"]["source_build_sha256"])
-        self.assertEqual(len(calls), 40)
+        self.assertEqual(len(calls), 136)
         self.assertEqual(calls[8][:2], ("reference_normal", ["query/multi", "10000"]))
         self.assertEqual(calls[10][:2], ("candidate_normal", ["query/multi", "10000"]))
-        self.assertEqual(sum("RCA_DHAT_FILE" in call[2] for call in calls), 12)
+        self.assertEqual(sum("RCA_DHAT_FILE" in call[2] for call in calls), 24)
         with self.assertRaises(FileExistsError):
             self.runner.capture(binaries, metadata, self.root / "result", 1)
 
@@ -416,9 +430,14 @@ class WindowsPerformanceTests(unittest.TestCase):
             result = self.runner.capture(binaries, metadata, self.root / "split", 1)
         self.assertEqual([row["scenario"] for row in result["rows"]], scenarios)
         self.assertEqual([row["configuration"] for row in result["rows"]], ["native"] * 48 + ["deterministic"] * 6)
-        self.assertEqual(len(calls), 8 + 54 * 32)
+        self.assertEqual(len(calls), 5128)
         for row in result["rows"]:
-            self.assertEqual(len(row["pairs"]["normal"]), 10)
+            repetitions = 10 if row["scenario"] == "deterministic/budget" else 42
+            self.assertEqual(row["normal_repetitions"], repetitions)
+            self.assertEqual(len(row["pairs"]["normal"]), repetitions)
+            self.assertEqual([pair["repetition"] for pair in row["pairs"]["normal"]], list(range(1, repetitions + 1)))
+            self.assertEqual([pair["order"] for pair in row["pairs"]["normal"]],
+                             ["reference-candidate", "candidate-reference"] * (repetitions // 2))
             self.assertEqual(len(row["pairs"]["allocation"]), 6)
             for mode in ("normal", "allocation"):
                 for pair in row["pairs"][mode]:
@@ -630,7 +649,7 @@ class WindowsPerformanceTests(unittest.TestCase):
             with self.assertRaises(subprocess.CalledProcessError):
                 self.runner.capture(binaries, metadata, self.root / "partial", 1)
         self.assertEqual(attempts[-1], ("reference_deterministic_normal", "deterministic/ready/1"))
-        self.assertEqual(len(attempts), 48 * 32 + 1)
+        self.assertEqual(len(attempts), 4609)
         failure = json.loads((self.root / "partial/failure.json").read_text())
         self.assertEqual(failure["completed_rows"], 48)
         self.assertFalse(failure["complete"])

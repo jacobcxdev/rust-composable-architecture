@@ -468,7 +468,7 @@ def aggregate(normal, allocation, pairs, revision, runner):
     for key in ("allocations", "allocated_bytes", "peak_bytes"):
         row[key] = statistics.median(item[key] for item in allocation)
     row.update(revision=revision, runner=runner, allocation_samples=allocation[0]["samples"],
-               allocation_operations=allocation[0]["operations"], normal_repetitions=10,
+               allocation_operations=allocation[0]["operations"], normal_repetitions=len(normal),
                allocation_repetitions=6, pairs=pairs, rationale_id=None)
     return row
 
@@ -519,7 +519,8 @@ def capture(binaries, metadata_path, output, timeout):
     metadata = {**host, "compiler": cohort["compiler"], "cargo": cohort["cargo"],
                 "rustc_commit": cohort["rustc_commit"], "resource_provider": PROVIDER,
                 "cohort": cohort, "method": {"aggregation": "geometric mean of order-stratified paired medians",
-                "normal_repetitions": 10, "allocation_repetitions": 6,
+                "normal_repetitions": 42, "normal_repetition_overrides": {"deterministic/budget": 10},
+                "allocation_repetitions": 6,
                 "pair": {f"{role}_revision": source[role]["revision"] for role in ("candidate", "reference")}},
                 "binaries": identities, "source_build": source, "configuration": CONFIGURATION,
                 "source_build_sha256": source_hash}
@@ -540,9 +541,10 @@ def capture(binaries, metadata_path, output, timeout):
                 raise ValueError(f"scenario manifest mismatch: {key}")
         for index, scenario in enumerate(scenarios):
             configuration = "deterministic" if scenario.startswith("deterministic/") else "native"
+            normal_repetitions = 10 if scenario == "deterministic/budget" else 42
             observations = {role: {"normal": [], "allocation": []} for role in rows}
             pairs = {"normal": [], "allocation": []}
-            for mode, repetitions, samples in (("normal", 10, 10000), ("allocation", 6, allocation_samples(scenario))):
+            for mode, repetitions, samples in (("normal", normal_repetitions, 10000), ("allocation", 6, allocation_samples(scenario))):
                 for repetition in range(1, repetitions + 1):
                     order = "reference-candidate" if repetition % 2 else "candidate-reference"
                     pair = {"repetition": repetition, "order": order}

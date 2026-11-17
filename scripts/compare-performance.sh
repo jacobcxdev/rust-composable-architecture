@@ -221,6 +221,8 @@ for result in "${baseline}" "${candidate}"; do
       end;
     def expected_samples:
       .samples == 10000;
+    def expected_normal_repetitions:
+      if $windows and .scenario != "deterministic/budget" then 42 else 10 end;
     def expected_allocation_samples:
       if .scenario == "deterministic/budget" then .allocation_samples == 5
       elif (.scenario | endswith("/1000")) then .allocation_samples == 200
@@ -299,7 +301,10 @@ for result in "${baseline}" "${candidate}"; do
     and (.recorded_at == .metadata.cohort.recorded_at)
     and (.runner == .metadata.cohort.runner)
     and (.metadata.method.aggregation == "geometric mean of order-stratified paired medians")
-    and .metadata.method.normal_repetitions == 10
+    and (if $windows then
+      .metadata.method.normal_repetitions == 42
+      and .metadata.method.normal_repetition_overrides == {"deterministic/budget": 10}
+    else .metadata.method.normal_repetitions == 10 end)
     and .metadata.method.allocation_repetitions == 6
     and (.metadata.method.pair.reference_revision | type == "string" and length == 40)
     and (.metadata.method.pair.candidate_revision | type == "string" and length == 40)
@@ -326,7 +331,7 @@ for result in "${baseline}" "${candidate}"; do
       and (.runner == $runner)
       and (.samples > 0)
       and (.operations > 0)
-      and (.normal_repetitions == 10)
+      and (.normal_repetitions == expected_normal_repetitions)
       and (.allocation_repetitions == 6)
       and (.throughput_per_second > 0)
       and (.latency_ns.p50 > 0)
@@ -341,17 +346,12 @@ for result in "${baseline}" "${candidate}"; do
       and (.peak_bytes > 0)
       and (if $windows then .instructions_retired == null else .instructions_retired > 0 end)
       and valid_memory
-      and (.pairs.normal | length) == 10
+      and (.pairs.normal | length) == expected_normal_repetitions
       and (.pairs.allocation | length) == 6
-      and ([.pairs.normal[].repetition] == [1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
+      and ([.pairs.normal[].repetition] == [range(1; expected_normal_repetitions + 1)])
       and ([.pairs.allocation[].repetition] == [1, 2, 3, 4, 5, 6])
-      and ([.pairs.normal[].order] == [
-        "reference-candidate", "candidate-reference",
-        "reference-candidate", "candidate-reference",
-        "reference-candidate", "candidate-reference",
-        "reference-candidate", "candidate-reference",
-        "reference-candidate", "candidate-reference"
-      ])
+      and ([.pairs.normal[].order] == [range(1; expected_normal_repetitions + 1)
+        | if . % 2 == 1 then "reference-candidate" else "candidate-reference" end])
       and ([.pairs.allocation[].order] == [
         "reference-candidate", "candidate-reference",
         "reference-candidate", "candidate-reference",

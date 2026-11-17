@@ -97,12 +97,13 @@ esac
             "cohort": cohort,
             "method": {
                 "aggregation": "geometric mean of order-stratified paired medians",
-                "normal_repetitions": 10,
+                "normal_repetitions": 42 if windows else 10,
                 "allocation_repetitions": 6,
                 "pair": {"candidate_revision": CANDIDATE, "reference_revision": REFERENCE},
             },
         }
         if windows:
+            metadata["method"]["normal_repetition_overrides"] = {"deterministic/budget": 10}
             metadata["resource_provider"] = "win32-process-v1"
             tools = {"rustc": "rustc 1.100.0 (pinned)",
                      "cargo": "cargo 1.100.0 (pinned)",
@@ -172,6 +173,7 @@ esac
                 f"{harness_hash}\n{module_hash}\n{scenario_hash}\n{capture_hash}\n{metadata['source_build_sha256']}\n".encode())
         rows = []
         for scenario in (self.root / "docs/performance/scenarios.txt").read_text().splitlines():
+            normal_repetitions = 42 if windows and scenario != "deterministic/budget" else 10
             allocation_samples = 1000
             if scenario == "deterministic/budget":
                 allocation_samples = 5
@@ -204,7 +206,7 @@ esac
                         spawned=limit * batches, dropped=limit * batches,
                         unfinished=0, maximum_batch_end_unfinished=0)
             pairs = {}
-            for kind, count, sample in (("normal", 10, normal), ("allocation", 6, allocation)):
+            for kind, count, sample in (("normal", normal_repetitions, normal), ("allocation", 6, allocation)):
                 pairs[kind] = []
                 for repetition in range(1, count + 1):
                     order = "reference-candidate" if repetition % 2 else "candidate-reference"
@@ -214,7 +216,7 @@ esac
             rows.append(dict(normal, revision=CANDIDATE, runner=cohort["runner"],
                              allocations=1000, allocated_bytes=1000, peak_bytes=1000,
                              allocation_samples=allocation_samples, allocation_operations=allocation["operations"],
-                             normal_repetitions=10, allocation_repetitions=6,
+                             normal_repetitions=normal_repetitions, allocation_repetitions=6,
                              pairs=pairs, rationale_id=None))
         candidate = dict(schema_version=6 if windows else 4, suite="rca-performance-qualification",
                          reference_kind="qualification", revision=CANDIDATE,
@@ -269,6 +271,57 @@ esac
     def test_windows_uses_explicit_memory_counters_without_fake_instructions(self):
         result = self.compare(*self.evidence(True))
         self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_windows_rejects_changed_repetition_policy(self):
+        for mutation in ("old-default", "missing-override", "wrong-budget", "extra-override", "mixed-policy"):
+            with self.subTest(mutation=mutation):
+                reference, candidate = self.evidence(True)
+                documents = (candidate,) if mutation == "mixed-policy" else (reference, candidate)
+                for document in documents:
+                    method = document["metadata"]["method"]
+                    if mutation in ("old-default", "mixed-policy"):
+                        method["normal_repetitions"] = 10
+                        for row in document["rows"]:
+                            row["normal_repetitions"] = 10
+                            row["pairs"]["normal"] = row["pairs"]["normal"][:10]
+                    elif mutation == "missing-override":
+                        del method["normal_repetition_overrides"]
+                    elif mutation == "wrong-budget":
+                        method["normal_repetition_overrides"]["deterministic/budget"] = 42
+                    else:
+                        method["normal_repetition_overrides"]["query/multi"] = 10
+                result = self.compare(reference, candidate)
+                self.assertNotEqual(result.returncode, 0, result.stdout)
+
+    def test_windows_rejects_incomplete_duplicate_or_mismatched_pairs(self):
+        for scenario in ("query/multi", "deterministic/budget"):
+            for mutation in ("short", "extra", "duplicate", "order", "candidate-order", "reference-number", "row-count"):
+                with self.subTest(scenario=scenario, mutation=mutation):
+                    reference, candidate = self.evidence(True)
+                    row = next(item for item in candidate["rows"] if item["scenario"] == scenario)
+                    pairs = row["pairs"]["normal"]
+                    if mutation == "short":
+                        pairs.pop()
+                    elif mutation == "extra":
+                        pairs.append(copy.deepcopy(pairs[-1]))
+                    elif mutation == "duplicate":
+                        pairs[-1] = copy.deepcopy(pairs[0])
+                    elif mutation == "order":
+                        pair = pairs[0]
+                        for value in (pair, pair["candidate"], pair["reference"]):
+                            value["order"] = "candidate-reference"
+                    elif mutation == "candidate-order":
+                        pairs[0]["candidate"]["order"] = "candidate-reference"
+                    elif mutation == "reference-number":
+                        pairs[0]["reference"]["repetition"] = 2
+                    else:
+                        row["normal_repetitions"] -= 2
+                    other = next(item for item in reference["rows"] if item["scenario"] == scenario)
+                    other["pairs"] = copy.deepcopy(row["pairs"])
+                    other["normal_repetitions"] = row["normal_repetitions"]
+                    result = self.compare(reference, candidate)
+                    self.assertNotEqual(result.returncode, 0, result.stdout)
+                    self.assertIn("invalid performance result schema", result.stderr)
 
     def test_windows_allows_hash_identical_copies_of_recorded_binaries(self):
         reference, candidate = self.evidence(True)
