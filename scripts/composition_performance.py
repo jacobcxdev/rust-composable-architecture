@@ -1538,10 +1538,28 @@ def _measurement_suffixes(protocol: dict[str, Any]) -> tuple[str, ...]:
     return suffixes
 
 
-def isolated_divan_arguments(protocol: dict[str, Any], scenario: str) -> list[str]:
+RANK_RUNTIME_WINDOW_SECONDS = {
+    "direct/1": "0.5",
+    "nonmatching_scope/16": "0.5",
+    "combine_arity/4": "0.5",
+    "keyed_matching_route/100000": "2",
+    "effect_map_depth/16": "2",
+    "descendant_cancellation/10000": "0.5",
+    "scoped_concurrent_senders_32": "0.5",
+    "matching_scope/16": "2",
+    "combine_arity/12": "2",
+}
+
+
+def isolated_divan_arguments(protocol: dict[str, Any], scenario: str, *, experimental_rank: bool = False) -> list[str]:
     """Return the frozen duration arguments for one Windows runtime scenario."""
     if not is_windows_protocol(protocol) or scenario not in protocol["runtime"]["gated_scenarios"]:
         raise ValueError("Windows runtime scenario is not frozen in the protocol")
+    if experimental_rank:
+        if protocol["method_version"] != WINDOWS_V6_METHOD or scenario not in RANK_RUNTIME_WINDOW_SECONDS:
+            raise ValueError("experimental rank window is not frozen for this scenario or protocol")
+        seconds = RANK_RUNTIME_WINDOW_SECONDS[scenario]
+        return ["--min-time", seconds, "--max-time", seconds]
     runtime = protocol["runtime"]
     return list(runtime.get("isolated_divan_arguments_by_scenario", {}).get(
         scenario, runtime["isolated_divan_arguments"]))
@@ -1554,7 +1572,7 @@ def load_isolated_runtime_pairs(
     protocol: dict[str, Any],
     memory_watchdog_sha256: str | None = None,
     memory_limit_bytes: int | None = None,
-    *, block_count: int | None = None,
+    *, block_count: int | None = None, experimental_rank: bool = False,
 ) -> list[dict[str, Any]]:
     """Load one isolated observation per role for every seeded block."""
     if scenario not in protocol["runtime"]["gated_scenarios"]:
@@ -1595,7 +1613,7 @@ def load_isolated_runtime_pairs(
         )
         if is_windows_protocol(protocol):
             expected_arguments = ["--bench", "--exact", "composition::" + scenario.replace("/", "::"),
-                                  *isolated_divan_arguments(protocol, scenario)]
+                                  *isolated_divan_arguments(protocol, scenario, experimental_rank=experimental_rank)]
             for resources in (subject_resources, control_resources):
                 if resources["process_receipt"].get("divan_arguments") != expected_arguments:
                     raise ValueError("Windows isolated sampling arguments differ from the frozen policy")

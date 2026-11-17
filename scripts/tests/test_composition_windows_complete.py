@@ -1,10 +1,13 @@
 """Check reference-only Windows limits without running native workloads."""
 
 import copy
-from pathlib import Path
+import json
+from pathlib import Path, PureWindowsPath
 import sys
 import tempfile
 import unittest
+from unittest.mock import Mock
+from scripts.tests.test_windows_strip import image, native_transform, tool_fixture
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import composition_performance as evidence
@@ -82,6 +85,121 @@ class WindowsCompleteTests(unittest.TestCase):
                                   control_role="reference", subject_revision="b" * 40)
         raw["subject_revision"] = "b" * 40
         return timing, raw
+
+    def product_inputs(self):
+        policy = complete.load_policy(POLICY.with_name("composition-windows-complete-v6.json"))
+        metadata = self.reference["metadata"]
+        metadata.update(method_version=evidence.WINDOWS_V6_METHOD,
+                        protocol_sha256=policy["paired_protocol_sha256"], runner=policy["runner"],
+                        budget_sha256=policy["budget_sha256"], allocation_manifest_sha256=policy["allocation_manifest_sha256"],
+                        subject_revision=policy["reference_revision"], control_revision=policy["reference_revision"],
+                        control_lock_sha256=HASH, toolchain=evidence.expected_toolchain({"method_version": evidence.WINDOWS_V6_METHOD}))
+        tools = {k: {"path": f"C:/tools/{k}", "sha256": HASH} for k in (
+            "rustc", "cargo", "rustdoc", "compiler_telemetry", "objcopy", "python", "lief_wheel", "lief_init", "lief_native")}
+        metadata["tools"] = tools
+        self.raw.update(subject_revision=policy["reference_revision"], allocation_binary_sha256=HASH,
+                        binary_execution_qualified=False)
+        for row in self.raw["binaries"].values():
+            row["debug_removal"] = {"stripped": {"sha256": HASH, "size_bytes": row["bytes"]},
+                                    "tools": {k: tools[k] for k in ("python", "lief_wheel", "lief_init", "lief_native")}}
+        candidate, candidate_raw = self.candidate()
+        for meta, raw in ((metadata, self.raw), (candidate["metadata"], candidate_raw)):
+            meta["raw_content_sha256"] = complete._digest(raw)
+        return policy, BUDGET, metadata, self.raw, candidate["metadata"], candidate_raw
+
+    def test_experimental_products_freeze_reference_bytes_and_require_both_modes(self):
+        args = self.product_inputs()
+        _, _, aa, aa_raw, candidate, raw = args
+        aa_raw["binaries"]["direct"]["bytes"] = aa_raw["binaries"]["direct"]["debug_removal"]["stripped"]["size_bytes"] = 1001
+        aa["raw_content_sha256"] = complete._digest(aa_raw)
+        report = None
+        for value, passed in ((1102, True), (1103, False)):
+            raw["binaries"]["direct"]["bytes"] = raw["binaries"]["direct"]["debug_removal"]["stripped"]["size_bytes"] = value
+            candidate["raw_content_sha256"] = complete._digest(raw)
+            report = complete.experimental_product_gates(*args)
+            self.assertEqual(report["passed"], passed)
+            for mode in ("reference-reference-aa", "candidate-reference"):
+                self.assertEqual(len(report["rows"][mode]), 19)
+                direct = next(r for r in report["rows"][mode] if r["scenario"] == "binary/direct")
+                self.assertEqual(direct["absolute_budget"], 1102)
+        self.assertFalse(report["timing_evaluated"])
+        name = "effect_map_depth_16_outputs_1"
+        aa_raw["allocations"][name]["allocations"] = aa_raw["selected"][f"allocation/{name}/allocations"] = 6323
+        aa["raw_content_sha256"] = complete._digest(aa_raw)
+        result = complete.experimental_product_gates(*args)
+        self.assertGreater(len(result["failed_budgets"]["reference-reference-aa"]), 0)
+
+    def test_experimental_products_reject_missing_or_conflicting_evidence(self):
+        for name in ("raw-hash", "mode", "source", "root-lock", "control-lock", "tool", "missing-allocation",
+                     "zero", "missing-product", "strip-hash", "capture", "policy"):
+            with self.subTest(name=name):
+                policy, path, aa, aa_raw, candidate, raw = copy.deepcopy(self.product_inputs())
+                if name == "raw-hash": candidate["raw_content_sha256"] = "d" * 64
+                if name == "mode": aa["mode"] = "candidate-reference"
+                if name == "source": candidate["workload_provenance"]["subject"]["receipt_sha256"] = "c" * 64
+                if name == "root-lock": raw["root_lock_sha256"] = "c" * 64
+                if name == "control-lock": candidate["control_lock_sha256"] = "c" * 64
+                if name == "tool": raw["binaries"]["direct"]["strip_tool_sha256"] = "c" * 64
+                if name == "missing-allocation": raw["allocations"].pop("dependency_lookup_0")
+                if name == "zero": raw["zero_tests"]["combine"]["passed"] = 0
+                if name == "missing-product": raw["binaries"].pop("direct")
+                if name == "strip-hash": raw["binaries"]["direct"]["debug_removal"]["stripped"]["sha256"] = "c" * 64
+                if name == "capture": candidate["capture_sha256"] = "c" * 64
+                if name == "policy": policy["regression_limit"] = 1.11
+                if name != "raw-hash": candidate["raw_content_sha256"] = complete._digest(raw)
+                with self.assertRaises(ValueError):
+                    complete.experimental_product_gates(policy, path, aa, aa_raw, candidate, raw)
+
+    def test_file_backed_products_reject_changed_sealed_observation_bytes(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary).resolve()
+            raw = directory / "reference-reference-aa/absolute-windows-raw"
+            raw.mkdir(parents=True)
+            (raw / "observation.json").write_text("{}")
+            digests = dict.fromkeys(("reference-reference-aa", "candidate-reference"), HASH)
+            policy = complete.load_policy(POLICY.with_name("composition-windows-complete-v6.json"))
+            with self.assertRaisesRegex(ValueError, "sealed observation"):
+                complete.load_experimental_products(directory, policy, BUDGET, digests)
+
+    def test_file_backed_pe_rejects_swapped_bytes_even_if_aggregate_is_unchanged(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            raw = Path(temporary).resolve()
+            binary = raw / "direct.exe"
+            binary.write_bytes(image())
+            objcopy = raw / "llvm-objcopy.exe"
+            objcopy.write_bytes(b"tool")
+            tools = tool_fixture(raw)
+            def run(command, log, cwd, env):
+                if command[0] == str(objcopy):
+                    Path(command[-1]).write_bytes(image())
+                    log.touch()
+                else:
+                    native_transform(command, log, tools)
+            monitor = Mock()
+            monitor.run.side_effect = run
+            row = absolute.strip_pe(binary, "direct", raw, {}, monitor, {"objcopy": str(objcopy), **tools})
+            complete._verify_retained_pe(raw, "direct", row)
+            for filename in ("direct-original.exe", "direct-stripped.exe", "direct-llvm-stripped.exe"):
+                with self.subTest(filename=filename):
+                    path = raw / "binaries" / filename
+                    data = path.read_bytes()
+                    path.write_bytes(data[:-1] + bytes([data[-1] ^ 1]))
+                    with self.assertRaises(ValueError):
+                        complete._verify_retained_pe(raw, "direct", row)
+                    path.write_bytes(data)
+            (raw / "binaries/direct-stripped.strip.json").write_text("{}")
+            with self.assertRaises(ValueError):
+                complete._verify_retained_pe(raw, "direct", row)
+
+    def test_file_backed_cargo_rejects_control_executable_for_subject_code(self):
+        root = PureWindowsPath("C:/capture/candidate-reference/source-subject")
+        with tempfile.TemporaryDirectory() as temporary:
+            log = Path(temporary) / "binary-tokio-build.jsonl"
+            log.write_text(json.dumps({"reason": "compiler-artifact", "fresh": False,
+                                       "target": {"name": "app", "kind": ["bin"], "src_path": str(root / "src/main.rs")},
+                                       "executable": str(root.parent / "control/release/app.exe")}))
+            with self.assertRaisesRegex(ValueError, "foreign"):
+                complete._verified_cargo_products(log, root, [("app", "bin", "src/main.rs")])
 
     def test_rust100_complete_policy_keeps_gates_and_rejects_mixed_cohorts(self):
         current = complete.load_policy(POLICY.with_name("composition-windows-complete-v3.json"))

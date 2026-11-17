@@ -35,6 +35,51 @@ class RunnerTests(unittest.TestCase):
     def setUp(self):
         setup_guard_fixture(self)
 
+    def test_registry_preparation_never_seeds_its_donor_or_a_cold_compile_target(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp).resolve()
+            donor = base / "candidate-reference/control"
+            recipient = base / "candidate-reference/subject"
+            cache = base / "cargo"
+            cache.mkdir()
+            backend = Mock()
+            backend.prepare_seed.side_effect = lambda target, *args, **kwargs: (target/"registry").read_bytes()
+
+            def copy_registry(seed, target, *, lock_sha256):
+                target.mkdir()
+                (target/"registry").write_bytes(seed)
+                return {"registry-unit"}
+
+            backend.seed_benchmark.side_effect = copy_registry
+            def build(_root, target, _role, _staging, *_args):
+                if target == donor:
+                    self.assertFalse(target.exists())
+                    target.mkdir(parents=True)
+                    (target/"registry").write_bytes(b"verified dependency")
+                self.assertEqual((target/"registry").read_bytes(), b"verified dependency")
+                self.assertFalse((target/"owned").exists())
+                (target/"owned").write_text(str(target))
+                return target/"owned"
+
+            stage = base/"reports"/"candidate-reference"
+            def invoke(callback, target):
+                role = target.name
+                return callback(target.parent/f"source-{role}", target, role, stage,
+                                {}, {}, None, lock_sha256="a"*64)
+
+            with patch.object(runner, "benchmark", side_effect=build):
+                prepare = runner.registry_benchmark_preparation(donor, cache, backend)
+                with self.assertRaises(ValueError):
+                    invoke(prepare, recipient)
+                self.assertFalse(recipient.exists())
+                self.assertEqual(invoke(prepare, donor).read_text(), str(donor))
+                self.assertEqual(invoke(prepare, recipient).read_text(), str(recipient))
+                cold = donor.parent/"compile-direct-01-subject"
+                with self.assertRaises(ValueError):
+                    invoke(prepare, cold)
+                self.assertFalse(cold.exists())
+            backend.verify_rebuild.assert_called_with(stage/"builds/subject.txt", {"registry-unit"})
+
     def test_mac_cli_passes_one_selected_cap_to_the_complete_controller(self):
         with tempfile.TemporaryDirectory() as tmp, \
                 patch.object(sys, "argv", ["composition_runner.py", "--memory-limit-gib", "2", "output", "reference"]), \

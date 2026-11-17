@@ -848,6 +848,9 @@ class WindowsMonitor(HostMonitor):
             "phase": "start", "command": executed, "cwd": str(cwd),
             "destination": str(destination), "target": env.get("CARGO_TARGET_DIR"),
             "incremental": env.get("CARGO_INCREMENTAL"), "timeout_seconds": timeout,
+            **({"allocation_scenario": env["RCA_COMPOSITION_ALLOCATION_SCENARIO"],
+                "allocation_samples": env["RCA_COMPOSITION_ALLOCATION_SAMPLES"]}
+               if "RCA_COMPOSITION_ALLOCATION_SCENARIO" in env else {}),
             "job_memory_limit_bytes": memory_limit,
             "command_kind": "compile" if compiler else "runtime",
             "compiler_telemetry": self.protocol.get("compiler_telemetry") if compiler else None,
@@ -894,11 +897,14 @@ class WindowsMonitor(HostMonitor):
             })
 
 
-def execute_pairs(protocol, roots, executables, targets, paired, cargo, env, monitor, *, blocks=None):
+def execute_pairs(protocol, roots, executables, targets, paired, cargo, env, monitor, *,
+                  blocks=None, workloads=None, experimental_rank=False):
     schedule = enumerate(evidence.seeded_order_schedule(protocol), 1) if blocks is None else blocks
     for block, order in schedule:
         monitor.idle(f"block-{block:02d}", sustained=True)
         for scenario in protocol["runtime"]["gated_scenarios"]:
+            if workloads is not None and f"runtime/{scenario}" not in workloads:
+                continue
             for role in order.split("-"):
                 destination = (
                     paired
@@ -913,7 +919,7 @@ def execute_pairs(protocol, roots, executables, targets, paired, cargo, env, mon
                         "--bench",
                         "--exact",
                         "composition::" + scenario.replace("/", "::"),
-                        *(evidence.isolated_divan_arguments(protocol, scenario)
+                        *(evidence.isolated_divan_arguments(protocol, scenario, experimental_rank=experimental_rank)
                           if evidence.is_windows_protocol(protocol) else []),
                     ],
                     destination,
@@ -922,6 +928,8 @@ def execute_pairs(protocol, roots, executables, targets, paired, cargo, env, mon
                 )
                 evidence.validate_isolated_transcript(destination, scenario)
         for fixture in protocol["compile"]["fixtures"]:
+            if workloads is not None and f"compile/{fixture}" not in workloads:
+                continue
             for role in order.split("-"):
                 target = targets / f"compile-{fixture}-{block:02d}-{role}"
                 if target.exists():
@@ -996,7 +1004,7 @@ def execute_interleaved_pairs(protocol, captures, cargo, env, monitor, directory
                                       blocks=[(block, order)])
 
 
-def paired_block_hashes(directory, protocol, block, mode):
+def paired_block_hashes(directory, protocol, block, mode, workloads=None):
     """Seal each completed transcript and its counters before the next block starts."""
     paths = []
     for role in ("subject", "control"):
@@ -1004,6 +1012,8 @@ def paired_block_hashes(directory, protocol, block, mode):
         for family, names in (("runtime", protocol["runtime"]["gated_scenarios"]),
                               ("compile", protocol["compile"]["fixtures"])):
             for name in names:
+                if workloads is not None and f"{family}/{name}" not in workloads:
+                    continue
                 transcript = paired / family / name.replace("/", "__") / f"block-{block:02d}.txt"
                 paths.extend((transcript, transcript.with_suffix(".resources.json")))
                 if evidence.is_current_mac_protocol(protocol):
@@ -1012,6 +1022,92 @@ def paired_block_hashes(directory, protocol, block, mode):
         if (directory / path).is_symlink():
             raise ValueError("interleaved measurement became a symlink")
     return {path.as_posix(): evidence._sha256(directory / path) for path in paths}
+
+
+def collect_rank_timing(protocol, captures, cargo, env, monitor, directory, decide):
+    """Retire a workload only after its paired and independent control gates decide it."""
+    if set(captures) != {"candidate-reference", "reference-reference-aa"}:
+        raise ValueError("rank capture requires both independent modes")
+    counts = {f"{family}/{name}": 0 for family, names in (
+        ("runtime", protocol["runtime"]["gated_scenarios"]), ("compile", protocol["compile"]["fixtures"]),
+    ) for name in names}
+    pending = set(counts)
+    seals = {mode: {} for mode in captures}
+    capture_hash = evidence._sha256(directory / "capture.json")
+    decision = "continue"
+    if json.loads((directory / "capture.json").read_text(encoding="utf-8")).get("experiment") != rank_method_identity():
+        raise ValueError("missing or changed prospective method identity before measurement")
+    with (directory / "experimental-blocks.jsonl").open("x", encoding="utf-8") as events:
+        for block, order in enumerate(evidence.seeded_order_schedule(protocol), 1):
+            for mode in evidence.interleaved_mode_order(protocol, block):
+                capture = captures[mode]
+                event = {"block": block, "mode": mode, "workloads": sorted(pending), "capture_sha256": capture_hash}
+                events.write(json.dumps({**event, "phase": "start", "monotonic": time.monotonic()}) + "\n")
+                events.flush()
+                execute_pairs(protocol, capture["roots"], capture["executables"], capture["targets"], capture["paired"],
+                              cargo, env, monitor, blocks=[(block, order)], workloads=pending, experimental_rank=True)
+                hashes = paired_block_hashes(directory, protocol, block, mode, pending)
+                events.write(json.dumps({**event, "phase": "finish", "monotonic": time.monotonic(), "sha256": hashes}) + "\n")
+                events.flush()
+                seals[mode].update(hashes)
+            for key in pending:
+                counts[key] += 1
+            gates = decide(directory, protocol, BUDGET, counts, seals)
+            if set(gates) != set(counts) or any(row.get("blocks") != counts[key]
+                    or row.get("decision") not in ("continue", "pass", "fail") for key, row in gates.items()):
+                raise ValueError("missing or invalid workload decision")
+            if any(row["decision"] == "fail" for row in gates.values()):
+                decision = "fail"
+                break
+            outstanding = {key for key in counts if gates[key]["decision"] == "continue"}
+            if not outstanding <= pending:
+                raise ValueError("a retired timing workload no longer passes")
+            pending = outstanding
+            if not pending:
+                decision = "pass"
+                break
+    if decision == "continue":
+        raise ValueError("experimental timing did not decide all gates at the cap")
+    return {"decision": decision, "counts": counts, "seals": seals, "gates": gates,
+            "events_sha256": evidence._sha256(directory / "experimental-blocks.jsonl"), "capture_sha256": capture_hash}
+
+
+def verify_rank_schedule(directory, protocol, timing):
+    """Replay the actual ledger, including the independent control and every retained prefix."""
+    log = directory / "experimental-blocks.jsonl"
+    capture_hash = evidence._sha256(directory / "capture.json")
+    if capture_hash != timing["capture_sha256"] or evidence._sha256(log) != timing["events_sha256"]:
+        raise ValueError("experimental capture or block log changed")
+    counts = timing["counts"]
+    keys = {f"runtime/{k}" for k in protocol["runtime"]["gated_scenarios"]} | {
+        f"compile/{k}" for k in protocol["compile"]["fixtures"]}
+    if keys != set(counts) or any(type(n) is not int or not 1 <= n <= 20 for n in counts.values()):
+        raise ValueError("experimental timing has missing or invalid workload counts")
+    events = [json.loads(s) for s in log.read_text(encoding="utf-8").splitlines()]
+    if len(events) != 4 * max(counts.values()):
+        raise ValueError("incomplete experimental block log")
+    sealed = {mode: {} for mode in ("candidate-reference", "reference-reference-aa")}
+    previous = -math.inf
+    index = 0
+    for block in range(1, max(counts.values()) + 1):
+        active = sorted(k for k in keys if counts[k] >= block)
+        for mode in evidence.interleaved_mode_order(protocol, block):
+            for phase in ("start", "finish"):
+                event = events[index]
+                index += 1
+                clock = event["monotonic"]
+                if (event.get("block") != block or event.get("mode") != mode or event.get("phase") != phase
+                        or event.get("capture_sha256") != capture_hash or event.get("workloads") != active
+                        or not math.isfinite(clock) or clock < previous):
+                    raise ValueError("experimental collection violated the paired block schedule")
+                previous = clock
+                if phase == "finish":
+                    observed = paired_block_hashes(directory, protocol, block, mode, active)
+                    if observed != event.get("sha256"):
+                        raise ValueError("experimental block inputs changed")
+                    sealed[mode].update(observed)
+    if sealed != timing["seals"]:
+        raise ValueError("experimental evidence differs from its collected blocks")
 
 
 def retain_runtime_products(capture):
@@ -1070,8 +1166,37 @@ def benchmark(root, target, role, staging, tools, env, monitor):
     return executables[0]
 
 
+def registry_benchmark_preparation(donor, cargo_home, backend):
+    """Seed only ordinary benchmark builds, from the first, cold reference arm."""
+    prepared = set()
+    seed = None
+
+    def build(root, target, role, staging, tools, env, monitor, *, lock_sha256):
+        nonlocal seed
+        mode = staging.name
+        if (mode not in ("reference-reference-aa", "candidate-reference")
+                or role not in ("control", "subject")
+                or target != donor.parent.parent / mode / role
+                or root != target.parent / f"source-{role}"
+                or target.resolve() != target or target.exists() or target.is_symlink()
+                or target in prepared or (not prepared and target != donor)):
+            raise ValueError("registry reuse requires a new ordinary benchmark target after the cold donor")
+        log = staging / "builds" / f"{role}.txt"
+        allowed = backend.seed_benchmark(seed, target, lock_sha256=lock_sha256) if seed is not None else {}
+        executable = benchmark(root, target, role, staging, tools, env, monitor)
+        if target == donor:
+            # The donor check rejects any reused unit before preparing a seed.
+            seed = backend.prepare_seed(target, log, cargo_home, lock_sha256=lock_sha256)
+        else:
+            backend.verify_rebuild(log, allowed)
+        prepared.add(target)
+        return executable
+
+    return build
+
+
 def prepare_pair_capture(protocol, budget, mode, staging, targets, reference, controller, control,
-                         host, tools, env, monitor, hashes):
+                         host, tools, env, monitor, hashes, registry_build=None):
     """Prepare independently built arms without starting the measured blocks."""
     subject_root = ROOT if mode == "candidate-reference" else reference
     subject = controller if mode == "candidate-reference" else control
@@ -1099,8 +1224,9 @@ def prepare_pair_capture(protocol, budget, mode, staging, targets, reference, co
     for role, receipt in sources.items():
         write_json(staging / "sources" / f"{role}.json", receipt)
     executables = {
-        role: benchmark(
-            roots[role], targets / role, role, staging, tools, env, monitor
+        role: (registry_build or benchmark)(
+            roots[role], targets / role, role, staging, tools, env, monitor,
+            **({"lock_sha256": identities[role]["hashes"]["Cargo.lock"]} if registry_build else {}),
         )
         for role in ("control", "subject")
     }
@@ -1172,11 +1298,9 @@ def prepare_pair_capture(protocol, budget, mode, staging, targets, reference, co
             "roles": roles, "metadata": metadata, "paired": staging / "paired"}
 
 
-def finish_pair_capture(capture, protocol, controller, env, monitor, *,
-                        windows_complete=None, tools=None, baseline_path=None):
-    """Evaluate all paired and absolute gates, preserving failed measurements."""
-    mode, staging, targets = capture["mode"], capture["staging"], capture["targets"]
-    subject, roots = capture["subject"], capture["roots"]
+def capture_diagnostics(capture, protocol, env, monitor):
+    """Run the full diagnostic list independently of the timing stopping rule."""
+    staging, roots = capture["staging"], capture["roots"]
     executables, roles, metadata = capture["executables"], capture["roles"], capture["metadata"]
     for role, executable in executables.items():
         monitor.run(
@@ -1190,6 +1314,14 @@ def finish_pair_capture(capture, protocol, controller, env, monitor, *,
         metadata.get("memory_watchdog_sha256"),
         metadata.get("memory_limit_bytes"),
     )
+
+
+def finish_pair_capture(capture, protocol, controller, env, monitor, *,
+                        windows_complete=None, tools=None, baseline_path=None):
+    """Evaluate all paired and absolute gates, preserving failed measurements."""
+    mode, staging, targets = capture["mode"], capture["staging"], capture["targets"]
+    subject, roots, roles = capture["subject"], capture["roots"], capture["roles"]
+    capture_diagnostics(capture, protocol, env, monitor)
     subject_report, control_report, comparison = evidence.evaluate_protocol_paired(
         BUDGET,
         protocol,
@@ -1287,8 +1419,8 @@ def finish_windows_complete(capture, protocol, env, monitor, tools, policy,
         raise ValueError("Windows reference baseline changed")
 
 
-def complete_pair_capture(capture, reports, *, windows=False):
-    """Seal reports only after the measured source and binaries remain unchanged."""
+def verify_pair_products(capture):
+    """Check that both measured binaries and source receipts still match the staged inputs."""
     staging, metadata = capture["staging"], capture["metadata"]
     for role, executable in capture["executables"].items():
         if evidence._sha256(executable) != metadata[f"{role}_executable_sha256"]:
@@ -1298,6 +1430,99 @@ def complete_pair_capture(capture, reports, *, windows=False):
             "workload_provenance"][role]["receipt_sha256"]:
             raise ValueError("staged composition source receipt changed")
         validate_staged_source(staging / "sources" / f"{role}.json")
+
+
+def rank_method_identity():
+    """Pin the collection and replay code before the first experimental measurement."""
+    names = ("composition_runner.py", "composition_performance.py", "composition_cold_timing.py",
+             "composition_timing_inputs.py", "composition_product_commands.py",
+             "composition_windows_complete.py", "composition_windows_absolute.py",
+             "composition_registry_seed.py", "windows_strip.py", "windows_process.py", "capture-windows-performance.py")
+    return {"method": "finite-rank-v2", "runtime_window_seconds": dict(evidence.RANK_RUNTIME_WINDOW_SECONDS),
+            "scripts": {n: evidence._sha256(ROOT / "scripts" / n) for n in names}}
+
+
+def experimental_composition_result(directory, timing_digest, products, diagnostics):
+    """Recompute a prospective decision from raw evidence; never approve a release."""
+    import composition_cold_timing as bounds
+    import composition_windows_complete as complete
+
+    protocol = evidence.load_protocol(WINDOWS_PROTOCOL)
+    policy = complete.load_policy(WINDOWS_COMPLETE_POLICY)
+    manifest = json.loads((directory / "capture.json").read_text(encoding="utf-8"))
+    if manifest.get("experiment") != rank_method_identity():
+        raise ValueError("missing or changed prospective method identity")
+    timing_path = directory / "experimental-timing.json"
+    if timing_path.is_symlink() or evidence._sha256(timing_path) != timing_digest:
+        raise ValueError("changed experimental timing result")
+    timing = json.loads(timing_path.read_text(encoding="utf-8"))
+    verify_rank_schedule(directory, protocol, timing)
+    gates = bounds.timing_decisions(directory, protocol, BUDGET, timing["counts"], timing["seals"])
+    decision = ("fail" if any(g["decision"] == "fail" for g in gates.values())
+                else "pass" if gates and all(g["decision"] == "pass" for g in gates.values()) else "continue")
+    if decision == "continue" or decision != timing["decision"] or gates != timing["gates"]:
+        raise ValueError("experimental timing decision does not follow from sealed measurements")
+    product_report = None
+    if decision == "pass":
+        from composition_timing_inputs import verify_terminal_processes
+        verify_terminal_processes(directory, protocol)
+        for mode, roles in (("reference-reference-aa", ("reference-b", "reference-a")),
+                            ("candidate-reference", ("candidate", "reference"))):
+            location = directory / mode / "diagnostics"
+            evidence.validate_protocol_diagnostics(location, roles, protocol)
+            actual = {p.name: evidence._sha256(p) for p in location.iterdir() if p.is_file() and not p.is_symlink()}
+            if actual != diagnostics[mode]:
+                raise ValueError("experimental diagnostics changed")
+        product_report = complete.load_experimental_products(directory, policy, BUDGET, products)
+        if not product_report["passed"]:
+            decision = "fail"
+    elif diagnostics or products:
+        raise ValueError("unexpected products after a decisive timing rejection")
+    return {"schema": "experimental-windows-composition-finite-rank-v1", "decision": decision,
+            "scope": "windows-composition-only", "release_authorised": False,
+            "timing_sha256": timing_digest, "capture_sha256": timing["capture_sha256"],
+            "diagnostics": diagnostics, "raw_product_sha256": products, "product_gates": product_report}
+
+
+def verify_experimental_composition(directory):
+    """Read an experimental result back without writing a legacy completion receipt."""
+    path = directory / "experimental-rank-result.json"
+    if path.is_symlink() or (directory / "complete.json").exists():
+        raise ValueError("mixed or redirected experimental completion receipt")
+    claimed = json.loads(path.read_text(encoding="utf-8"))
+    actual = experimental_composition_result(directory, claimed["timing_sha256"],
+                                              claimed["raw_product_sha256"], claimed["diagnostics"])
+    if actual != claimed:
+        raise ValueError("experimental decision differs from independent replay")
+    return actual
+
+
+def collect_experimental_composition(protocol, captures, env, tools, monitor, staging):
+    """Capture real product and diagnostic evidence whenever the complete timing set passes."""
+    import composition_cold_timing as bounds
+    import composition_windows_absolute as absolute
+
+    timing = collect_rank_timing(protocol, captures, tools["cargo"], env, monitor, staging, bounds.timing_decisions)
+    timing_path = staging / "experimental-timing.json"
+    write_json(timing_path, timing)
+    digest = evidence._sha256(timing_path)
+    products, diagnostics = {}, {}
+    for mode in ("reference-reference-aa", "candidate-reference"):
+        capture = captures[mode]
+        if timing["decision"] == "pass":
+            capture_diagnostics(capture, protocol, env, monitor)
+            logs = capture["staging"] / "diagnostics"
+            diagnostics[mode] = {p.name: evidence._sha256(p) for p in logs.iterdir() if p.is_file() and not p.is_symlink()}
+            absolute.capture_windows_absolute(capture, protocol, env, monitor, tools)
+            products[mode] = evidence._sha256(capture["staging"] / "absolute-windows-raw/observation.json")
+        verify_pair_products(capture)
+    return digest, products, diagnostics
+
+
+def complete_pair_capture(capture, reports, *, windows=False):
+    """Seal reports only after the measured source and binaries remain unchanged."""
+    verify_pair_products(capture)
+    staging = capture["staging"]
     for name, report in reports.items():
         write_json(staging / name, report_paths(report, staging))
     passed = all(report.get("passed", True) for report in reports.values())
@@ -1368,10 +1593,12 @@ def validate_interleaved_capture(directory, protocol):
 
 
 def qualify(output, staging, reference, mode, aa_evidence=None, *, platform_name="macos",
-            windows_complete=False, memory_limit_bytes=8 * 1024**3):
+            windows_complete=False, memory_limit_bytes=8 * 1024**3, experimental_rank=False):
     if mode != "candidate-reference" or aa_evidence is not None:
         raise ValueError("composition qualification needs one contemporaneous two-mode capture")
     windows = platform_name == "windows"
+    if experimental_rank and not (windows and windows_complete):
+        raise ValueError("experimental rank capture requires complete Windows qualification")
     if windows_complete and not windows:
         raise ValueError("--windows-complete requires --platform windows")
     if windows and sys.platform != "win32":
@@ -1410,6 +1637,17 @@ def qualify(output, staging, reference, mode, aa_evidence=None, *, platform_name
         *(ROOT / item["source"] for item in protocol["common_workloads"]["files"].values()),
         *(Path(path) for path in tools.values()),
     ]
+    # Windows 3.12.4+ creates the private scratch ACL for TemporaryDirectory.
+    # Reuse covers third-party preparation only, never a measured cold build.
+    reuse_registry = ((not windows and protocol["method_version"] == evidence.RUST100_METHOD)
+                      or (windows and sys.version_info >= (3, 12, 4)
+                          and protocol["method_version"] == evidence.WINDOWS_V6_METHOD))
+    if reuse_registry:
+        import composition_registry_seed as registry
+        pinned_files.append(Path(registry.__file__).resolve())
+    if experimental_rank:
+        pinned_files.extend(ROOT / "scripts" / name for name in
+                            ("composition_cold_timing.py", "composition_timing_inputs.py", "composition_product_commands.py"))
     if windows:
         pinned_files.extend(ROOT / "scripts" / name for name in
                             ("capture-windows-performance.py", "windows_process.py"))
@@ -1433,12 +1671,20 @@ def qualify(output, staging, reference, mode, aa_evidence=None, *, platform_name
     baseline_path = staging / "Windows-reference-baseline.json"
     # Build trees are disposable. Transcripts and failed evidence remain in staging.
     with tempfile.TemporaryDirectory(prefix="rca-composition-paired.") as temporary:
-        targets = Path(temporary)
+        targets = Path(temporary).resolve()
+        registry_build = None
+        if reuse_registry:
+            cargo_home = Path(env.get("CARGO_HOME") or Path.home() / ".cargo")
+            if cargo_home.is_absolute():
+                registry_build = registry_benchmark_preparation(
+                    targets / "candidate-reference/control", cargo_home.resolve(), registry,
+                )
         captures = {item: prepare_pair_capture(
             protocol, budget, item, staging / item, targets / item, reference,
-            controller, control, host, tools, env, monitor, hashes) for item in modes}
+            controller, control, host, tools, env, monitor, hashes, registry_build) for item in modes}
         write_json(staging / "capture.json", {
             "protocol_sha256": evidence._protocol_sha256(protocol), "controller": controller, "host": host,
+            **({"experiment": rank_method_identity()} if experimental_rank else {}),
             "modes": {item: {name: evidence._sha256(staging / item / name)
                              for name in ("inputs.json", "plan.json")} for item in modes},
             "schedule": [{"block": block, "mode": item}
@@ -1451,28 +1697,41 @@ def qualify(output, staging, reference, mode, aa_evidence=None, *, platform_name
             capture["metadata"]["capture_sha256"] = capture_hash
             write_json(capture["staging"] / "metadata.json", capture["metadata"])
             evidence.validate_protocol_sources(capture["staging"], capture["metadata"], protocol)
-        execute_interleaved_pairs(protocol, captures, tools["cargo"], env, monitor, staging)
-        passed = {}
-        # Only finalisation order changes. The measured 40-block schedule is unchanged.
-        for item in (tuple(reversed(modes)) if windows_complete else modes):
-            if windows_complete and item == "candidate-reference":
-                captures[item]["windows_baseline_sha256"] = captures[
-                    "reference-reference-aa"]["windows_baseline_sha256"]
-            options = ({"windows_complete": complete_policy, "tools": tools,
-                        "baseline_path": baseline_path} if windows_complete else {})
-            passed[item] = finish_pair_capture(captures[item], protocol, controller, env, monitor,
-                                                **options)
-            if not passed[item]:
-                retain_runtime_products(captures[item])
-            # Final source and executable hashes are complete. No later sample uses this tree.
-            shutil.rmtree(captures[item]["targets"])
-        if validate_interleaved_capture(staging, protocol) != capture_hash:
-            raise ValueError("interleaved capture manifest changed")
-    check_host_unchanged(host, monitor)
+        if experimental_rank:
+            rank_evidence = collect_experimental_composition(protocol, captures, env, tools, monitor, staging)
+            check_host_unchanged(host, monitor)
+            result = experimental_composition_result(staging, *rank_evidence)
+            if result["decision"] == "fail":
+                for capture in captures.values():
+                    retain_runtime_products(capture)
+        else:
+            execute_interleaved_pairs(protocol, captures, tools["cargo"], env, monitor, staging)
+            passed = {}
+            for item in (tuple(reversed(modes)) if windows_complete else modes):
+                if windows_complete and item == "candidate-reference":
+                    captures[item]["windows_baseline_sha256"] = captures[
+                        "reference-reference-aa"]["windows_baseline_sha256"]
+                options = ({"windows_complete": complete_policy, "tools": tools,
+                            "baseline_path": baseline_path} if windows_complete else {})
+                passed[item] = finish_pair_capture(captures[item], protocol, controller, env, monitor,
+                                                    **options)
+                if not passed[item]:
+                    retain_runtime_products(captures[item])
+                shutil.rmtree(captures[item]["targets"])
+            if validate_interleaved_capture(staging, protocol) != capture_hash:
+                raise ValueError("interleaved capture manifest changed")
+    if not experimental_rank:
+        check_host_unchanged(host, monitor)
     if source_identity(ROOT) != controller or source_identity(reference, reference=True) != control:
         raise ValueError("source or host identity changed during qualification")
     if any(evidence._sha256(Path(path)) != value for path, value in hashes.items()):
         raise ValueError("qualification input hash changed")
+    if experimental_rank:
+        if result["capture_sha256"] != capture_hash:
+            raise ValueError("experimental capture manifest changed")
+        write_json(staging / "experimental-rank-result.json", result)
+        publish(staging, output)
+        return 0 if result["decision"] == "pass" else 1
     if passed["reference-reference-aa"]:
         validate_aa_evidence(staging / "reference-reference-aa", protocol, controller, host,
                              capture=staging,
@@ -2452,6 +2711,10 @@ def main():
                         help="Windows captures paired gates only; Darwin absolute gates remain separate")
     parser.add_argument("--windows-complete", action="store_true",
                         help="add Windows allocation and reference-only timing/PE gates")
+    parser.add_argument("--experimental-rank", action="store_true",
+                        help="exercise finite-rank Windows decisions without issuing a release receipt")
+    parser.add_argument("--verify-experimental-rank", metavar="DIRECTORY",
+                        help="replay an experimental decision from its retained raw observations")
     parser.add_argument("--memory-limit-gib", type=int, choices=range(1, 9),
                         help="Mac qualification ceiling in GiB, from 1 to 8; default: 8")
     parser.add_argument(
@@ -2478,6 +2741,19 @@ def main():
     parser.add_argument("reference", nargs="?")
     args = parser.parse_args()
     try:
+        if args.verify_experimental_rank:
+            if (args.output or args.reference or args.windows_complete or args.experimental_rank
+                    or args.mode != "candidate-reference" or args.memory_limit_gib or args.aa_evidence
+                    or any((args.check_prerequisites, args.check_staged_source, args.check_publication, args.check_lock))):
+                raise ValueError("experimental readback cannot run a capture")
+            decision = verify_experimental_composition(Path(args.verify_experimental_rank))
+            print(json.dumps({"scope": decision["scope"], "decision": decision["decision"], "release_authorised": False}))
+            return 0
+        if args.experimental_rank and (args.platform != "windows" or not args.windows_complete
+                                      or args.mode != "candidate-reference" or args.aa_evidence
+                                      or any((args.check_prerequisites, args.check_staged_source,
+                                              args.check_publication, args.check_lock))):
+            raise ValueError("experimental rank capture requires --platform windows --windows-complete")
         if args.memory_limit_gib is not None and (args.platform != "macos"
                 or args.mode != "candidate-reference" or args.check_prerequisites
                 or args.check_staged_source or args.check_publication or args.check_lock):
@@ -2554,6 +2830,7 @@ def main():
                 output, staging, Path(args.reference), args.mode, args.aa_evidence,
                 **({"platform_name": "windows"} if args.platform == "windows" else {}),
                 **({"windows_complete": True} if args.windows_complete else {}),
+                **({"experimental_rank": True} if args.experimental_rank else {}),
                 **({"memory_limit_bytes": (args.memory_limit_gib or 8) * 1024**3}
                    if args.platform == "macos" else {}),
             )

@@ -332,6 +332,62 @@ class WindowsAbsoluteTests(unittest.TestCase):
             self.assertFalse((root / "direct.json").exists())
             self.assertEqual(binary.read_bytes(), image())
 
+    def test_binary_preparation_rejects_existing_or_foreign_targets_before_build(self):
+        for case in ("existing", "linked-target", "foreign-subject"):
+            with self.subTest(case=case), tempfile.TemporaryDirectory() as directory:
+                base = Path(directory).resolve()
+                targets = base / "candidate-reference"
+                root = targets / "source-subject"
+                root.mkdir(parents=True)
+                foreign = base / "reference-reference-aa"
+                foreign.mkdir()
+                target = targets / "absolute-windows-binary"
+                if case == "existing":
+                    target.mkdir()
+                elif case == "linked-target":
+                    target.symlink_to(foreign, target_is_directory=True)
+                else:
+                    root = foreign
+                monitor = Mock()
+                monitor.run.side_effect = AssertionError("launched Cargo with an unowned target")
+                with self.assertRaises(ValueError):
+                    absolute._run_binary_builds(base, targets, root, {}, monitor, {"cargo": "cargo"})
+                monitor.run.assert_not_called()
+
+    def test_binary_preparation_rejects_replaced_target_or_redirected_cargo_product(self):
+        for case in ("target-link", "replaced-directory", "interior-link", "outside-alias"):
+            with self.subTest(case=case), tempfile.TemporaryDirectory() as directory:
+                base = Path(directory).resolve()
+                targets = base / "candidate-reference"
+                root = targets / "source-subject"
+                root.mkdir(parents=True)
+
+                def cargo(_command, log, _cwd, env):
+                    target = Path(env["CARGO_TARGET_DIR"])
+                    if case in ("target-link", "replaced-directory"):
+                        target.rename(base / "original")
+                        if case == "target-link":
+                            target.symlink_to(base / "original", target_is_directory=True)
+                        else:
+                            target.mkdir()
+                    binary = target / "direct.exe"
+                    binary.touch()
+                    if case in ("interior-link", "outside-alias"):
+                        alias = (target if case == "interior-link" else base) / "alias"
+                        alias.symlink_to(target, target_is_directory=True)
+                        binary = alias / "direct.exe"
+                    log.write_text(json.dumps({
+                        "reason": "compiler-artifact", "fresh": False, "executable": str(binary),
+                        "target": {"name": "rca-compile-direct", "kind": ["bin"],
+                                   "src_path": str(root / "benches/compile/direct/src/main.rs")},
+                    }))
+
+                monitor = Mock()
+                monitor.run.side_effect = cargo
+                with patch.object(absolute, "strip_pe", side_effect=AssertionError("consumed redirected PE")):
+                    with self.assertRaisesRegex(ValueError, "redirected|replaced"):
+                        absolute._run_binary_builds(base, targets, root, {}, monitor, {"cargo": "cargo"})
+
     def test_subject_capture_retains_all_raw_work_and_six_compiled_pes(self):
         with tempfile.TemporaryDirectory() as temporary:
             base = Path(temporary).resolve()
@@ -375,18 +431,22 @@ class WindowsAbsoluteTests(unittest.TestCase):
             raw_lines = {line.split()[0].removeprefix("scenario="): line
                          for line in (FIXTURES / "allocations.txt").read_text().splitlines()}
             calls = []
+            build_targets = {}
 
             def execute(command, destination, _cwd, environment):
                 calls.append(command)
                 destination.parent.mkdir(parents=True, exist_ok=True)
                 target = Path(environment.get("CARGO_TARGET_DIR", base / "unused"))
                 if "--message-format=json" in command:
+                    build_targets[destination.name] = target
                     if "--bench" in command:
                         self.assertEqual(target, targets / "subject")
                         names = [("composition", "bench")]
                     elif "composition_zero" in command:
                         names = [("composition_zero", "test")]
                     elif "--test" in command:
+                        # Cargo can relink the normal bin under the test dependency graph.
+                        (target / "rca-example-composition-search.exe").write_bytes(image() + b"test-build")
                         names = [("app", "test")]
                     elif "--manifest-path" in command:
                         names = [(f"rca-compile-{name}", "bin") for name in absolute.BINARY_NAMES[:4]]
@@ -435,6 +495,16 @@ class WindowsAbsoluteTests(unittest.TestCase):
             self.assertEqual(len(observed["allocations"]), 47)
             self.assertEqual(len(observed["selected"]), 13)
             self.assertEqual(set(observed["binaries"]), set(absolute.BINARY_NAMES))
+            with self.subTest("the test build must not replace the normal Tokio PE evidence"):
+                self.assertEqual(observed["binaries"]["tokio-application"]["before_sha256"],
+                                 hashlib.sha256(image()).hexdigest())
+            with self.subTest("PE preparation reuses only this subject's dependency target"):
+                pe_target = build_targets["binary-fixture-build.jsonl"]
+                self.assertEqual(pe_target.parent, targets)
+                self.assertEqual(build_targets["binary-tokio-build.jsonl"], pe_target)
+                self.assertEqual(build_targets["binary-app-test-build.jsonl"], pe_target)
+                self.assertNotIn(pe_target, (build_targets["allocation-build.jsonl"],
+                                             build_targets["zero-build.jsonl"]))
             self.assertFalse(observed["binary_execution_qualified"])
             self.assertEqual(json.loads((staging / "absolute-windows-raw/observation.json").read_text()), observed)
 

@@ -4,9 +4,11 @@ import ctypes
 import copy
 import hashlib
 import importlib.util
+import itertools
 import json
 from pathlib import Path
 import shutil
+import statistics
 import subprocess
 import sys
 import tempfile
@@ -394,25 +396,66 @@ class WindowsPerformanceTests(unittest.TestCase):
             self.runner.capture(binaries, metadata, self.root / "result", 1)
 
     @unittest.skipUnless(shutil.which("jq"), "native row comparison needs jq")
+    def test_prefix_decisions_hold_for_every_small_adversarial_completion(self):
+        # All 64 six-pair histories across both orders. For the first four
+        # pairs, check the judgement against every possible two-pair suffix.
+        histories = {}
+        for ratios in itertools.product((0.5, 2), repeat=6):
+            reject = statistics.median(ratios[::2]) * statistics.median(ratios[1::2]) > 1.1 ** 2
+            histories.setdefault(ratios[:4], set()).add(reject)
+        inputs = []
+        for prefix in histories:
+            pairs = [{"order": "candidate-reference" if i % 2 else "reference-candidate",
+                      "candidate": {"allocations": 2 * ratio, "allocated_bytes": 8, "peak_bytes": 8},
+                      "reference": {"allocations": 2, "allocated_bytes": 8, "peak_bytes": 8}}
+                     for i, ratio in enumerate(prefix)]
+            inputs.append({"scenario": "query/multi", "pairs": {"normal": [], "allocation": pairs}})
+        result = subprocess.run(
+            ["jq", "-c", "-L", str(SCRIPT.parent),
+             'include "native_performance_rows"; native_prefix_check("allocation"; 1)'],
+            input="".join(json.dumps(v) + "\n" for v in inputs), text=True, capture_output=True, check=True)
+        for verdicts, line in zip(histories.values(), result.stdout.splitlines(), strict=True):
+            report = json.loads(line)
+            if "lower_bounds" in report:
+                self.assertEqual(verdicts, {True})
+            elif not report["monitor"]:
+                self.assertEqual(verdicts, {False})
+            else:
+                self.assertEqual(verdicts, {True, False})
+
+    @unittest.skipUnless(shutil.which("jq"), "native row comparison needs jq")
     def test_known_row_regression_stops_before_budget_and_keeps_evidence(self):
         binaries, metadata = self.capture_inputs()
         scenarios = ["query/multi", "deterministic/budget"]
         output = self.root / "failed"
         launches = []
+        adverse = "allocation"
 
         def process(command, stem, env, *_):
             key = Path(command[0]).name
             if command[1:] == ["--list"]:
-                listed = scenarios if "_deterministic_" in key else scenarios[:1]
-                stem.with_suffix(".stdout").write_text("\n".join(listed) + "\n")
+                listed = scenarios if "_deterministic_" in key else [
+                    name for name in scenarios if not name.startswith("deterministic/")]
+                stem.with_suffix(".stdout").write_text("".join(name + "\n" for name in listed))
             else:
                 scenario, samples = command[1], int(command[2])
                 launches.append(scenario)
                 value = self.measurement(scenario, samples, samples * self.runner.operations_per_sample(scenario))
+                if adverse == "normal" and key.startswith("candidate"):
+                    value["task_wakes"] *= 2
+                if adverse == "delayed" and key.startswith("candidate") and command[1] == scenarios[0]:
+                    if int(stem.name.rsplit("-", 1)[1]) > 2:
+                        value["task_wakes"] *= 2
+                if adverse == "reversible" and scenario == "query/multi":
+                    # The first ten per order look bad but form no final majority.
+                    n = int(stem.name.rsplit("-", 1)[1])
+                    value["task_wakes"] = (20 if n <= 20 else 11) if key.startswith("candidate") else 10
                 if "RCA_DHAT_FILE" in env:
                     Path(env["RCA_DHAT_FILE"]).write_text('{"dhatFileVersion":2,"pps":[]}')
-                    value.update(allocations=4 if key.startswith("candidate") else 2,
+                    value.update(allocations=4 if key.startswith("candidate") and adverse == "allocation" else 2,
                                  allocated_bytes=32, peak_bytes=16)
+                    if adverse == "last-pair" and key.startswith("candidate") and int(stem.name[-2:]) > 2:
+                        value["allocations"] = 4
                 stem.with_suffix(".stdout").write_text(json.dumps(value))
             return self.counters()
 
@@ -423,15 +466,57 @@ class WindowsPerformanceTests(unittest.TestCase):
             with patch.object(shutil, "which", return_value=None), \
                     self.assertRaisesRegex(ValueError, "query/multi.*allocation_ratio"):
                 self.runner.capture(binaries, metadata, output, 1, jq=jq)
-            self.assertEqual(launches, ["query/multi"] * 96)
-            self.assertEqual(json.loads((output / "failure.json").read_text())["completed_rows"], 1)
-            self.assertTrue((output / "raw/completed-row-00.json").is_file())
+            self.assertEqual(launches, ["query/multi"] * 92)
+            self.assertEqual(json.loads((output / "failure.json").read_text())["completed_rows"], 0)
+            self.assertFalse((output / "raw/completed-row-00.json").exists())
+            proof = json.loads((output / "prefix-rejection.json").read_text())
+            self.assertEqual(proof["lower_bounds"], {"allocation_ratio": 2})
+            self.assertEqual(proof["observed_pairs"], {"normal": 42, "allocation": 4})
+            self.assertEqual(proof["planned_pairs"], {"normal": 42, "allocation": 6})
+            self.assertEqual(proof["inputs_sha256"], self.runner.sha256(output / "inputs.json"))
+            self.assertEqual(len(proof["pair_sha256"]), 46)
+            for path, digest in proof["pair_sha256"].items():
+                self.assertEqual(self.runner.sha256(output / path), digest)
             for name in ("candidate.json", "reference.json", "complete.json"):
                 self.assertFalse((output / name).exists())
             launches.clear()
+            adverse = "normal"
+            with self.assertRaisesRegex(ValueError, "query/multi.*task_wakes_ratio"):
+                self.runner.capture(binaries, metadata, self.root / "normal", 1, jq=jq)
+            self.assertEqual(launches, ["query/multi"] * 44)
+            launches.clear()
+            adverse = "delayed"
+            with self.assertRaisesRegex(ValueError, "query/multi.*task_wakes_ratio"):
+                self.runner.capture(binaries, metadata, self.root / "delayed", 1, jq=jq)
+            self.assertEqual(launches, ["query/multi"] * 48)
+            launches.clear()
             retained = self.runner.capture(binaries, metadata, self.root / "diagnosis", 1, keep_going=True)
+            self.assertEqual(launches.count("query/multi"), 96)
             self.assertEqual(launches.count("deterministic/budget"), 32)
             self.assertEqual(retained["accepted_regressions"], [])
+            adverse = "reversible"
+            launches.clear()
+            self.runner.capture(binaries, metadata, self.root / "reversible", 1, jq=jq)
+            self.assertEqual(len(launches), 128)
+            self.assertFalse((self.root / "reversible/prefix-rejection.json").exists())
+            scenarios[:] = ["deterministic/budget"]
+            adverse = "normal"
+            launches.clear()
+            with self.assertRaisesRegex(ValueError, "deterministic/budget.*task_wakes_ratio"):
+                self.runner.capture(binaries, metadata, self.root / "budget", 1, jq=jq)
+            self.assertEqual(launches, ["deterministic/budget"] * 12)
+            launches.clear()
+            self.runner.capture(binaries, metadata, self.root / "budget-diagnosis", 1, keep_going=True)
+            self.assertEqual(len(launches), 32)
+            # A final row that first fails at its last pair is retained for the
+            # full comparator. There are no future launches to save.
+            adverse = "last-pair"
+            launches.clear()
+            final = self.runner.capture(binaries, metadata, self.root / "last-pair", 1, jq=jq)
+            self.assertEqual(len(launches), 32)
+            self.assertEqual([p["candidate"]["allocations"] for p in final["rows"][0]["pairs"]["allocation"]],
+                             [2, 2, 4, 4, 4, 4])
+            self.assertFalse((self.root / "last-pair/prefix-rejection.json").exists())
 
     def test_unusable_jq_stops_before_any_benchmark_launch(self):
         binaries, metadata = self.capture_inputs()

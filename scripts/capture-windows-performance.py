@@ -4,8 +4,8 @@
 This script consumes eight existing binaries and their source/build receipt.
 Native rows use default-Core binaries; deterministic rows use test-runtime
 binaries. All 54 scenarios remain required in one paired cohort.
-With jq available, an unexplained regression in a completed row stops the
-remaining work. Only the separate full comparison can qualify a product.
+With jq available, a row whose regression cannot recover stops the remaining
+work. Only the separate full comparison can qualify a product.
 PeakWorkingSetSize measures peak resident working-set bytes. PeakPagefileUsage
 measures peak process commit charge, not physical memory or macOS footprint.
 QueryProcessCycleTime includes user and kernel cycles across process threads.
@@ -19,6 +19,7 @@ import copy
 import ctypes
 from datetime import datetime, timezone
 import hashlib
+import importlib.util
 import json
 import math
 import os
@@ -47,6 +48,11 @@ SHUTDOWN_LIVE_LIMITS = {
     "shutdown/abortive/burst/8": 8,
     "shutdown/abortive/burst/64": 64,
 }
+RANK_PROTOCOL = "windows-native-rank-experiment-v1"
+
+
+class PrefixRejected(ValueError):
+    """A measured prefix already forces a numerical rejection."""
 
 
 class FileTime(ctypes.Structure):
@@ -475,11 +481,18 @@ def aggregate(normal, allocation, pairs, revision, runner):
     return row
 
 
-def check_completed_row(jq, path):
+def verified_rules_digest(rules):
+    """Bind a decision to the bytes admitted and actually supplied to jq."""
+    digest = hashlib.sha256(rules.encode("utf-8")).hexdigest()
+    if sha256(Path(__file__).with_name("native_performance_rows.jq")) != digest:
+        raise ValueError("native numerical rules changed during capture")
+    return digest
+
+
+def check_completed_row(jq, rules, path):
     """Stop a doomed capture without issuing a partial qualification result."""
     result = subprocess.run([
-        jq, "-L", str(Path(__file__).resolve().parent), "-r",
-        'include "native_performance_rows"; native_row_comparison(.candidate; true; null)'
+        jq, "-r", rules + '\nnative_row_comparison(.candidate; true; null)'
         ' | select(.regressed and (.accepted | not)) | .scenario + ": "'
         ' + ([.regressed_metrics[] as $metric | $metric + "=" + (.[$metric] | tostring)] | join(", "))',
         str(path),
@@ -487,10 +500,46 @@ def check_completed_row(jq, path):
     if result.returncode:
         raise ValueError(f"cannot compare {path.name}: {result.stderr.strip()}")
     if result.stdout.strip():
+        verified_rules_digest(rules)
         raise ValueError(f"completed row exceeded performance limit: {result.stdout.strip()}")
 
 
-def select_row_checker(jq, keep_going):
+def check_prefix(jq, rules, scenario, mode, pairs, normal_repetitions, index, output):
+    """Stop only proven failures; skip further checks, never launches, for a decided mode."""
+    planned = {"normal": normal_repetitions, "allocation": 6}
+    observed = {mode: len(data) for mode, data in pairs.items()}
+    missing = {mode: (limit - observed[mode]) // 2 for mode, limit in planned.items()}
+    comparison = subprocess.run([
+        jq, "-c", rules + "\nnative_prefix_check(.mode; .missing)",
+    ], input=json.dumps({"scenario": scenario, "mode": mode, "missing": missing[mode],
+                        "pairs": {key: data if key == mode else [] for key, data in pairs.items()}}),
+        capture_output=True, text=True)
+    if comparison.returncode:
+        raise ValueError(f"cannot check {scenario} prefix: {comparison.stderr.strip()}")
+    verdict = json.loads(comparison.stdout)
+    if "lower_bounds" not in verdict:
+        return verdict["monitor"]
+    bound = verdict["lower_bounds"]
+    hashes = {}
+    for name, data in pairs.items():
+        for pair in data:
+            path = f"raw/pair-{name}-{index:02d}-{pair['repetition']:02d}.json"
+            content = (output / path).read_bytes()
+            if json.loads(content) != pair:
+                raise ValueError(f"prefix evidence changed: {path}")
+            hashes[path] = hashlib.sha256(content).hexdigest()
+    write_json(output / "prefix-rejection.json", {
+        "complete": False, "scenario": scenario, "row_index": index, "mode": mode,
+        "method": "zero-filled order-stratified paired medians",
+        "regression_limit": verdict["limit"], "planned_pairs": planned,
+        "observed_pairs": observed, "missing_per_order": missing, "lower_bounds": bound,
+        "row_rules_sha256": verified_rules_digest(rules),
+        "inputs_sha256": sha256(output / "inputs.json"), "pair_sha256": hashes,
+    })
+    raise PrefixRejected(f"irrecoverable prefix regression: {scenario}: {bound}")
+
+
+def select_row_checker(jq, keep_going, *, required=False):
     """Check that the selected executable can load the row comparison before capture."""
     if keep_going:
         if jq is not None:
@@ -498,12 +547,15 @@ def select_row_checker(jq, keep_going):
         return None
     executable = str(Path(jq).absolute()) if jq is not None else shutil.which("jq")
     if executable is None:
+        if required:
+            raise ValueError("experimental rank evidence requires jq")
         print("jq not found: collecting all rows; the full comparison is still required", file=sys.stderr)
         return None
     try:
         result = subprocess.run([
             executable, "-L", str(Path(__file__).resolve().parent), "-ne",
-            'include "native_performance_rows"; [] | map(native_row_comparison(.; true; null)) == []',
+            'include "native_performance_rows"; [] | map(native_row_comparison(.; true; null)'
+            ' | native_prefix_check("normal"; 0)) == []',
         ], capture_output=True, text=True, timeout=10)
     except (OSError, subprocess.TimeoutExpired) as error:
         raise ValueError(f"cannot run jq at {executable}: {error}") from error
@@ -512,13 +564,25 @@ def select_row_checker(jq, keep_going):
     return executable
 
 
-def capture(binaries, metadata_path, output, timeout, *, keep_going=False, jq=None):
+def load_rank_evidence():
+    """Load the adjacent verifier even under the qualification host's Python -I -S."""
+    path = Path(__file__).with_name("native_rank_evidence.py")
+    spec = importlib.util.spec_from_file_location("native_rank_evidence", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def capture(binaries, metadata_path, output, timeout, *, keep_going=False, jq=None, experimental_rank=False):
     """Run one fixed cohort, retaining incomplete evidence on every failure."""
     if output.exists():
         raise FileExistsError(output)
     if not math.isfinite(timeout) or timeout <= 0:
         raise ValueError("process timeout must be positive")
-    jq = select_row_checker(jq, keep_going)
+    if experimental_rank and keep_going:
+        raise ValueError("--experimental-rank and --keep-going cannot be used together")
+    jq = select_row_checker(jq, keep_going, required=experimental_rank)
+    rules = Path(__file__).with_name("native_performance_rows.jq").read_bytes().decode("utf-8") if jq else None
     source_bytes = metadata_path.read_bytes()
     source = json.loads(source_bytes.decode("utf-8"))
     validate_metadata(source)
@@ -569,8 +633,15 @@ def capture(binaries, metadata_path, output, timeout, *, keep_going=False, jq=No
     raw.mkdir()
     with (output / "source-build.json").open("xb") as stream:
         stream.write(source_bytes)
-    write_json(output / "inputs.json", {"metadata": metadata, "scenarios": scenarios, "timeout_seconds": timeout})
+    inputs = {"metadata": metadata, "scenarios": scenarios, "timeout_seconds": timeout}
+    if experimental_rank:
+        rank_evidence = load_rank_evidence()
+        inputs.update(protocol=RANK_PROTOCOL, rank_rules_sha256=verified_rules_digest(rules),
+                      rank_verifier_sha256=sha256(Path(rank_evidence.__file__)))
+    write_json(output / "inputs.json", inputs)
     rows = {"candidate": [], "reference": []}
+    rank_rows = 0
+    rejected = False
     env = {key: value for key, value in os.environ.items() if key not in ("RCA_QUALIFY_ALLOCATIONS", "RCA_DHAT_FILE")}
     try:
         for key, binary in binaries.items():
@@ -585,6 +656,7 @@ def capture(binaries, metadata_path, output, timeout, *, keep_going=False, jq=No
             observations = {role: {"normal": [], "allocation": []} for role in rows}
             pairs = {"normal": [], "allocation": []}
             for mode, repetitions, samples in (("normal", normal_repetitions, 10000), ("allocation", 6, allocation_samples(scenario))):
+                monitor = jq
                 for repetition in range(1, repetitions + 1):
                     order = "reference-candidate" if repetition % 2 else "candidate-reference"
                     pair = {"repetition": repetition, "order": order}
@@ -612,13 +684,34 @@ def capture(binaries, metadata_path, output, timeout, *, keep_going=False, jq=No
                         pair[role] = value
                     pairs[mode].append(pair)
                     write_json(raw / f"pair-{mode}-{index:02d}-{repetition:02d}.json", pair)
+                    # With odd-sized order strata, a strict measured majority
+                    # is the first point at which both lower medians can be > 0.
+                    if (monitor and repetition % 2 == 0
+                            and (repetition > repetitions // 2 or (experimental_rank and repetition == 2))
+                            and (experimental_rank or not (mode == "allocation" and repetition == repetitions))):
+                        try:
+                            monitor = check_prefix(jq, rules, scenario, mode, pairs, normal_repetitions, index, output)
+                        except PrefixRejected:
+                            if not experimental_rank:
+                                raise
+                            rejected = True
+                            break
+                        if experimental_rank and not monitor:
+                            break
+                if rejected:
+                    break
+            if experimental_rank:
+                if rejected:
+                    break
+                rank_rows += 1
+                continue
             for role in rows:
                 rows[role].append(aggregate(observations[role]["normal"], observations[role]["allocation"], pairs,
                                             source[role]["revision"], runner))
             completed = raw / f"completed-row-{index:02d}.json"
             write_json(completed, {role: rows[role][-1] for role in rows})
             if jq and index + 1 < len(scenarios):
-                check_completed_row(jq, completed)
+                check_completed_row(jq, rules, completed)
         if any(sha256(path) != identities[key]["sha256"] for key, path in binaries.items()):
             raise ValueError("binary changed during capture")
         if sha256(metadata_path) != metadata["source_build_sha256"] or sha256(Path(__file__)) != script_hash or sha256(MANIFEST) != manifest_hash:
@@ -628,6 +721,14 @@ def capture(binaries, metadata_path, output, timeout, *, keep_going=False, jq=No
         if any(sha256(path) != digest for path, digest in build_pins.items()):
             raise ValueError("build transcript changed during capture")
         validate_staged_sources(source)
+        if jq:
+            verified_rules_digest(rules)
+        if experimental_rank:
+            result = rank_evidence.build_rank_result(output, sys.modules[__name__], jq)
+            if result["numerical_decision"] != ("reject" if rejected else "pass"):
+                raise ValueError("experimental collection and independent raw replay disagree")
+            write_json(output / "experimental-rank-result.json", result)
+            return result
         documents = {}
         for role in rows:
             document = {"schema_version": 6, "suite": "rca-performance-qualification",
@@ -640,25 +741,40 @@ def capture(binaries, metadata_path, output, timeout, *, keep_going=False, jq=No
         return documents["candidate"]
     except BaseException as error:
         write_json(output / "failure.json", {"complete": False, "error": type(error).__name__, "message": str(error),
-                                            "completed_rows": len(rows["candidate"])})
+                                            "completed_rows": rank_rows if experimental_rank else len(rows["candidate"])})
         raise
 
 
 def main():
     """Parse one fixed Windows capture request."""
+    if sys.argv[1:2] == ["--verify-experimental-rank"]:
+        rank_evidence = load_rank_evidence()
+        parser = argparse.ArgumentParser(description="Replay experimental evidence; no qualification decision.")
+        parser.add_argument("--verify-experimental-rank", type=Path, required=True, metavar="OUTPUT")
+        parser.add_argument("--jq", type=Path)
+        args = parser.parse_args()
+        jq = select_row_checker(args.jq, False, required=True)
+        report = rank_evidence.verify_rank_result(args.verify_experimental_rank, sys.modules[__name__], jq)
+        print(json.dumps({"verified": True, "qualification": False, "numerical_decision": report["numerical_decision"]}))
+        return
     parser = argparse.ArgumentParser(description=__doc__)
     for key in BINARY_ROLES:
         parser.add_argument(f"--{key.replace('_', '-')}", required=True, type=Path)
     parser.add_argument("--metadata", required=True, type=Path)
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--timeout-seconds", type=float, default=1800)
+    parser.add_argument("--experimental-rank", action="store_true",
+                        help="stop each mode at a proven numerical result; write experimental evidence only")
     checker = parser.add_mutually_exclusive_group()
-    checker.add_argument("--jq", type=Path, metavar="PATH", help="use this jq executable to check completed rows")
+    checker.add_argument("--jq", type=Path, metavar="PATH", help="use this jq executable to check paired rows")
     checker.add_argument("--keep-going", action="store_true",
                          help="collect all rows for diagnosis even if a performance limit is exceeded")
     args = parser.parse_args()
     binaries = {key: getattr(args, key) for key in BINARY_ROLES}
-    capture(binaries, args.metadata, args.output.resolve(), args.timeout_seconds, keep_going=args.keep_going, jq=args.jq)
+    result = capture(binaries, args.metadata, args.output.resolve(), args.timeout_seconds,
+                     keep_going=args.keep_going, jq=args.jq, experimental_rank=args.experimental_rank)
+    if args.experimental_rank and result["numerical_decision"] == "reject":
+        raise SystemExit(1)
 
 
 if __name__ == "__main__":

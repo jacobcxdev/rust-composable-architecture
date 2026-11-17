@@ -10,8 +10,10 @@ def median:
       (($values[$count / 2 - 1] + $values[$count / 2]) / 2)
     end;
 def stratified_ratio($pairs; metric):
-  ([$pairs[] | select(.order == "reference-candidate") | metric] | median) as $ab
-  | ([$pairs[] | select(.order == "candidate-reference") | metric] | median) as $ba
+  def order_median($order):
+    ([$pairs.observed[] | select(.order == $order) | metric] + $pairs.unseen) | median;
+  order_median("reference-candidate") as $ab
+  | order_median("candidate-reference") as $ba
   | (($ab * $ba) | sqrt);
 def gated_metrics:
   ["median_ratio", "p99_ratio", "throughput_ratio", "allocation_ratio",
@@ -39,8 +41,12 @@ def accepted($candidate; $comparison):
     and (($comparison.regressed_metrics - .metrics) | length == 0)
   );
 
-def native_row_comparison($after; $windows; $candidate):
-  {
+# Bounds substitute limits for the missing ratios in each order. The completed
+# comparator never pads either order.
+def native_row_with_unseen($after; $windows; $candidate; $unseen):
+  ($after | .pairs |= with_entries(. as $mode | .value =
+    {observed: $mode.value, unseen: $unseen[$mode.key]})) as $after
+  | {
     scenario: $after.scenario,
     median_ratio: stratified_ratio($after.pairs.normal;
       .candidate.latency_ns.p50 / .reference.latency_ns.p50),
@@ -73,3 +79,19 @@ def native_row_comparison($after; $windows; $candidate):
     ]
   | .regressed = (.regressed_metrics | length > 0)
   | .accepted = (if .regressed then accepted($candidate; .) else false end);
+
+def native_row_comparison($after; $windows; $candidate):
+  native_row_with_unseen($after; $windows; $candidate; {normal: [], allocation: []});
+
+# The collector supplies validated balanced pairs in the active mode only.
+# The inactive mode contributes zero to both checks; it is monitored separately.
+def native_prefix_check($mode; $missing_per_order):
+  . as $row
+  | def bound(limit):
+      ({normal: [0], allocation: [0]} | .[$mode] = [range($missing_per_order) | limit]) as $unseen
+      | native_row_with_unseen($row; true; null; $unseen);
+  bound(0) as $lower
+  | if $lower.regressed and ($lower.accepted | not) then
+      {limit: native_regression_limit,
+       lower_bounds: ([$lower.regressed_metrics[] | {key: ., value: $lower[.]}] | from_entries)}
+    else {monitor: (bound(infinite) | .regressed and (.accepted | not))} end;

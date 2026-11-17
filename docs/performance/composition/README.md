@@ -79,7 +79,9 @@ The top-level `complete.json` reports the combined result.
 The single-mode evaluator remains available for historical v6 evidence, not current acceptance.
 Binary-only measurements do not replace the paired timing run.
 
-Each mode retains twenty blocks. The complete capture uses four independent benchmark builds.
+Each mode retains twenty blocks. The complete capture builds RCA and its benchmark code separately for all four participants.
+For preparation only, Cargo can reuse third-party dependencies from the first build.
+The runner checks the locked source and copied files. Measured cold builds never reuse these files.
 Odd-numbered blocks run the A/A control first. Even-numbered blocks run the candidate comparison first.
 The existing subject/control order stays unchanged inside each block.
 Both modes bind to one capture manifest, which records the complete schedule before measurement.
@@ -87,6 +89,27 @@ Ordered start/finish receipts bind each block to that manifest.
 Each finished block also records the hashes of its transcripts and resource counters.
 
 A control from another capture cannot qualify the candidate.
+
+### Experimental Windows capture
+
+The experimental runner measures each workload until later samples cannot change its numerical verdict.
+Each additional block keeps the prescribed order and includes a fresh reference control.
+An unresolved result cannot pass. A passing timing result still requires all allocation, executable-size and diagnostic checks.
+This experiment does not authorise a release or create a `complete.json` receipt.
+
+Five workloads use a half-second timing window:
+`direct/1`, `nonmatching_scope/16`, `combine_arity/4`, `descendant_cancellation/10000` and `scoped_concurrent_senders_32`.
+The other four workloads keep their two-second window. All measured cold builds still start with an empty target directory.
+The capture records the window for each workload before measurement. Replay checks the window that each process used.
+
+```sh
+python3 scripts/composition_runner.py --platform windows --windows-complete --experimental-rank OUTPUT REFERENCE
+python3 scripts/composition_runner.py --verify-experimental-rank OUTPUT
+```
+
+Use the same version of the runner for both commands.
+The second command checks the evidence. It can verify a recorded failure.
+Read the `decision` field for the numerical result.
 
 Background load can affect latency, throughput and compile time. Process CPU time and instruction counts do not replace these measurements.
 Interleaved controls expose interference during the capture, but they do not prove that observations are independent.

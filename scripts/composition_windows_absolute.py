@@ -4,6 +4,7 @@ This does not compare against macOS budgets or claim that compiled PE files ran.
 """
 
 import json
+import os
 from pathlib import Path
 import re
 import shutil
@@ -49,7 +50,7 @@ def selected_allocation_values(rows, zero_tests):
     return result
 
 
-def _artifact(log, target, name, kind, source, *, allocation=None):
+def _artifact(log, target, name, kind, source, *, allocation=None, canonical=False):
     """Bind one fresh Cargo executable to the isolated target directory."""
     found = []
     for line in log.read_text(encoding="utf-8").splitlines():
@@ -70,7 +71,7 @@ def _artifact(log, target, name, kind, source, *, allocation=None):
             executable = Path(record["executable"])
             if executable.is_symlink():
                 raise ValueError(f"{name} artifact became a symlink")
-            if allocation is not None and (
+            if (canonical or allocation is not None) and (
                 not executable.is_relative_to(target)
                 or executable.resolve() != executable
             ):
@@ -273,45 +274,62 @@ def _run_allocations(raw, target, root, env, monitor, cargo, *, ordinary=None):
 
 
 def _run_binary_builds(raw, targets, root, env, monitor, tools):
-    """Build the four compile fixtures, app test, and Tokio example as PE files."""
+    """Build each PE fresh; share dependencies only within this subject's release builds."""
     cargo = tools["cargo"]
-    fixture_target = targets / "absolute-windows-binary-fixtures"
+    target = targets / "absolute-windows-binary"
+    if root != targets / "source-subject" or root.resolve() != root or not root.is_dir():
+        raise ValueError("binary preparation requires the subject's own source and target directory")
+    if target.exists() or target.is_symlink():
+        raise ValueError(f"absolute build target already exists: {target}")
+    target.mkdir()
+    owned = target.stat()
+
+    def check_target():
+        if target.resolve() != target or not target.is_dir() or not os.path.samestat(owned, target.stat()):
+            raise ValueError("binary preparation target was redirected or replaced")
+
+    def build(log, command):
+        check_target()
+        monitor.run(command, log, root, {**env, "CARGO_TARGET_DIR": str(target)})
+
+    def retain(log, label, name, kind, source):
+        check_target()
+        binary = _artifact(log, target, name, kind, root / source, canonical=True)
+        return strip_pe(binary, label, raw, env, monitor, tools)
+
     fixture_build = raw / "binary-fixture-build.jsonl"
-    _run_build(
-        monitor,
+    build(
+        fixture_build,
         [cargo, "build", "--manifest-path", str(root / "benches/compile/Cargo.toml"),
          "--workspace", "--release", "--locked", "-j", "1", "--message-format=json"],
-        fixture_build, root, env, fixture_target,
     )
     binaries = {
-        name: _artifact(fixture_build, fixture_target, f"rca-compile-{name}", "bin",
-                        root / f"benches/compile/{name}/src/main.rs")
+        name: retain(fixture_build, name, f"rca-compile-{name}", "bin",
+                     f"benches/compile/{name}/src/main.rs")
         for name in BINARY_NAMES[:4]
     }
-    root_target = targets / "absolute-windows-binary-root"
     root_build = raw / "binary-tokio-build.jsonl"
-    _run_build(
-        monitor,
+    build(
+        root_build,
         [cargo, "build", "-p", "rca-example-composition-search", "--release",
          "--locked", "-j", "1", "--message-format=json"],
-        root_build, root, env, root_target,
     )
-    binaries["tokio-application"] = _artifact(
-        root_build, root_target, "rca-example-composition-search", "bin",
-        root / "examples/composition-search/src/main.rs",
+    # Cargo test can relink the example at this same path with dev-dependency features.
+    binaries["tokio-application"] = retain(
+        root_build, "tokio-application", "rca-example-composition-search", "bin",
+        "examples/composition-search/src/main.rs",
     )
     test_build = raw / "binary-app-test-build.jsonl"
-    monitor.run(
+    build(
+        test_build,
         [cargo, "test", "-p", "rca-example-composition-search", "--test", "app",
          "--release", "--locked", "-j", "1", "--no-run", "--message-format=json"],
-        test_build, root, {**env, "CARGO_TARGET_DIR": str(root_target)},
     )
-    binaries["deterministic-composition-test"] = _artifact(
-        test_build, root_target, "app", "test",
-        root / "examples/composition-search/tests/app.rs",
+    binaries["deterministic-composition-test"] = retain(
+        test_build, "deterministic-composition-test", "app", "test",
+        "examples/composition-search/tests/app.rs",
     )
-    return {name: strip_pe(binaries[name], name, raw, env, monitor, tools)
-            for name in BINARY_NAMES}
+    return binaries
 
 
 def capture_windows_absolute(capture, protocol, env, monitor, tools):

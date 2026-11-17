@@ -211,12 +211,44 @@ The collector looks for `jq` on `PATH`. To select a specific executable, pass `-
 If the selected executable cannot load the comparison rules, the collector stops before it runs any benchmark.
 If `jq` is absent from `PATH` and you did not specify a path, the collector warns and measures all rows.
 
-With `jq`, the collector checks each completed row before it starts the next one.
-If a measured ratio exceeds its limit, the collector keeps the measurements and stops.
+With `jq`, the collector checks each nonfinal completed row before starting the
+next one. It can stop within **any** row, including the final budget row, if
+the measurements already force rejection and at least one workload remains.
+After a majority of pairs in each run order is present, it checks balanced
+prefixes in the current mode. Substituting zero for every missing ratio gives
+a lower bound on the final order-stratified median ratio. A gated lower bound
+strictly above 1.10 stops collection and writes `prefix-rejection.json` with
+the failing bounds and hashes of the retained pairs. If no completion could
+make a mode fail, the collector skips further prefix checks for that mode but
+still runs every remaining workload. If rejection first becomes certain at
+the very last pair, the final row is retained for the full comparator.
 To collect all rows for review, pass `--keep-going` instead of `--jq`.
 Only the full comparison applies reviewed exceptions and can establish a pass.
 Keep the complete output directory together when transferring it to the review checkout.
 Then run `scripts/compare-performance.sh <capture>/reference.json <capture>/candidate.json`.
+
+**Experimental collection, not release qualification.** To test the finite-cohort
+decision on the Windows host, add `--experimental-rank` to the same guarded
+capture command. Use a new output directory and a working `jq`. Do not combine
+this option with `--keep-going`. Each mode starts with one real pair in each
+order. Where a gate applies, collection continues until every completion is
+below or equal to the limit, or one gate cannot recover. The enrolled caps
+remain 42 normal pairs (10 for deterministic budget) and six allocation pairs.
+Even a mode with no gate retains real measurements in both orders. No missing
+values are reported as observations. A positive result requires all 54 scenarios.
+
+The mode writes `experimental-rank-result.json`, never the normal result
+files or `complete.json`. To check its raw evidence and numerical decision
+independently with the same source, run:
+
+```sh
+python scripts/capture-windows-performance.py --verify-experimental-rank <capture> --jq <jq-path>
+```
+
+A valid replay exits zero for either numerical outcome; read `numerical_decision`.
+Collection itself returns nonzero on rejection or technical failure. The bounds
+describe any valid continuation of the enrolled observations; they do not show
+that an omitted process would succeed or what its diagnostics would have been.
 
 Schema version 6 identifies the `win32-process-v1` provider and the
 `split-native-deterministic-v1` configuration.

@@ -3,7 +3,7 @@
 import hashlib
 import json
 import math
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 import statistics
 
 import composition_performance as evidence
@@ -84,10 +84,14 @@ def _timing_observations(budget, timing):
 
 def _observations(budget, timing, raw):
     """Bind native measurements to the paired subject, source and workload set."""
-    values = _timing_observations(budget, timing)
-    metadata = timing["metadata"]
+    return _timing_observations(budget, timing) | _product_observations(budget, timing["metadata"], raw)
+
+
+def _product_observations(budget, metadata, raw):
+    """Validate the complete allocation, zero-host and PE workload without timing data."""
+    values = {}
     if (raw.get("schema") != "composition-windows-absolute-raw-v1"
-            or raw.get("subject_revision") != timing["revision"]
+            or raw.get("subject_revision") != metadata["subject_revision"]
             or raw.get("allocation_manifest_sha256") != evidence.ALLOCATION_MANIFEST_SHA256
             or raw.get("source_receipt_sha256") != metadata["workload_provenance"]["subject"]["receipt_sha256"]
             or raw.get("root_lock_sha256") != metadata["subject_lock_sha256"]):
@@ -141,19 +145,10 @@ def _observations(budget, timing, raw):
     return values
 
 
-def seal_reference(policy, budget_path, timing_report, raw_observation):
-    """Derive new native limits only from the pinned A/A subject arm."""
-    _validate_policy(policy)
-    if timing_report.get("protocol_sha256") != policy["paired_protocol_sha256"]:
-        raise ValueError("Windows complete policy belongs to another paired protocol")
-    if (timing_report.get("mode") != "reference-reference-aa"
-            or timing_report.get("revision") != policy["reference_revision"]
-            or timing_report.get("role") != "reference-b"):
-        raise ValueError("Windows limits require reference-only A/A observations")
-    budget = evidence.validate_budget_document(Path(budget_path))
-    values = _observations(budget, timing_report, raw_observation)
+def _reference_rows(policy, budget_rows, values):
+    """Freeze limits from reference values only; allocation limits are absolute."""
     rows = []
-    for row in budget["rows"]:
+    for row in budget_rows:
         value = values[row["scenario"], row["measured_statistic"]]
         direction = evidence._direction(row)
         if row["scenario"].startswith("allocation/"):
@@ -168,6 +163,20 @@ def seal_reference(policy, budget_path, timing_report, raw_observation):
         rows.append({"scenario": row["scenario"], "measured_statistic": row["measured_statistic"],
                      "units": row["units"], "direction": direction, "reference_value": value,
                      "absolute_budget": limit})
+    return rows
+
+
+def seal_reference(policy, budget_path, timing_report, raw_observation):
+    """Derive new native limits only from the pinned A/A subject arm."""
+    _validate_policy(policy)
+    if timing_report.get("protocol_sha256") != policy["paired_protocol_sha256"]:
+        raise ValueError("Windows complete policy belongs to another paired protocol")
+    if (timing_report.get("mode") != "reference-reference-aa"
+            or timing_report.get("revision") != policy["reference_revision"]
+            or timing_report.get("role") != "reference-b"):
+        raise ValueError("Windows limits require reference-only A/A observations")
+    budget = evidence.validate_budget_document(Path(budget_path))
+    rows = _reference_rows(policy, budget["rows"], _observations(budget, timing_report, raw_observation))
     # Paired validation binds and replays the raw transcripts. Keep their numeric
     # observations here, not paths that change when staging is published.
     reference_timing = {key: timing_report[key] for key in (
@@ -208,6 +217,210 @@ def _result(row, values):
     value = values[row["scenario"], row["measured_statistic"]]
     return {**row, "measured_value": value,
             "passed": evidence._passes(value, row["absolute_budget"], row["direction"])}
+
+
+def _experimental_product_input(policy, mode, metadata, raw):
+    """Bind the parsed observations to independently authenticated capture inputs."""
+    if not isinstance(metadata, dict) or not isinstance(raw, dict):
+        raise ValueError("missing experimental product evidence")
+    evidence._validate_protocol_pair_metadata(metadata, evidence.WINDOWS_V6_METHOD)
+    if (metadata.get("method_version") != evidence.WINDOWS_V6_METHOD or metadata.get("mode") != mode
+            or metadata.get("protocol_sha256") != policy["paired_protocol_sha256"]
+            or metadata.get("runner") != policy["runner"]
+            or metadata.get("toolchain") != evidence.expected_toolchain(metadata)
+            or metadata.get("budget_sha256") != policy["budget_sha256"]
+            or metadata.get("allocation_manifest_sha256") != policy["allocation_manifest_sha256"]
+            or not all(_hash(metadata.get(k)) for k in ("capture_sha256", "subject_lock_sha256", "control_lock_sha256"))
+            or not _hash(metadata.get("workload_provenance", {}).get("subject", {}).get("receipt_sha256"))
+            or metadata.get("raw_content_sha256") != _digest(raw)
+            or not _hash(raw.get("allocation_binary_sha256")) or raw.get("binary_execution_qualified") is not False):
+        raise ValueError("experimental product evidence differs from capture inputs")
+    tools = metadata.get("tools", {})
+    strip_tools = {"python", "lief_wheel", "lief_init", "lief_native"}
+    required_tools = strip_tools | {"cargo", "rustc", "rustdoc", "compiler_telemetry", "objcopy"}
+    if not isinstance(tools, dict) or set(tools) != required_tools or any(
+        not isinstance(tool, dict) or not isinstance(tool.get("path"), str) or not tool["path"]
+        or not _hash(tool.get("sha256")) for tool in tools.values()
+    ):
+        raise ValueError("experimental product tools are not hash-bound")
+    for row in raw.get("binaries", {}).values():
+        removal = row.get("debug_removal", {})
+        stripped = removal.get("stripped", {})
+        observed_tools = removal.get("tools", {})
+        if (row.get("strip_tool_sha256") != tools["objcopy"]["sha256"]
+                or stripped.get("sha256") != row.get("sha256") or stripped.get("size_bytes") != row.get("bytes")
+                or set(observed_tools) != strip_tools or any(
+                    any(observed_tools[k].get(field) != tools[k][field] for field in ("path", "sha256"))
+                    for k in strip_tools)):
+            raise ValueError("experimental PE tool or stripped-product identity differs")
+
+
+def experimental_product_gates(policy, budget_path, aa_capture_metadata, aa_raw,
+                               candidate_capture_metadata, candidate_raw):
+    """Evaluate only the 19 product gates in both Windows roles, never timing or release qualification.
+
+    Each metadata record carries its authenticated inputs.json tools and the independently
+    verified raw_content_sha256 (_digest of the parsed observation). Callers authenticate files.
+    """
+    _validate_policy(policy)
+    if policy["method_version"] != V6_METHOD:
+        raise ValueError("experimental product gates require the Windows v6 policy")
+    budget = evidence.validate_budget_document(Path(budget_path))
+    aa, cand = "reference-reference-aa", "candidate-reference"
+    _experimental_product_input(policy, aa, aa_capture_metadata, aa_raw)
+    aa_values = _product_observations(budget, aa_capture_metadata, aa_raw)
+    product_rows = [row for row in budget["rows"] if row["scenario"].startswith(("allocation/", "binary/"))]
+    limits = _reference_rows(policy, product_rows, aa_values)
+    _experimental_product_input(policy, cand, candidate_capture_metadata, candidate_raw)
+    shared = ("capture_sha256", "platform", "target", "os_version", "os_build", "control_lock_sha256", "tools")
+    if (any(aa_capture_metadata[k] != candidate_capture_metadata[k] for k in shared)
+            or aa_capture_metadata["subject_lock_sha256"] != aa_capture_metadata["control_lock_sha256"]):
+        raise ValueError("experimental product modes differ in capture, host, tools or reference lock")
+    cand_values = _product_observations(budget, candidate_capture_metadata, candidate_raw)
+    rows = {mode: [_result(row, values) for row in limits] for mode, values in ((aa, aa_values), (cand, cand_values))}
+    failures = {mode: [row for row in results if not row["passed"]] for mode, results in rows.items()}
+    bindings = {mode: {"subject_revision": meta["subject_revision"], "source_receipt_sha256": raw["source_receipt_sha256"],
+                       "root_lock_sha256": raw["root_lock_sha256"], "raw_content_sha256": meta["raw_content_sha256"],
+                       "allocation_binary_sha256": raw["allocation_binary_sha256"], "allocation_workloads": len(raw["allocations"]),
+                       "zero_tests": raw["zero_tests"], "tools_sha256": _digest(meta["tools"])}
+                for mode, meta, raw in ((aa, aa_capture_metadata, aa_raw), (cand, candidate_capture_metadata, candidate_raw))}
+    return {"schema": "experimental-windows-product-gates-v1", "timing_evaluated": False,
+            "policy_sha256": V6_POLICY_SHA256, "capture_sha256": aa_capture_metadata["capture_sha256"],
+            "reference_limits": limits, "rows": rows, "failed_budgets": failures, "evidence": bindings,
+            "passed": not any(failures.values())}
+
+
+def _retained(root, name):
+    """Open only the expected capture-relative file, never a published path from JSON."""
+    path = root / name
+    if not path.is_relative_to(root) or path.resolve() != path or not path.is_file():
+        raise ValueError(f"missing or redirected experimental evidence: {name}")
+    return path
+
+
+def _verify_retained_pe(raw, label, row):
+    """Recheck the original, LLVM intermediate, stripped output and the strip receipt offline."""
+    import composition_windows_absolute as absolute
+    import windows_strip
+    orig = f"binaries/{label}-original.exe"
+    final = f"binaries/{label}-stripped.exe"
+    original, stripped = _retained(raw, orig), _retained(raw, final)
+    intermediate = _retained(raw, f"binaries/{label}-llvm-stripped.exe")
+    receipt = _retained(raw, f"binaries/{label}-stripped.strip.json")
+    strip_log = _retained(raw, f"strip-{label}.txt")
+    debug_log = _retained(raw, f"debug-strip-{label}.txt")
+    removal = row["debug_removal"]
+    if (row["original_path"] != orig or row["path"] != final or evidence._sha256(original) != row["before_sha256"]
+            or row["strip_log_sha256"] != evidence._sha256(strip_log) or evidence._sha256(stripped) != row["sha256"]
+            or absolute._pe_identity(stripped) != row["bytes"] or stripped.stat().st_size > original.stat().st_size
+            or json.loads(_retained(raw, f"{label}.json").read_bytes()) != row):
+        raise ValueError(f"retained PE differs from its sealed observation: {label}")
+    for field, path in (("intermediate", intermediate), ("stripped", stripped), ("receipt", receipt),
+                        ("log", debug_log), ("helper", Path(windows_strip.__file__))):
+        fact = removal[field]
+        if (PureWindowsPath(fact["path"]).name != path.name or fact["sha256"] != evidence._sha256(path)
+                or fact["size_bytes"] != path.stat().st_size):
+            raise ValueError(f"retained PE strip {field} differs: {label}")
+    actual = json.loads(receipt.read_bytes())
+    command = removal["command"]
+    tool = removal["tools"]
+    expected_command = [tool["python"]["path"], "-I", "-S", removal["helper"]["path"], "--wheel",
+                        tool["lief_wheel"]["path"], "--site", str(PureWindowsPath(tool["lief_init"]["path"]).parent.parent),
+                        "--input", removal["intermediate"]["path"], "--output", removal["stripped"]["path"]]
+    if (actual != {k: v for k, v in removal.items() if k not in ("receipt", "log", "helper", "command")}
+            or list(map(PureWindowsPath, command)) != list(map(PureWindowsPath, expected_command))
+            or actual["lief_version"] != windows_strip.LIEF_VERSION or actual["configuration"] != windows_strip.CONFIGURATION
+            or actual["verification"] != windows_strip.validate_transform(intermediate.read_bytes(), stripped.read_bytes())):
+        raise ValueError(f"retained PE debug transformation differs: {label}")
+
+
+def _verified_cargo_products(log, root, expected, *, allocating=None):
+    """Match fresh executable records to staged subject sources without opening removed targets."""
+    allowed = {
+        "binary-fixture-build": ("absolute-windows-binary", "absolute-windows-binary-fixtures"),
+        "binary-tokio-build": ("absolute-windows-binary", "absolute-windows-binary-root"),
+        "binary-app-test-build": ("absolute-windows-binary", "absolute-windows-binary-root"),
+        "zero-build": ("absolute-windows-zero",),
+        "allocation-build": ("subject", "absolute-windows-allocation"),
+    }[log.stem]
+    records = [json.loads(line) for line in log.read_text(encoding="utf-8").splitlines() if line.startswith("{")]
+    for name, kind, source in expected:
+        matching = [r for r in records if r.get("reason") == "compiler-artifact" and r.get("executable")
+                    and r["target"]["name"] == name and kind in r["target"]["kind"]]
+        if len(matching) != 1:
+            raise ValueError(f"missing or duplicate retained Cargo product: {name}")
+        row = matching[0]
+        executable = PureWindowsPath(row["executable"])
+        if (row.get("fresh") is not False or PureWindowsPath(row["target"]["src_path"]) != root / source
+                or not any(executable.is_relative_to(root.parent / name) for name in allowed)
+                or ".." in executable.parts
+                or (allocating is not None and ("allocation-measurement" in row["features"]) != allocating)):
+            raise ValueError(f"foreign or cached Cargo product: {name}")
+
+
+def _read_experimental_mode(directory, mode, sha):
+    import composition_windows_absolute as absolute
+    arm = directory / mode
+    raw = arm / "absolute-windows-raw"
+    content = _retained(raw, "observation.json").read_bytes()
+    if hashlib.sha256(content).hexdigest() != sha:
+        raise ValueError(f"{mode} sealed observation bytes changed")
+    obs = json.loads(content)
+    meta = json.loads(_retained(arm, "metadata.json").read_bytes())
+    inputs = json.loads(_retained(arm, "inputs.json").read_bytes())
+    if inputs["mode"] != mode or meta["mode"] != mode:
+        raise ValueError("experimental product mode differs")
+    for role in ("subject", "control"):
+        identity = inputs[role]
+        path = _retained(arm, f"sources/{role}.json")
+        source = json.loads(path.read_bytes())
+        if (source["revision"] != identity["revision"] or source["tree"] != identity["tree"]
+                or meta[f"{role}_revision"] != identity["revision"]
+                or identity["hashes"]["Cargo.lock"] != source["effective"]["Cargo.lock"]
+                or meta[f"{role}_lock_sha256"] != source["effective"]["Cargo.lock"]
+                or evidence._sha256(path) != meta["workload_provenance"][role]["receipt_sha256"]):
+            raise ValueError(f"{mode} {role} source receipt or lock differs")
+        if role == "subject":
+            root = PureWindowsPath(source["root"])
+    aggregate = _retained(raw, "allocations.txt")
+    if absolute.allocation_observations(aggregate) != obs["allocations"]:
+        raise ValueError("retained allocation totals differ")
+    for line in aggregate.read_text(encoding="utf-8").splitlines():
+        name = line.split()[0].removeprefix("scenario=")
+        if _retained(raw, f"allocation/{name}.txt").read_text(encoding="utf-8").splitlines() != [line]:
+            raise ValueError(f"retained allocation transcript differs: {name}")
+    for label, test in absolute.ZERO_TESTS.items():
+        if absolute._zero_test(_retained(raw, f"zero-{label}.txt"), test) != obs["zero_tests"][label]:
+            raise ValueError(f"retained zero transcript differs: {label}")
+    for log, products in (
+        ("binary-fixture-build", [(f"rca-compile-{n}", "bin", f"benches/compile/{n}/src/main.rs")
+                                  for n in absolute.BINARY_NAMES[:4]]),
+        ("binary-tokio-build", [("rca-example-composition-search", "bin", "examples/composition-search/src/main.rs")]),
+        ("binary-app-test-build", [("app", "test", "examples/composition-search/tests/app.rs")]),
+        ("allocation-build", [("composition", "bench", "rca-core/benches/composition.rs")]),
+        ("zero-build", [("composition_zero", "test", "rca-core/tests/composition_qualification/main.rs")]),
+    ):
+        _verified_cargo_products(_retained(raw, f"{log}.jsonl"), root, products,
+                                 allocating=True if log in ("allocation-build", "zero-build") else None)
+    for label in absolute.BINARY_NAMES:
+        _verify_retained_pe(raw, label, obs["binaries"][label])
+    return {**meta, "tools": inputs["tools"], "raw_content_sha256": _digest(obs)}, obs
+
+
+def load_experimental_products(directory, policy, budget_path, expected_digests):
+    """Replay retained products against independently sealed SHA-256s of both observation files."""
+    modes = ("reference-reference-aa", "candidate-reference")
+    if not isinstance(expected_digests, dict) or set(expected_digests) != set(modes) or not all(
+        _hash(expected_digests[m]) for m in modes
+    ):
+        raise ValueError("both experimental modes need sealed observation digests")
+    directory = Path(directory).resolve(strict=True)
+    try:
+        aa, candidate = (_read_experimental_mode(directory, mode, expected_digests[mode]) for mode in modes)
+        result = experimental_product_gates(policy, budget_path, *aa, *candidate)
+    except (KeyError, TypeError, AttributeError, IndexError) as error:
+        raise ValueError("incomplete or malformed retained experimental products") from error
+    return {**result, "observation_file_sha256": dict(expected_digests)}
 
 
 def timing_failures(policy, budget_path, timing_report, baseline):
