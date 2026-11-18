@@ -93,6 +93,13 @@ Each finished block also records the hashes of its transcripts and resource coun
 
 A control from another capture cannot qualify the candidate.
 
+Controllers can use the [combined Core build](../../../scripts/composition_support_build.py) during Windows preparation.
+It builds composition, effects, observation and store-actor benchmarks in one candidate Cargo command.
+Each reference command builds only the composition benchmark.
+The helper checks the executable hashes, the composition workload list and all 27 Core diagnostic rows.
+It uses the composition benchmark profile. The other support suites and timed cold builds remain separate.
+The default capture does not use this helper. Its output alone cannot qualify performance.
+
 ### Early-stop Windows capture
 
 Use this route for a release performance check on the qualified Windows configuration.
