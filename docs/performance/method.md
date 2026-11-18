@@ -155,6 +155,15 @@ It uses the same reference revision, common workload, dependency locks, 54 scena
 
 On each run, `scripts/qualification_reference_cache.py` checks the files against that hash and the current source, lockfile, workload, tools, build settings and platform. A mismatch stops that path. Start timing **before** reading the cache. Run the controls again, build all candidate products afresh, and measure required cold builds from empty targets for both candidate and reference. Never cache a passing decision. The existing release method remains in force until a complete passing run and regression checks validate its replacement.
 
+For the Windows native workloads, `native_reference_enrol.enrol` takes records from two independent baseline builds.
+Each build needs its source record, the inputs from its Windows run and trusted hashes for both files.
+From each build, the function selects four reference executables: normal and allocation measurements for the native and deterministic runtimes.
+The function checks the baseline source, Cargo logs and executable hashes before it creates the cache.
+Keep the returned hash outside the cache.
+
+For each new run, `native_reference_stock.load_reference_products` checks the eight executable files against the current inputs.
+The cache supplies reference executables only. Both controls still run. Candidate builds and timed cold builds still start from source.
+
 The full Windows schedule uses 42 normal repetitions per product for every row except `deterministic/budget`.
 That exact row retains ten normal repetitions. The other deterministic rows use 42.
 Alternating order gives 21 pairs per order for 42 repetitions, or five pairs per order for ten repetitions.
