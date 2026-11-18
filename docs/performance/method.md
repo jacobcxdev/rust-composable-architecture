@@ -151,6 +151,10 @@ It does not require an idle host or a Linux virtual machine.
 Its results never share a cohort with Mac results.
 It uses the same reference revision, common workload, dependency locks, 54 scenarios, samples, balanced pairs and `1.10` regression limit.
 
+**Local reference cache (experimental).** A fixed reference executable is a measuring tool, not a saved test result. Keep it outside Git. Before first use, independently check the signed reference, original builds and executable hashes. Keep the approved enrolment hash outside the cache. Where a check needs two references, use two independent builds, not two copies of one build. Report this first-time setup separately.
+
+On each run, `scripts/qualification_reference_cache.py` checks the files against that hash and the current source, lockfile, workload, tools, build settings and platform. A mismatch stops that path. Start timing **before** reading the cache. Run the controls again, build all candidate products afresh, and measure required cold builds from empty targets for both candidate and reference. Never cache a passing decision. The existing release method remains in force until a complete passing run and regression checks validate its replacement.
+
 The full Windows schedule uses 42 normal repetitions per product for every row except `deterministic/budget`.
 That exact row retains ten normal repetitions. The other deterministic rows use 42.
 Alternating order gives 21 pairs per order for 42 repetitions, or five pairs per order for ten repetitions.
@@ -351,6 +355,15 @@ Every child job retains the two-GiB limit.
 For a split build, pass the independently recorded build-receipt hash with `--source-build-sha256`.
 Use the original candidate workspace for support. Use its matching native executables for the normal and allocation measurements.
 The support capture checks the source inventories, build logs and tool identities before and after measurement.
+
+On Windows, the candidate can build its Tokio runtime benchmarks once for both stages.
+In the original candidate workspace, use the pinned Cargo executable with
+`bench --locked --offline -j1 -p rca-tokio --bench qualification --bench runtime --no-run --message-format=json`
+for the `candidate_deterministic_normal` build. Keep both executables. Before hashing the build receipt,
+record the runtime executable's path, SHA-256 and size in bytes as `runtime_support` in that command
+(`path`, `sha256`, `size_bytes`). Pass `--use-prepared-runtime` and `--source-build-sha256` to the support capture.
+It checks that Cargo compiled both benchmarks from the same source with the same profile, then runs the full runtime suite.
+The other four suites still build and run separately.
 
 For the early-stop route, replay both numerical results independently, then compare their inputs with the support capture:
 
