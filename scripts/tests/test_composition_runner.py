@@ -114,22 +114,36 @@ class RunnerTests(unittest.TestCase):
                     self.assertEqual(run.call_args.kwargs["memory_limit"], 2 * 1024**3)
             self.assertEqual(run.call_count, 6)
 
-    def test_common_harness_keeps_product_bytes_and_records_both_inputs(self):
+    def test_staging_hashes_original_and_final_inputs_only(self):
+        import io
+        import tarfile
+
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             controller, product = root / "controller", root / "product"
             controller.mkdir()
-            product.mkdir()
             (controller / "workload.rs").write_text("common measured work\n")
-            (product / "bench.rs").write_text("old measured work\n")
-            (product / "product.rs").write_text("unchanged product\n")
+            archive = io.BytesIO()
+            with tarfile.open(fileobj=archive, mode="w") as stream:
+                for name, data in (("bench.rs", b"old work"), ("product.rs", b"unchanged"),
+                                   ("rca-core/Cargo.toml", b"[package]\n")):
+                    member = tarfile.TarInfo(name)
+                    member.size = len(data)
+                    stream.addfile(member, io.BytesIO(data))
             files = {"bench.rs": {"source": "workload.rs", "sha256": evaluator._sha256(controller / "workload.rs")}}
-            with patch.object(runner, "COMMON_HARNESS_FILES", {"bench.rs": "workload.rs"}):
-                receipt = runner.apply_common_harness(controller, product, files)
+            with patch.object(runner, "COMMON_HARNESS_FILES", {"bench.rs": "workload.rs"}), \
+                    patch.object(runner, "ROOT", controller), \
+                    patch.object(subprocess, "check_output", return_value=archive.getvalue()), \
+                    patch.object(runner, "source_hashes", wraps=runner.source_hashes) as inventories:
+                receipt = runner.stage_source(root, {"revision": evaluator.REFERENCE_REVISION, "tree": "tree"},
+                                              product, {"common_workloads": {"files": files}})
+            self.assertEqual(inventories.call_count, 2)
             self.assertEqual((product / "bench.rs").read_text(), "common measured work\n")
-            self.assertEqual((product / "product.rs").read_text(), "unchanged product\n")
+            self.assertEqual((product / "product.rs").read_bytes(), b"unchanged")
             self.assertNotEqual(receipt["original"]["bench.rs"], receipt["effective"]["bench.rs"])
             self.assertEqual(receipt["original"]["product.rs"], receipt["effective"]["product.rs"])
+            self.assertNotEqual(receipt["original"]["rca-core/Cargo.toml"], receipt["effective"]["rca-core/Cargo.toml"])
+            self.assertEqual(receipt["effective"], runner.source_hashes(product))
 
     def test_common_harness_rejects_unpinned_work_and_product_overlays(self):
         with tempfile.TemporaryDirectory() as tmp:

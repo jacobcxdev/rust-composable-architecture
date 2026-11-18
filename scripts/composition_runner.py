@@ -127,14 +127,12 @@ def apply_common_harness(controller, product, files):
         source = controller / row["source"]
         if source.is_symlink() or evidence._sha256(source) != row["sha256"]:
             raise ValueError(f"common workload source hash mismatch: {source}")
-    original = source_hashes(product)
     for name, row in files.items():
         destination = product / name
         if destination.is_symlink() or not destination.resolve().is_relative_to(product.resolve()):
             raise ValueError("common workload destination escapes the staged source")
         destination.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(controller / row["source"], destination)
-    return {"original": original, "effective": source_hashes(product)}
 
 
 def stage_source(source, identity, destination, protocol):
@@ -143,7 +141,9 @@ def stage_source(source, identity, destination, protocol):
     archive = subprocess.check_output(["git", "archive", "--format=tar", identity["revision"]], cwd=source)
     with tarfile.open(fileobj=io.BytesIO(archive)) as stream:
         stream.extractall(destination, filter="data")
-    receipt = apply_common_harness(ROOT, destination, protocol["common_workloads"]["files"])
+    original = source_hashes(destination)
+    files = protocol["common_workloads"]["files"]
+    apply_common_harness(ROOT, destination, files)
     manifest = destination / "rca-core/Cargo.toml"
     with manifest.open("a", encoding="utf-8", newline="\n") as stream:
         stream.write('\n[[test]]\nname = "composition_zero"\npath = "tests/composition_qualification/main.rs"\n'
@@ -162,11 +162,9 @@ def stage_source(source, identity, destination, protocol):
         fixture.write_text(text.replace(old_bound, old_bound[:-1] + " + Send + 'static,"),
                            encoding="utf-8", newline="\n")
         adapters.append("unit-projection-constructor-v1")
-    receipt.update(root=str(destination), revision=identity["revision"],
-                   tree=identity["tree"], adapters=adapters,
-                   common_workloads=protocol["common_workloads"]["files"],
-                   effective=source_hashes(destination))
-    return receipt
+    return dict(root=str(destination), revision=identity["revision"], tree=identity["tree"],
+                adapters=adapters, common_workloads=files, original=original,
+                effective=source_hashes(destination))
 
 
 def validate_staged_source(receipt_path):
