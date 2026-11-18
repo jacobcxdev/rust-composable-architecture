@@ -103,6 +103,11 @@ The helper checks the executable hashes, the composition workload list and all 2
 It uses the composition benchmark profile. The other support suites and timed cold builds remain separate.
 The default capture does not use this helper. Its output alone cannot qualify performance.
 
+For two independently built, fixed references, controllers can use `prepare_with_fixed_references`.
+It checks both executables against a trusted enrolment record kept outside the cache.
+It then runs both workload listings and builds all four candidate executables in an empty target.
+The cache never supplies a candidate executable, a timed cold build or a measurement.
+
 ### Early-stop Windows capture
 
 Use this route for a release performance check on the qualified Windows configuration.

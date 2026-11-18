@@ -71,6 +71,20 @@ def read_diagnostic(name, transcript):
     return {"rows": rows}
 
 
+def _check_monitor(monitor, tools):
+    if (getattr(monitor, "complete", False) is not True or getattr(monitor, "cargo", None) != tools["cargo"]
+            or monitor.protocol.get("process_memory_limit_bytes") != 2 * 1024**3):
+        raise ValueError("benchmark preparation requires the complete 2 GiB Windows Job monitor and pinned Cargo")
+
+
+def _check_env(env):
+    for key, value in env.items():
+        if key.startswith("CARGO_PROFILE_") and BUILD_SETTINGS.get(key) != value:
+            raise ValueError("unexpected benchmark profile override")
+        if key.startswith("DIVAN_") or (key in ("RUSTFLAGS", "CARGO_ENCODED_RUSTFLAGS") and value):
+            raise ValueError("unexpected workload or compiler override")
+
+
 def prepare(source, target, staging, tools, env, monitor, *, seed, lock_sha256, effective_sha256):
     """Use one guarded Cargo command per role; only the candidate also produces Core diagnostics.
 
@@ -79,9 +93,7 @@ def prepare(source, target, staging, tools, env, monitor, *, seed, lock_sha256, 
     Its unchanged build log can supply the existing registry seeder.
     This helper is not a performance verdict and never handles a timed cold target.
     """
-    if (getattr(monitor, "complete", False) is not True or getattr(monitor, "cargo", None) != tools["cargo"]
-            or monitor.protocol.get("process_memory_limit_bytes") != 2 * 1024**3):
-        raise ValueError("benchmark preparation requires the complete 2 GiB Windows Job monitor and pinned Cargo")
+    _check_monitor(monitor, tools)
     mode, role = target.parent.name, target.name
     log = staging / "builds" / (role + ".txt")
     if (mode not in ("candidate-reference", "reference-reference-aa") or role not in ("control", "subject")
@@ -92,11 +104,7 @@ def prepare(source, target, staging, tools, env, monitor, *, seed, lock_sha256, 
         raise ValueError("expected a new, isolated normal benchmark preparation target")
     if evidence._sha256(source / "Cargo.lock") != lock_sha256 or source_digest(source) != effective_sha256:
         raise ValueError("prepared source or lock differs from the enrolled inputs")
-    for key, value in env.items():
-        if key.startswith("CARGO_PROFILE_") and BUILD_SETTINGS.get(key) != value:
-            raise ValueError("unexpected benchmark profile override")
-        if key.startswith("DIVAN_") or (key in ("RUSTFLAGS", "CARGO_ENCODED_RUSTFLAGS") and value):
-            raise ValueError("unexpected workload or compiler override")
+    _check_env(env)
     names = ("composition", *CORE_ROWS) if (mode, role) == ("candidate-reference", "subject") else ("composition",)
     allowed = registry.seed_benchmark(seed, target, lock_sha256=lock_sha256) if seed is not None else {}
     options = {**env, **BUILD_SETTINGS, "CARGO_TARGET_DIR": str(target), "CARGO_BUILD_BUILD_DIR": str(target)}
@@ -126,3 +134,60 @@ def prepare(source, target, staging, tools, env, monitor, *, seed, lock_sha256, 
             or any(evidence._sha256(registry._regular(p)) != digests[n] for n, p in paths.items())):
         raise ValueError("benchmark source or executable changed during preparation")
     return {"build_sha256": evidence._sha256(log), "executables": results}
+
+
+def _fixed_images(cache, enrolment_sha256, inputs):
+    from qualification_reference_cache import verify_reference_products
+
+    pair = verify_reference_products(cache, enrolment_sha256=enrolment_sha256, inputs=inputs,
+                                     purpose="composition-normal", names=("composition",), roles=("a", "b"))
+    return {role: registry._regular(pair[role]["composition"]) for role in ("a", "b")}
+
+
+def list_fixed_references(cache, staging, tools, env, monitor, *, enrolment_sha256, reference_inputs):
+    """Verify both independent reference images, then run and check each full workload listing.
+
+    Supply the expected inputs and enrolment digest from outside the cache. Run inside the host memory guard.
+    This does not measure timing, qualify the candidate or supply a cold build.
+    """
+    _check_monitor(monitor, tools)
+    _check_env(env)
+    if (staging.is_relative_to(cache) or staging.name != "candidate-reference"
+            or (staging / "builds").resolve() != staging / "builds"):
+        raise ValueError("reference listings require a separate candidate-reference evidence directory")
+    images = _fixed_images(cache, enrolment_sha256, reference_inputs)
+    roles = {}
+    for role, image in images.items():
+        transcript = staging / "builds" / f"reference-{role}-composition.txt"
+        if transcript.exists() or transcript.is_symlink():
+            raise ValueError("reference listing already exists")
+        transcript.parent.mkdir(parents=True, exist_ok=True)
+        digest = evidence._sha256(image)
+        monitor.run([str(image), "--list"], transcript, staging, env)
+        roles[role] = {"composition": {"path": str(image), "sha256": digest,
+                                      "transcript_sha256": evidence._sha256(transcript),
+                                      **read_diagnostic("composition", transcript)}}
+    if any(evidence._sha256(p) != roles[r]["composition"]["sha256"] for r, p in images.items()):
+        raise ValueError("fixed reference executable changed during its listing")
+    return roles
+
+
+def prepare_with_fixed_references(source, target, staging, tools, env, monitor, *, cache, enrolment_sha256,
+                                  reference_inputs, lock_sha256, effective_sha256):
+    """List both fixed references and build all candidate products in a new, unseeded target."""
+    if (target.parent.name != "candidate-reference" or target.name != "subject"
+            or source != target.parent / "source-subject" or target.exists() or target.is_relative_to(cache)
+            or staging.is_relative_to(source) or staging.is_relative_to(target)
+            or any(p.resolve() != p for p in (source, target))):
+        raise ValueError("fixed references require a separate fresh candidate preparation target")
+    roles = list_fixed_references(cache, staging, tools, env, monitor, enrolment_sha256=enrolment_sha256,
+                                  reference_inputs=reference_inputs)
+    candidate = prepare(source, target, staging, tools, env, monitor, seed=None,
+                        lock_sha256=lock_sha256, effective_sha256=effective_sha256)
+    images = _fixed_images(cache, enrolment_sha256, reference_inputs)
+    if any(str(p) != roles[r]["composition"]["path"] or
+           evidence._sha256(p) != roles[r]["composition"]["sha256"] for r, p in images.items()):
+        raise ValueError("fixed reference products changed during preparation")
+    roles["c"] = candidate["executables"]
+    return {"reference_enrolment_sha256": enrolment_sha256, "roles": roles,
+            "candidate_build_sha256": candidate["build_sha256"]}
