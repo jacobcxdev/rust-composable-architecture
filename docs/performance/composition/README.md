@@ -37,6 +37,9 @@ identify the recorded evidence.
 
 ## Run the gate
 
+On the qualified Windows configuration, use the [early-stop capture](#early-stop-windows-capture).
+Use the fixed-count capture when you need every observation. The Mac route below uses fixed counts.
+
 Mac captures require [compiler memory protection](../../../CONTRIBUTING.md#build-memory-safety).
 The Mac controller applies the memory watchdog to each owned command group.
 Memory checks run separately from host telemetry. The measured command keeps its original timing boundary.
@@ -75,11 +78,11 @@ The capture contains separate `candidate-reference` and `reference-reference-aa`
 Both modes use the same controller revision, scripts, protocol and exact host OS/build.
 All relative gates and all 33 absolute gates remain required for each mode.
 
-The top-level `complete.json` reports the combined result.
+On the fixed-count route, the top-level `complete.json` reports the combined result.
 The single-mode evaluator remains available for historical v6 evidence, not current acceptance.
 Binary-only measurements do not replace the paired timing run.
 
-Each mode retains twenty blocks. The complete capture builds RCA and its benchmark code separately for all four participants.
+The fixed-count route retains twenty blocks in each mode. Each route builds RCA and its benchmark code separately for all four participants.
 For preparation only, Cargo can reuse third-party dependencies from the first build.
 The runner checks the locked source and copied files. Measured cold builds never reuse these files.
 Odd-numbered blocks run the A/A control first. Even-numbered blocks run the candidate comparison first.
@@ -90,12 +93,14 @@ Each finished block also records the hashes of its transcripts and resource coun
 
 A control from another capture cannot qualify the candidate.
 
-### Experimental Windows capture
+### Early-stop Windows capture
 
-The experimental runner measures each workload until later samples cannot change its numerical verdict.
+Use this route for a release performance check on the qualified Windows configuration.
+The runner measures each workload until the remaining samples cannot change its numerical verdict.
 Each additional block keeps the prescribed order and includes a fresh reference control.
 An unresolved result cannot pass. A passing timing result still requires all allocation, executable-size and diagnostic checks.
-This experiment does not authorise a release or create a `complete.json` receipt.
+The result covers composition only. It does not create a `complete.json` receipt.
+For a Windows performance pass, complete the [native, support and identity checks](../method.md#early-stop-numerical-checks) as well.
 
 All nine workloads keep the original two-second window. A half-second experiment caught a steady slowdown but missed work that started after 750 milliseconds.
 The runner saves time by omitting later runs whose results cannot change the verdict. It does not shorten the remaining runs.
@@ -108,8 +113,8 @@ python3 scripts/composition_runner.py --verify-experimental-rank OUTPUT --expect
 
 The subject is the checkout under test. The controller supplies the capture and replay code.
 Use full commit hashes from the signed revisions selected before the run. Use the same controller for both commands.
-The second command checks the evidence. It can verify a recorded failure.
-Read the `decision` field for the numerical result.
+The second command checks the evidence. It can replay a recorded failure successfully.
+Require `decision: pass`. The `release_authorised: false` field records that this component alone cannot authorise a release.
 
 Background load can affect latency, throughput and compile time. Process CPU time and instruction counts do not replace these measurements.
 Interleaved controls expose interference during the capture, but they do not prove that observations are independent.
@@ -198,7 +203,7 @@ The geometric mean of both such ratios is a lower bound on the final upper-confi
 If that lower bound exceeds `1.10`, the runner stops and retains all four normal runtime images.
 The prefix receipt records a rejected, incomplete capture, not a confidence interval for the prefix.
 The runner checks sealed file hashes before each prefix calculation. It does not read in-flight observations.
-This rule never accepts early. Successful qualification still requires all twenty pairs, both modes and all absolute gates.
+This fixed-count rule never accepts early. A fixed-count pass requires all twenty pairs, both modes and all absolute gates.
 
 Collection can continue past the workload sample count to reach that duration.
 The final sample can cross the time limit. This limit is not a process deadline.
@@ -240,6 +245,8 @@ diagnostics, not treated as compiler-child totals or instruction counts.
 
 ## Complete Windows qualification
 
+For the fixed-count capture, use the command below. For the shorter route, use the [early-stop capture](#early-stop-windows-capture).
+
 The [complete Windows policy](composition-windows-complete-v6.json) adds native
 absolute measurements to the paired protocol above. It does not change that
 protocol or claim that Windows measurements satisfy Mac limits.
@@ -251,15 +258,17 @@ python scripts/composition_runner.py --platform windows --windows-complete <capt
 Both paired modes and all 33 native absolute gates must pass. The thirteen
 allocation limits keep their original values, including three exact-zero contracts.
 The capture runs all forty-seven allocation workloads and both exact zero-test hosts.
-Each allocation build uses dependencies from its own subject's earlier timing build. It compiles a new executable with allocation measurement enabled.
-The candidate and reference do not share build outputs. Each timed cold compile still starts with an empty target directory.
+Each allocation build reuses dependencies from the timing build for the same source. It compiles a new executable that counts allocations.
+During preparation, the candidate and reference can reuse checked crates.io dependencies. They never share compiled RCA code.
+Each timed cold build requires an empty target directory. Do not configure Cargo to store intermediate files outside that directory.
 
 Timing and binary sizes need native reference values. The runner uses all twenty
-reference-b observations from the same A/A capture to set each timing limit.
+reference-b observations from the same A/A capture to set each timing limit on the fixed-count route.
+The early-stop route bounds that same limit using the observations collected so far. It does not invent a value for an omitted observation.
 Maximum limits are the reference median times 1.10. The throughput minimum is the
 reference median divided by 1.10. Each of the six size limits is the freshly built,
 stripped reference PE size times 1.10, rounded up. Candidate values never set limits.
-The runner seals these reference-only limits before evaluating the candidate.
+On the fixed-count route, the runner seals these reference-only limits before evaluating the candidate.
 If the completed timing data already fails a limit, the runner records the failure before the allocation and size checks.
 That incomplete run cannot pass qualification.
 

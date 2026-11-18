@@ -151,11 +151,11 @@ It does not require an idle host or a Linux virtual machine.
 Its results never share a cohort with Mac results.
 It uses the same reference revision, common workload, dependency locks, 54 scenarios, samples, balanced pairs and `1.10` regression limit.
 
-Windows uses 42 normal repetitions per product for every row except `deterministic/budget`.
+The full Windows schedule uses 42 normal repetitions per product for every row except `deterministic/budget`.
 That exact row retains ten normal repetitions. The other deterministic rows use 42.
 Alternating order gives 21 pairs per order for 42 repetitions, or five pairs per order for ten repetitions.
 
-Both platforms retain six allocation pairs per row, with three pairs per order.
+The full schedule on each platform has six allocation pairs per row, with three pairs per order.
 The number of samples within each process and every numerical limit remain unchanged.
 Mac normal repetitions remain ten per product for every row.
 
@@ -189,10 +189,12 @@ The comparator checks its hash, embedded copy, executable roles and source/toolc
 It retains process output, raw counters, pairs and incomplete evidence after failure.
 It does not retry processes, remove outliers or choose successful subsets.
 
-After all eight builds pass their source checks, run the capture on Windows:
+After all eight builds pass their source checks, run the guarded capture on Windows.
+For release performance checks on the qualified Windows configuration, use the early-stop option shown here:
 
 ```bash
 python scripts/capture-windows-performance.py \
+  --experimental-rank \
   --candidate-normal C:/rca/candidate-normal.exe \
   --candidate-allocation C:/rca/candidate-allocation.exe \
   --reference-normal C:/rca/reference-normal.exe \
@@ -209,9 +211,9 @@ Use the actual executable paths from the build receipt.
 The output directory must not exist.
 The collector looks for `jq` on `PATH`. To select a specific executable, pass `--jq PATH`.
 If the selected executable cannot load the comparison rules, the collector stops before it runs any benchmark.
-If `jq` is absent from `PATH` and you did not specify a path, the collector warns and measures all rows.
+The early-stop option requires `jq`. If you omit this option and `jq` is unavailable, the fixed-count collector warns and measures all rows.
 
-With `jq`, the collector checks each nonfinal completed row before starting the
+For the fixed-count route, omit `--experimental-rank`. With `jq`, the collector checks each nonfinal completed row before starting the
 next one. It can stop within **any** row, including the final budget row, if
 the measurements already force rejection and at least one workload remains.
 After a majority of pairs in each run order is present, it checks balanced
@@ -223,19 +225,19 @@ make a mode fail, the collector skips further prefix checks for that mode but
 still runs every remaining workload. If rejection first becomes certain at
 the very last pair, the final row is retained for the full comparator.
 To collect all rows for review, pass `--keep-going` instead of `--jq`.
-Only the full comparison applies reviewed exceptions and can establish a pass.
+Only the fixed-count comparator applies reviewed exceptions. The early-stop route does not use exceptions.
 Keep the complete output directory together when transferring it to the review checkout.
 Then run `scripts/compare-performance.sh <capture>/reference.json <capture>/candidate.json`.
 
-**Experimental collection, not release qualification.** To test the finite-cohort
-decision on the Windows host, add `--experimental-rank` to the same guarded
-capture command. Use a new output directory and a working `jq`. Do not combine
-this option with `--keep-going`. Each mode starts with one real pair in each
-order. Where a gate applies, collection continues until every completion is
-below or equal to the limit, or one gate cannot recover. The enrolled caps
-remain 42 normal pairs (10 for deterministic budget) and six allocation pairs.
-Even a mode with no gate retains real measurements in both orders. No missing
-values are reported as observations. A positive result requires all 54 scenarios.
+### Early-stop numerical checks
+
+The command and its evidence files retain their original names. The same replay tool can read existing captures.
+Use a new output directory. Do not combine this option with `--keep-going`.
+The runner compares the candidate with the reference in both run orders.
+If every possible final ratio meets its limit, the runner stops that measurement.
+If a ratio cannot recover, it rejects the result. Otherwise, it takes one more pair in each order.
+The cap stays at 42 normal pairs, ten for the scheduler budget, and six for allocations.
+Even a diagnostic with no numerical limit keeps real observations in both orders. A native pass requires all 54 scenarios.
 
 The mode writes `experimental-rank-result.json`, never the normal result
 files or `complete.json`. To check its raw evidence and numerical decision
@@ -250,10 +252,10 @@ Collection itself returns nonzero on rejection or technical failure. The bounds
 describe any valid continuation of the enrolled observations; they do not show
 that an omitted process would succeed or what its diagnostics would have been.
 
-Schema version 6 identifies the `win32-process-v1` provider and the
+The fixed-count output uses schema version 6. It identifies the `win32-process-v1` provider and the
 `split-native-deterministic-v1` configuration.
-All 54 rows belong to one complete cohort, with unchanged samples,
-balanced pairs and numerical limits. Each row and process observation identifies
+Both routes cover the same 54 scenarios, samples per process and numerical limits.
+The early-stop route can use fewer balanced pairs. Each row and process observation identifies
 its native or deterministic configuration.
 The protocol hash includes the source/build receipt hash as well as the common
 harness files, scenario manifest and capture script. The comparator validates the same
@@ -296,14 +298,24 @@ For a split build, pass the independently recorded build-receipt hash with `--so
 Use the original candidate workspace for support. Use its matching native executables for the normal and allocation measurements.
 The support capture checks the source inventories, build logs and tool identities before and after measurement.
 
-After independent replay of both numerical results, compare their inputs with the support capture:
+For the early-stop route, replay both numerical results independently, then compare their inputs with the support capture:
 
 ```sh
 python3 scripts/check_windows_performance_inputs.py --native NATIVE --composition COMPOSITION --support SUPPORT_JSON --controller CONTROLLER_SHA --subject SUBJECT_SHA --reference REFERENCE_SHA
 ```
 
 Use the full hashes of the signed revisions selected for the run. The command detects mixed source, host or toolchain records.
-Matching inputs do not qualify a release. The numerical verdicts must pass, and the support measurements and both CPU profiles must be complete.
+It does not issue a performance verdict. An early-stop Windows performance pass requires all of the following:
+
+- The independent native replay reports `numerical_decision: pass`.
+- The independent [composition replay](composition/README.md#early-stop-windows-capture) reports `decision: pass` for both comparison modes and every product check.
+- The input check above passes for the selected candidate, reference, machine and toolchain.
+- The selected host supplies all supporting measurements and both CPU profiles. The samples must belong to the measured processes.
+
+A numerical rejection stops qualification. A failed reference control does not establish a defect in the candidate.
+Missing evidence or a guard failure leaves the result incomplete. Do not discard measurements or treat an incomplete result as a pass.
+Use fresh measurements for a new candidate. A different host configuration or measurement method needs separate validation.
+This procedure covers Windows performance only. It does not replace correctness tests, coverage, CI or release review.
 
 Windows support and complete composition captures also require LIEF 1.0.0 for PE stripping.
 LLVM removes COFF symbols but can retain an embedded debug directory in `.rdata`.
