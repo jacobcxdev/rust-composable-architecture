@@ -73,6 +73,7 @@ jobs:
                   python3 -m unittest scripts.tests.test_composition_registry_seed scripts.tests.test_composition_support_build scripts.tests.test_composition_cold_timing scripts.tests.test_composition_timing_inputs scripts.tests.test_composition_product_commands scripts.tests.test_composition_rank_capture scripts.tests.test_composition_rank_products
                   python3 -m unittest scripts.tests.test_composition_subject scripts.tests.test_windows_performance_inputs
                   PYTHONPATH=scripts/tests python3 -m unittest test_composition_compile_portfolio test_composition_pe_seed test_composition_zero_host test_native_allocation_counts test_composition_cancellation_exposure test_qualification_reference_cache test_composition_reference_sizes
+                  PYTHONPATH=scripts/tests python3 -m unittest test_composition_reference_allocations test_native_reference_enrol test_native_reference_stock
                   python3 -m unittest scripts.tests.test_composition_runner.RunnerTests -k interleaved -k recorded_load -k busy_monitor -k prepared_modes -k candidate_cli -k absolute_capture -k registry_preparation
 
             - name: Lint all targets and features
