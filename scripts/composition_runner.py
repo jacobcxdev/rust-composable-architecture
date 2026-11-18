@@ -1243,7 +1243,8 @@ def registry_benchmark_preparation(donor, cargo_home, backend):
 
 
 def prepare_pair_capture(protocol, budget, mode, staging, targets, reference, controller, control,
-                         host, tools, env, monitor, hashes, registry_build=None, *, measured_subject=None):
+                         host, tools, env, monitor, hashes, registry_build=None, *, measured_subject=None,
+                         two_look=False):
     """Prepare independently built arms without starting the measured blocks."""
     candidate = measured_subject if measured_subject is not None else controller
     subject = candidate if mode == "candidate-reference" else control
@@ -1264,7 +1265,7 @@ def prepare_pair_capture(protocol, budget, mode, staging, targets, reference, co
     })
     with (staging / "protocol.json").open("xb") as copied_protocol:
         copied_protocol.write(protocol_path(protocol).read_bytes())
-    write_json(staging / "plan.json", evidence.measurement_plan(protocol, mode))
+    write_json(staging / "plan.json", evidence.measurement_plan(protocol, mode, two_look=two_look))
     identities = {"subject": subject, "control": control}
     original_roots = {"subject": subject_root, "control": reference}
     roots = {role: targets / f"source-{role}" for role in original_roots}
@@ -1513,11 +1514,12 @@ def rank_method_identity(*, single_look=False, two_look=False):
               "scripts": {n: evidence._sha256(ROOT / "scripts" / n) for n in names}}
     look_options(single_look, two_look)
     if two_look:
-        method.update(method="two-look-seven-twelve-v1", relative_confidence={
+        method.update(method=evidence.TWO_LOOK_METHOD, relative_confidence={
             "looks": [{"observations_per_order": 7, "upper_rank": 7}, {"observations_per_order": 12, "upper_rank": 11}],
             "combination": "minimum-simultaneous-upper-bound-per-order-then-geometric-mean",
             "stopping": "first-decision-over-all-completions",
-        }, absolute_reference_blocks=20, maximum_blocks=24)
+        }, absolute_reference_blocks=20, maximum_blocks=24,
+            order_schedule=evidence.timing_schedule(protocol, two_look=True))
     elif single_look:
         method.update(method="single-look-first-seven-v1",
                       relative_confidence={"observations_per_order": 7, "upper_rank": 7, "looks": 1},
@@ -1605,7 +1607,7 @@ def experimental_composition_result(directory, timing_digest, products, diagnost
             decision = "fail"
     elif diagnostics or products:
         raise ValueError("unexpected products after a decisive timing rejection")
-    return {"schema": ("experimental-windows-composition-two-look-v1" if two_look else
+    return {"schema": ("experimental-windows-composition-two-look-v2" if two_look else
                        "experimental-windows-composition-first-seven-v1" if single_look
                        else "experimental-windows-composition-finite-rank-v3"), "decision": decision,
             **revisions, "reference_revision": evidence.RELEASE_BASELINE_REVISION,
@@ -1832,7 +1834,8 @@ def qualify(output, staging, reference, mode, aa_evidence=None, *, platform_name
         captures = {item: prepare_pair_capture(
             protocol, budget, item, staging / item, targets / item, reference,
             controller, control, host, tools, env, monitor, hashes, registry_build,
-            **({"measured_subject": candidate} if experimental_rank else {})) for item in modes}
+            **({"measured_subject": candidate} if experimental_rank else {}),
+            **({"two_look": True} if two_look else {})) for item in modes}
         write_json(staging / "capture.json", {
             "protocol_sha256": evidence._protocol_sha256(protocol), "controller": controller, "host": host,
             **({"experiment": rank_method_identity(**options), "measured_subject": candidate, "control": control}

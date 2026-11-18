@@ -11,11 +11,10 @@ from pathlib import Path, PureWindowsPath
 import stat
 
 import composition_performance as evidence
-from composition_performance import timing_schedule
+from composition_performance import TWO_LOOK_METHOD, timing_schedule
 
 
 MODES = ("reference-reference-aa", "candidate-reference")
-TWO_LOOK_METHOD = "two-look-seven-twelve-v1"
 MEASURED_SOURCE_METHODS = ("finite-rank-v3", "single-look-first-seven-v1", TWO_LOOK_METHOD)
 
 
@@ -173,7 +172,7 @@ def _identities(directory, protocol, *, two_look=False):
             raise ValueError("changed timing protocol")
         bindings = {name: evidence._sha256(arm / name) for name in ("plan.json", "inputs.json")}
         inputs, meta = _json(arm / "inputs.json"), _json(arm / "metadata.json")
-        evidence._validate_measurement_plan(arm / "plan.json", protocol, mode)
+        evidence._validate_measurement_plan(arm / "plan.json", protocol, mode, two_look=two_look)
         evidence._validate_protocol_pair_metadata(meta, protocol["method_version"])
         host = manifest["host"]["identity"]
         if (bindings != manifest["modes"][mode] or inputs.get("mode") != mode

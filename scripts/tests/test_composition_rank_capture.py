@@ -21,23 +21,35 @@ class RankCaptureTests(unittest.TestCase):
             captures = {m: dict(roots={}, executables={}, targets=root/m/"targets", paired=root/m/"paired")
                         for m in ("reference-reference-aa", "candidate-reference")}
             method = runner.rank_method_identity(two_look=True)
-            self.assertEqual(method["method"], "two-look-seven-twelve-v1")
-            runner.write_json(root / "capture.json", {"experiment": method})
-
+            self.assertEqual(method["method"], "two-look-seven-twelve-v2")
+            schedule = runner.evidence.timing_schedule(protocol, two_look=True)
+            self.assertEqual(method["order_schedule"], schedule)
             def gate(_directory, _protocol, _budget, counts, _seals):
-                stopping = {"compile/direct": 15, "compile/composed-manual": 21}
+                stopping = {"compile/direct": 14, "compile/composed-manual": 21}
                 return {key: {"blocks": n, "decision": ("pass" if n == stopping.get(key)
                                                         else "inconclusive" if n == 24 else "continue")}
                         for key, n in counts.items()}
 
             with (patch.object(runner, "execute_pairs") as run,
                   patch.object(runner, "paired_block_hashes", return_value={})):
+                original = runner.evidence.seeded_order_schedule(protocol) + schedule[20:]
+                for invalid in ({**method, "method": "two-look-seven-twelve-v1"},
+                                {**method, "order_schedule": original}):
+                    runner.write_json(root / "capture.json", {"experiment": invalid})
+                    with self.assertRaisesRegex(ValueError, "prospective method identity"):
+                        runner.collect_rank_timing(protocol, captures, "cargo", {}, None, root, gate, two_look=True)
+                    (root / "capture.json").unlink()
+                run.assert_not_called()
+                runner.write_json(root / "capture.json", {"experiment": method})
                 result = runner.collect_rank_timing(protocol, captures, "cargo", {}, None, root, gate, two_look=True)
-                self.assertEqual(result["counts"], {"compile/direct": 15, "compile/composed-manual": 21, "compile/scoped": 24})
+                self.assertEqual(result["counts"], {"compile/direct": 14, "compile/composed-manual": 21, "compile/scoped": 24})
                 self.assertEqual(result["decision"], "inconclusive")
                 self.assertEqual(run.call_count, 48)
                 self.assertTrue(all(call.kwargs["workloads"] == {"compile/composed-manual", "compile/scoped"}
-                                    for call in run.call_args_list[30:42]))
+                                    for call in run.call_args_list[28:42]))
+                for mode_calls in (run.call_args_list[::2], run.call_args_list[1::2]):
+                    self.assertEqual([call.kwargs["blocks"] for call in mode_calls],
+                                     [[(block, order)] for block, order in enumerate(schedule, 1)])
                 self.assertTrue(all(call.kwargs["workloads"] == {"compile/scoped"} for call in run.call_args_list[42:]))
                 self.assertEqual([call.kwargs["blocks"][0][1] for call in run.call_args_list[40::2]],
                                  ["control-subject", "subject-control", "subject-control", "control-subject"])

@@ -52,6 +52,7 @@ RUST100_WINDOWS_METHOD = "composition-windows-paired-v3"
 WINDOWS_V4_METHOD = "composition-windows-paired-v4"
 WINDOWS_V5_METHOD = "composition-windows-paired-v5"
 WINDOWS_V6_METHOD = "composition-windows-paired-v6"
+TWO_LOOK_METHOD = "two-look-seven-twelve-v2"
 RUST100_PROTOCOL_SHA256 = "3b0462407c0d8e3d46731ca0fa78a5386418ced36fab70b33ea3bb8ca523b0a8"
 RUST100_WINDOWS_PROTOCOL_SHA256 = "0675071ac4b8dc3fc5efcb843821ea79535afe148833b3d9f5c68365aecf396c"
 WINDOWS_V4_PROTOCOL_SHA256 = "c2a6e4293fae4a497c64f6cd587b607ba6be17853e6d99d6a8354baf9d36ee67"
@@ -1056,16 +1057,19 @@ def seeded_order_schedule(protocol: dict[str, Any]) -> list[str]:
 
 
 def timing_schedule(protocol: dict[str, Any], *, two_look: bool = False) -> list[str]:
-    """Keep the original twenty orders; only the Windows two-look experiment adds four."""
+    """Return the original orders or the balanced first look and four extra orders."""
     schedule = seeded_order_schedule(protocol)
     if two_look:
         if protocol.get("method_version") != WINDOWS_V6_METHOD:
             raise ValueError("the two-look extension requires Windows v6")
+        # Swap physical slots, never observations. The first fourteen now have
+        # seven of each order, and the first twenty still have ten of each.
+        schedule[13], schedule[14] = schedule[14], schedule[13]
         schedule.extend(("control-subject", "subject-control", "subject-control", "control-subject"))
     return schedule
 
 
-def measurement_plan(protocol: dict[str, Any], mode: str) -> dict[str, Any]:
+def measurement_plan(protocol: dict[str, Any], mode: str, *, two_look: bool = False) -> dict[str, Any]:
     """Expand the frozen protocol into its result-independent measurement plan."""
     if mode == "candidate-reference":
         semantic_roles = {"subject": "candidate", "control": "reference"}
@@ -1076,7 +1080,7 @@ def measurement_plan(protocol: dict[str, Any], mode: str) -> dict[str, Any]:
 
     runtime = []
     compile_rows = []
-    for block, order in enumerate(seeded_order_schedule(protocol), start=1):
+    for block, order in enumerate(timing_schedule(protocol, two_look=two_look), start=1):
         semantic_order = order.split("-")
         roles = [semantic_roles[role] for role in semantic_order]
         recorded_order = "-".join(roles)
@@ -1113,6 +1117,8 @@ def measurement_plan(protocol: dict[str, Any], mode: str) -> dict[str, Any]:
         "runtime": runtime,
         "compile": compile_rows,
     }
+    if two_look:
+        plan["timing_method"] = TWO_LOOK_METHOD
     if is_interleaved_protocol(protocol):
         interleaved_mode_order(protocol, 1)
         plan["interleaving"] = protocol["interleaving"]
@@ -1696,13 +1702,13 @@ def load_compile_pairs(
 
 
 def _validate_measurement_plan(
-    path: pathlib.Path, protocol: dict[str, Any], mode: str
+    path: pathlib.Path, protocol: dict[str, Any], mode: str, *, two_look: bool = False
 ) -> dict[str, Any]:
     try:
         plan = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as error:
         raise ValueError(f"cannot read frozen measurement plan: {path}") from error
-    expected = measurement_plan(protocol, mode)
+    expected = measurement_plan(protocol, mode, two_look=two_look)
     if plan != expected:
         raise ValueError("measurement plan drifted from the frozen protocol")
     return plan

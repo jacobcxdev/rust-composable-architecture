@@ -39,10 +39,12 @@ class TimingInputTests(unittest.TestCase):
             with self.subTest(incorrect=incorrect), self.assertRaises(ValueError):
                 timing._jobs(self.protocol, incorrect)
 
-    def test_second_look_only_extends_the_frozen_order_for_enrolled_workloads(self):
+    def test_second_look_balances_the_first_seven_pairs_and_preserves_the_other_slots(self):
         frozen = evidence.seeded_order_schedule(self.protocol)
         schedule = timing.timing_schedule(self.protocol, two_look=True)
-        self.assertEqual(schedule[:20], frozen)
+        self.assertEqual(timing.timing_schedule(self.protocol), frozen)
+        self.assertEqual(schedule[:20], frozen[:13] + [frozen[14], frozen[13]] + frozen[15:])
+        self.assertEqual(schedule[:14].count("control-subject"), 7)
         self.assertEqual(schedule[20:], ["control-subject", "subject-control",
                                         "subject-control", "control-subject"])
         self.counts["compile/direct"] = 24
@@ -62,6 +64,26 @@ class TimingInputTests(unittest.TestCase):
         (self.dir / "capture.json").write_text(json.dumps({}))
         with self.assertRaisesRegex(ValueError, "two-look"):
             timing._identities(self.dir, self.protocol, two_look=True)
+        (self.dir / "capture.json").write_text(json.dumps({"experiment": {"method": "two-look-seven-twelve-v1"}}))
+        with self.assertRaisesRegex(ValueError, "two-look"):
+            timing._identities(self.dir, self.protocol, two_look=True)
+
+    def test_enrolled_arm_plans_include_all_24_physical_orders(self):
+        schedule = timing.timing_schedule(self.protocol, two_look=True)
+        for mode in timing.MODES:
+            plan = evidence.measurement_plan(self.protocol, mode, two_look=True)
+            for kind in ("runtime", "compile"):
+                physical = {r["block"]: r["stratum"] for r in plan[kind]}
+                self.assertEqual(physical, dict(enumerate(schedule, 1)))
+            path = self.dir / "plan.json"
+            path.write_text(json.dumps(plan))
+            evidence._validate_measurement_plan(path, self.protocol, mode, two_look=True)
+            for row in plan["compile"]:
+                if row["block"] == 14:
+                    row["stratum"] = schedule[14]
+            path.write_text(json.dumps(plan))
+            with self.assertRaisesRegex(ValueError, "plan drifted"):
+                evidence._validate_measurement_plan(path, self.protocol, mode, two_look=True)
 
     def test_changed_missing_and_extra_observations_all_fail_closed(self):
         jobs = timing._jobs(self.protocol, self.counts)

@@ -127,10 +127,10 @@ class TwoLookTests(unittest.TestCase):
         self.protocol = legacy.load_protocol(PROTOCOL)
         self.schedule = timing_inputs.timing_schedule(self.protocol, two_look=True)
 
-    def pairs(self, ab, ba, direction="maximum", subjects=None):
+    def pairs(self, ab, ba, direction="maximum", subjects=None, *, schedule=None):
         by_order = {"subject-control": iter(ab), "control-subject": iter(ba)}
         result = []
-        for i, order in enumerate(self.schedule):
+        for i, order in enumerate(self.schedule if schedule is None else schedule):
             ratio = next(by_order[order])
             subject = 1. if subjects is None else subjects[i]
             control = subject / ratio if direction == "maximum" else subject * ratio
@@ -141,7 +141,8 @@ class TwoLookTests(unittest.TestCase):
         return timing.timing_gate_bounds(aa, candidate, direction, self.protocol, two_look=True)
 
     def test_only_opted_in_evidence_can_use_the_four_additional_blocks(self):
-        self.assertEqual(list(self.schedule[:20]), list(legacy.seeded_order_schedule(self.protocol)))
+        self.assertEqual(self.schedule[:14].count("subject-control"), 7)
+        self.assertEqual(self.schedule[:20].count("subject-control"), 10)
         self.assertEqual(len(self.schedule), 24)
         self.assertEqual([self.schedule.count(k) for k in ("control-subject", "subject-control")], [12, 12])
         rows = self.pairs([1] * 12, [1] * 12)
@@ -201,24 +202,28 @@ class TwoLookTests(unittest.TestCase):
             self.assertEqual(states[:first], ["continue"] * first)
             self.assertEqual(states[first:], [terminal] * (24 - first))
             if terminal == "pass":
-                self.assertEqual(first + 1, 15)  # First block with seven in both orders.
+                self.assertEqual(first + 1, 14)  # First block with seven in both orders.
             else:
                 self.assertLess(first + 1, 24)  # Two adverse observations per order already preclude rescue.
 
-    def test_absolute_gate_uses_only_original_twenty_even_when_extension_would_flip_it(self):
+    def test_absolute_gate_uses_only_first_twenty_even_when_extension_would_flip_it(self):
+        original_schedule = legacy.seeded_order_schedule(self.protocol)
         for direction, better, worse in (("maximum", 1., 2.), ("minimum", 1., 0.5)):
             flat = self.pairs([1] * 12, [1] * 12, direction)
+            original_flat = self.pairs([1] * 10, [1] * 10, direction, schedule=original_schedule)
             # Eleven favourable or adverse samples fix the original median; four tail samples reverse the 24-sample median.
             for a, b, want in ((better, worse, "pass"), (worse, better, "fail")):
                 rows = self.pairs([1] * 12, [1] * 12, direction, subjects=[a] * 11 + [b] * 13)
-                original = timing.timing_gate_bounds(flat[:20], rows[:20], direction, self.protocol)["absolute_candidate"]
+                original_rows = self.pairs([1] * 10, [1] * 10, direction, subjects=[a] * 11 + [b] * 9,
+                                           schedule=original_schedule)
+                original = timing.timing_gate_bounds(original_flat, original_rows, direction, self.protocol)["absolute_candidate"]
                 self.assertEqual(original["decision"], want)
                 for n in range(20, 25):
                     result = self.score(flat[:n], rows[:n], direction)
                     self.assertEqual(result["absolute_candidate"], original)
                     self.assertEqual(result["decision"], want)
                 # The reference arm also supplies a twenty-sample median for the absolute budget.
-                original_aa = timing.timing_gate_bounds(rows[:20], flat[:20], direction, self.protocol)
+                original_aa = timing.timing_gate_bounds(original_rows, original_flat, direction, self.protocol)
                 self.assertEqual(self.score(rows, flat, direction)["absolute_candidate"], original_aa["absolute_candidate"])
 
     def test_exact_two_look_miss_count_under_all_equiprobable_stratum_signs(self):

@@ -219,7 +219,9 @@ The separate `experimental-single-look-result.json` cannot authorise a release.
 To allow a second look, select `--experimental-two-look` for both collection and verification.
 Select it before collection starts. It cannot continue a capture that used another method.
 
-The first look uses the same seven ratios in each run order.
+Version 2 swaps the run orders of blocks 14 and 15 before measurement.
+The first 14 blocks therefore supply seven ratios in each order.
+Version 1 captures require their original verifier.
 For the second look, the runner uses the second-largest of the first twelve ratios in each order.
 Within each order, it keeps the smaller of the two upper bounds.
 It compares the geometric mean of the two orders' bounds with `1.10`.
@@ -228,7 +230,8 @@ The original allowance is 44 in 4,096.
 
 The runner stops a workload when no more observations are necessary to decide whether it can pass.
 If no possible completion can show a pass, the result is `inconclusive`, unless an observed absolute failure already establishes `fail`.
-The absolute calculation uses only the original first 20 blocks. An unresolved relative comparison can extend the schedule to 24.
+The absolute calculation uses only the first 20 physical blocks, with ten in each order.
+An unresolved relative comparison can extend the schedule to 24.
 Only unresolved workloads continue. Each still runs both the candidate comparison and the independent reference comparison.
 The separate `experimental-two-look-result.json` cannot authorise a release.
 

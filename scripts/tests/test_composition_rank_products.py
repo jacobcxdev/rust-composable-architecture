@@ -160,7 +160,7 @@ class RankProductDecisionTests(unittest.TestCase):
                 result = runner.experimental_composition_result(
                     self.directory, digest, self.observations, self.diagnostics, two_look=True
                 )
-                self.assertEqual(result["schema"], "experimental-windows-composition-two-look-v1")
+                self.assertEqual(result["schema"], "experimental-windows-composition-two-look-v2")
                 self.assertEqual(result["decision"], "pass" if passed else "fail")
                 self.assertFalse(result["release_authorised"])
                 self.assertEqual(result["product_gates"], {"passed": passed})
