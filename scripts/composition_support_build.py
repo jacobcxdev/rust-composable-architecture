@@ -79,6 +79,9 @@ def prepare(source, target, staging, tools, env, monitor, *, seed, lock_sha256, 
     Its unchanged build log can supply the existing registry seeder.
     This helper is not a performance verdict and never handles a timed cold target.
     """
+    if (getattr(monitor, "complete", False) is not True or getattr(monitor, "cargo", None) != tools["cargo"]
+            or monitor.protocol.get("process_memory_limit_bytes") != 2 * 1024**3):
+        raise ValueError("benchmark preparation requires the complete 2 GiB Windows Job monitor and pinned Cargo")
     mode, role = target.parent.name, target.name
     log = staging / "builds" / (role + ".txt")
     if (mode not in ("candidate-reference", "reference-reference-aa") or role not in ("control", "subject")
@@ -100,7 +103,7 @@ def prepare(source, target, staging, tools, env, monitor, *, seed, lock_sha256, 
     command = [tools["cargo"], "bench", "--locked", "-p", "rca-core"]
     for name in names:
         command.extend(["--bench", name])
-    command.extend(["-j", "1", "--no-run", "--message-format=json"])
+    command.extend(["-j", "2", "--no-run", "--message-format=json"])
     log.parent.mkdir(parents=True, exist_ok=True)
     monitor.run(command, log, source, options)
     registry.verify_rebuild(log, allowed)

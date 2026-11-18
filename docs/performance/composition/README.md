@@ -96,6 +96,9 @@ A control from another capture cannot qualify the candidate.
 Controllers can use the [combined Core build](../../../scripts/composition_support_build.py) during Windows preparation.
 It builds composition, effects, observation and store-actor benchmarks in one candidate Cargo command.
 Each reference command builds only the composition benchmark.
+Preparation uses two compiler jobs within the same 2 GiB Windows Job limit. Timed cold builds still use one compiler job.
+The caller must check the Cargo executable hash. The outer guard must monitor both memory reserves and record its result.
+The helper does not verify the outer guard or select the toolchain.
 The helper checks the executable hashes, the composition workload list and all 27 Core diagnostic rows.
 It uses the composition benchmark profile. The other support suites and timed cold builds remain separate.
 The default capture does not use this helper. Its output alone cannot qualify performance.

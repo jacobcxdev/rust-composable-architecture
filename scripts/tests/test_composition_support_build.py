@@ -3,6 +3,7 @@
 import hashlib
 import json
 from pathlib import Path
+import runpy
 import sys
 import tempfile
 import unittest
@@ -10,6 +11,7 @@ from unittest.mock import Mock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import composition_support_build as support
+from composition_runner import WindowsMonitor
 
 
 class PreparationTests(unittest.TestCase):
@@ -22,21 +24,25 @@ class PreparationTests(unittest.TestCase):
         self.listing = "".join(f"scenario-{i}\n" for i in range(68))
         self.list_hash = hashlib.sha256(self.listing.encode()).hexdigest()
 
-    def prepare(self, mode="candidate-reference", role="subject", *, lock=None, seed=None, env=None):
+    def prepare(self, mode="candidate-reference", role="subject", *, lock=None, seed=None, env=None,
+                cap=2 * 1024**3, monitor_type=WindowsMonitor, complete=True, cargo="cargo"):
         group = self.root / "targets" / mode
         src, target = group / ("source-" + role), group / role
         src.mkdir(parents=True)
         (src / "Cargo.lock").write_bytes(b"lock")
         self.target, self.source = target, src
         staging = self.root / "evidence" / mode
+        monitor = Mock(spec=monitor_type, run=self.run_command, cargo=cargo, complete=complete,
+                       protocol={"process_memory_limit_bytes": cap})
         with patch.object(support, "COMPOSITION_LIST", self.list_hash):
-            return support.prepare(src, target, staging, {"cargo":"cargo"}, env or {}, Mock(run=self.run_command),
+            return support.prepare(src, target, staging, {"cargo":"cargo"}, env or {}, monitor,
                                    seed=seed, lock_sha256=lock or hashlib.sha256(b"lock").hexdigest(),
                                    effective_sha256=support.source_digest(src))
 
     def run_command(self, cmd, log, source, env):
         self.calls.append(cmd)
         if cmd[0] == "cargo":
+            self.assertEqual(cmd[cmd.index("-j") + 1], "2")
             self.assertEqual(env["CARGO_TARGET_DIR"], str(self.target))
             self.assertEqual(env["CARGO_BUILD_BUILD_DIR"], str(self.target))
             self.assertEqual(env["CARGO_PROFILE_BENCH_LTO"], "false")
@@ -116,6 +122,20 @@ class PreparationTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.prepare(role="compile-scoped-01")
         self.assertFalse(self.calls)
+
+    def test_wrong_memory_limit_or_cargo_monitor_never_starts_cargo(self):
+        for i, options in enumerate(({"cap": None}, {"cap": 4 * 1024**3}, {"complete": False}, {"cargo": "other"})):
+            with self.subTest(options=options):
+                self.root = self.root / str(i)
+                with self.assertRaisesRegex(ValueError, "2 GiB"):
+                    self.prepare(**options)
+        self.assertFalse(self.calls)
+
+    def test_script_runner_monitor_uses_the_same_job_settings(self):
+        runner = Path(__file__).resolve().parents[1] / "composition_runner.py"
+        script_monitor = runpy.run_path(str(runner))["WindowsMonitor"]
+        self.assertIsNot(script_monitor, WindowsMonitor)
+        self.prepare(monitor_type=script_monitor)
 
     def test_seed_uses_bound_target_and_lock_and_cannot_seed_donor(self):
         seed = object()
