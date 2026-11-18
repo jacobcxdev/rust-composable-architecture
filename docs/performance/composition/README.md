@@ -200,6 +200,20 @@ If a mode fails its numerical gates, the runner retains both normal runtime bina
 The runner checks each retained copy against its executable hash in `metadata.json`.
 Passing modes retain no runtime binaries.
 
+### Experiment: seven comparisons in each order
+
+Add `--experimental-single-look` to both early-stop commands above to test a shorter way to decide a clear case.
+Each comparison still uses a whole standalone cold build or the full runtime workload.
+For each metric, the runner takes the first seven ratios with the subject first and the first seven with the control first.
+It takes the largest ratio in each group and compares their geometric mean with `1.10`.
+It applies this rule to both the candidate comparison and the independent reference comparison.
+
+Under the independence assumptions above, each group's maximum covers its population median with at least 99.21875% confidence.
+The absolute limits still use the original 20-block rule. They can require more observations.
+If the seven comparisons per order do not establish a relative pass, the result is `inconclusive`, not a confirmed regression.
+The runner does not replace these observations, retry the comparison or switch methods.
+The separate `experimental-single-look-result.json` cannot authorise a release.
+
 ## Windows paired measurements
 
 The [Windows protocol](composition-windows-paired-v6.json) runs the same 14
