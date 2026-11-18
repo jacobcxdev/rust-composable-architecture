@@ -50,6 +50,7 @@ SHUTDOWN_LIVE_LIMITS = {
     "shutdown/abortive/burst/64": 64,
 }
 RANK_PROTOCOL = "windows-native-rank-experiment-v1"
+SHORT_BUDGET_PROTOCOL = "windows-native-rank-short-budget-v2"
 
 
 class PrefixRejected(ValueError):
@@ -238,6 +239,9 @@ def validate_measurement(value, scenario, samples, mode):
         raise ValueError("allocation measurement contains no heap evidence")
     if value["task_wakes"] == 0:
         raise ValueError("workload recorded no task polls")
+    if (scenario == "deterministic/budget" and mode == "normal" and samples == 1024
+            and value["task_wakes"] != samples * operations_per_sample(scenario)):
+        raise ValueError("short budget did not exhaust every full poll budget")
 
 
 def validate_counters(value):
@@ -574,12 +578,15 @@ def load_rank_evidence():
     return module
 
 
-def capture(binaries, metadata_path, output, timeout, *, keep_going=False, jq=None, experimental_rank=False):
+def capture(binaries, metadata_path, output, timeout, *, keep_going=False, jq=None, experimental_rank=False,
+            short_budget=False):
     """Run one fixed cohort, retaining incomplete evidence on every failure."""
     if output.exists():
         raise FileExistsError(output)
     if not math.isfinite(timeout) or timeout <= 0:
         raise ValueError("process timeout must be positive")
+    if short_budget and not experimental_rank:
+        raise ValueError("short budget requires experimental rank collection")
     if experimental_rank and keep_going:
         raise ValueError("--experimental-rank and --keep-going cannot be used together")
     jq = select_row_checker(jq, keep_going, required=experimental_rank)
@@ -637,7 +644,10 @@ def capture(binaries, metadata_path, output, timeout, *, keep_going=False, jq=No
     inputs = {"metadata": metadata, "scenarios": scenarios, "timeout_seconds": timeout}
     if experimental_rank:
         rank_evidence = load_rank_evidence()
-        inputs.update(protocol=RANK_PROTOCOL, rank_rules_sha256=verified_rules_digest(rules),
+        if short_budget:
+            metadata["method"]["normal_sample_overrides"] = {"deterministic/budget": 1024}
+        inputs.update(protocol=SHORT_BUDGET_PROTOCOL if short_budget else RANK_PROTOCOL,
+                      rank_rules_sha256=verified_rules_digest(rules),
                       rank_verifier_sha256=sha256(Path(rank_evidence.__file__)))
     write_json(output / "inputs.json", inputs)
     rows = {"candidate": [], "reference": []}
@@ -656,7 +666,9 @@ def capture(binaries, metadata_path, output, timeout, *, keep_going=False, jq=No
             normal_repetitions = 10 if scenario == "deterministic/budget" else 42
             observations = {role: {"normal": [], "allocation": []} for role in rows}
             pairs = {"normal": [], "allocation": []}
-            for mode, repetitions, samples in (("normal", normal_repetitions, 10000), ("allocation", 6, allocation_samples(scenario))):
+            normal_samples = 1024 if short_budget and scenario == "deterministic/budget" else 10000
+            for mode, repetitions, samples in (("normal", normal_repetitions, normal_samples),
+                                               ("allocation", 6, allocation_samples(scenario))):
                 monitor = jq
                 for repetition in range(1, repetitions + 1):
                     order = "reference-candidate" if repetition % 2 else "candidate-reference"
@@ -725,10 +737,10 @@ def capture(binaries, metadata_path, output, timeout, *, keep_going=False, jq=No
         if jq:
             verified_rules_digest(rules)
         if experimental_rank:
-            result = rank_evidence.build_rank_result(output, sys.modules[__name__], jq)
+            result = rank_evidence.build_rank_result(output, sys.modules[__name__], jq, short_budget=short_budget)
             if result["numerical_decision"] != ("reject" if rejected else "pass"):
                 raise ValueError("experimental collection and independent raw replay disagree")
-            write_json(output / "experimental-rank-result.json", result)
+            write_json(output / (rank_evidence.SHORT_BUDGET_RESULT if short_budget else rank_evidence.RESULT), result)
             return result
         documents = {}
         for role in rows:
@@ -751,14 +763,16 @@ def main():
     if sys.argv[1:2] == ["--allocation-counts"]:
         import native_allocation_counts
         return native_allocation_counts.main(sys.argv[2:])
-    if sys.argv[1:2] == ["--verify-experimental-rank"]:
+    if sys.argv[1:2] in (["--verify-experimental-rank"], ["--verify-experimental-short-budget"]):
         rank_evidence = load_rank_evidence()
+        replay_option = sys.argv[1]
         parser = argparse.ArgumentParser(description="Replay experimental evidence; no qualification decision.")
-        parser.add_argument("--verify-experimental-rank", type=Path, required=True, metavar="OUTPUT")
+        parser.add_argument(replay_option, dest="output", type=Path, required=True, metavar="OUTPUT")
         parser.add_argument("--jq", type=Path)
         args = parser.parse_args()
         jq = select_row_checker(args.jq, False, required=True)
-        report = rank_evidence.verify_rank_result(args.verify_experimental_rank, sys.modules[__name__], jq)
+        report = rank_evidence.verify_rank_result(args.output, sys.modules[__name__], jq,
+                                                  short_budget=replay_option == "--verify-experimental-short-budget")
         print(json.dumps({"verified": True, "qualification": False, "numerical_decision": report["numerical_decision"]}))
         return
     parser = argparse.ArgumentParser(description=__doc__)
@@ -767,17 +781,22 @@ def main():
     parser.add_argument("--metadata", required=True, type=Path)
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--timeout-seconds", type=float, default=1800)
-    parser.add_argument("--experimental-rank", action="store_true",
-                        help="stop each mode at a proven numerical result; write experimental evidence only")
+    rank = parser.add_mutually_exclusive_group()
+    rank.add_argument("--experimental-rank", action="store_true",
+                      help="stop each mode at a proven numerical result; write experimental evidence only")
+    rank.add_argument("--experimental-short-budget", action="store_true",
+                      help="use experimental rank bounds with 1,024 full budget exhaustions per normal process")
     checker = parser.add_mutually_exclusive_group()
     checker.add_argument("--jq", type=Path, metavar="PATH", help="use this jq executable to check paired rows")
     checker.add_argument("--keep-going", action="store_true",
                          help="collect all rows for diagnosis even if a performance limit is exceeded")
     args = parser.parse_args()
     binaries = {key: getattr(args, key) for key in BINARY_ROLES}
+    ranked = args.experimental_rank or args.experimental_short_budget
     result = capture(binaries, args.metadata, args.output.resolve(), args.timeout_seconds,
-                     keep_going=args.keep_going, jq=args.jq, experimental_rank=args.experimental_rank)
-    if args.experimental_rank and result["numerical_decision"] == "reject":
+                     keep_going=args.keep_going, jq=args.jq, experimental_rank=ranked,
+                     short_budget=args.experimental_short_budget)
+    if ranked and result["numerical_decision"] == "reject":
         raise SystemExit(1)
 
 

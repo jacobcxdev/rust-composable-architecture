@@ -9,7 +9,9 @@ import subprocess
 
 
 PROTOCOL = "windows-native-rank-experiment-v1"
+SHORT_BUDGET_PROTOCOL = "windows-native-rank-short-budget-v2"
 RESULT = "experimental-rank-result.json"
+SHORT_BUDGET_RESULT = "experimental-short-budget-result.json"
 RULES = Path(__file__).with_name("native_performance_rows.jq")
 RULE_BYTES = RULES.read_bytes()
 VERIFIER_DIGEST = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
@@ -86,8 +88,9 @@ def _process(raw, capture, stem, hashes):
     return raw.read(stem + ".stdout", hashes), counters
 
 
-def _pairs(raw, capture, scenario, index, mode, maximum, hashes):
-    samples = 10000 if mode == "normal" else capture.allocation_samples(scenario)
+def _pairs(raw, capture, scenario, index, mode, maximum, hashes, short_budget):
+    samples = capture.allocation_samples(scenario) if mode == "allocation" else (
+        1024 if short_budget and scenario == "deterministic/budget" else 10000)
     config = "deterministic" if scenario.startswith("deterministic/") else "native"
     result = []
     for n in range(1, maximum + 1):
@@ -141,7 +144,7 @@ def _check_cohort(capture, cohort, source, source_hash):
         raise ValueError("rank cohort source identity differs")
 
 
-def _inputs(output, capture):
+def _inputs(output, capture, short_budget=False):
     data = (output / "inputs.json").read_bytes()
     inputs = json.loads(data)
     source_bytes = (output / "source-build.json").read_bytes()
@@ -152,7 +155,8 @@ def _inputs(output, capture):
     cohort = meta["cohort"]
     method = meta["method"]
     _check_cohort(capture, cohort, source, _digest(source_bytes))
-    if (inputs.get("protocol") != PROTOCOL or inputs["scenarios"] != scenarios
+    if (inputs.get("protocol") != (SHORT_BUDGET_PROTOCOL if short_budget else PROTOCOL)
+            or inputs["scenarios"] != scenarios
             or inputs.get("rank_rules_sha256") != _digest(RULE_BYTES)
             or inputs.get("rank_verifier_sha256") != VERIFIER_DIGEST
             or not _same(meta["source_build"], source)
@@ -164,6 +168,8 @@ def _inputs(output, capture):
             or not _same(method["normal_repetitions"], 42)
             or not _same(method["allocation_repetitions"], 6)
             or not _same(method["normal_repetition_overrides"], {"deterministic/budget": 10})
+            or ("normal_sample_overrides" in method) != short_budget
+            or (short_budget and not _same(method["normal_sample_overrides"], {"deterministic/budget": 1024}))
             or method["pair"] != {f"{r}_revision": source[r]["revision"] for r in ("candidate", "reference")}):
         raise ValueError("capture method, source or enrolment differs from the experimental protocol")
     binaries = meta["binaries"]
@@ -174,12 +180,13 @@ def _inputs(output, capture):
     return scenarios, _digest(data), _digest(source_bytes)
 
 
-def build_rank_result(output, capture, jq):
+def build_rank_result(output, capture, jq, *, short_budget=False):
     """Rebuild the decision; do not manufacture a release receipt or point estimates."""
     output = Path(output)
-    if any((output / name).exists() for name in ("failure.json", "complete.json", "candidate.json", "reference.json")):
+    other_result = RESULT if short_budget else SHORT_BUDGET_RESULT
+    if any((output / name).exists() for name in ("failure.json", "complete.json", "candidate.json", "reference.json", other_result)):
         raise ValueError("failed or canonical output is not experimental rank evidence")
-    scenarios, inputs_hash, source_hash = _inputs(output, capture)
+    scenarios, inputs_hash, source_hash = _inputs(output, capture, short_budget)
     raw = _Raw(output / "raw")
     listed = {}
     list_exits = []
@@ -191,7 +198,8 @@ def build_rank_result(output, capture, jq):
         if stdout.decode("utf-8").splitlines() != expected:
             raise ValueError(f"binary workload list differs: {key}")
     raw.last_exit = max(list_exits)
-    result = {"protocol": PROTOCOL, "qualification": False, "numerical_decision": "pass",
+    result = {"protocol": SHORT_BUDGET_PROTOCOL if short_budget else PROTOCOL,
+              "qualification": False, "numerical_decision": "pass",
               "inputs_sha256": inputs_hash, "source_build_sha256": source_hash,
               "list_evidence_sha256": _seal(listed), "rows": []}
     proof_path = output / "prefix-rejection.json"
@@ -202,7 +210,7 @@ def build_rank_result(output, capture, jq):
     for index, scenario in enumerate(scenarios):
         hashes = {}
         planned = {"normal": 10 if scenario == "deterministic/budget" else 42, "allocation": 6}
-        pairs = {mode: _pairs(raw, capture, scenario, index, mode, maximum, hashes)
+        pairs = {mode: _pairs(raw, capture, scenario, index, mode, maximum, hashes, short_budget)
                  for mode, maximum in planned.items()}
         observed = {mode: len(data) for mode, data in pairs.items()}
         rejected = proof is not None and index == proof["row_index"]
@@ -241,9 +249,10 @@ def build_rank_result(output, capture, jq):
     return result
 
 
-def verify_rank_result(output, capture, jq):
+def verify_rank_result(output, capture, jq, *, short_budget=False):
     """Require exact agreement with the stored experimental certificate."""
-    result = build_rank_result(output, capture, jq)
-    if not _same(result, json.loads((Path(output) / RESULT).read_bytes())):
+    result = build_rank_result(output, capture, jq, short_budget=short_budget)
+    report = Path(output) / (SHORT_BUDGET_RESULT if short_budget else RESULT)
+    if not _same(result, json.loads(report.read_bytes())):
         raise ValueError("stored rank decision differs from recomputed evidence")
     return result

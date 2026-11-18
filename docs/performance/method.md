@@ -298,7 +298,8 @@ An empty stack cannot identify an allocation site. Never use this profile in pla
 
 ### Early-stop numerical checks
 
-The command and its evidence files retain their original names. The same replay tool can read existing captures.
+For an existing capture, use the signed controller source recorded with that capture.
+Replay checks the original script and verifier hashes. It does not require the original Windows host.
 Use a new output directory. Do not combine this option with `--keep-going`.
 The runner compares the candidate with the reference in both run orders.
 If every possible final ratio meets its limit, the runner stops that measurement.
@@ -319,9 +320,23 @@ Collection itself returns nonzero on rejection or technical failure. The bounds
 describe any valid continuation of the enrolled observations; they do not show
 that an omitted process would succeed or what its diagnostics would have been.
 
+For a separate experiment, replace `--experimental-rank` with `--experimental-short-budget`.
+Only the normal scheduler budget measurement changes. After 20 warm-up runs, each process measures 1,024 budget exhaustions instead of 10,000.
+Each exhaustion still requires 100,000 polls. The allocation workload and all other scenarios stay unchanged.
+The limit stays at 10%. The runner still requires both orders and uses the same stopping rule across ten planned pairs.
+Four pairs from a sensitivity test do not satisfy that rule.
+
+Use this command to replay the separate result:
+
+```sh
+python scripts/capture-windows-performance.py --verify-experimental-short-budget <capture> --jq <jq-path>
+```
+
+The experiment writes `experimental-short-budget-result.json`. It does not produce the native result required for release.
+
 The fixed-count output uses schema version 6. It identifies the `win32-process-v1` provider and the
 `split-native-deterministic-v1` configuration.
-Both routes cover the same 54 scenarios, samples per process and numerical limits.
+The fixed-count route and `--experimental-rank` use the same 54 scenarios, samples per process and numerical limits.
 The early-stop route can use fewer balanced pairs. Each row and process observation identifies
 its native or deterministic configuration.
 The protocol hash includes the source/build receipt hash as well as the common
@@ -433,7 +448,7 @@ not a paired-only capture.
 
 ## Measurements
 
-- Latency uses `Instant` around each completed operation after up to 20 warm-up operations. For `n` sorted samples and percentile `p`, the runner selects zero-based index `ceil((n - 1) * p / 100)`. This upper indexed percentile is not the nearest-rank method. p50, p95, and p99 describe whole-operation latency. Every normal scenario uses 10,000 outer samples so each process has 100 observations at or beyond p99.
+- Latency uses `Instant` around each completed operation after up to 20 warm-up operations. For `n` sorted samples and percentile `p`, the runner selects zero-based index `ceil((n - 1) * p / 100)`. This upper indexed percentile is not the nearest-rank method. p50, p95, and p99 describe whole-operation latency. The normal release workloads use 10,000 outer samples per process. The separate short-budget experiment uses 1,024 samples only for `deterministic/budget`.
 
   Aggregate fields use medians of the configured number of process-level results.
   Acceptance uses the geometric mean of two order-stratified medians from all paired candidate/reference ratios.
