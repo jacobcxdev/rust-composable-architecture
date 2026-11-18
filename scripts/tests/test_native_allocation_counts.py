@@ -155,6 +155,14 @@ class AllocationCountTests(unittest.TestCase):
 
             with mock.patch.object(counts, "PATCHED", hashlib.sha256(b"fixture").hexdigest()):
                 self.assertEqual(verify(records), counts.digest(binary))
+                # Windows Cargo can mix path separators. Preserve Cargo's spelling in its output list.
+                spelled = copy.deepcopy(records)
+                decorated = str(root) + "/./qualification"
+                spelled[-1].update(executable=decorated, filenames=[decorated])
+                self.assertEqual(verify(spelled), counts.digest(binary))
+                spelled[-1]["filenames"] = [str(root / "other")]
+                with self.assertRaisesRegex(ValueError, "binary"):
+                    verify(spelled)
                 for i, field, value in (
                     (0, "fresh", True),
                     (0, "package_id", counts.REGISTRY + "#dhat@0.3.3"),

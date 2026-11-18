@@ -213,7 +213,7 @@ def check_build(directory, expected, log, binary):
         if kind == "bench" and (
             row["fresh"] is not False
             or Path(row["executable"]) != _regular(binary)
-            or str(binary) not in row["filenames"]
+            or row["executable"] not in row["filenames"]
         ):
             raise ValueError("allocation benchmark binary differs from the fresh build")
     return digest(binary)
