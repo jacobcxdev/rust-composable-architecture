@@ -65,7 +65,7 @@ jobs:
                   python3 -m unittest scripts.tests.test_controlled_cost
                   python3 -m unittest scripts.tests.test_task_fold_profile
                   python3 -m unittest scripts.tests.test_windows_performance scripts.tests.test_native_performance_comparison
-                  python3 -m unittest scripts.tests.test_windows_rank_capture scripts.tests.test_native_rank_evidence
+                  python3 -m unittest scripts.tests.test_windows_rank_capture scripts.tests.test_native_rank_evidence scripts.tests.test_native_odd_bounds
                   python3 -m unittest scripts.tests.test_composition_performance.ProtocolEvidenceTests scripts.tests.test_composition_performance.AbsoluteBudgetTests scripts.tests.test_composition_performance.InterleavedProtocolTests
                   python3 -m unittest scripts.tests.test_composition_performance.CurrentMacProtocolTests scripts.tests.test_composition_performance.MacWatchdogEvidenceTests scripts.tests.test_composition_performance.WindowsPairedProtocolTests scripts.tests.test_composition_windows_runner
                   python3 -m unittest scripts.tests.test_composition_windows_absolute scripts.tests.test_composition_windows_complete scripts.tests.test_composition_windows_complete_runner scripts.tests.test_windows_support
