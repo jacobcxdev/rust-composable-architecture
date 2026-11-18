@@ -39,6 +39,30 @@ class TimingInputTests(unittest.TestCase):
             with self.subTest(incorrect=incorrect), self.assertRaises(ValueError):
                 timing._jobs(self.protocol, incorrect)
 
+    def test_second_look_only_extends_the_frozen_order_for_enrolled_workloads(self):
+        frozen = evidence.seeded_order_schedule(self.protocol)
+        schedule = timing.timing_schedule(self.protocol, two_look=True)
+        self.assertEqual(schedule[:20], frozen)
+        self.assertEqual(schedule[20:], ["control-subject", "subject-control",
+                                        "subject-control", "control-subject"])
+        self.counts["compile/direct"] = 24
+        jobs = timing._jobs(self.protocol, self.counts, two_look=True)
+        for block in range(21, 25):
+            extra = [(mode, role, work) for n, mode, role, work, _ in jobs if n == block]
+            modes = evidence.interleaved_mode_order(self.protocol, block - 4)
+            self.assertEqual(extra, [(mode, role, "compile/direct") for mode in modes
+                                     for role in schedule[block - 1].split("-")])
+        with self.assertRaises(ValueError):
+            timing._jobs(self.protocol, self.counts)
+        self.counts["compile/direct"] = 25
+        with self.assertRaises(ValueError):
+            timing._jobs(self.protocol, self.counts, two_look=True)
+
+    def test_second_look_cannot_read_a_twenty_block_capture_as_its_own(self):
+        (self.dir / "capture.json").write_text(json.dumps({}))
+        with self.assertRaisesRegex(ValueError, "two-look"):
+            timing._identities(self.dir, self.protocol, two_look=True)
+
     def test_changed_missing_and_extra_observations_all_fail_closed(self):
         jobs = timing._jobs(self.protocol, self.counts)
         seals = {m: {} for m in ("candidate-reference", "reference-reference-aa")}
@@ -236,6 +260,11 @@ class TimingInputTests(unittest.TestCase):
         resources["direct_process"] = {"CreationTime100ns": 0, "ExitTime100ns": 15}
         blob.write_text(json.dumps(resources))
         with self.assertRaisesRegex(ValueError, "reused"):
+            verify(events)
+        resources["direct_process"] = {"CreationTime100ns": (i - 1) * 20 + 14,
+                                       "ExitTime100ns": i * 20 + 15}
+        blob.write_text(json.dumps(resources))
+        with self.assertRaisesRegex(ValueError, "overlap"):
             verify(events)
         resources["direct_process"] = {"CreationTime100ns": i*20, "ExitTime100ns": i*20+15}
         blob.write_text(json.dumps(resources))

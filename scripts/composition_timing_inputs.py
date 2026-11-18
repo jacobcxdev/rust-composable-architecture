@@ -11,21 +11,25 @@ from pathlib import Path, PureWindowsPath
 import stat
 
 import composition_performance as evidence
+from composition_performance import timing_schedule
 
 
 MODES = ("reference-reference-aa", "candidate-reference")
+TWO_LOOK_METHOD = "two-look-seven-twelve-v1"
+MEASURED_SOURCE_METHODS = ("finite-rank-v3", "single-look-first-seven-v1", TWO_LOOK_METHOD)
 
 
-def _jobs(protocol, counts):
+def _jobs(protocol, counts, *, two_look=False):
     workloads = [("runtime", s) for s in protocol["runtime"]["gated_scenarios"]]
     workloads += [("compile", s) for s in protocol["compile"]["fixtures"]]
+    schedule = timing_schedule(protocol, two_look=two_look)
     if (protocol.get("method_version") != evidence.WINDOWS_V6_METHOD
             or set(counts) != {f"{kind}/{s}" for kind, s in workloads}
-            or any(type(n) is not int or not 1 <= n <= 20 for n in counts.values())):
-        raise ValueError("timing prefixes require the complete Windows v6 workload set and counts 1..20")
+            or any(type(n) is not int or not 1 <= n <= len(schedule) for n in counts.values())):
+        raise ValueError(f"timing prefixes require the complete Windows v6 workload set and counts 1..{len(schedule)}")
     jobs = []
-    for n, order in enumerate(evidence.seeded_order_schedule(protocol), 1):
-        for mode in evidence.interleaved_mode_order(protocol, n):
+    for n, order in enumerate(schedule, 1):
+        for mode in evidence.interleaved_mode_order(protocol, n, two_look=two_look):
             for kind, s in workloads:
                 key = f"{kind}/{s}"
                 if n <= counts[key]:
@@ -98,7 +102,7 @@ def _source_bindings(manifest, inputs, meta, mode, files):
     controller = manifest["controller"]
     version = manifest.get("experiment", {}).get("method")
     names = ("controller_revision", "measured_subject_revision")
-    if version not in ("finite-rank-v3", "single-look-first-seven-v1"):
+    if version not in MEASURED_SOURCE_METHODS:
         if ("measured_subject" in manifest or "measured_subject" in inputs or any(k in meta for k in names)
                 or (mode == "candidate-reference" and inputs["subject"] != controller)):
             raise ValueError("legacy timing inputs cannot substitute a separate measured checkout")
@@ -136,23 +140,27 @@ def _check_staged_bindings(staged, recorded, tags):
         raise ValueError("staged source differs from the measured inputs or controller binding")
 
 
-def _identities(directory, protocol):
+def _identities(directory, protocol, *, two_look=False):
     manifest = _json(directory / "capture.json")
     digest = evidence._sha256(directory / "capture.json")
     experimental = "experiment" in manifest
+    experiment = manifest.get("experiment")
+    version = experiment.get("method") if isinstance(experiment, dict) else None
+    if (version == TWO_LOOK_METHOD) != two_look:
+        raise ValueError("capture and reader disagree on two-look enrolment")
     if experimental:
         from composition_runner import rank_method_identity
-        single_look = isinstance(manifest["experiment"], dict) and manifest["experiment"].get("method") == "single-look-first-seven-v1"
-        if manifest["experiment"] != rank_method_identity(single_look=single_look):
+        single_look = version == "single-look-first-seven-v1"
+        if manifest["experiment"] != rank_method_identity(single_look=single_look, two_look=two_look):
             raise ValueError("missing or changed prospective method identity")
-    v3 = manifest.get("experiment", {}).get("method") in ("finite-rank-v3", "single-look-first-seven-v1")
+    v3 = version in MEASURED_SOURCE_METHODS
     files = set()
     if v3:
         from composition_runner import BUDGET
         files = {r["workload_source"] for r in evidence.validate_budget_document(BUDGET)["rows"]}
         files.update(("Cargo.lock", "benches/compile/Cargo.lock", "scripts/capture-composition-performance.sh"))
-    schedule = [{"block": n, "mode": m} for n in range(1, 21)
-                for m in evidence.interleaved_mode_order(protocol, n)]
+    schedule = [{"block": n, "mode": m} for n, _ in enumerate(timing_schedule(protocol, two_look=two_look), 1)
+                for m in evidence.interleaved_mode_order(protocol, n, two_look=two_look)]
     if (manifest.get("protocol_sha256") != evidence.WINDOWS_V6_PROTOCOL_SHA256
             or set(manifest.get("modes", {})) != set(MODES) or manifest.get("schedule") != schedule):
         raise ValueError("capture has a different protocol, schedule or mode set")
@@ -208,11 +216,22 @@ def _identities(directory, protocol):
     return result, v3
 
 
+def _serial_lifetime(counters, previous):
+    """Require the kernel clock to agree with the journal's serial process order."""
+    start, end = counters["CreationTime100ns"], counters["ExitTime100ns"]
+    if type(start) is not int or type(end) is not int or not 0 <= start <= end:
+        raise ValueError("invalid kernel process lifetime")
+    if previous is not None and (start < previous[1] or (start, end) == previous):
+        raise ValueError("reused or overlapping kernel process lifetime")
+    return start, end
+
+
 def _verify_processes(directory, jobs, identities, protocol, *, experimental_rank=False):
     # The stored absolute destinations may name a Windows staging path even when
     # the evidence is now being reviewed from a published directory on macOS.
     expected = ((phase, job) for job in jobs for phase in ("start", "finish"))
-    roots, targets, lifetimes = set(), set(), set()
+    roots, targets = set(), set()
+    previous_lifetime = None
     last_time = -1
     with (directory / "telemetry/processes.jsonl").open(encoding="utf-8") as stream:
         for line in stream:
@@ -242,11 +261,7 @@ def _verify_processes(directory, jobs, identities, protocol, *, experimental_ran
                     raise ValueError("timed process finish differs from sealed receipt")
                 if expected_target and experimental_rank and resources["process_receipt"].get("build_dir") != str(expected_target):
                     raise ValueError("cold build directory in sealed receipt differs from fresh target")
-                counters = resources["direct_process"]
-                lifetime = (counters["CreationTime100ns"], counters["ExitTime100ns"])
-                if lifetime in lifetimes:
-                    raise ValueError("timed process measurement was reused")
-                lifetimes.add(lifetime)
+                previous_lifetime = _serial_lifetime(resources["direct_process"], previous_lifetime)
                 continue
             cmd = event["command"]
             if (event.get("command_kind") != kind or PureWindowsPath(event["cwd"]) != cwd
@@ -270,11 +285,11 @@ def _verify_processes(directory, jobs, identities, protocol, *, experimental_ran
         raise ValueError("missing timed process records")
 
 
-def load_timing_prefixes(directory, protocol, budget_path, counts_by_workload, seals):
+def load_timing_prefixes(directory, protocol, budget_path, counts_by_workload, seals, *, two_look=False):
     """Return all fourteen budget rows with real A/A and candidate pairs, grouped by workload."""
     directory = Path(directory)
-    jobs = _jobs(protocol, counts_by_workload)
-    identities, experimental = _identities(directory, protocol)
+    jobs = _jobs(protocol, counts_by_workload, two_look=two_look)
+    identities, experimental = _identities(directory, protocol, two_look=two_look)
     _verify_seals(directory, jobs, seals)
     _verify_processes(directory, jobs, identities, protocol, experimental_rank=experimental)
     budget = evidence.validate_budget_document(Path(budget_path))
@@ -291,7 +306,7 @@ def load_timing_prefixes(directory, protocol, budget_path, counts_by_workload, s
         for mode in MODES:
             paired = directory / mode / "paired"
             both.append(load(paired/"subject", paired/"control", name, protocol, block_count=counts_by_workload[work],
-                             experimental_rank=experimental))
+                             experimental_rank=experimental, two_look=two_look))
         result[work] = []
         for row in rows:
             arms = both if kind == "compile" else [
@@ -374,7 +389,7 @@ def _terminal_pair(directory, protocol, stage, spec, start, finish, allocations)
         raise ValueError(f"terminal process finish differs from raw receipt: {rel}")
 
 
-def verify_terminal_processes(directory, protocol):
+def verify_terminal_processes(directory, protocol, *, two_look=False):
     """Verify the complete positive capture's process order, commands, resources and host.
 
     Call only after timing has passed and the collector has recorded final-host.
@@ -383,9 +398,9 @@ def verify_terminal_processes(directory, protocol):
     import composition_product_commands as products
     directory = Path(directory)
     _reject_redirects(directory)
-    ids, _ = _identities(directory, protocol)
+    ids, _ = _identities(directory, protocol, two_look=two_look)
     counts = _json(directory / "experimental-timing.json")["counts"]
-    jobs = _jobs(protocol, counts)
+    jobs = _jobs(protocol, counts, two_look=two_look)
     host = _json(directory / "capture.json")["host"]
     host_times = _host_events(directory, max(counts.values()), host)
     rows = [json.loads(x) for x in (directory/"telemetry/processes.jsonl").read_text(encoding="utf-8").splitlines()]
@@ -430,7 +445,7 @@ def verify_terminal_processes(directory, protocol):
     if actual_raw != expected_raw:
         raise ValueError("missing or extra process resource files")
     allocations = evidence.validate_allocation_manifest(evidence.DEFAULT_ALLOCATION_MANIFEST)
-    lifetimes = set()
+    previous_lifetime = None
     previous = host_times[0]
     prior_group = None
     group_index = 0
@@ -452,9 +467,6 @@ def verify_terminal_processes(directory, protocol):
         elif start.get("allocation_scenario") is not None or start.get("allocation_samples") is not None:
             raise ValueError("unexpected allocation routing on paired command")
         raw = _json((directory/rel).with_suffix(".resources.json"))["direct_process"]
-        lifetime = (raw["CreationTime100ns"], raw["ExitTime100ns"])
-        if lifetime in lifetimes:
-            raise ValueError("process receipt reused by multiple workloads")
-        lifetimes.add(lifetime)
+        previous_lifetime = _serial_lifetime(raw, previous_lifetime)
     if previous > host_times[-1]:
         raise ValueError("final host observation precedes terminal process completion")

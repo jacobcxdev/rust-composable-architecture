@@ -214,6 +214,24 @@ If the seven comparisons per order do not establish a relative pass, the result 
 The runner does not replace these observations, retry the comparison or switch methods.
 The separate `experimental-single-look-result.json` cannot authorise a release.
 
+### Experiment: continue a borderline comparison
+
+To allow a second look, select `--experimental-two-look` for both collection and verification.
+Select it before collection starts. It cannot continue a capture that used another method.
+
+The first look uses the same seven ratios in each run order.
+For the second look, the runner uses the second-largest of the first twelve ratios in each order.
+Within each order, it keeps the smaller of the two upper bounds.
+It compares the geometric mean of the two orders' bounds with `1.10`.
+Under the same sampling assumptions, the chance of missing a population median is at most 39 in 4,096 per order.
+The original allowance is 44 in 4,096.
+
+The runner stops a workload when no more observations are necessary to decide whether it can pass.
+If no possible completion can show a pass, the result is `inconclusive`, unless an observed absolute failure already establishes `fail`.
+The absolute calculation uses only the original first 20 blocks. An unresolved relative comparison can extend the schedule to 24.
+Only unresolved workloads continue. Each still runs both the candidate comparison and the independent reference comparison.
+The separate `experimental-two-look-result.json` cannot authorise a release.
+
 ## Windows paired measurements
 
 The [Windows protocol](composition-windows-paired-v6.json) runs the same 14

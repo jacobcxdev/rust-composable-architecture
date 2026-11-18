@@ -1,8 +1,8 @@
 """Experimental decisions over real Windows timing prefixes; not a release qualifier.
 
-The default bounds enclose the final twenty-block statistic. The separate single
-look uses a confidence bound for the relative medians, not the realised final
-ranks. Both methods retain the original absolute bound and all measured inputs.
+The default bounds enclose the final twenty-block statistic. The optional looks
+use confidence bounds for the relative medians, not the realised original
+ranks. All methods retain the original absolute bound and all measured inputs.
 """
 
 import math
@@ -22,12 +22,21 @@ def _decision(states):
     return next((state for state in ("fail", "inconclusive", "continue") if state in states), "pass")
 
 
-def _relative(pairs, direction, protocol, *, single_look=False):
-    orders = evidence._paired_ratios(pairs, direction, protocol, len(pairs))
+def _relative(pairs, direction, protocol, *, single_look=False, two_look=False):
+    orders = evidence._paired_ratios(pairs, direction, protocol, len(pairs), two_look=two_look)
     lower, upper = [], []
     for ratios in orders.values():
         if any(not math.isfinite(ratio) or ratio <= 0 for ratio in ratios):
             raise ValueError("relative timing ratios must be finite and positive")
+        if two_look:
+            # Final statistic per order: min(max(first seven), rank 11 of
+            # first twelve). Its extremes set all missing ratios to 0 or infinity.
+            first = max(ratios[:7], default=0.)
+            observed = sorted(ratios)
+            lower.append(min(first, observed[-2] if len(observed) >= 2 else 0.))
+            upper.append(min(first if len(observed) >= 7 else math.inf,
+                             observed[10] if len(observed) >= 11 else math.inf))
+            continue
         if single_look:
             # One preselected one-sided limit for each median. Do not search
             # later observations for a more favourable set of seven.
@@ -50,6 +59,9 @@ def _relative(pairs, direction, protocol, *, single_look=False):
     if not math.isfinite(lo) or (all(map(math.isfinite, upper)) and not math.isfinite(hi)):
         raise ValueError("relative timing statistic overflowed")
     limit = protocol["regression_limit"]
+    if two_look:
+        return {"decision": "inconclusive" if lo > limit else "pass" if hi <= limit else "continue",
+                "two_look_upper_bounds": _json_bounds(lo, hi), "regression_limit": limit}
     return {"decision": "fail" if lo > limit else "pass" if hi <= limit else "continue",
             "final_upper_bound": _json_bounds(lo, hi), "regression_limit": limit}
 
@@ -67,21 +79,23 @@ def _median_bounds(pairs):
     return lo, hi
 
 
-def timing_gate_bounds(aa_pairs, candidate_pairs, direction, protocol, *, single_look=False):
+def timing_gate_bounds(aa_pairs, candidate_pairs, direction, protocol, *, single_look=False, two_look=False):
     """Score two real prefixes with the selected relative rule and the original absolute gate."""
     confidence = protocol["confidence"]
+    if single_look and two_look:
+        raise ValueError("select either the single-look or the two-look method")
     if (protocol.get("method_version") != evidence.WINDOWS_V6_METHOD
             or confidence.get("observations_per_stratum") != 10
             or confidence.get("upper_order_statistic_rank") != 9
             or protocol.get("regression_limit") != evidence.REGRESSION_LIMIT
             or direction not in ("minimum", "maximum")
-            or not 1 <= len(aa_pairs) == len(candidate_pairs) <= 20):
+            or not 1 <= len(aa_pairs) == len(candidate_pairs) <= (24 if two_look else 20)):
         raise ValueError("timing bounds require the Windows v6 rules and matched mode prefixes")
 
-    aa = _relative(aa_pairs, direction, protocol, single_look=single_look)
-    candidate = _relative(candidate_pairs, direction, protocol, single_look=single_look)
-    ref_lo, ref_hi = _median_bounds(aa_pairs)
-    lo, hi = _median_bounds(candidate_pairs)
+    aa = _relative(aa_pairs, direction, protocol, single_look=single_look, two_look=two_look)
+    candidate = _relative(candidate_pairs, direction, protocol, single_look=single_look, two_look=two_look)
+    ref_lo, ref_hi = _median_bounds(aa_pairs[:20])
+    lo, hi = _median_bounds(candidate_pairs[:20])
     # Match seal_reference and _passes operation-for-operation, including which
     # operand is multiplied/divided. Ratio comparisons can round differently.
     factor = protocol["regression_limit"]
@@ -99,12 +113,13 @@ def timing_gate_bounds(aa_pairs, candidate_pairs, direction, protocol, *, single
                 "absolute_budget": _json_bounds(budget_lo, budget_hi)}
     # The A/A absolute report uses the very same reference-b median on both
     # sides, not an independent draw from its envelope. Its paired gate remains.
-    return {"decision": _decision([aa["decision"], candidate["decision"], absolute["decision"]]),
+    decision = _decision([aa["decision"], candidate["decision"], absolute["decision"]])
+    return {"decision": decision,
             "relative_aa": aa, "relative_candidate": candidate, "absolute_candidate": absolute,
             "absolute_aa": {"decision": "pass", "same_reference_subject": True}}
 
 
-def timing_decisions(directory, protocol, budget_path, counts_by_workload, seals, *, single_look=False):
+def timing_decisions(directory, protocol, budget_path, counts_by_workload, seals, *, single_look=False, two_look=False):
     """Return each workload's joint decision; only 'continue' requests another real block.
 
     The collector starts all thirteen workloads and advances both comparison modes
@@ -112,28 +127,30 @@ def timing_decisions(directory, protocol, budget_path, counts_by_workload, seals
     """
     from composition_timing_inputs import load_timing_prefixes
 
-    prefixes = load_timing_prefixes(directory, protocol, budget_path, counts_by_workload, seals)
+    if single_look and two_look:
+        raise ValueError("select either the single-look or the two-look method")
+    prefixes = load_timing_prefixes(directory, protocol, budget_path, counts_by_workload, seals, two_look=two_look)
     result = {}
     for workload, rows in prefixes.items():
         gates = []
         previous = []
         for row, aa, candidate in rows:
             direction = evidence._direction(row)
-            proof = timing_gate_bounds(aa, candidate, direction, protocol, single_look=single_look)
+            proof = timing_gate_bounds(aa, candidate, direction, protocol, single_look=single_look, two_look=two_look)
             gates.append({"scenario": row["scenario"], "measured_statistic": row["measured_statistic"],
                           **proof})
-            if single_look and len(aa) > 1:
+            if (single_look or two_look) and len(aa) > 1:
                 previous.append(timing_gate_bounds(aa[:-1], candidate[:-1], direction, protocol,
-                                                   single_look=True)["decision"])
+                                                   single_look=single_look, two_look=two_look)["decision"])
         decision = _decision([gate["decision"] for gate in gates])
-        if single_look:
-            # A terminal fixed look can never return to 'continue'. A later
-            # absolute failure could change 'inconclusive' to 'fail', but the
-            # enrolled capture would already have stopped.
+        if single_look or two_look:
+            # Once no completion can pass, the collector stops. Never admit extra
+            # samples to turn an inconclusive result into an absolute failure.
+            label = "two-look" if two_look else "single-look"
             if previous and _decision(previous) != "continue":
-                raise ValueError(f"single-look workload continued after its decision: {workload}")
+                raise ValueError(f"{label} workload continued after its decision: {workload}")
             if decision != "pass" and counts_by_workload[workload] < max(counts_by_workload.values()):
-                raise ValueError(f"single-look capture continued after a terminal workload: {workload}")
+                raise ValueError(f"{label} capture continued after a terminal workload: {workload}")
         if decision == "continue" and counts_by_workload[workload] < max(counts_by_workload.values()):
             raise ValueError(f"workload retired before its verdict was fixed: {workload}")
         result[workload] = {"decision": decision, "blocks": counts_by_workload[workload], "gates": gates}

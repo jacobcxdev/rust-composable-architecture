@@ -12,6 +12,43 @@ import composition_runner as runner
 
 
 class RankCaptureTests(unittest.TestCase):
+    def test_two_look_extends_only_outstanding_work_and_replays_its_tail(self):
+        protocol = runner.evidence.load_protocol(runner.WINDOWS_PROTOCOL)
+        protocol["compile"]["fixtures"] = ["direct", "scoped", "composed-manual"]
+        protocol["runtime"]["gated_scenarios"] = []
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            captures = {m: dict(roots={}, executables={}, targets=root/m/"targets", paired=root/m/"paired")
+                        for m in ("reference-reference-aa", "candidate-reference")}
+            method = runner.rank_method_identity(two_look=True)
+            self.assertEqual(method["method"], "two-look-seven-twelve-v1")
+            runner.write_json(root / "capture.json", {"experiment": method})
+
+            def gate(_directory, _protocol, _budget, counts, _seals):
+                stopping = {"compile/direct": 15, "compile/composed-manual": 21}
+                return {key: {"blocks": n, "decision": ("pass" if n == stopping.get(key)
+                                                        else "inconclusive" if n == 24 else "continue")}
+                        for key, n in counts.items()}
+
+            with (patch.object(runner, "execute_pairs") as run,
+                  patch.object(runner, "paired_block_hashes", return_value={})):
+                result = runner.collect_rank_timing(protocol, captures, "cargo", {}, None, root, gate, two_look=True)
+                self.assertEqual(result["counts"], {"compile/direct": 15, "compile/composed-manual": 21, "compile/scoped": 24})
+                self.assertEqual(result["decision"], "inconclusive")
+                self.assertEqual(run.call_count, 48)
+                self.assertTrue(all(call.kwargs["workloads"] == {"compile/composed-manual", "compile/scoped"}
+                                    for call in run.call_args_list[30:42]))
+                self.assertTrue(all(call.kwargs["workloads"] == {"compile/scoped"} for call in run.call_args_list[42:]))
+                self.assertEqual([call.kwargs["blocks"][0][1] for call in run.call_args_list[40::2]],
+                                 ["control-subject", "subject-control", "subject-control", "control-subject"])
+                runner.verify_rank_schedule(root, protocol, result, two_look=True)
+                with self.assertRaisesRegex(ValueError, "invalid workload counts"):
+                    runner.verify_rank_schedule(root, protocol, result)
+
+                damaged = {**result, "counts": {**result["counts"], "compile/scoped": 25}}
+                with self.assertRaisesRegex(ValueError, "invalid workload counts"):
+                    runner.verify_rank_schedule(root, protocol, damaged, two_look=True)
+
     def test_single_look_stops_inconclusive_without_an_automatic_retry(self):
         protocol = runner.evidence.load_protocol(runner.WINDOWS_PROTOCOL)
         protocol["compile"]["fixtures"] = ["direct"]

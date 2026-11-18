@@ -1014,13 +1014,14 @@ def load_protocol(path: pathlib.Path) -> dict[str, Any]:
     return document
 
 
-def interleaved_mode_order(protocol: dict[str, Any], block: int) -> tuple[str, str]:
-    """Return the frozen mode order for one of the twenty shared capture blocks."""
+def interleaved_mode_order(protocol: dict[str, Any], block: int, *, two_look: bool = False) -> tuple[str, str]:
+    """Return the frozen mode order, including the optional four-block extension."""
     if (not is_interleaved_protocol(protocol)
             or protocol.get("interleaving") != _INTERLEAVING):
         raise ValueError("composition interleaving policy is invalid")
-    if type(block) is not int or not 1 <= block <= 20:
-        raise ValueError("composition interleaving block must be between 1 and 20")
+    last = 24 if two_look and protocol.get("method_version") == WINDOWS_V6_METHOD else 20
+    if type(block) is not int or not 1 <= block <= last:
+        raise ValueError(f"composition interleaving block must be between 1 and {last}")
     modes = _INTERLEAVING["odd_block_modes" if block % 2 else "even_block_modes"]
     return tuple(modes)
 
@@ -1052,6 +1053,16 @@ def seeded_order_schedule(protocol: dict[str, Any]) -> list[str]:
     ) != 10:
         raise ValueError("composition order schedule is not balanced")
     return list(schedule)
+
+
+def timing_schedule(protocol: dict[str, Any], *, two_look: bool = False) -> list[str]:
+    """Keep the original twenty orders; only the Windows two-look experiment adds four."""
+    schedule = seeded_order_schedule(protocol)
+    if two_look:
+        if protocol.get("method_version") != WINDOWS_V6_METHOD:
+            raise ValueError("the two-look extension requires Windows v6")
+        schedule.extend(("control-subject", "subject-control", "subject-control", "control-subject"))
+    return schedule
 
 
 def measurement_plan(protocol: dict[str, Any], mode: str) -> dict[str, Any]:
@@ -1562,12 +1573,12 @@ def load_isolated_runtime_pairs(
     protocol: dict[str, Any],
     memory_watchdog_sha256: str | None = None,
     memory_limit_bytes: int | None = None,
-    *, block_count: int | None = None, experimental_rank: bool = False,
+    *, block_count: int | None = None, experimental_rank: bool = False, two_look: bool = False,
 ) -> list[dict[str, Any]]:
     """Load one isolated observation per role for every seeded block."""
     if scenario not in protocol["runtime"]["gated_scenarios"]:
         raise ValueError(f"runtime scenario is not frozen in the protocol: {scenario}")
-    schedule = _paired_schedule(protocol, block_count)
+    schedule = _paired_schedule(protocol, block_count, two_look=two_look)
     slug = scenario.replace("/", "__")
     expected_names = {
         f"block-{block:02d}{suffix}"
@@ -1629,12 +1640,12 @@ def load_compile_pairs(
     protocol: dict[str, Any],
     memory_watchdog_sha256: str | None = None,
     memory_limit_bytes: int | None = None,
-    *, block_count: int | None = None, experimental_rank: bool = False,
+    *, block_count: int | None = None, experimental_rank: bool = False, two_look: bool = False,
 ) -> list[dict[str, Any]]:
     """Load balanced, clean compile observations from isolated targets."""
     if fixture not in protocol["compile"]["fixtures"]:
         raise ValueError(f"compile fixture is not frozen in the protocol: {fixture}")
-    schedule = _paired_schedule(protocol, block_count)
+    schedule = _paired_schedule(protocol, block_count, two_look=two_look)
     expected_names = {
         f"block-{block:02d}{suffix}"
         for block in range(1, len(schedule) + 1)
@@ -2636,9 +2647,9 @@ def evaluate_absolute(
 
 
 
-def _paired_schedule(protocol: dict[str, Any], block_count: int | None) -> list[str]:
+def _paired_schedule(protocol: dict[str, Any], block_count: int | None, *, two_look: bool = False) -> list[str]:
     """Keep final evaluation complete while admitting an explicit collection prefix."""
-    schedule = seeded_order_schedule(protocol)
+    schedule = timing_schedule(protocol, two_look=two_look)
     if block_count is not None:
         if type(block_count) is not int or not 1 <= block_count <= len(schedule):
             raise ValueError("paired prefix block count is invalid")
@@ -2646,9 +2657,9 @@ def _paired_schedule(protocol: dict[str, Any], block_count: int | None) -> list[
     return schedule
 
 
-def _paired_ratios(repetitions, direction, protocol, block_count=None):
+def _paired_ratios(repetitions, direction, protocol, block_count=None, *, two_look=False):
     """Validate the same order and value contracts for final and prefix ratios."""
-    schedule = _paired_schedule(protocol, block_count)
+    schedule = _paired_schedule(protocol, block_count, two_look=two_look)
     if len(repetitions) != len(schedule):
         expected = "twenty" if block_count is None else str(len(schedule))
         raise ValueError(f"paired observations require {expected} seeded blocks")

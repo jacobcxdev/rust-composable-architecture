@@ -1,5 +1,7 @@
 """Test the prospective decision boundary without a native performance capture."""
 
+from contextlib import redirect_stderr, redirect_stdout
+from io import StringIO
 from pathlib import Path
 import sys
 import tempfile
@@ -109,17 +111,17 @@ class RankProductDecisionTests(unittest.TestCase):
             runner.experimental_composition_result(self.directory, timing, self.observations, self.diagnostics)
         self.assert_no_canonical_result()
 
-    def select_single_look(self):
+    def select_look(self, **selection):
         import json
         header = self.directory / "capture.json"
         source = json.loads(header.read_bytes())
-        source["experiment"] = runner.rank_method_identity(single_look=True)
+        source["experiment"] = runner.rank_method_identity(**selection)
         header.write_text(json.dumps(source))
         after = self.directory / "source-identities-after.json"
         after.write_text(json.dumps({**json.loads(after.read_bytes()), "capture_sha256": runner.evidence._sha256(header)}))
 
     def test_single_look_timing_pass_still_requires_the_product_gates(self):
-        self.select_single_look()
+        self.select_look(single_look=True)
         digest = self.seal_timing("pass")
         self.install_product_inputs()
         for passed in (True, False):
@@ -131,7 +133,7 @@ class RankProductDecisionTests(unittest.TestCase):
         self.assert_no_canonical_result()
 
     def test_single_look_inconclusive_cannot_be_read_as_original_or_supply_products(self):
-        self.select_single_look()
+        self.select_look(single_look=True)
         digest = self.seal_timing("inconclusive")
         result = runner.experimental_composition_result(self.directory, digest, {}, {}, single_look=True)
         self.assertEqual((result["decision"], result["release_authorised"], result["product_gates"]),
@@ -145,6 +147,100 @@ class RankProductDecisionTests(unittest.TestCase):
             runner.experimental_composition_result(self.directory, digest, {"candidate-reference": "bad"}, {},
                                                     single_look=True)
         self.assert_no_canonical_result()
+
+    def test_two_look_pass_requires_products_and_distinct_receipt(self):
+        self.select_look(two_look=True)
+        digest = self.seal_timing("pass")
+        self.install_product_inputs()
+        path = self.directory / "experimental-two-look-result.json"
+        for passed in (True, False):
+            with self.subTest(passed=passed), patch.object(
+                products, "load_experimental_products", return_value={"passed": passed}
+            ) as verify_products:
+                result = runner.experimental_composition_result(
+                    self.directory, digest, self.observations, self.diagnostics, two_look=True
+                )
+                self.assertEqual(result["schema"], "experimental-windows-composition-two-look-v1")
+                self.assertEqual(result["decision"], "pass" if passed else "fail")
+                self.assertFalse(result["release_authorised"])
+                self.assertEqual(result["product_gates"], {"passed": passed})
+                runner.write_json(path, result)
+                self.assertEqual(runner.verify_experimental_composition(self.directory, two_look=True), result)
+                self.assertEqual(verify_products.call_count, 2)
+                for other in ({}, {"single_look": True}):
+                    with self.assertRaisesRegex(ValueError, "mixed"):
+                        runner.verify_experimental_composition(self.directory, **other)
+                path.unlink()
+        self.assert_no_canonical_result()
+
+    def test_two_look_terminal_inconclusive_never_verifies_products(self):
+        self.select_look(two_look=True)
+        digest = self.seal_timing("inconclusive")
+        with patch.object(products, "load_experimental_products") as verify_products:
+            result = runner.experimental_composition_result(self.directory, digest, {}, {}, two_look=True)
+            self.assertEqual((result["decision"], result["product_gates"], result["release_authorised"]),
+                             ("inconclusive", None, False))
+            runner.write_json(self.directory / "experimental-two-look-result.json", result)
+            self.assertEqual(runner.verify_experimental_composition(self.directory, two_look=True), result)
+            for seals, diagnostics in (({"candidate-reference": "unexpected"}, {}), ({}, {"x": "unexpected"})):
+                with self.assertRaisesRegex(ValueError, "unexpected products"):
+                    runner.experimental_composition_result(self.directory, digest, seals, diagnostics, two_look=True)
+            verify_products.assert_not_called()
+        self.assert_no_canonical_result()
+
+    def test_two_look_rejects_mixed_receipts_including_dangling_links(self):
+        self.select_look(two_look=True)
+        digest = self.seal_timing("inconclusive")
+        result = runner.experimental_composition_result(self.directory, digest, {}, {}, two_look=True)
+        runner.write_json(self.directory / "experimental-two-look-result.json", result)
+        for name in ("complete.json", "experimental-single-look-result.json", "experimental-rank-result.json"):
+            path = self.directory / name
+            for dangling in (False, True):
+                with self.subTest(name=name, dangling=dangling):
+                    if dangling:
+                        path.symlink_to("absent-result.json")
+                    else:
+                        runner.write_json(path, result)
+                    with self.assertRaisesRegex(ValueError, "mixed"):
+                        runner.verify_experimental_composition(self.directory, two_look=True)
+                    path.unlink()
+
+        two_look = self.directory / "experimental-two-look-result.json"
+        two_look.unlink()
+        two_look.symlink_to("absent-result.json")
+        for selection in ({}, {"single_look": True}, {"two_look": True}):
+            with self.subTest(selection=selection), self.assertRaisesRegex(ValueError, "mixed|redirected"):
+                runner.verify_experimental_composition(self.directory, **selection)
+
+    def test_two_look_cli_requires_an_unambiguous_rank_mode(self):
+        location = str(self.directory)
+        # Invalid capture arguments must stop before reserving output or taking a machine lock.
+        self.enterContext(patch.object(runner, "output_paths", side_effect=AssertionError("unexpected capture")))
+        with patch.object(runner, "qualify") as capture, patch.object(
+            runner, "verify_experimental_composition"
+        ) as replay, redirect_stderr(StringIO()), redirect_stdout(StringIO()):
+            for options in (
+                ["--experimental-two-look", "out", "ref"],
+                ["--experimental-two-look", "--experimental-single-look", "--verify-experimental-rank", location],
+                ["--experimental-two-look", "--experimental-single-look", "--experimental-rank",
+                 "--platform", "windows", "--windows-complete", "out", "ref"],
+            ):
+                with self.subTest(options=options), patch.object(sys, "argv", ["runner", *options]):
+                    try:
+                        status = runner.main()
+                    except SystemExit as error:
+                        status = error.code
+                    self.assertIn(status, (1, 2))
+                    capture.assert_not_called()
+                    replay.assert_not_called()
+            replay.return_value = {"scope": "windows-composition-only", "decision": "inconclusive",
+                                   "controller_revision": "c"*40, "measured_subject_revision": "b"*40,
+                                   "release_authorised": False}
+            with patch.object(sys, "argv", ["runner", "--verify-experimental-rank", location, "--experimental-two-look"]):
+                self.assertEqual(runner.main(), 0)
+            self.assertEqual(replay.call_args.args, (self.directory,))
+            self.assertIs(replay.call_args.kwargs.get("two_look"), True)
+            capture.assert_not_called()
 
     def test_rejection_requires_the_same_real_subject_after_measurement(self):
         import json
