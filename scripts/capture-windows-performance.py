@@ -50,7 +50,7 @@ SHUTDOWN_LIVE_LIMITS = {
     "shutdown/abortive/burst/64": 64,
 }
 RANK_PROTOCOL = "windows-native-rank-experiment-v1"
-SHORT_BUDGET_PROTOCOL = "windows-native-rank-short-budget-v2"
+SHORT_BUDGET_PROTOCOL = "windows-native-rank-short-budget-v3"
 
 
 class PrefixRejected(ValueError):
@@ -509,11 +509,15 @@ def check_completed_row(jq, rules, path):
         raise ValueError(f"completed row exceeded performance limit: {result.stdout.strip()}")
 
 
-def check_prefix(jq, rules, scenario, mode, pairs, normal_repetitions, index, output):
+def check_prefix(jq, rules, scenario, mode, pairs, normal_repetitions, index, output, *, short_budget=False):
     """Stop only proven failures; skip further checks, never launches, for a decided mode."""
     planned = {"normal": normal_repetitions, "allocation": 6}
     observed = {mode: len(data) for mode, data in pairs.items()}
     missing = {mode: (limit - observed[mode]) // 2 for mode, limit in planned.items()}
+    if short_budget:
+        missing = {key: {"reference-candidate": limit // 2 - (observed[key] + 1) // 2,
+                         "candidate-reference": limit // 2 - observed[key] // 2}
+                   for key, limit in planned.items()}
     comparison = subprocess.run([
         jq, "-c", rules + "\nnative_prefix_check(.mode; .missing)",
     ], input=json.dumps({"scenario": scenario, "mode": mode, "missing": missing[mode],
@@ -699,11 +703,12 @@ def capture(binaries, metadata_path, output, timeout, *, keep_going=False, jq=No
                     write_json(raw / f"pair-{mode}-{index:02d}-{repetition:02d}.json", pair)
                     # With odd-sized order strata, a strict measured majority
                     # is the first point at which both lower medians can be > 0.
-                    if (monitor and repetition % 2 == 0
+                    if (monitor and (short_budget or repetition % 2 == 0)
                             and (repetition > repetitions // 2 or (experimental_rank and repetition == 2))
                             and (experimental_rank or not (mode == "allocation" and repetition == repetitions))):
                         try:
-                            monitor = check_prefix(jq, rules, scenario, mode, pairs, normal_repetitions, index, output)
+                            monitor = check_prefix(jq, rules, scenario, mode, pairs, normal_repetitions,
+                                                   index, output, short_budget=short_budget)
                         except PrefixRejected:
                             if not experimental_rank:
                                 raise

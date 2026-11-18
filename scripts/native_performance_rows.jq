@@ -11,7 +11,8 @@ def median:
     end;
 def stratified_ratio($pairs; metric):
   def order_median($order):
-    ([$pairs.observed[] | select(.order == $order) | metric] + $pairs.unseen) | median;
+    ($pairs.unseen | if type == "array" then . else .[$order] end) as $padding
+    | ([$pairs.observed[] | select(.order == $order) | metric] + $padding) | median;
   order_median("reference-candidate") as $ab
   | order_median("candidate-reference") as $ba
   | (($ab * $ba) | sqrt);
@@ -83,12 +84,18 @@ def native_row_with_unseen($after; $windows; $candidate; $unseen):
 def native_row_comparison($after; $windows; $candidate):
   native_row_with_unseen($after; $windows; $candidate; {normal: [], allocation: []});
 
-# The collector supplies validated balanced pairs in the active mode only.
+# A fixed-count capture supplies one missing count for both orders. The
+# short-budget experiment supplies the exact missing count for each order.
+def native_order_padding(limit):
+  if type == "number" then [range(.) | limit]
+  else map_values([range(.) | limit]) end;
+
+# The collector supplies validated alternating pairs in the active mode only.
 # The inactive mode contributes zero to both checks; it is monitored separately.
 def native_prefix_check($mode; $missing_per_order):
   . as $row
   | def bound(limit):
-      ({normal: [0], allocation: [0]} | .[$mode] = [range($missing_per_order) | limit]) as $unseen
+      ({normal: [0], allocation: [0]} | .[$mode] = ($missing_per_order | native_order_padding(limit))) as $unseen
       | native_row_with_unseen($row; true; null; $unseen);
   bound(0) as $lower
   | if $lower.regressed and ($lower.accepted | not) then

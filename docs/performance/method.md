@@ -321,10 +321,13 @@ describe any valid continuation of the enrolled observations; they do not show
 that an omitted process would succeed or what its diagnostics would have been.
 
 For a separate experiment, replace `--experimental-rank` with `--experimental-short-budget`.
-Only the normal scheduler budget measurement changes. After 20 warm-up runs, each process measures 1,024 budget exhaustions instead of 10,000.
+Only the normal scheduler budget uses fewer samples per process. After 20 warm-up runs, each process measures 1,024 budget exhaustions instead of 10,000.
 Each exhaustion still requires 100,000 polls. The allocation workload and all other scenarios stay unchanged.
-The limit stays at 10%. The runner still requires both orders and uses the same stopping rule across ten planned pairs.
-Four pairs from a sensitivity test do not satisfy that rule.
+The limit stays at 10%. The runner still requires both orders and keeps the same final number of planned pairs.
+It can now stop after an odd number of pairs. It counts the missing pairs separately for each run order.
+For example, seven of ten budget pairs leave one reference-first pair and two candidate-first pairs unmeasured.
+The runner stops only when no valid remaining observations can change the decision.
+Four pairs from a sensitivity test do not satisfy the budget rule.
 
 Use this command to replay the separate result:
 

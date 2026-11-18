@@ -9,7 +9,7 @@ import subprocess
 
 
 PROTOCOL = "windows-native-rank-experiment-v1"
-SHORT_BUDGET_PROTOCOL = "windows-native-rank-short-budget-v2"
+SHORT_BUDGET_PROTOCOL = "windows-native-rank-short-budget-v3"
 RESULT = "experimental-rank-result.json"
 SHORT_BUDGET_RESULT = "experimental-short-budget-result.json"
 RULES = Path(__file__).with_name("native_performance_rows.jq")
@@ -26,25 +26,33 @@ def _same(left, right):
     return json.dumps(left, sort_keys=True, allow_nan=False) == json.dumps(right, sort_keys=True, allow_nan=False)
 
 
-def row_bounds(jq, scenario, pairs, planned):
+def row_bounds(jq, scenario, pairs, planned, *, short_budget=False):
     """Use both real order strata and the full comparison's metric directions."""
-    missing = {mode: (planned[mode] - len(data)) // 2 for mode, data in pairs.items()}
     query = RULE_BYTES.decode("utf-8") + '''
-      . as $row | def bound(limit):
-        ($row.missing | map_values([range(.) | limit])) as $unseen
+      . as $row
+      | def missing($mode; $data):
+          ($row.planned[$mode] / 2) as $target
+          | if $row.short_budget then
+              ["reference-candidate", "candidate-reference"]
+              | map(. as $order | {key: ., value: ($target - ([$data[] | select(.order == $order)] | length))})
+              | from_entries
+            else $target - ($data|length)/2 end;
+      def bound(limit):
+        ($row.pairs | with_entries(.value = (missing(.key; .value) | native_order_padding(limit)))) as $unseen
         | native_row_with_unseen($row; true; null; $unseen)
         | . as $result | [.gated_metrics[] | {key: ., value: ($result[.] | if isinfinite then null else . end)}]
         | from_entries;
       def look($mode; $drop):
         ($row.pairs[$mode] | .[:length-$drop]) as $data
-        | if ($data|length) < 2 then {monitor:true}
+        | if ([$data[].order] | unique | length) < 2 then {monitor:true}
           else ($row | .pairs = ({normal:[], allocation:[]} | .[$mode]=$data))
-          | native_prefix_check($mode; $row.missing[$mode]+$drop/2) end;
+          | native_prefix_check($mode; missing($mode; $data)) end;
       [bound(0), bound(infinite), native_regression_limit,
-       (["normal","allocation"] | map(. as $m | {key:$m, value:{current:look($m;0),previous:look($m;2)}})
+       (["normal","allocation"] | map(. as $m | {key:$m, value:{current:look($m;0),previous:look($m;if $row.short_budget then 1 else 2 end)}})
                                 | from_entries)]'''
     run = subprocess.run([str(jq), "-c", query],
-                         input=json.dumps({"scenario": scenario, "pairs": pairs, "missing": missing}),
+                         input=json.dumps({"scenario": scenario, "pairs": pairs, "planned": planned,
+                                           "short_budget": short_budget}),
                          capture_output=True, text=True, check=True)
     lower, upper, limit, modes = json.loads(run.stdout)
     if (not lower or lower.keys() != upper.keys() or
@@ -119,7 +127,7 @@ def _pairs(raw, capture, scenario, index, mode, maximum, hashes, short_budget):
         if not _same(pair, expected):
             raise ValueError(f"pair differs from original process measurements: {filename}")
         result.append(pair)
-    if len(result) % 2:
+    if not short_budget and len(result) % 2:
         raise ValueError(f"unbalanced {mode} pairs: {scenario}")
     return result
 
@@ -217,7 +225,7 @@ def build_rank_result(output, capture, jq, *, short_budget=False):
         required = ("normal",) if rejected and proof["mode"] == "normal" else planned.keys()
         if any(observed[mode] < 2 for mode in required):
             raise ValueError(f"missing both real run orders: {scenario}")
-        lower, upper, limit, modes = row_bounds(jq, scenario, pairs, planned)
+        lower, upper, limit, modes = row_bounds(jq, scenario, pairs, planned, short_budget=short_budget)
         for mode in required:
             if modes[mode]["previous"] != {"monitor": True}:
                 raise ValueError(f"observations continued beyond a decisive prefix: {scenario}/{mode}")
@@ -227,6 +235,10 @@ def build_rank_result(output, capture, jq, *, short_budget=False):
         if rejected:
             failed = modes[proof["mode"]]["current"].get("lower_bounds", {})
             missing = {k: (planned[k] - observed[k]) // 2 for k in planned}
+            if short_budget:
+                missing = {key: {order: maximum // 2 - sum(pair["order"] == order for pair in pairs[key])
+                                 for order in ("reference-candidate", "candidate-reference")}
+                           for key, maximum in planned.items()}
             expected_proof = {"complete": False, "scenario": scenario, "row_index": index,
                               "mode": proof["mode"], "method": "zero-filled order-stratified paired medians",
                               "regression_limit": limit, "planned_pairs": planned,

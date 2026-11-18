@@ -24,7 +24,7 @@ class RankCaptureTests(unittest.TestCase):
         self.names = self.capture.load_scenarios()
         self.calls = []
 
-    def collect(self, *, reject=False, budget_tail=False, experimental_rank=True, first_launch=None, **kwargs):
+    def collect(self, *, reject=False, budget_p99=None, experimental_rank=True, first_launch=None, **kwargs):
         clock = 1000
         def run(command, stem, env, *_):
             nonlocal clock
@@ -44,8 +44,8 @@ class RankCaptureTests(unittest.TestCase):
                 v = self.fixture.measurement(name, n, n * self.capture.operations_per_sample(name))
                 if name == "deterministic/budget":
                     v["task_wakes"] = v["operations"]
-                    if budget_tail and key == "candidate_deterministic_normal":
-                        v["latency_ns"]["p99"] *= 2
+                    if budget_p99 and key == "candidate_deterministic_normal":
+                        v["latency_ns"]["p99"] = budget_p99(int(stem.name.rsplit("-", 1)[1]))
                 if reject and key.startswith("candidate"):
                     v["task_wakes"] *= 2
                 if "RCA_DHAT_FILE" in env:
@@ -72,7 +72,7 @@ class RankCaptureTests(unittest.TestCase):
         result = self.collect(short_budget=True)
         self.assertFalse(result["qualification"])
         self.assertEqual(result["numerical_decision"], "pass")
-        self.assertEqual(result["protocol"], "windows-native-rank-short-budget-v2")
+        self.assertEqual(result["protocol"], "windows-native-rank-short-budget-v3")
         self.assertFalse((self.out / "experimental-rank-result.json").exists())
         self.assertNotEqual(self.replay().returncode, 0)
         replay = self.replay(short_budget=True)
@@ -104,16 +104,30 @@ class RankCaptureTests(unittest.TestCase):
         sample.write_text(json.dumps(value))
         self.assertIn("full poll budget", self.replay(short_budget=True).stderr)
 
-    def test_short_budget_rejects_a_tail_only_regression(self):
+    def test_short_budget_rejects_a_tail_only_regression_at_seven(self):
         # Exercise only this row; the full manifest and subprocess replay are tested above.
         self.names = ["deterministic/budget"]
         with patch.object(self.capture, "load_scenarios", return_value=self.names):
-            result = self.collect(short_budget=True, budget_tail=True)
+            result = self.collect(short_budget=True, budget_p99=lambda n: 30 if n == 1 else 36)
             self.assertEqual(result["numerical_decision"], "reject")
             row, = result["rows"]
-            self.assertEqual(row["observed_pairs"], {"normal": 6, "allocation": 0})
+            self.assertEqual(row["observed_pairs"], {"normal": 7, "allocation": 0})
             self.assertEqual(row["planned_pairs"]["normal"], 10)
             self.assertGreater(row["lower_bounds"]["p99_ratio"], 1.1)
+            proof_path = self.out / "prefix-rejection.json"
+            proof = json.loads(proof_path.read_bytes())
+            self.assertEqual(proof["missing_per_order"]["normal"], {"reference-candidate": 1, "candidate-reference": 2})
+            proof["missing_per_order"]["normal"] = 1
+            proof_path.write_text(json.dumps(proof))
+            with self.assertRaisesRegex(ValueError, "invalid or reversible"):
+                self.capture.load_rank_evidence().verify_rank_result(self.out, self.capture, shutil.which("jq"), short_budget=True)
+
+    def test_short_budget_passes_at_seven_without_omitting_later_allocation_pairs(self):
+        self.names = ["deterministic/budget"]
+        with patch.object(self.capture, "load_scenarios", return_value=self.names):
+            result = self.collect(short_budget=True, budget_p99=lambda n: 60 if n == 1 else 30)
+            self.assertEqual(result["numerical_decision"], "pass")
+            self.assertEqual(result["rows"][0]["observed_pairs"], {"normal": 7, "allocation": 4})
 
     def test_positive_stops_launches_but_retains_diagnostics_and_every_row(self):
         result = self.collect()
