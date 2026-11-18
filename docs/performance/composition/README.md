@@ -108,6 +108,21 @@ It checks both executables against a trusted enrolment record kept outside the c
 It then runs both workload listings and builds all four candidate executables in an empty target.
 The cache never supplies a candidate executable, a timed cold build or a measurement.
 
+### Experimental cold builds
+
+The [cold-build portfolio](../../../scripts/composition_compile_portfolio.py) checks four consumers with two empty Cargo targets per comparison role.
+The direct, manual-composition and scoped consumers share a dependency graph.
+The first command builds their common dependencies from scratch.
+Each subsequent command checks one consumer for the first time.
+The macro consumer starts from a separate empty target because its compiler inputs differ.
+All commands use one compiler job with incremental compilation disabled.
+
+For each of the first three consumers, the report adds the common build time to that consumer's first check.
+This sum is not the elapsed time of a standalone Cargo command.
+The macro time comes from one cold command.
+The portfolio checks which compiler outputs Cargo reused. It does not decide whether a release passes.
+The release route below still measures each consumer from scratch.
+
 ### Early-stop Windows capture
 
 Use this route for a release performance check on the qualified Windows configuration.
