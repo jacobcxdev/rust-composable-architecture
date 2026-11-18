@@ -250,6 +250,39 @@ Only the fixed-count comparator applies reviewed exceptions. The early-stop rout
 Keep the complete output directory together when transferring it to the review checkout.
 Then run `scripts/compare-performance.sh <capture>/reference.json <capture>/candidate.json`.
 
+### Count allocations without recording their stacks
+
+The default allocator captures a call stack for each allocation. Keep that build for the required asynchronous-effect profile.
+For a focused comparison, the native tool can count allocations, allocated bytes and peak live bytes without capturing their stacks.
+This option does not change the release limits, sample counts or memory guard. It does not issue a release result.
+
+Use the source directory for one role and its matching file inventory from the native build receipt.
+Take the inventory hash from that receipt, not from the unchecked files. Choose `native` or `deterministic` to match the role.
+The command works on macOS and Windows. It requires the original `dhat-0.3.3.crate` from the Cargo cache.
+
+```sh
+python3 scripts/capture-windows-performance.py --allocation-counts stage \
+  SOURCE INVENTORY.json DHAT_ARCHIVE NEW_DIRECTORY --manifest-sha256 INVENTORY_HASH --configuration native
+```
+
+The command prints a receipt hash. It leaves the original source and Cargo cache untouched.
+In the new directory, `source` contains the benchmark and `dhat-0.3.3` contains the measurement-only patch.
+Under the normal build guard, build the `rca-tokio` qualification bench with `--locked --offline --features qualification-dhat --no-run --message-format=json`.
+Keep the target directory outside both source trees. Use a new target or the checked registry-only cache.
+Keep the compiler transcript and the printed receipt hash.
+
+```sh
+python3 scripts/capture-windows-performance.py --allocation-counts check-build \
+  NEW_DIRECTORY BUILD_LOG BINARY --receipt-sha256 RECEIPT_HASH
+python3 scripts/capture-windows-performance.py --allocation-counts check-sample PROFILE.json MEASUREMENT.json
+```
+
+The first check prints the executable hash. Keep that hash with the guarded run receipt.
+Cargo does not report every optimiser flag in its compiler transcript. The build guard must still verify the toolchain and environment.
+The second check compares the three totals from the workload with the single heap record.
+It does not check the number of completed operations, the sibling revision or the timing result. The workload collector still owns those checks.
+An empty stack cannot identify an allocation site. Never use this profile in place of the detailed support profile.
+
 ### Early-stop numerical checks
 
 The command and its evidence files retain their original names. The same replay tool can read existing captures.

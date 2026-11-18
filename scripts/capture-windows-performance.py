@@ -2,6 +2,7 @@
 """Capture fixed paired workloads with Windows process counters.
 
 This script consumes eight existing binaries and their source/build receipt.
+Use --allocation-counts --help for separate, opt-in preparation and checks.
 Native rows use default-Core binaries; deterministic rows use test-runtime
 binaries. All 54 scenarios remain required in one paired cohort.
 With jq available, a row whose regression cannot recover stops the remaining
@@ -747,6 +748,9 @@ def capture(binaries, metadata_path, output, timeout, *, keep_going=False, jq=No
 
 def main():
     """Parse one fixed Windows capture request."""
+    if sys.argv[1:2] == ["--allocation-counts"]:
+        import native_allocation_counts
+        return native_allocation_counts.main(sys.argv[2:])
     if sys.argv[1:2] == ["--verify-experimental-rank"]:
         rank_evidence = load_rank_evidence()
         parser = argparse.ArgumentParser(description="Replay experimental evidence; no qualification decision.")
