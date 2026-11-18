@@ -287,6 +287,13 @@ On the fixed-count route, the runner seals these reference-only limits before ev
 If the completed timing data already fails a limit, the runner records the failure before the allocation and size checks.
 That incomplete run cannot pass qualification.
 
+The optional [reference size check](../../../scripts/composition_reference_sizes.py) uses six stripped Windows executables from reference B.
+Before the first use, it checks the original archive against a trusted hash and reconstructs the reference source from the signed commit.
+It also checks the build commands, stripping steps and executable bytes. The cache stays outside Git.
+Each comparison checks the cache against a separate enrolment hash and measures the six reference files again.
+The candidate starts in an empty build directory. The byte limits do not change.
+This check supplies no timing, allocation or cold-build results.
+
 The capture retains the policy, reference observations, derived limits and both
 absolute reports with their hashes. Mac protocols, limits and failed observations
 remain unchanged. The Windows result explicitly states `mac_absolute_qualified: false`.
