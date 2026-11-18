@@ -69,7 +69,7 @@ def _locks(path, digest):
 
 
 def _records(log):
-    rows = [json.loads(line) for line in _regular(log).read_text(encoding="utf-8").splitlines() if line.startswith("{")]
+    rows = [json.loads(line) for line in _regular(log).read_text(encoding="utf-8").splitlines() if line.lstrip().startswith("{")]
     if (not rows or rows[-1].get("reason") != "build-finished" or rows[-1].get("success") is not True
             or sum(r.get("reason") == "build-finished" for r in rows) != 1):
         raise ValueError("missing successful Cargo benchmark build")

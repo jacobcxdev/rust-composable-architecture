@@ -89,7 +89,7 @@ def prepared_runtime(metadata, source, cargo):
             or not executable.is_relative_to(release) or executable != Path(command["runtime_support"]["path"])):
         raise ValueError("runtime executable differs from its qualification build")
     actual = file_record(executable)
-    if actual != command["runtime_support"]:
+    if any(actual[key] != command["runtime_support"][key] for key in ("sha256", "size_bytes")):
         raise ValueError("prepared runtime executable changed")
     return actual
 

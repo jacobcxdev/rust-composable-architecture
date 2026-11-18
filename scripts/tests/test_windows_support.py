@@ -58,11 +58,14 @@ class WindowsSupportTests(unittest.TestCase):
                "command": [str(cargo), "bench", "--locked", "--offline", "-j1", "-p", "rca-tokio",
                            "--bench", "qualification", "--bench", "runtime", "--no-run", "--message-format=json"]}
 
-        def verify(rows):
-            log.write_text("\n".join(map(json.dumps, [*rows, {"reason": "build-finished", "success": True}])))
+        def verify(rows, *, whitespace=False):
+            log.write_text("\n".join(("  " if whitespace and i == 0 else "") + json.dumps(row)
+                                     for i, row in enumerate([*rows, {"reason": "build-finished", "success": True}])))
             cmd["transcript_sha256"] = self.capture.file_record(log)["sha256"]
             return self.capture.prepared_runtime({"commands": [cmd]}, source, cargo)
 
+        self.assertEqual(verify([normal, runtime]), self.capture.file_record(binary))
+        cmd["runtime_support"]["path"] = str(target) + "//runtime.exe"
         self.assertEqual(verify([normal, runtime]), self.capture.file_record(binary))
         for change in ({"fresh": True}, {"executable": str(sibling)}, {"features": ["qualification-dhat"]},
                        {"package_id": "registry+other"}, {"profile": {"opt_level": "0"}}):
@@ -74,7 +77,7 @@ class WindowsSupportTests(unittest.TestCase):
         warm_library = {**normal, "fresh": True, "target": {"kind": ["lib"]}}
         for package_id in (normal["package_id"], "registry+crates.io#syn@2"):
             with self.assertRaisesRegex(ValueError, "reused a compiler unit"):
-                verify([{**warm_library, "package_id": package_id}, normal, runtime])
+                verify([{**warm_library, "package_id": package_id}, normal, runtime], whitespace=True)
         binary.write_bytes(b"not the built image")
         with self.assertRaises(ValueError):
             verify([normal, runtime])
