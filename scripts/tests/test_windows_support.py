@@ -34,6 +34,87 @@ class WindowsSupportTests(unittest.TestCase):
         path.write_text(json.dumps(value))
         return path
 
+    def test_prepared_runtime_needs_the_matching_fresh_sibling_and_sealed_bytes(self):
+        source = self.root.resolve() / "candidate-deterministic"
+        target = self.root.resolve() / "target-candidate-deterministic" / "release"
+        target.mkdir(parents=True)
+        binary, sibling = target / "runtime.exe", target / "qualification.exe"
+        binary.write_bytes(b"runtime")
+        sibling.write_bytes(b"paired workload")
+        cargo = self.root / "cargo.exe"
+        package = source / "rca-tokio"
+
+        def row(name, path):
+            return {"reason": "compiler-artifact", "package_id": "path+" + package.as_uri() + "#0.1.0",
+                    "target": {"name": name, "kind": ["bench"], "crate_types": ["bin"],
+                               "src_path": str(package / "benches" / f"{name}.rs")},
+                    "manifest_path": str(package / "Cargo.toml"), "fresh": False, "profile": {"test": True},
+                    "features": [], "executable": str(path), "filenames": [str(path)]}
+
+        normal, runtime = row("qualification", sibling), row("runtime", binary)
+        log = self.root.resolve() / "combined.jsonl"
+        cmd = {"binary_role": "candidate_deterministic_normal", "cargo_artifact": normal, "transcript": str(log),
+               "runtime_support": self.capture.file_record(binary),
+               "command": [str(cargo), "bench", "--locked", "--offline", "-j1", "-p", "rca-tokio",
+                           "--bench", "qualification", "--bench", "runtime", "--no-run", "--message-format=json"]}
+
+        def verify(rows):
+            log.write_text("\n".join(map(json.dumps, [*rows, {"reason": "build-finished", "success": True}])))
+            cmd["transcript_sha256"] = self.capture.file_record(log)["sha256"]
+            return self.capture.prepared_runtime({"commands": [cmd]}, source, cargo)
+
+        self.assertEqual(verify([normal, runtime]), self.capture.file_record(binary))
+        for change in ({"fresh": True}, {"executable": str(sibling)}, {"features": ["qualification-dhat"]},
+                       {"package_id": "registry+other"}, {"profile": {"opt_level": "0"}}):
+            with self.subTest(change=change), self.assertRaises(ValueError):
+                verify([normal, {**runtime, **change}])
+        for rows in ([normal], [runtime, runtime], [runtime, normal, runtime]):
+            with self.assertRaises(ValueError):
+                verify(rows)
+        warm_library = {**normal, "fresh": True, "target": {"kind": ["lib"]}}
+        for package_id in (normal["package_id"], "registry+crates.io#syn@2"):
+            with self.assertRaisesRegex(ValueError, "reused a compiler unit"):
+                verify([{**warm_library, "package_id": package_id}, normal, runtime])
+        binary.write_bytes(b"not the built image")
+        with self.assertRaises(ValueError):
+            verify([normal, runtime])
+
+    def test_prepared_runtime_rejects_unpinned_support_before_building(self):
+        args = self.inputs()
+        args.use_prepared_runtime = True
+        monitor, commands = self.capture_fixture(args)
+        with self.assertRaisesRegex(ValueError, "pinned Git-verified"):
+            self.run_capture_fixture(args, monitor)
+        self.assertEqual(commands, [])
+
+    def test_prepared_runtime_skips_only_its_build_and_runs_all_rows(self):
+        args = self.inputs()
+        args.use_prepared_runtime = True
+        args.source_build_sha256 = self.capture.file_record(args.metadata)["sha256"]
+        metadata, manifest, tools = self.validate(args)
+        metadata["git_source_verification"] = {}
+        binary = self.root / "prepared-runtime.exe"
+        binary.write_bytes(b"compiled alongside qualification")
+        monitor, commands = self.capture_fixture(args)
+        run = monitor.run.side_effect
+
+        def run_with_runtime_rows(command, destination, source, env):
+            run(command, destination, source, env)
+            if command[0] == str(binary):
+                destination.write_text("suite  fastest │ slowest │ median │ mean │ samples │ iters\n" + "".join(
+                    f"├─ {name}  1 ns │ 3 ns │ 2 ns │ 2 ns │ 50 │ 50\n" for name in self.capture.RUNTIME_ROWS))
+
+        monitor.run.side_effect = run_with_runtime_rows
+        with patch.object(self.capture, "validate_inputs", return_value=(metadata, manifest, tools)), \
+                patch.object(self.capture, "prepared_runtime", return_value=self.capture.file_record(binary)):
+            result = self.run_capture_fixture(args, monitor)
+        self.assertEqual([c[c.index("--bench") + 1] for c, _ in commands if c[1] == "bench"],
+                         ["effects", "observation", "store_actor", "deterministic"])
+        self.assertIn([str(binary), "--bench", "--color", "never", "--sample-count", "50", "--max-time", "0.5"],
+                      [c for c, _ in commands])
+        self.assertEqual(len(result["divan"]["runtime"]["rows"]), 18)
+        self.assertEqual(result["divan"]["runtime"]["prepared_by"], "candidate_deterministic_normal")
+
     def inputs(self):
         source = self.root / "source"
         source.mkdir()

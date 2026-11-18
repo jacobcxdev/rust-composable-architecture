@@ -18,6 +18,7 @@ import struct
 import sys
 import time
 
+import composition_registry_seed
 import composition_runner as runner
 import windows_strip
 from windows_process import WindowsProcessApi, validate_arguments, wait_for_empty_job
@@ -29,6 +30,10 @@ BENCHES = (("rca-core", "effects"), ("rca-core", "observation"),
            ("rca-core", "store_actor"), ("rca-test", "deterministic"),
            ("rca-tokio", "runtime"))
 CONTENTION = tuple(f"external_commit/multi/{count}_producers/saturated" for count in (4, 8))
+RUNTIME_ROWS = {"cancellation_churn", "current_action_round_trip", "current_effect_round_trip",
+                "multi_action_round_trip", "multi_effect_round_trip", "observation_round_trip",
+                "query_round_trip", "saturated_mailbox", "shutdown", "timer_wake",
+                *(f"{family}/{n}" for family in ("concurrent_producers", "independent_stores") for n in (1, 2, 4, 8))}
 
 
 def read_json(path):
@@ -47,6 +52,45 @@ def checked_file(record):
     actual = file_record(record["path"])
     if actual["sha256"] != record["sha256"]:
         raise ValueError(f"file hash changed: {record['path']}")
+    return actual
+
+
+def prepared_runtime(metadata, source, cargo):
+    """Accept the runtime bench only from the verified qualification build in this capture."""
+    commands = [row for row in metadata["commands"] if row["binary_role"] == "candidate_deterministic_normal"]
+    expected = [str(cargo), "bench", "--locked", "--offline", "-j1", "-p", "rca-tokio",
+                "--bench", "qualification", "--bench", "runtime", "--no-run", "--message-format=json"]
+    if len(commands) != 1 or commands[0]["command"] != expected or not commands[0].get("runtime_support"):
+        raise ValueError("missing the pinned joint runtime and qualification build")
+    command = commands[0]
+    log = Path(command["transcript"])
+    if file_record(log)["sha256"] != command["transcript_sha256"]:
+        raise ValueError("joint runtime build transcript changed")
+    units = [row for row in composition_registry_seed._records(log) if row["reason"] == "compiler-artifact"]
+    if any(row["fresh"] is not False for row in units):
+        raise ValueError("joint build reused a compiler unit")
+    rows = [row for row in units if row["target"]["kind"] == ["bench"]]
+    normal = command["cargo_artifact"]
+    runtime = [row for row in rows if row["target"]["name"] == "runtime"]
+    if len(rows) != 2 or rows.count(normal) != 1 or normal["target"]["name"] != "qualification" or len(runtime) != 1:
+        raise ValueError("expected two freshly compiled sibling benchmarks")
+    row = runtime[0]
+    package = source / "rca-tokio"
+    executable = Path(row["executable"])
+    sibling = Path(normal["executable"])
+    release = next((p for p in sibling.parents if p.name == "release"), None)
+    if (row["features"] != [] or row["target"]["crate_types"] != ["bin"]
+            or row["profile"] != normal["profile"] or row["package_id"] != normal["package_id"]
+            or not row["package_id"].startswith("path+" + package.as_uri() + "#")
+            or Path(row["manifest_path"]) != package / "Cargo.toml"
+            or Path(row["target"]["src_path"]) != package / "benches/runtime.rs"
+            or row["executable"] not in row["filenames"] or executable == sibling
+            or executable != executable.resolve(strict=True) or release is None
+            or not executable.is_relative_to(release) or executable != Path(command["runtime_support"]["path"])):
+        raise ValueError("runtime executable differs from its qualification build")
+    actual = file_record(executable)
+    if actual != command["runtime_support"]:
+        raise ValueError("prepared runtime executable changed")
     return actual
 
 
@@ -293,6 +337,11 @@ def capture(args):
     metadata, manifest, tools = validate_inputs(source, args.source_manifest, args.metadata, args.tools,
                                                args.candidate_normal, args.candidate_allocation,
                                                args.candidate_revision, source_build_sha256=getattr(args, "source_build_sha256", None))
+    runtime = None
+    if getattr(args, "use_prepared_runtime", False):
+        if not getattr(args, "source_build_sha256", None) or "git_source_verification" not in metadata:
+            raise ValueError("prepared runtime needs a pinned Git-verified split build")
+        runtime = prepared_runtime(metadata, source, tools["cargo"]["path"])
     strip_tools = windows_strip.preflight(os.environ)
     strip_identities = {name: file_record(path) for name, path in strip_tools.items()}
     controllers = [file_record(Path(path)) for path in (
@@ -300,6 +349,9 @@ def capture(args):
         sys.modules[WindowsProcessApi.__module__].__file__, windows_strip.__file__)]
     inputs = ([file_record(path) for path in (args.metadata, args.source_manifest, args.tools)]
               + controllers + list(strip_identities.values()))
+    if runtime is not None:
+        controllers.append(file_record(composition_registry_seed.__file__))
+        inputs.extend((runtime, controllers[-1]))
     # Validate inherited settings before creating any build target or process.
     base_env = build_environment(dict(os.environ), tools, output / "compile-target")
     host = runner.windows_host()
@@ -359,16 +411,23 @@ def capture(args):
         bench_target = output / "bench-target"
         bench_env = build_environment(dict(os.environ), tools, bench_target)
         for package, bench in BENCHES:
-            build_log = output / f"{bench}-build.jsonl"
-            monitor.run([cargo, "bench", "--locked", "-p", package, "--bench", bench,
-                         "--no-run", "--message-format=json"], build_log, source, bench_env)
-            executable = bench_artifact(build_log, bench, bench_target)
+            if bench == "runtime" and runtime is not None:
+                executable = Path(checked_file(runtime)["path"])
+            else:
+                build_log = output / f"{bench}-build.jsonl"
+                monitor.run([cargo, "bench", "--locked", "-p", package, "--bench", bench,
+                             "--no-run", "--message-format=json"], build_log, source, bench_env)
+                executable = bench_artifact(build_log, bench, bench_target)
             transcript = output / f"{bench}-divan.txt"
             monitor.run([str(executable), "--bench", "--color", "never", "--sample-count", "50",
                          "--max-time", "0.5"], transcript, source, bench_env)
             rows = runner.evidence.parse_divan_transcript(transcript)
             result["divan"][bench] = {"package": package, "executable": file_record(executable),
                                       "transcript": file_record(transcript), "rows": rows}
+            if bench == "runtime" and runtime is not None:
+                if rows.keys() != RUNTIME_ROWS:
+                    raise ValueError("prepared runtime did not report the full benchmark suite")
+                result["divan"][bench]["prepared_by"] = "candidate_deterministic_normal"
 
         stage = "asynchronous-effect-dhat"
         heap = output / "effect-async-dhat.json"
@@ -420,6 +479,8 @@ def main():
         parser.add_argument(f"--{name}", type=Path, required=True)
     parser.add_argument("--candidate-revision", required=True)
     parser.add_argument("--source-build-sha256", help="independently verified Git-backed build receipt hash; required for split-build evidence")
+    parser.add_argument("--use-prepared-runtime", action="store_true",
+                        help="run the runtime benchmark from the candidate's verified joint build")
     args = parser.parse_args()
     if sys.platform != "win32":
         parser.error("native support capture requires Windows")

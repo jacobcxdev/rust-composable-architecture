@@ -359,7 +359,8 @@ The support capture checks the source inventories, build logs and tool identitie
 On Windows, the candidate can build its Tokio runtime benchmarks once for both stages.
 In the original candidate workspace, use the pinned Cargo executable with
 `bench --locked --offline -j1 -p rca-tokio --bench qualification --bench runtime --no-run --message-format=json`
-for the `candidate_deterministic_normal` build. Keep both executables. Before hashing the build receipt,
+for a fresh `candidate_deterministic_normal` build. This option requires a cold target with no reused compiler units.
+Keep both executables. Before hashing the build receipt,
 record the runtime executable's path, SHA-256 and size in bytes as `runtime_support` in that command
 (`path`, `sha256`, `size_bytes`). Pass `--use-prepared-runtime` and `--source-build-sha256` to the support capture.
 It checks that Cargo compiled both benchmarks from the same source with the same profile, then runs the full runtime suite.
