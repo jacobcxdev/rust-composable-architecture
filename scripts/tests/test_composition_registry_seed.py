@@ -4,6 +4,7 @@ import hashlib
 import io
 import json
 from pathlib import Path
+import shutil
 import sys
 import tarfile
 import tempfile
@@ -176,3 +177,61 @@ class RegistrySeedTests(unittest.TestCase):
             self.report([{**reg, "fresh": True}, *self.rows[1:]])
             with self.subTest(file=file), self.assertRaises(ValueError):
                 cache.verify_rebuild(self.log, allowed)
+
+    def native_fixture(self):
+        build = self.root / "native-build"
+        build.mkdir(mode=0o700)
+        donor_role, recipient_role = "candidate-native", "reference-deterministic"
+        donor, recipient = [build / ("target-" + role) for role in (donor_role, recipient_role)]
+        shutil.copytree(self.donor, donor)
+        for role in (donor_role, recipient_role):
+            source = build / role
+            source.mkdir()
+            shutil.copy2(self.lock(self.donor), source / "Cargo.lock")
+            (source / "Cargo.toml").touch()
+            (source / "qualification.rs").touch()
+
+        def transcript(role, registry_fresh):
+            source, target = build / role, build / ("target-" + role)
+            registry = self.artifact(self.identity, "ordinary", self.src, target / self.compiled)
+            bench = self.artifact(self.path_id, "qualification", source / "qualification.rs", target / self.owned)
+            bench.update(manifest_path=str(source / "Cargo.toml"), executable=str(target / self.owned))
+            bench["target"]["kind"] = ["bench"]
+            rows = [{**registry, "fresh":registry_fresh}, bench, {"reason":"build-finished","success":True}]
+            log = build / (role + "-normal-build.jsonl")
+            log.write_text("".join(json.dumps(r)+"\n" for r in rows), encoding="utf-8")
+            return rows, log
+
+        transcript(donor_role, False)
+        return build, donor, recipient, recipient_role, transcript
+
+    def test_native_role_must_rebuild_its_own_qualification_binary(self):
+        build, donor, recipient, role, transcript = self.native_fixture()
+        seed = cache.prepare_native_seed(build, self.home, lock_sha256=self.lock_sha)
+        allowed = cache.seed_native_benchmark(seed, build, role, lock_sha256=self.lock_sha)
+        self.assertFalse((recipient / self.owned).exists())
+        (recipient / self.owned).parent.mkdir(parents=True)
+        (recipient / self.owned).write_bytes(b"separate benchmark")
+        rows, log = transcript(role, True)
+        self.assertEqual(cache.verify_native_rebuild(build, role, allowed), 1)
+        for bad in ({"fresh":True}, {"manifest_path":str(build/"candidate-native/Cargo.toml")},
+                    {"filenames":[str(donor/self.owned)]}, {"executable":str(donor/self.owned)}):
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                log.write_text("".join(json.dumps(r)+"\n" for r in [rows[0], {**rows[1], **bad}, rows[2]]))
+                cache.verify_native_rebuild(build, role, allowed)
+
+    def test_native_seed_rejects_wrong_lock_capture_and_timed_target(self):
+        build, _, recipient, role, _ = self.native_fixture()
+        with self.assertRaises(ValueError):
+            cache.prepare_native_seed(build, self.home, lock_sha256="0"*64)
+        seed = cache.prepare_native_seed(build, self.home, lock_sha256=self.lock_sha)
+        for invalid in ("compile-direct-01-subject", "candidate-native", "../escape", "reference-native-allocation"):
+            with self.subTest(role=invalid), self.assertRaises(ValueError):
+                cache.seed_native_benchmark(seed, build, invalid, lock_sha256=self.lock_sha)
+        with self.assertRaises(ValueError):
+            cache.seed_native_benchmark(seed, build, role, lock_sha256="0"*64)
+        second = self.root / "another-capture"
+        shutil.copytree(build, second)
+        with self.assertRaises(ValueError):
+            cache.seed_native_benchmark(seed, second, role, lock_sha256=self.lock_sha)
+        self.assertFalse(recipient.exists())

@@ -189,6 +189,27 @@ The comparator checks its hash, embedded copy, executable roles and source/toolc
 It retains process output, raw counters, pairs and incomplete evidence after failure.
 It does not retry processes, remove outliers or choose successful subsets.
 
+#### Reuse dependencies during native build preparation
+
+The guarded build controller can share locked crates.io outputs within one capture.
+This option saves build time. It does not reuse RCA code, earlier measurements or compiler outputs for timed cold builds.
+Keep the four source directories and their `target-ROLE` directories separate.
+Use `candidate-native`, `reference-native`, `candidate-deterministic` and `reference-deterministic` as role names.
+For each role, write Cargo's JSON messages to `ROLE-normal-build.jsonl` in the build directory.
+Use lock hashes from the authenticated source inventory, not from unverified local files.
+
+Call the following functions from [the preparation module](../../scripts/composition_registry_seed.py) in that controller:
+
+1. Build the normal `candidate-native` benchmark in an empty target.
+2. Before its DHAT build, call `prepare_native_seed(build, cargo_home, lock_sha256=donor_lock_hash)`.
+3. Before each other normal build, call `seed_native_benchmark(seed, build, role, lock_sha256=role_lock_hash)`. Keep the returned file map.
+4. Build that role with its own source and target. Before its DHAT build, call `verify_native_rebuild(build, role, file_map)`.
+
+If the Cargo directory layout cannot support reuse, the helper leaves the new target empty.
+A hash mismatch or an owned unit from another build fails the check.
+All eight products still require their original source, feature, toolchain and process receipts.
+For an earlier capture, replay with its recorded signed controller. Do not replace its method hash with a newer hash.
+
 After all eight builds pass their source checks, run the guarded capture on Windows.
 For release performance checks on the qualified Windows configuration, use the early-stop option shown here:
 

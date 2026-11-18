@@ -60,8 +60,8 @@ def verify_registry_source(directory, archive, checksum):
     return actual
 
 
-def _locks(target, digest):
-    lock = _regular(target.parent / f"source-{target.name}" / "Cargo.lock")
+def _locks(path, digest):
+    lock = _regular(path)
     if _sha(lock) != digest:
         raise ValueError("benchmark source lock changed")
     return {f"{REGISTRY}#{p['name']}@{p['version']}": p for p in tomllib.loads(lock.read_text(encoding="utf-8"))["package"]
@@ -87,6 +87,10 @@ def _outputs(row):
 
 def verify_rebuild(log, allowed):
     """Reject a warm owned unit or a unit not copied for this build."""
+    return _verify_benchmark(log, allowed, "composition")
+
+
+def _verify_benchmark(log, allowed, name, *, source=None, target=None):
     hits = 0
     benches = 0
     for row in _records(log):
@@ -95,9 +99,19 @@ def verify_rebuild(log, allowed):
         fresh = row.get("fresh")
         if type(fresh) is not bool:
             raise ValueError("Cargo did not report whether a benchmark unit was reused")
-        if row["target"]["name"] == "composition" and "bench" in row["target"]["kind"]:
+        if target is not None and (not row["filenames"] or any(
+                not _regular(Path(p)).is_relative_to(target) for p in row["filenames"])):
+            raise ValueError("native compiler output belongs to another build target")
+        if source is not None and not row["package_id"].startswith(REGISTRY + "#"):
+            if (fresh or not row["package_id"].startswith("path+")
+                    or not _regular(Path(row["manifest_path"])).is_relative_to(source)
+                    or not _regular(Path(row["target"]["src_path"])).is_relative_to(source)):
+                raise ValueError("native build contains a reused or misplaced owned unit")
+        if row["target"]["name"] == name and "bench" in row["target"]["kind"]:
             if fresh or not row.get("executable") or not row["package_id"].startswith("path+"):
-                raise ValueError("the owned composition benchmark did not compile afresh")
+                raise ValueError(f"the owned {name} benchmark did not compile afresh")
+            if target is not None and row["executable"] not in row["filenames"]:
+                raise ValueError("native benchmark executable is not an output of the reported unit")
             benches += 1
         if fresh:
             for file in _outputs(row):
@@ -108,7 +122,7 @@ def verify_rebuild(log, allowed):
                     raise ValueError("Cargo reused a file that no longer matches the sealed copy")
             hits += 1
     if benches != 1:
-        raise ValueError("missing a single freshly compiled composition benchmark")
+        raise ValueError(f"missing a single freshly compiled {name} benchmark")
     return hits
 
 
@@ -131,7 +145,11 @@ def prepare_seed(donor_target, donor_log, cargo_home, *, lock_sha256):
     if log.parts[-3:] != ("candidate-reference", "builds", "control.txt"):
         raise ValueError("unexpected donor benchmark log")
     verify_rebuild(log, {})
-    locks = _locks(donor, lock_sha256)
+    locks = _locks(donor.parent / f"source-{donor.name}" / "Cargo.lock", lock_sha256)
+    return _seal_registry(donor, log, cargo_home, locks)
+
+
+def _seal_registry(donor, log, cargo_home, locks):
     home = _direct(Path(cargo_home))
     checked, entries = {}, {}
     supported = True
@@ -194,7 +212,11 @@ def seed_benchmark(seed, target, *, lock_sha256):
         return {}
     if target == seed.target or target.parent.parent != seed.target.parent.parent:
         raise ValueError("registry units must stay in the same capture")
-    locks = _locks(target, lock_sha256)
+    locks = _locks(target.parent / f"source-{target.name}" / "Cargo.lock", lock_sha256)
+    return _copy_registry(seed, target, locks)
+
+
+def _copy_registry(seed, target, locks):
     allowed = {}
     for unit, (key, files) in seed.units.items():
         if key not in locks:
@@ -212,3 +234,45 @@ def seed_benchmark(seed, target, *, lock_sha256):
                 raise ValueError("registry unit changed since the donor build")
             allowed[dst] = (key, digest)
     return allowed
+
+
+NATIVE_DONOR = "candidate-native"
+NATIVE_RECIPIENTS = {"reference-native", "candidate-deterministic", "reference-deterministic"}
+
+
+def _native_paths(build, role):
+    if role not in NATIVE_RECIPIENTS and role != NATIVE_DONOR:
+        raise ValueError("not a normal native preparation role")
+    build = _direct(Path(build))
+    if os.name == "posix" and (build.stat().st_uid != os.getuid() or build.stat().st_mode & 0o077):
+        raise ValueError("native registry reuse requires a private build directory")
+    return (_direct(build / role), _direct(build / ("target-" + role)),
+            _direct(build / (role + "-normal-build.jsonl")))
+
+
+def verify_native_rebuild(build, role, allowed):
+    """Check the normal benchmark transcript before the DHAT build can change its outputs."""
+    source, target, log = _native_paths(build, role)
+    return _verify_benchmark(log, allowed, "qualification", source=source, target=target)
+
+
+def prepare_native_seed(build, cargo_home, *, lock_sha256):
+    """Seal locked registry units from the first fresh normal native build in this capture."""
+    source, donor, log = _native_paths(build, NATIVE_DONOR)
+    verify_native_rebuild(build, NATIVE_DONOR, {})
+    return _seal_registry(donor, log, cargo_home, _locks(source / "Cargo.lock", lock_sha256))
+
+
+def seed_native_benchmark(seed, build, role, *, lock_sha256):
+    """Copy only same-capture registry units into a new native preparation target."""
+    if role not in NATIVE_RECIPIENTS:
+        raise ValueError("only the other three normal native builds may receive registry units")
+    source, target, _ = _native_paths(build, role)
+    if target.exists():
+        raise ValueError("native preparation target already exists")
+    locks = _locks(source / "Cargo.lock", lock_sha256)
+    if seed is None:
+        return {}
+    if seed.target != _native_paths(build, NATIVE_DONOR)[1]:
+        raise ValueError("native seed belongs to a different capture or donor")
+    return _copy_registry(seed, target, locks)
