@@ -1058,7 +1058,7 @@ def paired_block_hashes(directory, protocol, block, mode, workloads=None):
     return {path.as_posix(): evidence._sha256(directory / path) for path in paths}
 
 
-def collect_rank_timing(protocol, captures, cargo, env, monitor, directory, decide):
+def collect_rank_timing(protocol, captures, cargo, env, monitor, directory, decide, *, single_look=False):
     """Retire a workload only after its paired and independent control gates decide it."""
     if set(captures) != {"candidate-reference", "reference-reference-aa"}:
         raise ValueError("rank capture requires both independent modes")
@@ -1069,7 +1069,7 @@ def collect_rank_timing(protocol, captures, cargo, env, monitor, directory, deci
     seals = {mode: {} for mode in captures}
     capture_hash = evidence._sha256(directory / "capture.json")
     decision = "continue"
-    method = rank_method_identity()
+    method = rank_method_identity(single_look=single_look)
     if json.loads((directory / "capture.json").read_text(encoding="utf-8")).get("experiment") != method:
         raise ValueError("missing or changed prospective method identity before measurement")
     for scenario in protocol["runtime"]["gated_scenarios"]:
@@ -1095,10 +1095,14 @@ def collect_rank_timing(protocol, captures, cargo, env, monitor, directory, deci
                 counts[key] += 1
             gates = decide(directory, protocol, BUDGET, counts, seals)
             if set(gates) != set(counts) or any(row.get("blocks") != counts[key]
-                    or row.get("decision") not in ("continue", "pass", "fail") for key, row in gates.items()):
+                    or row.get("decision") not in (("continue", "pass", "fail", "inconclusive")
+                        if single_look else ("continue", "pass", "fail")) for key, row in gates.items()):
                 raise ValueError("missing or invalid workload decision")
             if any(row["decision"] == "fail" for row in gates.values()):
                 decision = "fail"
+                break
+            if single_look and any(row["decision"] == "inconclusive" for row in gates.values()):
+                decision = "inconclusive"
                 break
             outstanding = {key for key in counts if gates[key]["decision"] == "continue"}
             if not outstanding <= pending:
@@ -1480,7 +1484,7 @@ def verify_pair_products(capture):
         validate_staged_source(staging / "sources" / f"{role}.json")
 
 
-def rank_method_identity():
+def rank_method_identity(*, single_look=False):
     """Pin the collection and replay code before the first experimental measurement."""
     names = ("composition_runner.py", "composition_performance.py", "composition_cold_timing.py",
              "composition_timing_inputs.py", "composition_product_commands.py",
@@ -1490,8 +1494,13 @@ def rank_method_identity():
     if evidence._protocol_sha256(protocol) != evidence.WINDOWS_V6_PROTOCOL_SHA256:
         raise ValueError("experimental rank windows require the frozen Windows v6 protocol")
     windows = {s: evidence.isolated_divan_arguments(protocol, s)[1] for s in protocol["runtime"]["gated_scenarios"]}
-    return {"method": "finite-rank-v3", "runtime_window_seconds": windows,
-            "scripts": {n: evidence._sha256(ROOT / "scripts" / n) for n in names}}
+    method = {"method": "finite-rank-v3", "runtime_window_seconds": windows,
+              "scripts": {n: evidence._sha256(ROOT / "scripts" / n) for n in names}}
+    if single_look:
+        method.update(method="single-look-first-seven-v1",
+                      relative_confidence={"observations_per_order": 7, "upper_rank": 7, "looks": 1},
+                      absolute_reference_blocks=20)
+    return method
 
 
 def verify_rank_git_sources(directory, manifest, expected_controller, expected_subject):
@@ -1527,7 +1536,7 @@ def verify_rank_git_sources(directory, manifest, expected_controller, expected_s
 
 
 def experimental_composition_result(directory, timing_digest, products, diagnostics, *,
-                                    expected_controller=None, expected_subject=None):
+                                    expected_controller=None, expected_subject=None, single_look=False):
     """Recompute a prospective decision from raw evidence; never approve a release."""
     import composition_cold_timing as bounds
     import composition_windows_complete as complete
@@ -1535,7 +1544,7 @@ def experimental_composition_result(directory, timing_digest, products, diagnost
     protocol = evidence.load_protocol(WINDOWS_PROTOCOL)
     policy = complete.load_policy(WINDOWS_COMPLETE_POLICY)
     manifest = json.loads((directory / "capture.json").read_text(encoding="utf-8"))
-    if manifest.get("experiment") != rank_method_identity():
+    if manifest.get("experiment") != rank_method_identity(single_look=single_look):
         raise ValueError("missing or changed prospective method identity")
     revisions = verify_rank_git_sources(directory, manifest, expected_controller, expected_subject)
     after_path = directory / "source-identities-after.json"
@@ -1551,9 +1560,9 @@ def experimental_composition_result(directory, timing_digest, products, diagnost
         raise ValueError("changed experimental timing result")
     timing = json.loads(timing_path.read_text(encoding="utf-8"))
     verify_rank_schedule(directory, protocol, timing)
-    gates = bounds.timing_decisions(directory, protocol, BUDGET, timing["counts"], timing["seals"])
-    decision = ("fail" if any(g["decision"] == "fail" for g in gates.values())
-                else "pass" if gates and all(g["decision"] == "pass" for g in gates.values()) else "continue")
+    gates = bounds.timing_decisions(directory, protocol, BUDGET, timing["counts"], timing["seals"],
+                                    **({"single_look": True} if single_look else {}))
+    decision = bounds._decision([g["decision"] for g in gates.values()]) if gates else "continue"
     if decision == "continue" or decision != timing["decision"] or gates != timing["gates"]:
         raise ValueError("experimental timing decision does not follow from sealed measurements")
     product_report = None
@@ -1572,7 +1581,8 @@ def experimental_composition_result(directory, timing_digest, products, diagnost
             decision = "fail"
     elif diagnostics or products:
         raise ValueError("unexpected products after a decisive timing rejection")
-    return {"schema": "experimental-windows-composition-finite-rank-v3", "decision": decision,
+    return {"schema": ("experimental-windows-composition-first-seven-v1" if single_look
+                       else "experimental-windows-composition-finite-rank-v3"), "decision": decision,
             **revisions, "reference_revision": evidence.RELEASE_BASELINE_REVISION,
             "source_identities_after_sha256": evidence._sha256(after_path),
             "scope": "windows-composition-only", "release_authorised": False,
@@ -1580,26 +1590,31 @@ def experimental_composition_result(directory, timing_digest, products, diagnost
             "diagnostics": diagnostics, "raw_product_sha256": products, "product_gates": product_report}
 
 
-def verify_experimental_composition(directory, *, expected_controller=None, expected_subject=None):
+def verify_experimental_composition(directory, *, expected_controller=None, expected_subject=None, single_look=False):
     """Read an experimental result back without writing a legacy completion receipt."""
-    path = directory / "experimental-rank-result.json"
-    if path.is_symlink() or (directory / "complete.json").exists():
+    original, alternate = (directory / "experimental-rank-result.json", directory / "experimental-single-look-result.json")
+    path, other = (alternate, original) if single_look else (original, alternate)
+    if path.is_symlink() or other.exists() or (directory / "complete.json").exists():
         raise ValueError("mixed or redirected experimental completion receipt")
     claimed = json.loads(path.read_text(encoding="utf-8"))
     actual = experimental_composition_result(directory, claimed["timing_sha256"],
                                               claimed["raw_product_sha256"], claimed["diagnostics"],
-                                              expected_controller=expected_controller, expected_subject=expected_subject)
+                                              expected_controller=expected_controller, expected_subject=expected_subject,
+                                              single_look=single_look)
     if actual != claimed:
         raise ValueError("experimental decision differs from independent replay")
     return actual
 
 
-def collect_experimental_composition(protocol, captures, env, tools, monitor, staging):
+def collect_experimental_composition(protocol, captures, env, tools, monitor, staging, *, single_look=False):
     """Capture real product and diagnostic evidence whenever the complete timing set passes."""
     import composition_cold_timing as bounds
     import composition_windows_absolute as absolute
 
-    timing = collect_rank_timing(protocol, captures, tools["cargo"], env, monitor, staging, bounds.timing_decisions)
+    from functools import partial
+    score = partial(bounds.timing_decisions, single_look=True) if single_look else bounds.timing_decisions
+    timing = collect_rank_timing(protocol, captures, tools["cargo"], env, monitor, staging, score,
+                                 **({"single_look": True} if single_look else {}))
     timing_path = staging / "experimental-timing.json"
     write_json(timing_path, timing)
     digest = evidence._sha256(timing_path)
@@ -1691,10 +1706,12 @@ def validate_interleaved_capture(directory, protocol):
 
 def qualify(output, staging, reference, mode, aa_evidence=None, *, platform_name="macos",
             windows_complete=False, memory_limit_bytes=8 * 1024**3, experimental_rank=False,
-            subject=None, expected_controller=None, expected_subject=None):
+            subject=None, expected_controller=None, expected_subject=None, single_look=False):
     if mode != "candidate-reference" or aa_evidence is not None:
         raise ValueError("composition qualification needs one contemporaneous two-mode capture")
     windows = platform_name == "windows"
+    if single_look and not experimental_rank:
+        raise ValueError("single look requires experimental rank capture")
     if experimental_rank and not (windows and windows_complete):
         raise ValueError("experimental rank capture requires complete Windows qualification")
     if not experimental_rank and any(v is not None for v in (subject, expected_controller, expected_subject)):
@@ -1789,7 +1806,7 @@ def qualify(output, staging, reference, mode, aa_evidence=None, *, platform_name
             **({"measured_subject": candidate} if experimental_rank else {})) for item in modes}
         write_json(staging / "capture.json", {
             "protocol_sha256": evidence._protocol_sha256(protocol), "controller": controller, "host": host,
-            **({"experiment": rank_method_identity(), "measured_subject": candidate, "control": control}
+            **({"experiment": rank_method_identity(single_look=single_look), "measured_subject": candidate, "control": control}
                if experimental_rank else {}),
             "modes": {item: {name: evidence._sha256(staging / item / name)
                              for name in ("inputs.json", "plan.json")} for item in modes},
@@ -1804,7 +1821,8 @@ def qualify(output, staging, reference, mode, aa_evidence=None, *, platform_name
             write_json(capture["staging"] / "metadata.json", capture["metadata"])
             evidence.validate_protocol_sources(capture["staging"], capture["metadata"], protocol)
         if experimental_rank:
-            rank_evidence = collect_experimental_composition(protocol, captures, env, tools, monitor, staging)
+            rank_evidence = collect_experimental_composition(protocol, captures, env, tools, monitor, staging,
+                                                             **({"single_look": True} if single_look else {}))
             check_host_unchanged(host, monitor)
             after_controller = source_identity(ROOT)
             after_subject = rank_subject(subject, after_controller, controller["revision"], candidate["revision"])
@@ -1813,7 +1831,7 @@ def qualify(output, staging, reference, mode, aa_evidence=None, *, platform_name
                 "control": source_identity(reference, reference=True),
             })
             result = experimental_composition_result(staging, *rank_evidence, expected_controller=controller["revision"],
-                                                     expected_subject=candidate["revision"])
+                                                     expected_subject=candidate["revision"], single_look=single_look)
             if result["decision"] == "fail":
                 for capture in captures.values():
                     retain_runtime_products(capture)
@@ -1842,7 +1860,7 @@ def qualify(output, staging, reference, mode, aa_evidence=None, *, platform_name
     if experimental_rank:
         if result["capture_sha256"] != capture_hash:
             raise ValueError("experimental capture manifest changed")
-        write_json(staging / "experimental-rank-result.json", result)
+        write_json(staging / ("experimental-single-look-result.json" if single_look else "experimental-rank-result.json"), result)
         publish(staging, output)
         return 0 if result["decision"] == "pass" else 1
     if passed["reference-reference-aa"]:
@@ -2824,6 +2842,8 @@ def main():
                         help="Windows captures paired gates only; Darwin absolute gates remain separate")
     parser.add_argument("--windows-complete", action="store_true",
                         help="add Windows allocation and reference-only timing/PE gates")
+    parser.add_argument("--experimental-single-look", action="store_true",
+                        help="use only the first seven pairs in each order for relative confidence; keep all absolute gates")
     parser.add_argument("--experimental-rank", action="store_true",
                         help="exercise finite-rank Windows decisions without issuing a release receipt")
     parser.add_argument("--verify-experimental-rank", metavar="DIRECTORY",
@@ -2858,6 +2878,8 @@ def main():
     parser.add_argument("reference", nargs="?")
     args = parser.parse_args()
     try:
+        if args.experimental_single_look and not (args.verify_experimental_rank or args.experimental_rank):
+            raise ValueError("single look requires --experimental-rank or --verify-experimental-rank")
         if args.verify_experimental_rank:
             if (args.output or args.reference or args.windows_complete or args.experimental_rank or args.subject
                     or args.mode != "candidate-reference" or args.memory_limit_gib or args.aa_evidence
@@ -2865,7 +2887,8 @@ def main():
                 raise ValueError("experimental readback cannot run a capture")
             decision = verify_experimental_composition(Path(args.verify_experimental_rank),
                                                       expected_controller=args.expected_controller,
-                                                      expected_subject=args.expected_subject)
+                                                      expected_subject=args.expected_subject,
+                                                      **({"single_look": True} if args.experimental_single_look else {}))
             print(json.dumps({key: decision[key] for key in ("scope", "decision", "controller_revision",
                                                               "measured_subject_revision", "release_authorised")}))
             return 0
@@ -2956,6 +2979,7 @@ def main():
                 **({"platform_name": "windows"} if args.platform == "windows" else {}),
                 **({"windows_complete": True} if args.windows_complete else {}),
                 **({"experimental_rank": True} if args.experimental_rank else {}),
+                **({"single_look": True} if args.experimental_single_look else {}),
                 **({"subject": args.subject, "expected_controller": args.expected_controller,
                     "expected_subject": args.expected_subject} if args.experimental_rank else {}),
                 **({"memory_limit_bytes": (args.memory_limit_gib or 8) * 1024**3}

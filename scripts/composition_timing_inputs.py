@@ -98,7 +98,7 @@ def _source_bindings(manifest, inputs, meta, mode, files):
     controller = manifest["controller"]
     version = manifest.get("experiment", {}).get("method")
     names = ("controller_revision", "measured_subject_revision")
-    if version != "finite-rank-v3":
+    if version not in ("finite-rank-v3", "single-look-first-seven-v1"):
         if ("measured_subject" in manifest or "measured_subject" in inputs or any(k in meta for k in names)
                 or (mode == "candidate-reference" and inputs["subject"] != controller)):
             raise ValueError("legacy timing inputs cannot substitute a separate measured checkout")
@@ -142,9 +142,10 @@ def _identities(directory, protocol):
     experimental = "experiment" in manifest
     if experimental:
         from composition_runner import rank_method_identity
-        if manifest["experiment"] != rank_method_identity():
+        single_look = isinstance(manifest["experiment"], dict) and manifest["experiment"].get("method") == "single-look-first-seven-v1"
+        if manifest["experiment"] != rank_method_identity(single_look=single_look):
             raise ValueError("missing or changed prospective method identity")
-    v3 = manifest.get("experiment", {}).get("method") == "finite-rank-v3"
+    v3 = manifest.get("experiment", {}).get("method") in ("finite-rank-v3", "single-look-first-seven-v1")
     files = set()
     if v3:
         from composition_runner import BUDGET

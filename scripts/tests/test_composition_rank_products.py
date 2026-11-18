@@ -109,6 +109,43 @@ class RankProductDecisionTests(unittest.TestCase):
             runner.experimental_composition_result(self.directory, timing, self.observations, self.diagnostics)
         self.assert_no_canonical_result()
 
+    def select_single_look(self):
+        import json
+        header = self.directory / "capture.json"
+        source = json.loads(header.read_bytes())
+        source["experiment"] = runner.rank_method_identity(single_look=True)
+        header.write_text(json.dumps(source))
+        after = self.directory / "source-identities-after.json"
+        after.write_text(json.dumps({**json.loads(after.read_bytes()), "capture_sha256": runner.evidence._sha256(header)}))
+
+    def test_single_look_timing_pass_still_requires_the_product_gates(self):
+        self.select_single_look()
+        digest = self.seal_timing("pass")
+        self.install_product_inputs()
+        for passed in (True, False):
+            with patch.object(products, "load_experimental_products", return_value={"passed": passed}):
+                result = runner.experimental_composition_result(self.directory, digest, self.observations,
+                                                               self.diagnostics, single_look=True)
+                self.assertEqual(result["decision"], "pass" if passed else "fail")
+                self.assertFalse(result["release_authorised"])
+        self.assert_no_canonical_result()
+
+    def test_single_look_inconclusive_cannot_be_read_as_original_or_supply_products(self):
+        self.select_single_look()
+        digest = self.seal_timing("inconclusive")
+        result = runner.experimental_composition_result(self.directory, digest, {}, {}, single_look=True)
+        self.assertEqual((result["decision"], result["release_authorised"], result["product_gates"]),
+                         ("inconclusive", False, None))
+        path = self.directory / "experimental-single-look-result.json"
+        runner.write_json(path, result)
+        self.assertEqual(runner.verify_experimental_composition(self.directory, single_look=True), result)
+        with self.assertRaisesRegex(ValueError, "mixed"):
+            runner.verify_experimental_composition(self.directory)
+        with self.assertRaisesRegex(ValueError, "unexpected products"):
+            runner.experimental_composition_result(self.directory, digest, {"candidate-reference": "bad"}, {},
+                                                    single_look=True)
+        self.assert_no_canonical_result()
+
     def test_rejection_requires_the_same_real_subject_after_measurement(self):
         import json
         timing = self.seal_timing("fail")

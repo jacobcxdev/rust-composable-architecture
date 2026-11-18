@@ -12,6 +12,26 @@ import composition_runner as runner
 
 
 class RankCaptureTests(unittest.TestCase):
+    def test_single_look_stops_inconclusive_without_an_automatic_retry(self):
+        protocol = runner.evidence.load_protocol(runner.WINDOWS_PROTOCOL)
+        protocol["compile"]["fixtures"] = ["direct"]
+        protocol["runtime"]["gated_scenarios"] = []
+        modes = ("reference-reference-aa", "candidate-reference")
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            captures = {m: dict(roots={}, executables={}, targets=root/m/"targets", paired=root/m/"paired") for m in modes}
+            runner.write_json(root / "capture.json", {"experiment": runner.rank_method_identity(single_look=True)})
+            def gate(_directory, _protocol, _budget, counts, _seals):
+                n = counts["compile/direct"]
+                return {"compile/direct": {"blocks": n, "decision": "continue" if n < 15 else "inconclusive"}}
+            with (patch.object(runner, "execute_pairs") as run, patch.object(runner, "paired_block_hashes", return_value={})):
+                with self.assertRaisesRegex(ValueError, "method identity"):
+                    runner.collect_rank_timing(protocol, captures, "cargo", {}, None, root, gate)
+                result = runner.collect_rank_timing(protocol, captures, "cargo", {}, None, root, gate, single_look=True)
+                self.assertEqual(run.call_count, 30)
+                self.assertEqual((result["decision"], result["counts"]), ("inconclusive", {"compile/direct": 15}))
+                runner.verify_rank_schedule(root, protocol, result)
+
     def test_rank_window_commands_keep_all_nine_original_windows(self):
         protocol = runner.evidence.load_protocol(runner.WINDOWS_PROTOCOL)
         rows = protocol["runtime"]["gated_scenarios"]
