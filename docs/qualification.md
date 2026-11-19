@@ -111,6 +111,18 @@ For a release, use the integrated candidate and the existing [native](performanc
 Reuse a result only when its source, workload, dependencies, configuration, toolchain and host conditions still apply.
 Missing evidence stays open. Never relabel a focused PR comparison as a release result.
 
+Use a release checkout with current Git tags and read access to GitHub through `gh`.
+Before a release capture, check the published baseline:
+
+```sh
+bash scripts/hosted_change_performance.sh check-release-baseline
+```
+
+The command prints the commit only when the published baseline matches all current protocol pins.
+If a pin differs, stop before capture. Review the new reference and enrol its controls without changing the limits.
+Run the command again before accepting release evidence. Use its commit as the reference for the input check.
+Historical replays keep their original reference.
+
 ## Start with the changed behaviour
 
 For a change to typed task names, run the Shared and Local behaviour and allocation tests together.

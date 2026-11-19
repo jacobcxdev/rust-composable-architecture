@@ -39,13 +39,7 @@ jobs:
               env:
                   GH_TOKEN: ${{ github.token }}
               run: |
-                  tag=$(gh release list --repo "$GITHUB_REPOSITORY" --exclude-drafts --exclude-pre-releases --limit 1 --json tagName --jq '.[0].tagName // ""')
-                  if [[ -z "$tag" ]]; then
-                      release=ab99e19ca772086f11e0a855f840f5cf9fae5d7f
-                  else
-                      [[ "$tag" =~ ^v?[0-9]+\.[0-9]+\.[0-9]+$ ]]
-                      release=$(git rev-parse --verify "refs/tags/$tag^{commit}")
-                  fi
+                  release=$(bash scripts/hosted_change_performance.sh release-base)
                   echo "PERF_RELEASE=$release" >> "$GITHUB_ENV"
 
             - name: Select affected consumer workloads

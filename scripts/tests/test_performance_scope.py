@@ -2,7 +2,9 @@
 
 import json
 from contextlib import contextmanager
+import os
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -10,6 +12,7 @@ import unittest
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+import composition_runner as composition
 import performance_scope as scope
 
 
@@ -142,6 +145,136 @@ class ScopeTests(unittest.TestCase):
                     )
                     self.assertNotEqual(result.returncode, 0)
                     self.assertEqual(result.stdout, b"")
+
+
+class ReleaseBaselineTests(unittest.TestCase):
+    bootstrap = "ab99e19ca772086f11e0a855f840f5cf9fae5d7f"
+    repository = "jacobcxdev/rust-composable-architecture"
+
+    def setUp(self):
+        self.repo = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        git = ["git", "-C", self.repo]
+        subprocess.run([*git, "init", "-q"], check=True)
+        tree = subprocess.check_output([*git, "mktree"], input="", text=True).strip()
+        identity = "Fixture <test@example.invalid> 1000000000 +0000"
+        self.commit = subprocess.check_output(
+            [*git, "hash-object", "-t", "commit", "-w", "--stdin"], text=True,
+            input=f"tree {tree}\nauthor {identity}\ncommitter {identity}\n\nrelease fixture\n",
+        ).strip()
+        scripts = self.repo / "scripts"
+        scripts.mkdir()
+        for name in ("hosted_change_performance.sh", "composition_runner.py", "composition_performance.py",
+                     "common_outcome_allocations.py", "windows_strip.py"):
+            shutil.copyfile(scope.ROOT / "scripts" / name, scripts / name)
+        protocols = (composition.CURRENT_PROTOCOL, composition.WINDOWS_PROTOCOL, composition.WINDOWS_COMPLETE_POLICY)
+        self.pins = [Path("docs/performance/baseline-revision.txt"),
+                     *(path.relative_to(scope.ROOT) for path in protocols)]
+        for path in self.pins:
+            (self.repo / path).parent.mkdir(parents=True, exist_ok=True)
+        self.pins.append(Path("scripts/composition_performance.py"))
+        self.set_pins(self.bootstrap)
+
+        # Shallow CI checkouts need not contain the actual, signed bootstrap commit.
+        # Substitute just its availability check. Tag creation, peeling and lookup use Git.
+        git_shim = self.repo / "git"
+        git_shim.write_text(f"""#!/bin/sh
+if [ "$#" -eq 3 ] && [ "$1" = cat-file ] && [ "$2" = -e ] && [ "$3" = '{self.bootstrap}^{{commit}}' ]; then
+    exit "${{BOOTSTRAP_EXIT:-0}}"
+fi
+exec "$REAL_GIT" "$@"
+""", encoding="utf-8")
+        git_shim.chmod(0o755)
+
+        gh = self.repo / "gh"
+        gh.write_text("""#!/usr/bin/env python3
+import os, sys
+args = sys.argv[1:]
+repo = os.environ["EXPECTED_REPO"]
+if args[:2] == ["release", "list"]:
+    assert args[args.index("--repo") + 1] == repo
+    assert {"--exclude-drafts", "--exclude-pre-releases", "--jq"} <= set(args)
+    if os.environ.get("FAILED_CALL") == "list":
+        sys.exit(71)
+    print(os.environ["RELEASE_TAG"])
+elif args[:2] == ["api", f'repos/{repo}/git/ref/tags/{os.environ["RELEASE_TAG"]}']:
+    assert args[args.index("--jq") + 1] == ".object.sha"
+    if os.environ.get("FAILED_CALL") == "ref":
+        sys.exit(71)
+    print(os.environ["REMOTE_REF"])
+else:
+    sys.exit(72)
+""", encoding="utf-8")
+        gh.chmod(0o755)
+
+    def resolve(self, mode, *, tag="", remote="", repository=None, failed="", bootstrap_exit=0):
+        env = dict(os.environ, PATH=f"{self.repo}{os.pathsep}{os.environ['PATH']}",
+                   EXPECTED_REPO=repository or self.repository, RELEASE_TAG=tag,
+                   REMOTE_REF=remote, FAILED_CALL=failed, REAL_GIT=shutil.which("git"),
+                   BOOTSTRAP_EXIT=str(bootstrap_exit))
+        env.pop("RUNNER_TEMP", None)
+        env.pop("GITHUB_REPOSITORY", None)
+        if repository:
+            env["GITHUB_REPOSITORY"] = repository
+        return subprocess.run(["bash", "scripts/hosted_change_performance.sh", mode],
+                              cwd=self.repo, env=env, text=True, capture_output=True)
+
+    def annotated_tag(self, revision):
+        tag = "v0.1.0"
+        git = ["git", "-C", self.repo]
+        subprocess.run([*git, "-c", "user.name=Test", "-c", "user.email=test@example.invalid",
+                        "-c", "tag.gpgSign=false", "tag", "-a", tag, revision, "-m", "release"], check=True)
+        return tag, subprocess.check_output([*git, "rev-parse", f"refs/tags/{tag}"], text=True).strip()
+
+    def set_pins(self, revision):
+        for path in self.pins:
+            if path.suffix == ".json":
+                updated = json.dumps({"reference_revision": revision})
+            elif path.suffix == ".py":
+                updated = (scope.ROOT / path).read_text().replace(composition.evidence.RELEASE_BASELINE_REVISION, revision)
+            else:
+                updated = revision + "\n"
+            (self.repo / path).write_text(updated)
+
+    def test_empty_release_list_uses_bootstrap_for_both_modes(self):
+        for mode in ("release-base", "check-release-baseline"):
+            with self.subTest(mode=mode):
+                result = self.resolve(mode)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(result.stdout.strip(), self.bootstrap)
+                self.assertNotEqual(self.resolve(mode, bootstrap_exit=1).returncode, 0)
+
+    def test_verified_annotated_release_peels_to_commit(self):
+        tag, remote = self.annotated_tag(self.commit)
+        self.assertNotEqual(remote, self.commit)
+        self.set_pins(self.commit)
+        for mode in ("release-base", "check-release-baseline"):
+            with self.subTest(mode=mode):
+                result = self.resolve(mode, tag=tag, remote=remote, repository="owner/project")
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(result.stdout.strip(), self.commit)
+
+    def test_stale_reviewed_pins_stop_release_not_feedback(self):
+        tag, remote = self.annotated_tag(self.commit)
+        result = self.resolve("release-base", tag=tag, remote=remote)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), self.commit)
+        self.set_pins(self.commit)
+        for path in self.pins:
+            with self.subTest(path=path):
+                pin = self.repo / path
+                reviewed = pin.read_text()
+                pin.write_text(reviewed.replace(self.commit, self.bootstrap))
+                self.assertNotEqual(self.resolve("check-release-baseline", tag=tag, remote=remote).returncode, 0)
+                pin.write_text(reviewed)
+
+    def test_github_failure_or_changed_remote_tag_never_falls_back(self):
+        tag, remote = self.annotated_tag(self.commit)
+        for mode in ("release-base", "check-release-baseline"):
+            for failed, advertised in (("list", remote), ("ref", remote), ("", self.commit)):
+                with self.subTest(mode=mode, failed=failed, advertised=advertised):
+                    result = self.resolve(mode, tag=tag, remote=advertised, failed=failed)
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertEqual(result.stdout.strip(), "")
 
 
 if __name__ == "__main__":

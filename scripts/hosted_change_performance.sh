@@ -3,6 +3,43 @@
 set -euo pipefail
 
 cd "$(git rev-parse --show-toplevel)"
+if [[ ${1:-} == release-base || ${1:-} == check-release-baseline ]]; then
+    repository=${GITHUB_REPOSITORY:-jacobcxdev/rust-composable-architecture}
+    tag=$(gh release list --repo "$repository" --exclude-drafts --exclude-pre-releases --limit 1 --json tagName --jq '.[0].tagName // ""')
+    if [[ -z "$tag" ]]; then
+        release=ab99e19ca772086f11e0a855f840f5cf9fae5d7f
+    else
+        [[ "$tag" =~ ^v?[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "Unexpected stable release tag: $tag" >&2; exit 1; }
+        remote_object=$(gh api "repos/$repository/git/ref/tags/$tag" --jq .object.sha)
+        local_object=$(git rev-parse --verify "refs/tags/$tag")
+        [[ "$local_object" == "$remote_object" ]] || { echo "Local tag differs from the published release: $tag" >&2; exit 1; }
+        release=$(git rev-parse --verify "refs/tags/$tag^{commit}")
+    fi
+    git cat-file -e "$release^{commit}"
+    if [[ $1 == check-release-baseline ]]; then
+        python3 -B - "$release" <<'PY'
+import json
+from pathlib import Path
+import sys
+
+sys.path.insert(0, "scripts")
+import composition_runner as runner
+
+pins = {
+    "native": Path("docs/performance/baseline-revision.txt").read_text().strip(),
+    "composition validator": runner.evidence.RELEASE_BASELINE_REVISION,
+}
+for path in (runner.CURRENT_PROTOCOL, runner.WINDOWS_PROTOCOL, runner.WINDOWS_COMPLETE_POLICY):
+    pins[path.name] = json.loads(path.read_bytes())["reference_revision"]
+for name, pinned in pins.items():
+    if pinned != sys.argv[1]:
+        sys.exit(f"{name} uses {pinned}, not the published baseline {sys.argv[1]}. Review the reference before qualification.")
+PY
+    fi
+    echo "$release"
+    exit 0
+fi
+
 fixture=tests/performance-profile
 result="${RUNNER_TEMP:?}/performance-feedback"
 base_source="$RUNNER_TEMP/performance-base"
@@ -119,5 +156,5 @@ PY
         fi
         exit "$status"
         ;;
-    *) echo 'usage: hosted_change_performance.sh select|prepare|measure' >&2; exit 2 ;;
+    *) echo 'usage: hosted_change_performance.sh release-base|check-release-baseline|select|prepare|measure' >&2; exit 2 ;;
 esac
