@@ -4,6 +4,113 @@ This guide separates local qualification, hosted CI and publication.
 Results apply only to their recorded source and configuration.
 None of these checks establishes that software has no defects.
 
+## Choose performance evidence for the change
+
+Start with the cost a caller can observe. A one-line change to the Store can affect every dispatch. A guide edit usually affects none.
+Correctness, coverage and packaging keep their own checks. A performance result cannot prove ordering, cancellation safety or shutdown correctness.
+
+| Change | Comparison and decision |
+| --- | --- |
+| Documentation or tests only | Run the applicable documentation or behaviour tests. Skip performance measurements only when the edit changes neither shipped behaviour nor the measurement itself. |
+| Bug fix | Reproduce the bug. Compare the repaired path and its nearest caller with the parent revision. If the fix now completes work the old version skipped, report correctness first. Do not call the extra work a comparable slowdown. |
+| New capability | Compare the existing workload with the capability off. With it on, measure useful work, including setup and cleanup. Give new behaviour an initial cost, not an invented historical result. |
+| Optimisation | Before editing, name the workload, metric and likely trade-off. Compare with the parent. Confirm the gain on a representative host workload before claiming lower latency or higher throughput. |
+| Shared runtime, build or dependency | Include affected consumers and interactions. For a compiler upgrade, run both products on the same compiler. Separately measure unchanged RCA on the old and new compilers to identify the toolchain effect. |
+| Merge to `main` or release | Compare cumulative cost with the last release. Before 0.1.0, use `ab99e19`. Several small regressions can exceed the limit together even though each PR passed. |
+
+### What runs on a pull request
+
+The hosted CI job compares the PR head with its branch point. For the initial metadata-only branch, it uses the agreed product reference.
+On pushes to `main`, the job selects the affected workloads from that push but measures them against the release commit.
+If the previous push is unavailable, selection covers the full difference from the release.
+CI resolves the last published stable GitHub release to its exact commit. Drafts, prereleases and unpublished tags are not baselines.
+
+To see which families a committed change selects, use both full commit IDs:
+
+```sh
+python3 scripts/performance_scope.py --base "$base" --head "$head"
+```
+
+Unknown paths select all families. If a change also affects a caller outside the selection, include that caller in the PR evidence.
+For an extra allocation comparison, pass the affected runtime families to `--families` as in the optimisation example below.
+For a change to native timing or build time, use the H1 check for the affected workload.
+For selected runtime families, CI builds the same downstream profiling program against each product. It compares allocations for the same completed work.
+The job retains the revisions, measurements, compiler and elapsed time. A docs-only skip is not a measured pass.
+A cold-build-only selection has no runtime allocation rows. It needs separate native evidence for a compile-time claim.
+
+| Workload | What to look for |
+| --- | --- |
+| Store dispatch | Allocations per completed action; native latency for an admission or reply change. |
+| Keyed routing | Work per routed action, including replacement and stale identity. |
+| Queue pressure | A full bounded queue must return the unaccepted payload. Measure throughput and end-to-end latency separately under contention. |
+| Cancellation and shutdown | Wait for real work to stop. Short trials can miss a fault that starts only after hundreds of cancellations. |
+| Downstream compilation | Time the caller's complete command from an empty target, not an incremental rebuild. Measure each affected consumer separately. |
+| Combined headless worker | The existing `mixed-pool-shared-ordered` workload fills a one-slot mailbox, replaces workers, cancels work and finishes shutdown. |
+
+Use counts to explain work and native time to measure speed. Neither allocations nor instructions establish energy use.
+A change can save allocations and still make the slowest requests slower. Report both results when they affect callers. Do not average them into one score.
+
+### Native review and release
+
+Use H1 for Windows performance claims. Review the exact source before it runs on the LAN host. Public PR jobs do not dispatch code to H1.
+Keep the existing absolute limits and the 10% relative limit. Before measuring, select the useful work, controls, stopping rule and permitted extension.
+An inconclusive result does not pass. Extend only the affected measurement under its stated rule, or use the established qualification method.
+Do not retry until a favourable result appears.
+
+For a Windows cancellation change, use the two-GiB outer guard and both four-GiB host reserves.
+Pin the build records for the candidate and two independent builds of the reference.
+Before capture, verify the source revisions, image hashes, compiler, workload and build configuration.
+The build bindings name these inputs. A hash of an unchecked bindings file does not verify the builds.
+
+```powershell
+python -B scripts/composition_cancellation_exposure.py capture $output --builds $bindings --builds-sha256 $trustedDigest
+python -B scripts/composition_cancellation_exposure.py replay $output --builds $bindings --builds-sha256 $trustedDigest --capture-sha256 $captureDigest
+```
+
+Keep the capture digest outside the evidence directory. Replay needs that independent pin.
+The screen checks median removal cost over 1,024 complete operations per process. It does not prove p99 latency.
+Use `--witnessed-candidate` only for the deliberate delayed fault, on capture and replay.
+
+For a compiler-facing change, use the same guard and a new output directory outside the checkout.
+Choose the fixture that compiles the affected consumer. For generated child paths, use:
+
+```powershell
+python -B scripts/composition_compile_portfolio.py --base $base --candidate $head --fixture composed-macro --output $output
+```
+
+This comparison starts eight single-job Cargo commands from empty targets, including separate unchanged controls.
+Use the outer guard receipt to verify that all processes stopped normally.
+If the guard cannot retain a receipt for an expected nonzero exit, add `--collect-only` to the cold-build command.
+Exit zero then means only that collection finished. After verifying the guard receipt, read the separate decision:
+
+```powershell
+$screen = Get-Content -Raw -LiteralPath (Join-Path $output 'screen.json') | ConvertFrom-Json
+switch ($screen.decision) {
+    'pass' { 'Selected cold-build screen passed. No release decision.' }
+    'fail' { throw 'Selected cold-build cost exceeded the limit.' }
+    default { throw 'Missing or inconclusive cold-build evidence.' }
+}
+```
+
+Both screens use two run orders. A split decision or unstable control needs further evidence.
+
+If the cold-build screen is inconclusive, keep its original result and its SHA-256 digest.
+For the same fixture and revisions, run the bounded comparison once under the same H1 guard:
+
+```powershell
+python -B scripts/composition_compile_portfolio.py --base $base --candidate $head --fixture composed-macro --output $newOutput --collect-only --confirm $firstScreen --confirm-sha256 $firstDigest
+```
+
+Use a new output directory. The comparison starts fresh. It does not reuse the eight measurements from the first screen.
+It uses the original order and limit for up to 20 blocks. It can stop early when the candidate can no longer pass.
+An early rejection does not establish the cause while the unchanged control remains uncertain.
+Read the saved decision after the guard finishes. An incomplete or inconclusive result does not pass.
+
+The hosted job measures resource use for selected workloads. It does not measure native latency, cold-build time, energy or release readiness.
+For a release, use the integrated candidate and the existing [native](performance/method.md) and [composition](performance/composition/README.md) checks.
+Reuse a result only when its source, workload, dependencies, configuration, toolchain and host conditions still apply.
+Missing evidence stays open. Never relabel a focused PR comparison as a release result.
+
 ## Start with the changed behaviour
 
 For a change to typed task names, run the Shared and Local behaviour and allocation tests together.
@@ -64,6 +171,94 @@ Keep the accompanying source and guard receipts as specified in the [performance
 Replay checks a past measurement. It cannot establish how a changed executable performs.
 If the evidence is missing, inapplicable or uncertain, run the affected qualification on the final candidate.
 Do not substitute a focused test for a release measurement or combine rows from different runs.
+
+## Examples: feature costs, optimisations and compiler upgrades
+
+These examples measure allocations for fixed work. They do not measure elapsed application time, energy use or cold builds.
+Use an isolated Linux runner with a memory limit, sufficient disk space and the locked dependencies available offline.
+On macOS, use the [Cargo memory guard](../CONTRIBUTING.md#build-memory-safety) instead of running this build function.
+
+Set `parent_src` and `candidate_src` to clean checkouts at the exact revisions under review.
+Keep the workload, allocation instrument, target and profile identical for each comparison pair.
+If the workload or instrument changed, first establish a common measurement on both products.
+This Bash function keeps build outputs separate for each revision and compiler:
+
+```bash
+set -euo pipefail
+results=$(mktemp -d)
+measure() {
+    local label=$1 src=$2 tool=$3 profile=$4 features=$5 revision
+    shift 5
+    revision=$(git -C "$src" rev-parse HEAD)
+    (
+        cd "$src"
+        export CARGO_TARGET_DIR="$results/build/$revision/$tool"
+        export RUSTC RUSTDOC
+        RUSTC=$(rustup which --toolchain "$tool" rustc)
+        RUSTDOC=$(rustup which --toolchain "$tool" rustdoc)
+        rustup run "$tool" cargo run --offline --locked -j 1 --profile "$profile" \
+            --manifest-path tests/performance-profile/Cargo.toml --bin rca-performance-profile \
+            --no-default-features --features "$features" -- "$@"
+    ) > "$results/$label.json"
+}
+```
+
+**New feature.** For example, measure 64 completed dispatches with the Cargo feature `diagnostics` absent and present.
+The workload does not install a diagnostic observer. This isolates the cost that existing dispatch callers pay:
+
+```bash
+common=deterministic,allocations
+dispatch=(topology-deterministic 1 0 64)
+measure parent-off "$parent_src" 1.100.0 release "$common" "${dispatch[@]}"
+measure candidate-off "$candidate_src" 1.100.0 release "$common" "${dispatch[@]}"
+measure candidate-on "$candidate_src" 1.100.0 release "$common,diagnostics" "${dispatch[@]}"
+jq -es 'length == 3 and all(.[]; .empty_root_causal_completed == 64 and .owners_released == true)' \
+    "$results"/{parent-off,candidate-off,candidate-on}.json
+jq '.allocations.phases.work | {allocated_blocks, allocated_bytes}' "$results"/{parent-off,candidate-off,candidate-on}.json
+```
+
+Compare parent-off with candidate-off for existing callers. Compare candidate-off with candidate-on for the cost of enabling the feature.
+Next, measure the capability in use. The following two workloads need the Cargo feature in **both** builds.
+Use the debug profile because a normal release build removes the observed checkpoint callbacks.
+
+```bash
+measure disabled "$candidate_src" 1.100.0 dev "$common,diagnostics" diagnostic-disabled 2 64
+measure observed "$candidate_src" 1.100.0 dev "$common,diagnostics" diagnostic-observed 2 64
+jq -e '.mode == "explicit-disabled" and .work_facts.sink_calls == 0' "$results/disabled.json"
+jq -e '.mode == "debug-observed" and .work_facts.sink_calls == 64' "$results/observed.json"
+```
+
+These last two measurements describe the cost of using the debug observer. They do not describe release-mode dispatch.
+If the parent also supports the feature, repeat the enabled case on the parent for a like-for-like comparison.
+
+**Optimisation.** For a dispatch change, name the intended saving before editing, such as fewer allocated blocks for 64 completed actions.
+Use the revised implementation and its parent, not an older release with unrelated changes.
+Build each profiler with the same `deterministic,local,allocations` configuration.
+Pass their absolute executable paths to the PR comparison:
+
+```sh
+python3 scripts/compare_change_resources.py --baseline-bin "$parent_bin" \
+  --candidate-bin "$candidate_bin" --families dispatch
+```
+
+The 10% limit detects adverse changes. Passing it does **not** establish an improvement.
+Compare the reported blocks and bytes with the stated target. For a speed claim, also measure dispatch latency or throughput on the native host.
+
+**Compiler upgrade.** Set `old_rust` and `new_rust` to the full installed compiler versions.
+Select a parent revision that both compilers support. Do not lower the minimum compiler version to force compatibility.
+Keep the previous workload and its Cargo features fixed:
+
+```bash
+measure old-parent "$parent_src" "$old_rust" release "$common" "${dispatch[@]}"
+measure new-parent "$parent_src" "$new_rust" release "$common" "${dispatch[@]}"
+measure new-candidate "$candidate_src" "$new_rust" release "$common" "${dispatch[@]}"
+```
+
+The first pair measures the compiler effect on unchanged RCA. The last pair measures the RCA change on the new compiler.
+Record both compiler versions and both revisions with the results. Do not attribute the difference between old-parent and new-candidate to RCA alone.
+These build directories contain reusable outputs. For a compile-time claim, use separate clean builds under an approved native protocol for each compiler.
+The current H1 protocol pins Rust 1.100.0. Its result does not qualify an unmeasured compiler.
+Retain the small JSON results and discard the temporary build outputs after review.
 
 ## Historical local results
 

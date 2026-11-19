@@ -7,7 +7,12 @@ Link the related issue or accepted design, where applicable.
 
 Describe effects on public APIs, ownership, cancellation, ordering and shutdown.
 State any feature, platform, dependency or migration effects.
-For measured cost changes, include the workload, method and before/after results.
+For performance-sensitive changes, use the [qualification guide](../docs/qualification.md#choose-performance-evidence-for-the-change) and record:
+
+- Workload and target metric; parent and candidate revisions; result, trade-off and any inconclusive measurement.
+- New feature: existing workload with the feature off and on, then the cost of using the new behaviour.
+- Compiler upgrade: unchanged source on both compilers, then both revisions on the new compiler.
+
 If a category does not apply, explain why.
 
 ## Checks and review
