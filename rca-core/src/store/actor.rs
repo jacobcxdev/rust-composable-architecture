@@ -1364,8 +1364,11 @@ impl<State: 'static, Action: 'static, C: Execution<State, Action> + 'static>
             if task.status == TaskStatus::RuntimeDropped {
                 return Turn::empty(false);
             }
-            if !self.timers.is_empty() || !self.task_groups.is_empty() {
+            if !self.task_groups.is_empty() {
                 self.transaction_parts().complete_task(task, &mut launches);
+            } else if !self.timers.is_empty() {
+                // Only a sequence successor needs the completion time.
+                drop(self.timers.remove(task.id));
             }
         }
         // Terminal processing can destroy timer/sequence payloads after the
@@ -3096,7 +3099,7 @@ ordinary_test_items! {
         }
 
         #[test]
-        fn terminal_control_ungrouped_timer_keeps_completion_bookkeeping() {
+        fn terminal_control_retires_ungrouped_timer_without_reading_clock() {
             let tasks = Arc::new(std::sync::Mutex::new(Vec::new()));
             let now_calls = Arc::new(AtomicUsize::new(0));
             let (mut actor, _ingress) = launch_actor(
@@ -3123,7 +3126,7 @@ ordinary_test_items! {
             now_calls.store(0, Ordering::Relaxed);
             let turn = actor.process_control();
             assert!(actor.launch(turn));
-            assert_eq!(now_calls.load(Ordering::Relaxed), 1);
+            assert_eq!(now_calls.load(Ordering::Relaxed), 0);
             assert!(task.is_finished());
             assert!(task.is_cancelled());
             assert!(actor.timers.is_empty());
