@@ -1,0 +1,15 @@
+[package]
+name = "d54-renamed-core"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[workspace]
+
+[dependencies]
+architecture = { package = "rca-core", path = "../../../../rca-core" }
+rca-macros = { path = "../../.." }
+
+[dev-dependencies]
+rca-test = { path = "../../../../rca-test" }
+futures-executor = "0.3.34"

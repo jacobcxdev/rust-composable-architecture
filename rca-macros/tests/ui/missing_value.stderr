@@ -1,0 +1,5 @@
+error: missing `value` dependency option
+ --> tests/ui/missing_value.rs:4:1
+  |
+4 | #[dependency(live = 1)]
+  | ^^^^^^^^^^^^^^^^^^^^^^^

@@ -1,0 +1,3 @@
+# Resolver input only. The canonical package exposes the public `rca` library.
+[dependencies]
+rust-composable-architecture = "0.1"

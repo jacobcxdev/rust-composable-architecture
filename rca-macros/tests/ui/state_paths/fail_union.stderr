@@ -1,0 +1,5 @@
+error: StatePaths can only be derived for a named struct or enum
+ --> tests/ui/state_paths/fail_union.rs:4:1
+  |
+4 | union UnionState {
+  | ^^^^^

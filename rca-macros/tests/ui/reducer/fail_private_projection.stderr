@@ -1,0 +1,11 @@
+error[E0624]: associated function `private` is private
+ --> tests/ui/reducer/fail_private_projection.rs:9:34
+  |
+2 | /     #[rca_macros::reducer(
+3 | |         state(generated(pub struct State { private: String })),
+4 | |         action(supplied(())), body(generated),
+5 | |     )]
+  | |______- private associated function defined here
+...
+9 |       let _ = feature::StatePaths::private();
+  |                                    ^^^^^^^ private associated function

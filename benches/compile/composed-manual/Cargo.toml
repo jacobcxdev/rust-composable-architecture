@@ -1,0 +1,10 @@
+[package]
+name = "rca-compile-composed-manual"
+version = "0.0.0"
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+rca-compile-fixture-support.workspace = true
+rca-core.workspace = true

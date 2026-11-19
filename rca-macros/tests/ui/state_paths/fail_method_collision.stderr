@@ -1,0 +1,13 @@
+error: StatePaths variants `ChildState` and `Child_State` both produce path constructor `child_state`
+ --> tests/ui/state_paths/fail_method_collision.rs:8:5
+  |
+8 |     Child_State(u8),
+  |     ^^^^^^^^^^^
+
+warning: variant `Child_State` should have an upper camel case name
+ --> tests/ui/state_paths/fail_method_collision.rs:8:5
+  |
+8 |     Child_State(u8),
+  |     ^^^^^^^^^^^ help: convert the identifier to upper camel case: `ChildState`
+  |
+  = note: `#[warn(non_camel_case_types)]` (part of `#[warn(nonstandard_style)]`) on by default

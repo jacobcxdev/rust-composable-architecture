@@ -1,0 +1,37 @@
+error: snapshot `redact` cannot control an existing destination; implement Debug on the destination
+  --> tests/ui/snapshot/fail_destination.rs:23:16
+   |
+23 |     #[snapshot(redact)]
+   |                ^^^^^^
+
+error: snapshot `into` supports only named-field source structs; use a manual implementation
+  --> tests/ui/snapshot/fail_destination.rs:27:19
+   |
+27 | #[snapshot(into = Output)]
+   |                   ^^^^^^
+
+error: snapshot `into` supports only named-field source structs; use a manual implementation
+  --> tests/ui/snapshot/fail_destination.rs:30:19
+   |
+30 | #[snapshot(into = Output)]
+   |                   ^^^^^^
+
+error[E0063]: missing field `required` in initializer of `Output`
+ --> tests/ui/snapshot/fail_destination.rs:7:19
+  |
+7 | #[snapshot(into = Output)]
+  |                   ^^^^^^ missing `required`
+
+error[E0560]: struct `Output` has no field named `extra`
+  --> tests/ui/snapshot/fail_destination.rs:13:5
+   |
+13 |     extra: usize,
+   |     ^^^^^ `Output` does not have this field
+   |
+   = note: all struct fields are already assigned
+
+error[E0308]: mismatched types
+  --> tests/ui/snapshot/fail_destination.rs:18:15
+   |
+18 |     required: String,
+   |               ^^^^^^ expected `usize`, found `String`

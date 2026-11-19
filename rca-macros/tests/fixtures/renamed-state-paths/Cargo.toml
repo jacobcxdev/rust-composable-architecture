@@ -1,0 +1,10 @@
+[package]
+name = "renamed-state-paths"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[workspace]
+
+[dependencies]
+renamed_rca = { package = "rust-composable-architecture", path = "../../../../rca", features = ["macros"] }

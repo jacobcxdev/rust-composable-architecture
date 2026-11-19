@@ -1,0 +1,11 @@
+error[E0428]: the name `ActionPaths` is defined multiple times
+ --> tests/ui/action_paths/fail_namespace_collision.rs:7:10
+  |
+5 | struct ActionPaths;
+  | ------------------- previous definition of the type `ActionPaths` here
+6 |
+7 | #[derive(ActionPaths)]
+  |          ^^^^^^^^^^^ `ActionPaths` redefined here
+  |
+  = note: `ActionPaths` must be defined only once in the type namespace of this module
+  = note: this error originates in the derive macro `ActionPaths` (in Nightly builds, run with -Z macro-backtrace for more info)

@@ -1,0 +1,5 @@
+error: rca helper attributes require one option
+ --> tests/ui/action_paths/fail_empty_helper.rs:7:5
+  |
+7 |     #[rca()]
+  |     ^^^^^^^^

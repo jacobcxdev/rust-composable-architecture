@@ -1,0 +1,5 @@
+---
+source: rca-macros/src/snapshot.rs
+expression: expanded.to_string()
+---
+const _ : () = { # [allow (unused_imports , reason = "aliases shield generated bindings from caller constants")] use :: core :: mem :: { drop as __rca_snapshot_field0 } ; impl < 'a > :: rca :: Snapshot for Source < 'a > { type Value = History < String > ; # [doc = "Omitted `task`: Not historical state"] fn snapshot (& self) -> < Self as :: rca :: Snapshot > :: Value { History :: < String > { value : :: core :: convert :: identity :: < String > (own (& self . value)) } } } } ;

@@ -1,0 +1,33 @@
+error[E0521]: borrowed data escapes outside of function
+ --> tests/ui/rc04_action_parent_borrowed.rs
+  |
+  | fn check<'s>(action: &'s str, context: &mut ReduceContext<'_>) {
+  |          --  ------ `action` is only valid in the function body
+  |          |
+  |          lifetime `'s` defined here
+...
+  |     let _ = Reducer::reduce(&mut reducer, &mut 0, &action, context);
+  |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |             |
+  |             `action` escapes the function body here
+  |             argument requires that `'s` must outlive `'static`
+  |
+note: `'static` lifetime requirement from `<ScopeIdentified<ParentState, ParentAction, Parent, Child, StatePath<ParentState, ChildState, Get, GetMut>, ActionPath<ParentAction, ChildAction, Extract, Embed>, Identity, Id> as rca_core::Reducer>::reduce` introduced here
+ --> src/composition/scope.rs
+  |
+  | impl<
+...
+  |     ParentAction: 'static,
+  |                   ^^^^^^^ lifetime requirement introduced here
+...
+  |     ChildAction: 'static,
+  |                  ^^^^^^^ lifetime requirement introduced here
+...
+  |     Embed: Fn(ChildAction) -> ParentAction + Clone + Send + Sync + 'static,
+  |                                                                    ^^^^^^^ lifetime requirement introduced here
+  |     Identity: for<'a> Fn(&'a ChildState) -> &'a Id,
+  |     Id: Eq + core::hash::Hash + Clone + Send + Sync + 'static,
+  |                                                       ^^^^^^^ lifetime requirement introduced here
+...
+  |     fn reduce(
+  |

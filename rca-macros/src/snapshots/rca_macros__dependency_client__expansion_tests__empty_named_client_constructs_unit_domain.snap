@@ -1,0 +1,5 @@
+---
+source: rca-macros/src/dependency_client.rs
+expression: "super::expand(&input).unwrap().to_string()"
+---
+impl Empty { # [doc = r" Constructs explicit endpoint test defaults without using production values."] # [doc = r""] # [doc = r" Unannotated endpoints panic when called, before any returned future is polled."] # [doc = r" Their diagnostics include this construction call site, not the invocation site."] # [doc = r" Override individual endpoints with ordinary struct update syntax."] # [doc = r" Explicit initialisers run in field order."] # [doc = r""] # [doc = r" # Panics"] # [doc = r""] # [doc = r" Panics if an explicit endpoint or member initialiser panics."] # [track_caller] pub fn test_value () -> Self { Self { } } }
