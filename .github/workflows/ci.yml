@@ -20,6 +20,88 @@ env:
     RUST_BACKTRACE: 1
 
 jobs:
+    change-performance:
+        name: Change-specific performance feedback
+        if: github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
+        runs-on: ubuntu-24.04
+        timeout-minutes: 25
+        env:
+            RUSTUP_TOOLCHAIN: 1.100.0
+            PERF_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+            PERF_BASE_TIP: ${{ github.event.pull_request.base.sha }}
+            PERF_PREVIOUS: ${{ github.event.before }}
+        steps:
+            - name: Start the job clock
+              run: date +%s > "$RUNNER_TEMP/performance-feedback-start"
+
+            - name: Checkout the candidate and comparison history
+              uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+              with:
+                  ref: ${{ env.PERF_HEAD }}
+                  fetch-depth: 0
+                  persist-credentials: false
+
+            - name: Resolve the last published stable release
+              env:
+                  GH_TOKEN: ${{ github.token }}
+              run: |
+                  tag=$(gh release list --repo "$GITHUB_REPOSITORY" --exclude-drafts --exclude-pre-releases --limit 1 --json tagName --jq '.[0].tagName // ""')
+                  if [[ -z "$tag" ]]; then
+                      release=ab99e19ca772086f11e0a855f840f5cf9fae5d7f
+                  else
+                      [[ "$tag" =~ ^v?[0-9]+\.[0-9]+\.[0-9]+$ ]]
+                      release=$(git rev-parse --verify "refs/tags/$tag^{commit}")
+                  fi
+                  echo "PERF_RELEASE=$release" >> "$GITHUB_ENV"
+
+            - name: Select affected consumer workloads
+              id: scope
+              run: bash scripts/hosted_change_performance.sh select
+
+            - name: Install the matched Rust compiler
+              if: steps.scope.outputs.runtime != ''
+              uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772
+              with:
+                  toolchain: 1.100.0
+
+            - name: Prepare the independent comparison source
+              if: steps.scope.outputs.runtime != ''
+              run: bash scripts/hosted_change_performance.sh prepare
+
+            - name: Restore profiler dependencies
+              if: steps.scope.outputs.runtime != ''
+              uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+              with:
+                  key: change-profile-dependencies
+                  cache-all-crates: false
+                  workspaces: |
+                      tests/performance-profile -> target
+                      ${{ runner.temp }}/performance-base/tests/performance-profile -> target
+
+            - name: Compare fixed-work allocation costs
+              if: steps.scope.outputs.runtime != ''
+              env:
+                  PERF_RUNTIME: ${{ steps.scope.outputs.runtime }}
+                  PERF_RUNNER: ${{ runner.environment }}
+              run: bash scripts/hosted_change_performance.sh measure
+
+            - name: Record scope and job duration
+              if: always()
+              run: |
+                  result="$RUNNER_TEMP/performance-feedback"
+                  mkdir -p "$result"
+                  seconds=$(( $(date +%s) - $(cat "$RUNNER_TEMP/performance-feedback-start") ))
+                  echo "$seconds" > "$result/elapsed-seconds.txt"
+                  echo "Hosted feedback: ${seconds}s through collection, excluding queue and upload. No H1 timing or release decision." >> "$GITHUB_STEP_SUMMARY"
+
+            - name: Retain the comparison and its inputs
+              if: always()
+              uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+              with:
+                  name: change-performance-${{ github.run_id }}-${{ github.run_attempt }}
+                  path: ${{ runner.temp }}/performance-feedback
+                  retention-days: 7
+
     quality:
         name: Stable quality gate
         runs-on: ubuntu-24.04
@@ -61,6 +143,7 @@ jobs:
               env:
                   PYTHONDONTWRITEBYTECODE: 1
               run: |
+                  python3 -m unittest scripts.tests.test_performance_scope scripts.tests.test_compare_change_resources
                   python3 -m unittest scripts.tests.test_performance_cohort scripts.tests.test_performance_sources
                   python3 -m unittest scripts.tests.test_controlled_cost
                   python3 -m unittest scripts.tests.test_task_fold_profile
