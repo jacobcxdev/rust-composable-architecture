@@ -4,6 +4,10 @@ One observation is not a pass. The caller owns sample selection, signed source
 and host checks, independent controls, and the comparison with release limits.
 """
 
+import argparse
+import ctypes
+import hashlib
+import io
 import json
 import math
 import os
@@ -11,6 +15,10 @@ from pathlib import Path, PureWindowsPath
 import re
 import shutil
 import subprocess
+import sys
+import tarfile
+import tempfile
+import time
 
 import composition_performance as evidence
 import composition_registry_seed as registry
@@ -127,13 +135,13 @@ def _stage(name, cargo, source, targets):
     return package, target, command
 
 
-def _units(log, stage, source, target, shared, graph):
+def _units(log, stage, source, target, shared, graph, *, standalone=False):
     """Require identical common Cargo units, with only the selected leaf rebuilt."""
     expected = source / "benches" / "compile" / stage / "Cargo.toml"
     kind, name = (
         ("lib", "rca_compile_fixture_support") if stage == "support" else ("bin", "rca-compile-" + stage)
     )
-    cold = stage not in LEAVES
+    cold = standalone or stage not in LEAVES
     units = set()
     reused = set()
     manifests = set()
@@ -296,3 +304,239 @@ def capture(monitor, cargo, source, directory, targets, env, fixtures=FIXTURES):
         ):
             raise ValueError("compile portfolio target was replaced during capture")
         shutil.rmtree(targets)
+
+
+_FIRST_ORDER = ("control-a", "control-b", "base", "candidate")
+_ORDERS = (_FIRST_ORDER, tuple(reversed(_FIRST_ORDER)))
+
+
+def screen_cold_pairs(blocks):
+    """Screen two reversed orders. A noisy control or a split result needs wider qualification."""
+    if len(blocks) != 2 or any(
+        set(block) != set(_FIRST_ORDER)
+        or any(type(value) not in (float, int) or not math.isfinite(value) or value <= 0
+               for value in block.values())
+        for block in blocks
+    ):
+        raise ValueError("expected two complete cold-build blocks with positive durations")
+    limit = evidence.REGRESSION_LIMIT
+    ratios = [dict(candidate_over_base=b["candidate"] / b["base"],
+                   control_spread=max(b["control-a"], b["control-b"]) / min(b["control-a"], b["control-b"]))
+              for b in blocks]
+    if any(not math.isfinite(value) for row in ratios for value in row.values()):
+        raise ValueError("cold-build ratio overflow")
+    status = "inconclusive"
+    if all(r["control_spread"] <= limit for r in ratios):
+        if all(r["candidate_over_base"] > limit for r in ratios):
+            status = "fail"
+        elif all(r["candidate_over_base"] <= limit for r in ratios):
+            status = "pass"
+    return {"decision": status, "limit": limit, "ratios": ratios, "release_authorised": False,
+            "metric": "standalone cold Cargo check, including owned Job cleanup"}
+
+
+def _require_outer_guard():
+    """Refuse standalone invocation outside the operator's two-GiB Windows Job."""
+    import windows_process as wp
+
+    api = wp.WindowsProcessApi()
+    if not api.in_job(api.kernel.GetCurrentProcess(), None):
+        raise ValueError("run this comparison inside the reviewed H1 memory guard")
+    limits = wp.JobExtendedLimits()
+    api.checked("QueryInformationJobObject", None, 9, ctypes.byref(limits), ctypes.sizeof(limits), None)
+    flags = limits.BasicLimitInformation.LimitFlags
+    if flags & 0x2200 != 0x2200 or not 0 < limits.JobMemoryLimit <= 2 * 1024**3:
+        raise ValueError("enclosing Windows Job must cap committed memory and kill children on close")
+
+
+def _confirmation_decision(pairs, protocol):
+    """Use the original twenty-block rule. A prefix can rule out a pass, never prove one."""
+    if set(pairs) != {"candidate-reference", "reference-reference-aa"} or len({len(rows) for rows in pairs.values()}) != 1:
+        raise ValueError("expected matched candidate and control blocks")
+    full = len(next(iter(pairs.values()))) == len(evidence.seeded_order_schedule(protocol))
+    score = evidence.paired_ratio_statistics if full else evidence.paired_prefix_bound
+    scores = {mode: score(rows, "maximum", protocol) for mode, rows in pairs.items()}
+    rejected = {mode for mode, result in scores.items()
+                if result and (not result["passed"] if full else result["irrecoverable"])}
+    if "reference-reference-aa" in rejected:
+        decision = "inconclusive"
+    elif "candidate-reference" in rejected:
+        decision = "fail"
+    elif full:
+        decision = "pass"
+    else:
+        return None
+    return dict(decision=decision, statistics=scores, controls_complete=full,
+                control_status=("rejected" if "reference-reference-aa" in rejected
+                                else "passed" if full else "incomplete"),
+                ratios={m: [row["subject"] / row["control"] for row in rows] for m, rows in pairs.items()},
+                metric="standalone cold Cargo check, elapsed time until Cargo exits",
+                release_authorised=False)
+
+
+def _confirm_fixture(fixture, output, tmp, roots, env, cargo, monitor, plan):
+    """Start fresh with the original seeded schedule, command, timer and independent controls."""
+    import composition_runner as runner
+
+    protocol = monitor.protocol
+    schedule = evidence.seeded_order_schedule(protocol)
+    controls = {}
+    for role in ("subject", "control"):
+        controls[role] = tmp / ("independent-" + role)
+        shutil.copytree(roots["base"], controls[role])
+    sources = {"reference-reference-aa": controls, "candidate-reference": {
+        "subject": roots["candidate"], "control": roots["base"]}}
+    if any(key.upper() == "CARGO_BUILD_BUILD_DIR" and val for key, val in env.items()):
+        raise ValueError("ambient Cargo build directory is not permitted in cold confirmation")
+    runner.write_json(output / "confirmation-plan.json", dict(plan, schedule=schedule,
+                      modes=[evidence.interleaved_mode_order(protocol, n) for n in range(1, len(schedule) + 1)],
+                      protocol_sha256=evidence._sha256(runner.WINDOWS_PROTOCOL)))
+    for block, order in enumerate(schedule, 1):
+        pairs = {}
+        for mode in evidence.interleaved_mode_order(protocol, block):
+            if shutil.disk_usage(tmp).free < 24 * 1024**3:
+                raise ValueError("cold-build disk reserve lost")
+            paired = output / mode
+            runner.execute_pairs(protocol, sources[mode], {}, tmp / mode, paired, cargo,
+                                 {**env, "CARGO_NET_OFFLINE": "true"}, monitor,
+                                 blocks=[(block, order)], workloads={f"compile/{fixture}"})
+            pairs[mode] = evidence.load_compile_pairs(paired / "subject", paired / "control",
+                                                      fixture, protocol, block_count=block)
+        decision = _confirmation_decision(pairs, protocol)
+        if decision is not None:
+            base_manifest = runner.source_hashes(roots["base"])
+            if any(runner.source_hashes(path) != base_manifest for path in controls.values()):
+                raise ValueError("independent control sources changed")
+            return dict(decision, blocks_measured=block)
+
+
+def _screen_fixture(fixture, output, tmp, roots, graphs, env, cargo, monitor):
+    """Check both run orders from distinct clean targets and score complete owned Jobs."""
+    blocks = []
+    previous_exit = 0
+    for index, order in enumerate(_ORDERS, 1):
+        block = {}
+        for arm in order:
+            role = "candidate" if arm == "candidate" else "base"
+            source = roots[role]
+            if shutil.disk_usage(output).free < 24 * 1024**3:
+                raise ValueError("cold-build disk reserve lost")
+            with tempfile.TemporaryDirectory(prefix="target-", dir=tmp) as target_path:
+                target = Path(target_path)
+                _, _, command = _stage(fixture, cargo, source, target.parent)
+                log = output / f"{index}-{arm}.txt"
+                monitor.run(command, log, source, {**env, "CARGO_TARGET_DIR": str(target),
+                            "CARGO_BUILD_BUILD_DIR": str(target), "CARGO_INCREMENTAL": "0"})
+                _units(log, fixture, source, target, None, graphs[role], standalone=True)
+                resource = json.loads(log.with_suffix(".resources.json").read_bytes())
+                evidence.validate_windows_resource_counters(resource, expected_kind="compile", rank_cold=True)
+                proc = resource["direct_process"]
+                receipt = resource["process_receipt"]
+                if (not previous_exit <= proc["CreationTime100ns"] < proc["ExitTime100ns"]
+                        or Path(receipt["build_dir"]) != target):
+                    raise ValueError("wrong, repeated or overlapping cold-build process")
+                previous_exit = proc["ExitTime100ns"]
+                block[arm] = receipt["elapsed_seconds"]
+        blocks.append(block)
+    return dict(screen_cold_pairs(blocks), blocks=blocks, orders=_ORDERS)
+
+
+def capture_pr(base, candidate, fixture, output, *, confirm=None, confirm_sha256=None):
+    """Compare trusted local Git objects on H1 under the existing outer memory guard."""
+    import check_windows_performance_inputs as identity
+    import composition_runner as runner
+
+    started = time.monotonic()
+    if sys.platform != "win32" or fixture not in FIXTURES:
+        raise ValueError("the cold-build screen requires Windows and a known fixture")
+    _require_outer_guard()
+    host = runner.windows_host()
+    env, tools = runner.tool_environment(include_capture_tool=False)
+    if "host: x86_64-pc-windows-msvc" not in runner.read([tools["rustc"], "-vV"]).splitlines():
+        raise ValueError("cold-build comparison requires the pinned MSVC toolchain")
+    pins = {name: evidence._sha256(Path(path)) for name, path in tools.items()}
+    protocol = evidence.load_protocol(runner.WINDOWS_PROTOCOL)
+    revisions = {role: identity.signed_source(revision)[0] for role, revision in
+                 (("base", base), ("candidate", candidate))}
+    output = output.absolute()
+    if output != output.resolve() or not output.parent.is_dir() or output.is_relative_to(runner.ROOT):
+        raise ValueError("use a new evidence directory outside the checkout")
+    if shutil.disk_usage(output.parent).free < 24 * 1024**3:
+        raise ValueError("H1 cold builds require 24 GiB of free disk")
+
+    lock = Path(tempfile.gettempdir()) / runner.LOCK.name
+    with runner.machine_lock(lock):
+        output.mkdir()
+        monitor = runner.WindowsMonitor(output / "telemetry", protocol, cargo=tools["cargo"],
+                                        complete=confirm is not None, experimental_rank=confirm is None)
+        with tempfile.TemporaryDirectory(prefix="cold-pr-", dir=output) as tmp:
+            roots = {}
+            graphs = {}
+            manifests = {}
+            for role, revision in (("base", base), ("candidate", candidate)):
+                source = Path(tmp) / role
+                source.mkdir()
+                with tarfile.open(fileobj=io.BytesIO(identity.git("archive", "--format=tar", revision))) as ar:
+                    ar.extractall(source, filter="data")
+                roots[role] = source
+                manifests[role] = runner.source_hashes(source)
+                graphs[role] = locked_graphs(tools["cargo"], source, _environment(source, env), (fixture,))[fixture]
+            # A changed consumer or graph answers another question. Escalate rather
+            # than calling incomparable compiler work a PR improvement.
+            prefixes = (f"benches/compile/{fixture}/", "benches/compile/support/")
+            def workload(role):
+                return {k: v for k, v in manifests[role].items()
+                        if k.startswith(prefixes) or k == "benches/compile/Cargo.toml"}
+            if workload("base") != workload("candidate") or graphs["base"] != graphs["candidate"]:
+                raise ValueError("consumer workload or compiler graph changed: use wider qualification")
+            inputs = dict(fixture=fixture, base=base, candidate=candidate, trees=revisions, host=host, tools=pins)
+            if confirm is not None:
+                raw = confirm.read_bytes()
+                if hashlib.sha256(raw).hexdigest() != confirm_sha256:
+                    raise ValueError("original screen differs from the independently selected SHA-256")
+                previous = json.loads(raw)
+                screened = screen_cold_pairs(previous.get("blocks", []))
+                if (screened["decision"] != "inconclusive" or any(previous.get(k) != v for k, v in
+                        (inputs | screened | {"orders": list(map(list, _ORDERS))}).items())):
+                    raise ValueError("confirmation requires an inconclusive screen for exactly these inputs")
+                result = _confirm_fixture(fixture, output, Path(tmp), roots, env, tools["cargo"], monitor,
+                                          dict(inputs, screen_sha256=confirm_sha256))
+            else:
+                result = _screen_fixture(fixture, output, tmp, roots, graphs, env, tools["cargo"], monitor)
+            if any(runner.source_hashes(src) != manifests[role] for role, src in roots.items()):
+                raise ValueError("measured source changed")
+        runner.check_host_unchanged(host, monitor)
+        if pins != {name: evidence._sha256(Path(path)) for name, path in tools.items()}:
+            raise ValueError("compiler tools changed")
+        result.update(inputs, elapsed_seconds=time.monotonic() - started)
+        runner.write_json(output / "screen.json", result)
+        return result
+
+
+def main(argv=None):
+    """Return a decision exit or, for an enclosing Job, a collection exit."""
+    parser = argparse.ArgumentParser(description="Guarded H1 PR screen; not a release verdict.")
+    parser.add_argument("--base", required=True, help="full independently selected signed baseline commit")
+    parser.add_argument("--candidate", required=True, help="full independently selected signed candidate commit")
+    parser.add_argument("--fixture", required=True, choices=FIXTURES)
+    parser.add_argument("--output", required=True, type=Path, help="new directory for raw transcripts and decision")
+    parser.add_argument("--collect-only", action="store_true",
+                        help="exit zero for any completed measurement; read screen.json after the outer guard exits")
+    parser.add_argument("--confirm", type=Path, metavar="SCREEN_JSON",
+                        help="check an inconclusive fixture again using the original seeded twenty-block rule")
+    parser.add_argument("--confirm-sha256", help="independently recorded hash of the first inconclusive screen")
+    args = parser.parse_args(argv)
+    if bool(args.confirm) != bool(args.confirm_sha256):
+        parser.error("--confirm and --confirm-sha256 must be supplied together")
+    try:
+        verdict = capture_pr(args.base, args.candidate, args.fixture, args.output, confirm=args.confirm,
+                             confirm_sha256=args.confirm_sha256)
+    except (OSError, ValueError, subprocess.SubprocessError) as exc:
+        print(json.dumps({"decision": "inconclusive", "release_authorised": False, "reason": str(exc)}))
+        return 2
+    print(json.dumps(verdict, allow_nan=False))
+    return 0 if args.collect_only else {"pass": 0, "fail": 1, "inconclusive": 2}[verdict["decision"]]
+
+
+if __name__ == "__main__":
+    sys.exit(main())

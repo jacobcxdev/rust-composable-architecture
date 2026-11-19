@@ -256,3 +256,68 @@ class CompilePortfolioTests(unittest.TestCase):
                 {"CARGO_HOME": str(self.out / "cargo-home")},
             )
         self.assertEqual((targets / "sentinel").read_text(), "not owned")
+
+    def test_pr_screen_requires_consistent_orders_and_stable_controls(self):
+        def block(candidate, *, control=10):
+            return {"base": 10, "candidate": candidate, "control-a": 10, "control-b": control}
+
+        for first, second, decision in (
+            (block(10), block(11), "pass"),
+            (block(12), block(13), "fail"),
+            (block(12), block(10), "inconclusive"),
+            (block(12, control=12), block(13), "inconclusive"),
+            (block(10), block(10, control=8), "inconclusive"),
+        ):
+            with self.subTest(first=first, second=second):
+                result = portfolio.screen_cold_pairs([first, second])
+                self.assertEqual(result["decision"], decision)
+                self.assertIs(result["release_authorised"], False)
+        for bad in ([block(1)], [block(float("inf")), block(1)], [block(1), {}]):
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                portfolio.screen_cold_pairs(bad)
+
+    def test_pr_screen_never_accepts_shared_graph_work_as_standalone(self):
+        name = "composed-manual"
+        args = (self.out / f"{name}.txt", name, self.source, self.targets / "shared",
+                None, self.graphs[name])
+        with self.assertRaisesRegex(ValueError, "Cargo reuse"):
+            portfolio._units(*args, standalone=True)
+        data = [json.loads(line) for line in args[0].read_text().splitlines()]
+        for row in data:
+            if row["reason"] == "compiler-artifact":
+                row["fresh"] = False
+        args[0].write_text("\n".join(map(json.dumps, data)))
+        self.assertTrue(portfolio._units(*args, standalone=True))
+        self.assertEqual(portfolio._ORDERS[0], portfolio._ORDERS[1][::-1])
+        self.assertEqual(set(portfolio._ORDERS[0]), {"base", "candidate", "control-a", "control-b"})
+
+    def test_guarded_collection_distinguishes_adverse_results_from_missing_evidence(self):
+        flags = ["--base", "base", "--candidate", "subject", "--fixture", "direct", "--output", "results"]
+        with patch("builtins.print"), patch.object(portfolio, "capture_pr") as collect:
+            for decision, code in (("pass", 0), ("fail", 1), ("inconclusive", 2)):
+                collect.return_value = {"decision": decision}
+                self.assertEqual(portfolio.main(flags), code)
+                self.assertEqual(portfolio.main([*flags, "--collect-only"]), 0)
+            collect.side_effect = ValueError("missing measurements")
+            self.assertEqual(portfolio.main([*flags, "--collect-only"]), 2)
+
+    def test_confirmation_never_promotes_an_incomplete_pass_or_ignores_bad_controls(self):
+        import composition_runner as runner
+
+        protocol = evidence.load_protocol(runner.WINDOWS_PROTOCOL)
+        schedule = evidence.seeded_order_schedule(protocol)
+
+        def evaluate(count, candidate, control):
+            return portfolio._confirmation_decision({
+                mode: [dict(block=n, order=order, subject=ratio, control=1.0)
+                       for n, order in enumerate(schedule[:count], 1)]
+                for mode, ratio in (("candidate-reference", candidate), ("reference-reference-aa", control))
+            }, protocol)
+
+        self.assertIsNone(evaluate(3, 1.3, 1))
+        self.assertIsNone(evaluate(19, 1.0, 1))
+        self.assertEqual(evaluate(4, 1.3, 1)["decision"], "fail")
+        self.assertEqual(evaluate(4, 1.3, 1.2)["decision"], "inconclusive")
+        self.assertEqual(evaluate(20, 1, 1)["decision"], "pass")
+        self.assertFalse(evaluate(4, 1.3, 1)["controls_complete"])
+        self.assertFalse(evaluate(20, 1, 1)["release_authorised"])
