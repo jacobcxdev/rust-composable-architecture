@@ -75,7 +75,14 @@ PY
     measure)
         test "$(uname -s)" = Linux
         test "${PERF_RUNNER:-}" = github-hosted
-        rustc -vV > "$result/rustc.txt"
+        export RUSTC RUSTDOC
+        export CARGO_INCREMENTAL=0
+        RUSTC=$(rustup which --toolchain "${RUSTUP_TOOLCHAIN:?}" rustc)
+        RUSTDOC=$(rustup which --toolchain "$RUSTUP_TOOLCHAIN" rustdoc)
+        unset RUSTC_WRAPPER RUSTC_WORKSPACE_WRAPPER
+        "$RUSTC" -vV > "$result/rustc.txt"
+        grep -Fx "release: $RUSTUP_TOOLCHAIN" "$result/rustc.txt" >/dev/null
+        grep -Fx 'host: x86_64-unknown-linux-gnu' "$result/rustc.txt" >/dev/null
         cargo -Vv > "$result/cargo.txt"
         uname -a > "$result/host.txt"
         for role in baseline candidate; do
@@ -87,6 +94,8 @@ PY
                 cd "$consumer"
                 # Path dependencies outside this standalone workspace are product inputs too.
                 cargo metadata --locked --format-version 1 --features deterministic,local,allocations > "$RUNNER_TEMP/change-metadata.json"
+                jq -e '.resolve as $graph | $graph.nodes[] | select(.id == $graph.root) | .features | sort' \
+                    "$RUNNER_TEMP/change-metadata.json" > "$result/$role-consumer-features.json"
                 jq -er '[.packages[] | select(.source == null) | .name] | unique | .[]' \
                     "$RUNNER_TEMP/change-metadata.json" > "$result/$role-owned-packages.txt"
                 clean=()
@@ -98,6 +107,7 @@ PY
             sha256sum "$binary" "$consumer/Cargo.lock" > "$result/$role.sha256"
             if [[ "$role" == baseline ]]; then baseline_bin="$binary"; fi
         done
+        cmp "$result/baseline-consumer-features.json" "$result/candidate-consumer-features.json"
         status=0
         python3 scripts/compare_change_resources.py --baseline-bin "$baseline_bin" --candidate-bin "$binary" \
             --families "${PERF_RUNTIME:?}" > "$result/allocations.json" || status=$?
