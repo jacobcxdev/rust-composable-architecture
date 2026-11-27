@@ -1,0 +1,19 @@
+target/
+**/Cargo.lock
+!/Cargo.lock
+!/rca-core/tests/fixtures/rc07-owned-snapshot/Cargo.lock
+.idea
+
+.claude/settings.local.json
+**/CLAUDE.md
+!/CLAUDE.md
+
+# Local agent work, compiler profiles and temporary analysis output.
+.superpowers/
+coverage-resumption-INVALID/
+__pycache__/
+*.pyc
+*.profraw
+*.profdata
+dhat-heap.json
+.ruff_cache/
