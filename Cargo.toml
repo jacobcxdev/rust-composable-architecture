@@ -1,0 +1,12 @@
+[workspace]
+resolver = "3"
+members = ["rca", "rust-composable-architecture"]
+
+[workspace.package]
+version = "0.0.1"
+edition = "2024"
+rust-version = "1.100.0"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/jacobcxdev/rust-composable-architecture"
+keywords = ["architecture", "state-management"]
+categories = ["rust-patterns"]
