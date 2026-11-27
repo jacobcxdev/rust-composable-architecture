@@ -6,4 +6,6 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 readme = "README.md"
+keywords.workspace = true
+categories.workspace = true
 description = "Rust Composable Architecture preview with owned state snapshots"
