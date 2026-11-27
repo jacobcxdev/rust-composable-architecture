@@ -1,0 +1,9 @@
+[package]
+name = "rca"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+readme = "README.md"
+description = "Rust Composable Architecture preview with owned state snapshots"
