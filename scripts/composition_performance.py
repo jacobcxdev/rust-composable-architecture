@@ -14,9 +14,11 @@ import statistics
 import sys
 from typing import Any
 
+import runner_profile
 
-BUDGET_SHA256 = "b358b2ed7c960996341af43930e483a8b09795169de75f0461292aaa0c41503c"
-RUNNER = "mac15-9-m3-max-16c-48gb-macos27plus-ac-high"
+
+BUDGET_SHA256 = "a0cadfceeee97264775c78a8265424ecfc852e83f90070497ef0786a94d25f7b"
+RUNNER = "macos-release"
 MINIMUM_MACOS_MAJOR = 27
 RUST100_TOOL_VERSIONS = {
     "rustc": "rustc 1.100.0 (0ef1bc386 2026-11-09)",
@@ -26,15 +28,15 @@ RUST100_TOOL_VERSIONS = {
 RUST100_METHOD = "composition-paired-v9"
 WINDOWS_V6_METHOD = "composition-windows-paired-v6"
 TWO_LOOK_METHOD = "two-look-seven-twelve-v2"
-RUST100_PROTOCOL_SHA256 = "3b800b28e4f9cfeff6b007cea1acd3df90c8f36e86d1f6ec6ae7087d032667ec"
-WINDOWS_V6_PROTOCOL_SHA256 = "4c6dc3609ef404566a608a90c68a127fde9e42ef7e1d1cda2a8b29536924f052"
+RUST100_PROTOCOL_SHA256 = "86bdcf3d9b2e522d7a20c1e40ef9127dff5b2a2bf91e528d8aa65efce375091d"
+WINDOWS_V6_PROTOCOL_SHA256 = "39401e14a8c4a405da36c71dbbc2f5a48180cda627d6426e5b39ee9865b7b01f"
 REGRESSION_LIMIT = 1.10
 EXPECTED_DIVAN_ROWS = 153
 EXPECTED_ALLOCATIONS = 47
 ALLOCATION_MANIFEST_SHA256 = (
     "95a9e2ee87deaa3046d4a51893efe164282d51aef6a3b3eec61e9f1ca0b3bf32"
 )
-WINDOWS_RUNNER = "ryzen9-3900x-windows-x86_64-msvc"
+WINDOWS_RUNNER = "windows-release"
 WINDOWS_COMPILER_TELEMETRY = {
     "path_suffix": r"VC\Tools\MSVC\14.51.36231\bin\Hostx64\x64\VCTIP.EXE",
     "sha256": "41fe46f8a0b41f6dd94c68c85fba20a10aacb662a9ef04784a632e37f3692371",
@@ -1353,7 +1355,7 @@ def validate_allocation_manifest(path: pathlib.Path) -> dict[str, dict[str, int]
 
 
 def validate_budget_document(path: pathlib.Path) -> dict[str, Any]:
-    """Check the 33 release limits against the reviewed policy, not a previous capture."""
+    """Check the 33 workload definitions and the portable allocation limits."""
     try:
         contents = path.read_bytes()
         document = json.loads(contents)
@@ -1383,7 +1385,10 @@ def validate_budget_document(path: pathlib.Path) -> dict[str, Any]:
         categories[category] += 1
         value = row["absolute_budget"]
         source = pathlib.PurePosixPath(row["workload_source"])
-        if type(value) not in (int, float) or not math.isfinite(value) or value < 0 or source.is_absolute() or ".." in source.parts:
+        portable = category == "allocation"
+        if ((portable and (type(value) is not int or value < 0))
+                or (not portable and value is not None)
+                or source.is_absolute() or ".." in source.parts):
             raise ValueError(f"invalid composition budget: {scenario}")
     if categories != {"runtime": 10, "allocation": 13, "compile": 4, "binary": 6}:
         raise ValueError(f"composition budget category counts are invalid: {categories}")
@@ -1418,11 +1423,7 @@ def _validate_environment(
     required = {
         "measured_revision": expected_revision,
         "dirty_state": "clean",
-        "architecture": "arm64",
-        "machine_model": "Mac15,9",
-        "cpu_model": "Apple M3 Max",
-        "logical_cpus": "16",
-        "memory_bytes": "51539607552",
+        **runner_profile.load("macos")["host"],
         "cargo_version": expected_tool_versions(timing_report)["cargo"],
         "cargo_path": "<toolchain>/cargo",
         "rustc_path": "<toolchain>/rustc",
@@ -1598,6 +1599,10 @@ def evaluate_absolute(
     if timing_report is None or not is_current_mac_protocol(timing_report):
         raise ValueError("absolute budgets require the paired macOS timing report")
     document = validate_budget_document(budget_path)
+    limits = runner_profile.load("macos")["absolute_budgets"]
+    for row in document["rows"]:
+        if row["absolute_budget"] is None:
+            row["absolute_budget"] = limits[row["scenario"]][row["measured_statistic"]]
     revision = expected_revision
     if timing_report.get("revision") != revision:
         raise ValueError("absolute timing report revision mismatch")

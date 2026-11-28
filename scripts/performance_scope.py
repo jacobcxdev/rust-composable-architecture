@@ -19,7 +19,8 @@ FAMILIES = (
 PROSE = {
     "AGENTS.md", "CONTRIBUTING.md", "SECURITY.md", ".github/pull_request_template.md",
     "docs/guides/authoring.md", "docs/guides/debounce-throttle.md",
-    "docs/guides/dependencies-and-shared-state.md", "docs/guides/diagnostics.md",
+    "docs/guides/dependencies.md", "docs/guides/shared-state.md", "docs/guides/persistence.md",
+    "docs/guides/performance.md", "docs/guides/diagnostics.md",
     "docs/guides/external-clients.md", "docs/guides/owned-resources.md",
     "docs/guides/testing.md",
 }

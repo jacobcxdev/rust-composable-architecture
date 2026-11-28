@@ -1,11 +1,11 @@
 # Measure composition cost
 
-These checks answer three questions: how fast composed features process work, how much they allocate, and what they cost a downstream build.
-The [runtime suite](../method.md) measures the Store and scheduler separately. Neither suite replaces the other.
+Use this release procedure to check how fast composed features process work, how much they allocate, and what they cost a downstream build.
+For a local experiment, [run one portable workload](../README.md). The [runtime release procedure](../method.md) checks the Store and scheduler separately.
 
-The [macOS policy](../../../benches/performance/composition-macos.json), [Windows timing policy](../../../benches/performance/composition-windows.json), and [complete Windows policy](../../../benches/performance/composition-windows-complete.json) define the inputs for each platform.
+The public [macOS rules](../../../benches/performance/composition-macos.json), [Windows timing rules](../../../benches/performance/composition-windows.json), and [complete Windows rules](../../../benches/performance/composition-windows-complete.json) define how each comparison runs.
 The [budget table](../../../benches/performance/composition-budgets.json) covers ten runtime timings, four compile times, six binary sizes, and thirteen allocation limits.
-Three allocation limits require exactly zero. Keep machine inputs with the harness and raw output outside Git.
+Three allocation limits require exactly zero. For capture and replay, the operator must also supply the [private profile for the runner](../README.md#release-runner-profiles).
 
 ## Choose the comparison
 
@@ -22,8 +22,7 @@ Build and explicitly strip each measured executable. A successful Cargo build do
 
 ## Windows paired measurements
 
-From a Visual Studio Developer shell, use the host and toolchain specified by the [Windows policy](../../../benches/performance/composition-windows.json).
-The policy fixes the CPU, operating system, compiler, thread placement, and memory limits.
+Use a Visual Studio Developer shell on the host named by the private Windows profile. The profile and public Windows rules fix the CPU, operating system, compiler, thread placement, and memory limits.
 Keep the fixed two-second window for each isolated runtime workload. Retain the actual sample and iteration counts.
 A process can also spend time on setup and cleanup outside that window.
 
@@ -78,7 +77,7 @@ Combine this result with the [native runtime, CPU profiles, and input checks](..
 
 ## macOS capture
 
-The [macOS policy](../../../benches/performance/composition-macos.json) sets the required host conditions, absolute limits, and paired decision rule.
+The private macOS profile supplies the host and its absolute timing, build, and size limits. The public macOS rules define how to compare each pair.
 From the candidate checkout, select a new output path under `target/qualification-evidence/composition`. Use the [guarded build route](../../../CONTRIBUTING.md#build-memory-safety):
 
 ```sh
@@ -92,6 +91,6 @@ Require the combined `complete.json` and all relative and absolute checks. A bin
 
 ## Keep the evidence
 
-Store the protocol, source and binary identities, ordered samples, allocation and size reports, and guard receipts with the qualification record.
+Keep the runner profile and its digest with the protocol, source and binary identities, ordered samples, allocation and size reports, and guard receipts outside Git.
 If you reuse reference binaries, check their hashes against a trusted record kept outside the cache. Build the candidate afresh.
 Replay with the controller recorded in the capture. An older run cannot qualify changed inputs.

@@ -30,8 +30,10 @@ Choose the smallest test that distinguishes the proposed behavior from the old b
 | A guide or skill | Exercise its example or decision from the reader's position. Check the links in the distributed form, not just the source tree. |
 
 On macOS, use the repository's Cargo memory watchdog before compiling. If it stops a build, inspect its receipt. Do not bypass it.
-After the focused check, test the affected integration boundaries. See `docs/maintainers/qualification.md` for performance and release checks.
-For an optimization, compare the same completed work and include cleanup. An allocation count alone does not establish lower latency.
+After the focused check, test the affected integration boundaries.
+For a performance change, choose a public workload from `docs/performance/README.md` that exercises the affected path. Compare the same completed work, including cleanup.
+An allocation count alone does not establish lower latency. See `docs/maintainers/qualification.md` for the release gates.
+Keep runner profiles and raw measurements out of the public repository. Without the required profile, report the missing release check. Do not substitute a local timing.
 
 ## Keep guidance with the contract
 

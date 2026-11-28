@@ -10,17 +10,9 @@ controlled endpoints. It never performs network requests or opens URLs.
 
 ## Choose a dependency or a captured value
 
-Use an action payload for the input to one operation, such as a search query.
-Use state for domain information that changes through RCA transactions.
-Use a dependency for an application-owned capability, such as a network client
-or file service. A dependency is not another mutable state store.
-
-If the library cannot choose a safe provider, use an interface-only `DependencyKey`
-and explicit client injection. A live default suits an intentional
-application default, not an implicit provider selected by RCA. TestStore uses
-test defaults for missing keys and never falls back implicitly to live defaults.
-Explicit test injection can still select a live client, so tests must choose it
-deliberately. See [testing](testing.md#make-dependencies-and-progress-explicit).
+Keep the inputs for one request in its action. Supply the client that will
+make the request as a dependency. For other choices, see
+[where a value belongs](authoring.md#where-does-this-value-belong).
 
 A task keeps the client and inputs it captured. A later change to State does not
 replace them. If the task needs the current policy, read it from the Store.
@@ -34,9 +26,9 @@ distinguish captured clients, current services and request identity.
 The recipe's `ClientsKey` is interface-only: its `DependencyKey` implementation
 declares `type Value = Clients` without a live factory. Inject the owned value
 with `Store::builder(...).with_dependency::<ClientsKey>(client)`; a `TestStore`
-can inject it in the same way. Missing registration fails explicitly rather than
-silently selecting ambient I/O. `DependencyClient` can generate endpoint
-construction when useful, but the recipe does not need a macro or another crate.
+can inject it in the same way. A missing client cannot silently select live I/O.
+This recipe needs no macros. To generate test defaults for a client with named
+endpoints, see [the dependency guide](dependencies.md#define-a-key-and-supply-a-client).
 
 The application-owned endpoint shapes are:
 

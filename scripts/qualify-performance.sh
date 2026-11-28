@@ -101,9 +101,7 @@ fi
 requested_reference_output=$3
 output_dir=$(dirname "${requested_output}")
 reference_output_dir=$(dirname "${requested_reference_output}")
-canonical_runner=mac15-9-m3-max-16c-48gb-macos27-ac-high
-
-for command in awk basename cmp cp env git grep jq mktemp pgrep rustup shasum tar tr; do
+for command in awk basename cmp cp env git grep jq mktemp pgrep python3 rustup shasum tar tr; do
   if ! command -v "${command}" >/dev/null 2>&1; then
     echo "required command not found: ${command}" >&2
     exit 1
@@ -169,6 +167,9 @@ if pgrep -f '(^|[ /])(qualification|effects|observation|store_actor|deterministi
   exit 1
 fi
 
+runner_policy=$(dirname -- "${BASH_SOURCE[0]}")/runner_profile.py
+profile=$(python3 -B "${runner_policy}" macos)
+canonical_runner=$(jq -er .native_runner <<< "${profile}")
 runner=${RCA_PERF_RUNNER:-${canonical_runner}}
 if [[ "${runner}" != "${canonical_runner}" ]]; then
   echo "runner must be pinned to ${canonical_runner}" >&2
@@ -187,12 +188,10 @@ power_mode=$(pmset -g custom | awk '
   in_ac && $1 == "powermode" {print $2; exit}
 ')
 
-if [[ "$(uname -m)" != "arm64" \
-  || "${machine_model}" != "Mac15,9" \
-  || "${cpu_model}" != "Apple M3 Max" \
-  || "${logical_cpus}" != "16" \
-  || "${memory_bytes}" != "51539607552" \
-  || "${os_version%%.*}" != "27" \
+if ! jq -e --arg architecture "$(uname -m)" --arg machine_model "${machine_model}" \
+  --arg cpu_model "${cpu_model}" --arg logical_cpus "${logical_cpus}" --arg memory_bytes "${memory_bytes}" \
+  '.host == {$architecture, $machine_model, $cpu_model, $logical_cpus, $memory_bytes}' <<< "${profile}" >/dev/null \
+  || [[ "${os_version%%.*}" != "27" \
   || "${power_source}" != *"AC Power"* \
   || "${power_mode}" != "2" ]]; then
   echo "host does not match pinned runner ${canonical_runner}" >&2
@@ -274,9 +273,11 @@ qualification_source_sha256=$(shasum -a 256 crates/rca-tokio/benches/qualificati
 qualification_module_sha256=$(shasum -a 256 crates/rca-tokio/benches/qualification/shutdown.rs | awk '{print $1}')
 scenario_manifest_sha256=$(shasum -a 256 benches/performance/scenarios.txt | awk '{print $1}')
 qualification_script_sha256=$(shasum -a 256 scripts/qualify-performance.sh | awk '{print $1}')
+runner_policy_sha256=$(shasum -a 256 "${runner_policy}" | awk '{print $1}')
 memory_watchdog_sha256=$(shasum -a 256 scripts/guard_cargo_memory.py | awk '{print $1}')
 protocol_sha256=$(printf '%s\n' "${qualification_source_sha256}" "${qualification_module_sha256}" \
-  "${scenario_manifest_sha256}" "${qualification_script_sha256}" "${memory_watchdog_sha256}" "${memory_limit_bytes}" \
+  "${scenario_manifest_sha256}" "${qualification_script_sha256}" "${runner_policy_sha256}" \
+  "${memory_watchdog_sha256}" "${memory_limit_bytes}" \
   | shasum -a 256 | awk '{print $1}')
 recorded_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 rustc_commit=$("${rustc}" --version --verbose | awk '/^commit-hash:/ {print $2}')

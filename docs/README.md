@@ -53,10 +53,14 @@ The standalone names are `$rca` and `$rca-contribute`. Use either the plugin or 
 | Give a child its own lifetime or send a result to its parent | [Installed children](structural-features.md) |
 | Choose between a flat stack and a tree of jobs | [Recursive jobs](recursive-jobs.md) |
 | Keep a value on its owner thread | [Local composition and the Local Store](local-composition.md) |
-| Choose between state, a shared value and a dependency | [Dependencies and shared state](guides/dependencies-and-shared-state.md) |
+| Decide who owns a value | [Choose feature state, a dependency, or shared state](guides/authoring.md#where-does-this-value-belong) |
+| Replace a live service or override it in a test | [Dependencies](guides/dependencies.md) |
+| Share a value between owners or give a caller read-only access | [Shared state](guides/shared-state.md) |
+| Load a document, save an edit, or handle a competing writer | [Persistence](guides/persistence.md) |
 | Connect a service or transfer ownership of a resource | [External clients](guides/external-clients.md) and [owned resources](guides/owned-resources.md) |
 | Limit how often a request starts | [Debounce and throttle](guides/debounce-throttle.md) |
 | Read current state or observe changes to a value or a list of child IDs | [Observation](runtime.md#observation) |
+| Reduce unnecessary work in an application | [Application performance](guides/performance.md) |
 | Cancel work, wait for it to finish or shut down the Store | [Receipt lifetimes](receipt-lifetimes.md) and [shutdown](runtime.md#shutdown-and-host-lifetime) |
 | Write a deterministic test or keep test history for state that cannot be cloned | [Testing](guides/testing.md) and [owned snapshots](snapshot-derive.md) |
 | Trace a state change or report an issue | [Diagnostics](guides/diagnostics.md) |
@@ -91,7 +95,7 @@ For a published crate, the **Released API** column opens docs.rs. Select the ver
 | Macros for dependencies, paths, snapshots, and reducer composition | [`rca-macros`](../crates/rca-macros/src/lib.rs) | [`rca-macros`](https://docs.rs/rca-macros) |
 
 The support policy lists [Cargo features](support.md#features) and [public import paths](support.md#public-api-paths).
-Service dependencies and shared state need no feature. See [how to choose between them](guides/dependencies-and-shared-state.md).
+Service dependencies and shared state need no feature. To save a value, see [persistence](guides/persistence.md).
 
 The [support policy](support.md#targets) lists current targets. The [roadmap](roadmap.md) describes plans for embedded devices.
 
@@ -99,5 +103,5 @@ The [support policy](support.md#targets) lists current targets. The [roadmap](ro
 
 1. [Build and review a change](../CONTRIBUTING.md).
 2. [Choose checks for the change](maintainers/qualification.md). Use [compiler contracts](maintainers/compiler-contract-testing.md) for compile-time behaviour and the [keyed fuzzer](../fuzz/README.md) for generated lifecycle tests.
-   See [runtime measurements](performance/method.md), [composition measurements](performance/composition/README.md), and [compile and size fixtures](../benches/compile/README.md) for benchmarks.
+   To measure a change to RCA itself, start with the [benchmark guide](performance/README.md).
 3. [Publish the crates](maintainers/releasing.md) or [check a documentation build](maintainers/documentation-publishing.md#check-a-build). These use separate workflows.

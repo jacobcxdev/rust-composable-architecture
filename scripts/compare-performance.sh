@@ -196,6 +196,9 @@ protocol_inputs=("${qualification_source_sha256}" "${qualification_module_sha256
                  "${expected_qualification_script_sha256}")
 expected_memory_watchdog_sha256=
 if [[ "${windows}" == false ]]; then
+  runner_policy=${repo_root}/scripts/runner_profile.py
+  runner_profile=$(python3 -B "${runner_policy}" macos)
+  protocol_inputs+=("$(shasum -a 256 "${runner_policy}" | awk '{print $1}')")
   memory_watchdog=${repo_root}/scripts/guard_cargo_memory.py
   if [[ ! -f "${memory_watchdog}" ]]; then
     echo "pinned memory watchdog is missing" >&2
@@ -394,6 +397,13 @@ for result in "${baseline}" "${candidate}"; do
   }
   if [[ "${windows}" == true ]]; then
     check_windows_build_receipt "${result}"
+  elif ! jq -e --argjson profile "${runner_profile}" '
+    .metadata.cohort | .runner == $profile.native_runner
+    and .machine_model == $profile.host.machine_model and .cpu == $profile.host.cpu_model
+    and (.logical_cpus | tostring) == $profile.host.logical_cpus
+    and (.memory_bytes | tostring) == $profile.host.memory_bytes' "${result}" >/dev/null; then
+    echo "performance result does not match the pinned Mac runner" >&2
+    exit 1
   fi
 done
 

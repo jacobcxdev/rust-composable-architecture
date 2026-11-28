@@ -1,7 +1,6 @@
 # Measure runtime performance
 
-Use the [qualification guide](../maintainers/qualification.md) to choose the test before you make a change.
-The runtime suite measures admission, committed actions, effect completion, scheduling and shutdown. The [composition suite](composition/README.md) measures feature composition and downstream builds.
+Use this procedure to qualify the runtime for a release. It measures admission, committed actions, effect completion, scheduling, and shutdown. For a change to one API, start with a [portable benchmark](README.md). The [composition suite](composition/README.md) measures feature composition and downstream builds.
 
 ## What counts as a comparison
 
@@ -19,16 +18,16 @@ A pull request can still compare two identified runtime revisions for a specific
 | CPU | The normal process supplies native CPU counters. A retired instruction count and a process cycle count are different measurements. |
 | Allocation | Separate DHAT processes count allocated blocks, bytes, and peak live heap. Do not use an instrumented process to measure normal latency. |
 | Memory | macOS reports maximum resident memory and peak footprint. Windows reports peak working set and peak commit charge. Do not compare these across platforms. |
-| Build and size | Start the measured build from an empty target. Record the stripped executable's identity and size. See [macOS command counters](darwin-command-resource-accounting.md). |
+| Build and size | Start the measured build from an empty target. Record the stripped executable's identity and size. See [macOS build counters](#read-macos-build-counters). |
 
 Both run orders matter. The evaluator combines paired ratios separately by order and then takes their geometric mean.
-The release limit is 1.10 for median and p99 latency, inverse throughput, allocation count and bytes, CPU cycles, poll count, and both process-memory measures.
+The [evaluator](../../scripts/native_performance_rows.jq) applies a limit of 1.10 to the metrics each workload checks: median and p99 latency, inverse throughput, allocation count and bytes, CPU cycles, poll count, or process memory. The fixed-live and bounded-burst shutdown workloads check memory. The rapid create/drop workload checks the other costs.
 DHAT peak live heap helps explain memory costs. It does not replace the process-memory checks.
 A passing limit is not evidence of a speedup. Neither CPU counters nor wall time alone measure energy.
 
 ## Commands
 
-On macOS, the [Cargo watchdog](../../CONTRIBUTING.md#build-memory-safety) owns the complete capture.
+Set up the [private runner profile](README.md#release-runner-profiles) for capture and replay. On macOS, the [Cargo watchdog](../../CONTRIBUTING.md#build-memory-safety) owns the complete capture.
 The [qualification script](../../scripts/qualify-performance.sh) checks the host, power settings, toolchain, clean checkout, and benchmark inputs.
 Use new output paths. For a published reference, set `reference` to its verified commit or clean checkout.
 For first-release enrolment, set it to the candidate's full commit ID. The collector builds the same product twice to measure repeatability.
@@ -71,7 +70,8 @@ A parser test, changed file, failed guard, or partial capture cannot establish a
 
 Run all 54 scenarios in the [workload list](../../benches/performance/scenarios.txt). Windows does not produce macOS measurements.
 Only the measurement host operator runs these builds and captures.
-Use the [specified Windows host](composition/README.md#windows-paired-measurements) and its operator-provided memory guard.
+For release, use the same host as the [approved Windows composition run](README.md#release-runner-profiles). The runtime collector records the host. A separate check compares that record with the composition and support measurements.
+Use the operator-provided memory guard.
 The guard limits the controller and its children to two GiB of committed memory. Closing the Job Object stops its processes.
 Keep four GiB each of available physical memory and unused commit capacity for the host.
 Check free space for outputs and temporary builds before capture.
@@ -177,3 +177,13 @@ python3 scripts/profile_controlled_cost.py \
 Each unchanged product must reproduce both instruction totals and function counts.
 An added-work control must raise counts without changing the Store result. A failed control stops the comparison.
 Use native measurements to establish latency or throughput. A lower instruction count alone proves neither.
+
+## Read macOS build counters
+
+`/usr/bin/time -lp` reports three different costs:
+
+- **Elapsed time:** how long the caller waited, including time spent waiting for the operating system.
+- **User and system CPU time:** work done by the command and children it waited for. Keep the two counters separate.
+- **Maximum resident size:** the largest resident process, in bytes. Cargo and rustc can overlap, even with one build job. Neither maximum RSS nor maximum footprint is their combined peak. A detached cache daemon can escape command accounting; use the [memory watchdog](../../CONTRIBUTING.md#build-memory-safety) to protect the machine.
+
+For a cold build, an empty Cargo target excludes previous build output, not the operating system's file cache. For an incremental build, record the edit and starting target. Keep the exact command, exit status, and raw counters. If a printed value rounds to zero, do not replace it with a positive number to calculate a ratio.

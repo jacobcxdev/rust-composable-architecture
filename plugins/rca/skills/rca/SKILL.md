@@ -32,7 +32,6 @@ For this command, use the Cargo package name, not the Rust import alias.
   Use the `local` feature for values that must stay on one thread, such as `Rc`. The owner must still drive the Store.
   A successful `try_send` returns a receipt, not a committed result. Dependency values still require `Send + Sync`.
 
-Put domain facts in state. Put external capabilities behind a `DependencyKey`. Use `Shared` for intentional shared ownership, not as a second Store.
 Default Cargo features are empty. `tokio` adapts an existing runtime. `test-util` supplies test tools.
 
 For a new dependency key with a live default, prefer `#[derive(DependencyKey)]` with the `macros` feature.
@@ -57,11 +56,15 @@ For a controlled test, inject a client that you can complete. Do not wait for a 
 
 - **Child identity, cancellation, or late replies:** read [Child work and completion](references/child-work.md).
 - **Tests, virtual time, or move-only state:** read [Deterministic tests](references/testing.md).
-- **Decide where a value belongs:** `docs/guides/dependencies-and-shared-state.md` explains when to use feature state, a shared value, or an injected dependency.
-- **Connect an external service:** `docs/guides/external-clients.md` shows how to inject a client and control its responses in tests.
-  See `examples/search/src/main.rs` for a feature that replaces a pending search.
-- **Keep a stale save from overwriting newer data:** read about `RevisionBackend` in the `rca-persistence` crate guide (`crates/rca-persistence/src/lib.rs`).
+- **Choose where a value belongs:** start with feature state. For shared ownership or an external service, use the table at `docs/guides/authoring.md#where-does-this-value-belong`.
+- **Replace a service in a test:** use `DependencyKey` from `rca`. See `docs/guides/dependencies.md` for defaults and overrides.
+  For a request or a stream, use the worked recipe in `docs/guides/external-clients.md`. Capture the client before the effect starts.
+- **Share a value between owners:** use `Shared` from `rca`. Writing through the handle does not itself commit Store state or save the value to storage.
+  See `docs/guides/shared-state.md` for readers, rebinding, and provider-backed values.
+- **Restore or save a document:** add `rca-persistence` directly. A Store commit does not prove that the storage backend accepted a write.
+  See `docs/guides/persistence.md` for save acknowledgements, conflicting revisions, and codecs.
+- **Reduce the cost of frequent actions or observations:** preserve each result that a caller must see.
+  Use `docs/guides/performance.md` to choose what to batch, what to observe, and where to measure completed work.
 - **Connect a host:** `examples/counter/src/main.rs` shows one Store on an existing Tokio runtime.
   For a callback that needs a committed reply, read “Synchronous hosts” in `docs/runtime.md` at the matching revision.
 - **Read a total from child features:** `docs/structural-features.md` explains scoped folds and when to maintain the total in state.
-- **Avoid a copy when loading or saving a document:** `docs/guides/dependencies-and-shared-state.md` explains when a codec can reuse its input buffer.

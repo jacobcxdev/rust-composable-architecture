@@ -16,11 +16,8 @@ A malformed file causes an error. The CLI does not replace it with zero.
 
 ## Choose the document type
 
-If a Store owns the value and needs save receipts, use `Document::new`.
-If several parts of the application share the value through a cache, use `SharedDocument::new`.
-Neither constructor checks for competing writes. The example's file backend does not detect them either.
-For conflict detection, use `SharedDocument::revisioned` with a backend that can compare revisions and save atomically.
-The [integration guide](../../docs/integration-boundaries.md#choose-shared-state-or-persistence) compares both options with raw backend keys and storage that tracks revisions.
+The counter uses `Document::new` because one Store owns the value. Its file backend does not detect competing writers.
+See [persistence](../../docs/guides/persistence.md) for shared documents, revision checks, and save receipts.
 
 The codec accepts exactly 16 bytes: the eight bytes `RCACTR01`, then a little-endian unsigned 64-bit value.
 It rejects unknown versions, incomplete records and trailing data. It does not migrate old records.
@@ -28,11 +25,6 @@ The backend reads at most one byte past the configured limit to detect oversized
 It rejects oversized saves before it creates a replacement file. Only the codec needs to know the counter format.
 
 ## Save and close
-
-`Document` tracks revisions and saves the latest edited value. It allows at most one save at a time.
-If a save fails, automatic saves stop. An explicit flush or close retries the save.
-Once the document accepts close, it rejects further edits, even if the final save fails.
-If loading has not succeeded, close returns `NotLoaded`. The document stays open, and the backend does not write defaults.
 
 The CLI uses this order:
 
@@ -42,19 +34,10 @@ The CLI uses this order:
 4. Await `FileBackend::close()` until accepted file operations end.
 5. Shut down the Store. Report success only after the save and cleanup succeed.
 
-| Operation | What success means | What it does not mean |
-| --- | --- | --- |
-| `Action::flush()` receipt | The backend acknowledged the requested revision or a later one. | The backend wrote a separate copy of that revision, or the document refuses later edits. |
-| `Action::close()` receipt | The backend acknowledged the final revision. The document is closed. | All external file operations stopped. |
-| `FileBackend::close()` | All file operations that this backend accepted have ended. | The document saved its final state. |
-| Store shutdown | RCA stopped the work it owns. | The file backend flushed, rolled back a write or stopped all external writers. |
-
-The flush receipt names the revision at the time the Store processed the flush action.
-One later save can cover several flush requests without writing each intermediate value.
-Waiting for an action task to finish is not the same as waiting for a save receipt.
-Dropping that task handle does not cancel persistence.
-Use flush to save a document that must remain editable.
-Before an orderly exit, keep the runtime alive until document close and backend close both finish.
+Keep the runtime alive through steps 3 and 4. The document receipt says the
+value was saved; backend close says no file operation is still running.
+To save without closing, or to retry a failed save, see
+[save and close a document](../../docs/guides/persistence.md#save-and-close-a-document).
 
 ## File replacement
 

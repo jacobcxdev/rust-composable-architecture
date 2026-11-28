@@ -16,7 +16,7 @@ Changes must preserve its ownership, cancellation and deterministic testing cont
 | Change a transport dependency | [`dependencies/`](dependencies) contains three upstream forks. Each fork records its origin in `UPSTREAM.md`. |
 | Write or test an application | [`examples/`](examples/README.md) contains runnable applications. [`docs/`](docs/README.md) contains the application guides. |
 | Test a contract | Each crate keeps its own tests. [`tests/`](tests) contains independent consumers and runtime fixtures. The [keyed fuzzer](fuzz/README.md) tests generated action sequences. |
-| Measure a change | [`benches/compile/`](benches/compile/README.md) contains build probes. [`benches/performance/`](benches/performance) contains the workload lists and limits. See the [measurement commands](docs/performance/method.md#commands). |
+| Measure a change | [Choose a benchmark](docs/performance/README.md) for the RCA operation or build cost you changed. To measure your own application, use the [app performance guide](docs/guides/performance.md). |
 | Change a guide or skill | [`plugins/rca/skills/`](plugins/rca/skills) contains the application and contributor skills. [Check the documentation and standalone skills](#documentation-acceptance). |
 | Run repository checks | [`scripts/`](scripts) contains the [macOS build guard](#build-memory-safety), [package checks](scripts/verify-packaged-downstream.sh), and other tools used by [CI](.github/workflows/ci.yml). |
 | Maintain a release | [`docs/maintainers/`](docs/maintainers) contains procedures for compiler contracts, qualification, crate releases, and documentation publication. |
@@ -35,7 +35,7 @@ Keep each pull request focused on one coherent change. Preserve applicable licen
 and attribution notices. Explain any new dependency and its feature, platform and
 licence effects. Do not include build output, credentials or temporary work files.
 Commit reproducible workloads, expected compiler diagnostics, and small test inputs that reproduce a specific defect.
-Write benchmark output and command transcripts to ignored output directories. Keep verified release evidence and its hashes outside the source tree.
+Write benchmark output and command transcripts to ignored output directories. Keep runner profiles and release evidence outside Git. The controller tracks each approved profile's digest, not its contents.
 
 Use signed Conventional Commits. Keep the subject shorter than 50 characters.
 Use a past-tense summary, such as `fix: preserved cancellation ordering`.

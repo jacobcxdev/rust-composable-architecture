@@ -36,6 +36,8 @@ def snapshots():
 class ScopeTests(unittest.TestCase):
     def test_only_reviewed_non_product_paths_skip_native_measurements(self):
         for path in ("CONTRIBUTING.md", "docs/guides/authoring.md",
+                     "docs/guides/dependencies.md", "docs/guides/shared-state.md",
+                     "docs/guides/persistence.md", "docs/guides/performance.md",
                      "scripts/tests/test_composition_compile_portfolio.py"):
             with self.subTest(path=path):
                 self.assertEqual(scope.families_for(path), ())
@@ -43,7 +45,7 @@ class ScopeTests(unittest.TestCase):
     def test_ambiguous_docs_tests_and_shared_inputs_expand(self):
         for path in ("README.md", "crates/rca-core/tests/support/mod.rs", "docs/new-input.md",
                      "crates/rca-core/tests/observation_take_allocations.rs", "crates/rca-core/tests/unreviewed.rs",
-                     "benches/performance/composition-windows.json",
+                     "benches/performance/composition-windows.json", "scripts/runner_profile.py",
                      "rust-toolchain.toml", "Cargo.lock", "crates/rca-core/src/store/actor.rs",
                      "crates/rca-macros/src/reducer.rs", "crates/rca-tokio/src/lib.rs",
                      ".github/workflows/ci.yml", "new-consumer/logic", "docs/guides/typo\n.rs"):

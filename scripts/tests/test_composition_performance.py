@@ -1366,8 +1366,21 @@ class AbsoluteBudgetTests(unittest.TestCase):
         root = pathlib.Path(temporary.name)
         cls.protocol = composition_performance.load_protocol(MAC_POLICY)
         rows = composition_performance.validate_budget_document(BUDGET)["rows"]
-        cls.binary_limits = {row["scenario"].split("/", 1)[1]: row["absolute_budget"]
-                             for row in rows if row["scenario"].startswith("binary/")}
+        # Invent limits for the measured inputs below. Never depend on an enrolled runner.
+        limits = {}
+        for row in rows:
+            if row["absolute_budget"] is not None:
+                continue
+            limits.setdefault(row["scenario"], {})[row["measured_statistic"]] = {
+                "median_of_process_medians": 200, "median_throughput_across_processes": 10,
+                "median_elapsed": 9, "stripped_file_size": 4096,
+            }[row["measured_statistic"]]
+        host = {"architecture": "arm64", "machine_model": "Parser Fixture", "cpu_model": "Fixture CPU",
+                "logical_cpus": "4", "memory_bytes": "8589934592"}
+        profile = {"host": host, "absolute_budgets": limits, "composition_runner": "fixture-recorder"}
+        cls.enterClassContext(patch("runner_profile.load", side_effect={"macos": profile}.__getitem__))
+        cls.binary_limits = {name.split("/", 1)[1]: stats["stripped_file_size"]
+                             for name, stats in limits.items() if name.startswith("binary/")}
         cls.allocations = composition_performance.validate_allocation_manifest(
             composition_performance.DEFAULT_ALLOCATION_MANIFEST
         )
@@ -1391,9 +1404,8 @@ class AbsoluteBudgetTests(unittest.TestCase):
         cls.subject = subject
         versions = composition_performance.expected_tool_versions(cls.protocol)
         cls.environment = {
-            "measured_revision": REFERENCE, "dirty_state": "clean", "architecture": "arm64",
-            "machine_model": "Mac15,9", "cpu_model": "Apple M3 Max", "logical_cpus": "16",
-            "memory_bytes": "51539607552", "os_version": metadata["os_version"], "os_build": metadata["os_build"],
+            "measured_revision": REFERENCE, "dirty_state": "clean", **host,
+            "os_version": metadata["os_version"], "os_build": metadata["os_build"],
             "power_source": "AC Power", "power_mode": "powermode 2", "rustc_wrapper": "disabled",
             "rustc_workspace_wrapper": "disabled", "bench_profile_override": "lto=false,debug=false,strip=true",
             "runtime_process_repetitions": "10", "runtime_expected_timing_rows": "153",
@@ -1489,6 +1501,7 @@ class AbsoluteBudgetTests(unittest.TestCase):
 
     def test_rejects_changed_source_environment_and_tool_versions(self):
         changes = [{"os_version": "26.0"}, {"os_version": "28.0"}, {"os_build": "different"},
+                   {"machine_model": "unregistered"}, {"memory_bytes": "1"},
                    {"benchmark_source_sha256": "0" * 64}, {"zero_host_sha256": "e" * 64},
                    {"allocation_manifest_sha256": "f" * 64}]
         changes.extend({tool + "_version": "wrong tool"} for tool in ("rustc", "cargo", "rustdoc"))
@@ -1548,7 +1561,9 @@ class BudgetValidationTests(unittest.TestCase):
         self.assertEqual(len(document["rows"]), 33)
         rows = document["rows"]
         variants = {
-            "looser maximum": [{**rows[0], "absolute_budget": rows[0]["absolute_budget"] * 2}, *rows[1:]],
+            "public runner override": [{**rows[0], "absolute_budget": 500}, *rows[1:]],
+            "looser allocation limit": [{**r, "absolute_budget": 1} if r["absolute_budget"] == 0 else r
+                                       for r in rows],
             "missing row": rows[:-1],
             "duplicate observable": [rows[1], *rows[1:]],
         }

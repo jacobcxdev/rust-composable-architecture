@@ -282,31 +282,22 @@ decisions; native-host and comparative performance qualification remain separate
 
 ### Parent-owned persistence
 
-`crates/rca-test/tests/persistence_coordination.rs` qualifies an injected storage recipe:
-the parent owns a value, current revision, acknowledged revision and one in-flight
-snapshot. Edits during a save coalesce into the latest value. An older successful
-save acknowledges only its captured revision, then starts the latest snapshot.
-Load status is explicit; missing storage remains unmaterialised until a save.
+The [parent-owned save recipe](../crates/rca-test/tests/persistence_coordination.rs)
+uses an injected backend with a single writer. The parent keeps one snapshot in
+flight. A successful save acknowledges only the revision it captured. If edits
+arrived meanwhile, the parent saves the latest revision next. Even a failure
+after the backend wrote the value leaves the state dirty until a retry succeeds.
 
-A failed save leaves state dirty, including failure after backend commit. Flush
-retries the latest revision. Close fences edits and becomes closed only after the
-final revision succeeds; failure needs explicit Flush or Close retry. Observe
-closed state before shutdown when persistence matters. Finishing a causal action
-receipt alone does not prove a successful flush or close.
-Close before successful loading cancels any pending load and closes without
-saving the default value. Later Load and Set commands cannot reopen it.
+Close stops further edits and waits for the last save to succeed. On failure,
+retry flush or close. Closing before a successful load cancels that load without
+saving the default or allowing later commands to reopen the value. Observe the
+closed state before shutting down: finishing an action alone does not prove a save.
+If you cancel the root during a save, the parent may never receive its
+acknowledgement. Shut down and reconstruct the Store instead of retrying on it.
 
-The controlled storage model survives Store reconstruction and distinguishes
-failure before and after commit. Abortive shutdown before commit leaves the old
-value; root cancellation after commit but before reducer acknowledgement does
-not roll the backend back. These are coordination proofs, not filesystem,
-process-crash or power-loss durability guarantees. Concrete backends, native-host
-interruption tests, codecs and migration remain separate qualification gates.
-This recipe implements its own coordination. For a reusable document coordinator,
-see [persistence options](integration-boundaries.md#choose-shared-state-or-persistence).
-The recipe assumes one writer per storage value. Cancelling a save root is
-terminal usage: shut down and reconstruct rather than retrying that same Store,
-whose in-flight state may no longer receive its acknowledgement.
+This recipe tests coordination, not crash or power-loss durability. For a
+reusable coordinator and the guarantees a backend must supply, see
+[save a document](guides/persistence.md).
 
 ### Leading and latest action throttling
 
@@ -391,50 +382,16 @@ punctual execution or limits concurrent external operations by itself.
 
 ## Dependencies
 
-`DependencyValues` belongs to one Store. Keys and values are `Send + Sync +
-'static`. Production missing values initialise once from `DependencyKey::live_value`.
-Builder overrides are isolated per Store. Reducers clone handles or owned data
-needed by effects before returning; no reducer borrow crosses an await point.
-
-TestStore uses `DependencyKey::test_value` instead, including projected and
-non-exhaustive constructors. Its default implementation panics naming the key
-before invoking any live factory. Supply a reusable deterministic test default or
-inject a value with `TestStore::builder(...).with_dependency::<Key>(value)`.
-With the derive, write `#[dependency(value = Client, live = Client::production(),
-test = Client::deterministic())]`; `test` is optional and never aliases `live`
-implicitly.
-The test expression must compile in normal builds, like a manual `test_value`
-implementation. Inject helpers available only through dev-dependencies from the
-test instead.
-Each Store caches its own selected default. No global test mode exists, and
-enabling `test-util` does not change ordinary production Store defaults.
-
-Precedence remains explicit test override > action override > feature overlay >
-explicit Store value > selected default. Tests intentionally exercising real
-clients must inject those values explicitly; custom defaults and explicit values
-remain the author's responsibility. This prevents implicit fallback, not direct
-I/O or live clients deliberately placed in an override.
+A Store has its own dependency environment. Use the [dependency guide](guides/dependencies.md)
+to choose a key, find which override wins, and learn what an effect keeps after
+the reducer returns. The [external-client recipe](guides/external-clients.md)
+shows how to exercise a real Store with controlled endpoints.
 
 ### Optional capabilities
 
-Use a key whose `Value` is `Option<Client>` or `Option<Arc<Client>>` when a
-capability may be unavailable. Return `None` from the live/test factories when
-absence is the intended default. Access the borrowed option with ordinary Rust
-`Option` methods; clone only the owned handle needed by an escaping effect.
-
-An explicitly supplied `None` masks lower-priority values. It does not trigger
-fallback to another layer. Action overrides end after their synchronous scope;
-an effect retains the handle selected and captured during that scope. The
-`optional_dependencies` integration tests cover these rules, disabled work and
-restoration of the surrounding configuration.
-
-RCA does not expose whether a resolved dependency came from an explicit binding
-or a cached default, or provide a lookup that skips the default factory. Do not
-make domain behaviour depend on lookup/cache history. If unconfigured, disabled
-and enabled must differ, represent them in the key's value, for example an enum
-with `Unconfigured`, `Disabled` and `Enabled(Arc<Client>)` variants. Resolve any
-fallback explicitly at the domain boundary. This costs a domain type but keeps
-the distinction stable across reads, scopes and test substitution.
+To disable a service explicitly, supply `None` for a key whose value is
+`Option<Client>`. For the difference between disabled and unconfigured, see
+[dependency lookup](guides/dependencies.md#which-dependency-value-does-the-feature-receive).
 
 ## Observation
 

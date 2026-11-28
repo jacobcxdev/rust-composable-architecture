@@ -139,10 +139,9 @@ The [focused receive tests](../../crates/rca-test/tests/focused_receiving.rs) an
 ## Make dependencies and progress explicit
 
 Inject controlled clients with `TestStore::builder(...).with_dependency::<Key>(value)`.
-These test overrides take priority over production dependency scopes.
-If the test needs ordinary Store-root precedence, use `with_store_dependency`.
-An unregistered key uses its test default, not its live default.
-An explicitly injected live client can still perform real I/O.
+Use `with_store_dependency` instead if a feature or action should still be able to
+override the client. See [which dependency value the feature receives](dependencies.md#which-dependency-value-does-the-feature-receive)
+for lookup order and defaults.
 
 If a client must share this TestStore's clock, use `with_clock_dependency`.
 The builder constructs the client after it creates the deterministic runtime.

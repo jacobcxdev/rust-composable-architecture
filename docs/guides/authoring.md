@@ -29,7 +29,7 @@ one atomic update across both states.
 | Do I need macros or can I write ordinary Rust? | [Macros are optional](#macros-are-optional) |
 | How do I add child behavior? How do I call an existing child? | [Composition and scoped handles](../composition.md#scoped-store-handles) and [installed children](../structural-features.md) |
 | Which ID survives a reorder, replacement or configuration change? | [Child identity](../structural-features.md) |
-| Should data live in State, a dependency or `Shared`? | [Dependencies and shared state](dependencies-and-shared-state.md) |
+| Who should own a value, service, or saved document? | [Where does this value belong?](#where-does-this-value-belong) |
 | Should work return an action or update State through a task? | [Choose an authoring form](#choose-an-authoring-form) and [work lifetimes](#4-declare-work-and-handle-ended-authority) |
 | Which send, wait, cancellation or shutdown operation do I need? | [Runtime](../runtime.md) and [receipt lifetimes](../receipt-lifetimes.md) |
 | Does observation record every event? When does a reaction run? | [Runtime observation](../runtime.md#observation) and [structural Features](../structural-features.md) |
@@ -37,7 +37,8 @@ one atomic update across both states.
 | Do I need a query of child contributions or a maintained total? | [Queries and maintained aggregates](../structural-features.md#choose-a-query-or-a-maintained-aggregate) |
 | How do I test tasks, real clients, clocks and move-only State? | [Testing](testing.md), [external clients](external-clients.md) and [owned resources](owned-resources.md) |
 | Which diagnostics run in production? | [Diagnostics](diagnostics.md) |
-| Does a save receipt prove durability or safe restart? | [Persistent counter](../../examples/persistent-counter/README.md) |
+| What does a save receipt prove? | [Save a document](persistence.md) |
+| How do I find what slows down my app? | [Measure application performance](performance.md) |
 | What remains the host's responsibility? | [Integration boundaries](../integration-boundaries.md) |
 | Does a notification acknowledgement mean that every consumer finished? | [Receipt lifetimes](../receipt-lifetimes.md#choose-the-wait-that-answers-your-question) and [adapter delivery rules](../integration-boundaries.md#define-external-notification-delivery) |
 
@@ -74,6 +75,24 @@ service has stopped its background work. See [receipt lifetimes](../receipt-life
 before choosing a wait.
 
 ## 2. Model domain changes and child identity
+
+### Where does this value belong?
+
+Start with ordinary feature state. Choose another owner only when the job calls for one.
+
+| What do you need? | Use | Example |
+| --- | --- | --- |
+| An input for one operation | An action payload | The text of a new search |
+| Facts the feature needs for its next decision | Feature state | A request ID, progress, or retry count |
+| A service you can replace in a test | A [dependency](dependencies.md) | A clock or network client |
+| A child that changes its own state and a parent-owned value together | `SharedReducer` with `scope_shared` or `for_each_shared` | Several workers spend one quota |
+| Independent owners that access the same value outside Store transactions | [`Shared<T>` or `SharedReader<T>`](shared-state.md) | A host writes a value and a feature reads it |
+| Reuse of a provider-backed value in one session | [`SharedKeyCache`](shared-state.md#when-is-a-shared-key-cache-appropriate) | Two readers open the same document |
+| Control over loading a document and acknowledging its saves | [`rca-persistence`](persistence.md) | A counter that must save its last edit before closing |
+
+`SharedReducer` does not use a `Shared<T>` handle. The parent owns both values
+and lends them to the child during one synchronous reduction. Neither borrow
+can escape into a task. See the [shared reducer examples](../../crates/rca-test/tests/shared_composition.rs).
 
 ### Choose an authoring form
 
@@ -138,7 +157,7 @@ For one state change, a `Reduce::new` closure needs no macro.
 The optional macros do not change who owns state, when effects run, or how tests drive a Store.
 Import the macros from the [same facade](../integration-boundaries.md#choose-imports-and-host-explicitly) as the rest of the API.
 If Cargo renames the crate, use that alias.
-See [dependency keys and clients](dependencies-and-shared-state.md#which-dependency-value-does-the-feature-receive),
+See [dependency keys and clients](dependencies.md#define-a-key-and-supply-a-client),
 [derived child paths](../composition.md#derived-paths-and-tuple-composition), and [snapshot derives](../snapshot-derive.md).
 
 ### Choose child identity and routing
@@ -162,18 +181,9 @@ the root action. The structural guide links executable examples for each route.
 
 ## 3. Inject clients and use the correct clock
 
-Define application-owned dependencies for network, storage and platform services.
-Inject them per Store or TestStore. Test defaults do not implicitly fall back to
-live factories, but an explicitly injected live client can still perform real I/O.
-See [dependencies](../runtime.md#dependencies) and the
-[controlled external-client recipe](external-clients.md).
-
-Resolve an owned client or future before leaving synchronous reduction. Do not
-capture a borrowed reducer context across an await. Captured clients stay captured;
-they do not refresh automatically. Use an actor-ordered read when current State
-is required. If policy must hold at commit, inspect it inside the update closure,
-not in an earlier separate read. The [session refresh tests](../../crates/rca-test/tests/session_client_refresh.rs)
-distinguish captured clients, current services and request identity.
+For network, storage, or platform services, [supply a dependency](dependencies.md).
+The [external-client recipe](external-clients.md) shows how to take a client
+out of a reducer and test its responses without contacting a real service.
 
 Use the Store runtime's clock for clients whose deadlines must follow that Store.
 TestStore creates its deterministic runtime during `build`. Its existing

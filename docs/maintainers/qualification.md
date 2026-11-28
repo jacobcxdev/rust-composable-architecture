@@ -1,12 +1,10 @@
 # RCA qualification
 
-Start with the change you need to qualify. A local test, a hosted CI result and
-a published package answer different questions. Each result applies only to its
-recorded source and configuration.
+Use this guide to review changes to RCA itself. To measure an app that uses RCA, see the [app performance guide](../guides/performance.md).
 
-- For a pull request, [choose the checks for the change](#choose-performance-evidence-for-the-change).
-- For a release, use the [native qualification instructions](#native-review-and-release).
-- To reuse previous results, check [what the evidence covers](#what-the-evidence-covers).
+- For a pull request, [choose the checks for the change](#choose-performance-evidence-for-the-change). The [benchmark guide](../performance/README.md) lists the portable workloads.
+- For a release, [select the published reference and qualify the candidate](#native-review-and-release).
+- Before you reuse a result, check [what the evidence covers](#what-the-evidence-covers).
 
 ## Choose performance evidence for the change
 
@@ -18,19 +16,16 @@ Correctness, coverage and packaging keep their own checks. A performance result 
 | Documentation or tests only | Run the applicable documentation or behaviour tests. Skip performance measurements only when the edit changes neither shipped behaviour nor the measurement itself. |
 | Bug fix | Reproduce the bug. Compare the repaired path and its nearest caller with the parent revision. If the fix now completes work the old version skipped, report correctness first. Do not call the extra work a comparable slowdown. |
 | New capability | Compare the existing workload with the capability off. With it on, measure useful work, including setup and cleanup. Give new behaviour an initial cost, not an invented historical result. |
-| Optimisation | Before editing, name the workload, metric and likely trade-off. Compare with the parent. Confirm the gain on a representative host workload before claiming lower latency or higher throughput. |
+| Optimisation | Before editing, name the workload, metric and likely trade-off. Compare with the parent. For a speed claim, measure latency or throughput on a representative host workload. |
 | Shared runtime, build or dependency | Include affected consumers and interactions. For a compiler upgrade, run both products on the same compiler. Separately measure unchanged RCA on the old and new compilers to identify the toolchain effect. |
 | Merge to `main` or release | Compare cumulative cost with the last full release. Before the first full release, measure the initial cost and run the controls. There is no previous released runtime to compare. |
 
 ### What runs on a pull request
 
-When [CI selects a performance check](../../CONTRIBUTING.md#documentation-and-checks), it compares the PR head with its branch point.
+When [CI selects a performance check](../../CONTRIBUTING.md#how-ci-selects-checks), it compares the PR head with its branch point.
 If neither the branch point nor a full release contains a comparable runtime, there is no relative PR result.
-A documentation-only pass is not a new measurement.
 On pushes to `main` or `dev/next`, the job selects the workloads that changed and measures them against the release commit.
 If the previous push is unavailable, selection covers the full difference from the release.
-Use the signed, published release as the reference. Its tag or a GitHub Release page alone does not prove publication on crates.io.
-The snapshot-only preview has no runtime and is not a performance baseline.
 
 To see which families a committed change selects, use both full commit IDs:
 
@@ -39,10 +34,10 @@ python3 scripts/performance_scope.py --base "$base" --head "$head"
 ```
 
 Unknown paths select all families. If a change also affects a caller outside the selection, include that caller in the PR evidence.
-For an extra allocation comparison, pass the affected runtime families to `--families` as in the optimisation example below.
+For an extra allocation comparison, pass the affected runtime families to `--families` as in the [optimisation example](#examples-feature-costs-optimisations-and-compiler-upgrades).
 For a change to native timing or build time, measure the affected workload on the host required by its protocol.
 For selected runtime families, CI builds the same downstream profiling program against each product. It compares allocations for the same completed work.
-The job retains the revisions, measurements, compiler and elapsed time. A docs-only skip is not a measured pass.
+The job retains the revisions, measurements, compiler and elapsed time. A skipped check does not give a new result.
 A cold-build-only selection has no runtime allocation rows. It needs separate native evidence for a compile-time claim.
 
 | Workload | What to look for |
@@ -59,13 +54,36 @@ A change can save allocations and still make the slowest requests slower. Report
 
 ### Native review and release
 
-For a Windows performance claim, use the hardware and limits in the [Windows protocol](../performance/composition/README.md#windows-paired-measurements).
-Review the exact source before you run it on a measurement host. Do not run unreviewed pull request code there.
-Keep the absolute limits that the selected protocol requires and the 10% relative limit.
-Each host has its own [composition policy and limits](../performance/composition/README.md). Measurements from one host do not qualify another.
-Before measuring, select the useful work, controls, stopping rule and permitted extension.
-An inconclusive result does not pass. Extend only the affected measurement under its stated rule, or use the established qualification method.
-Do not retry until a favourable result appears.
+For a release, use the integrated candidate and both the [runtime protocol](../performance/method.md) and the [composition protocol](../performance/composition/README.md).
+A hosted allocation comparison does not qualify native latency, cold builds, energy use or a release.
+
+From a clean checkout with the remote tags available, identify the last full published release. The resolver reads GitHub and crates.io:
+
+```sh
+python3 scripts/release_baseline.py revision
+```
+
+- If the resolver returns `none`, report “no prior released runtime”. Keep the initial measurements, absolute limits, independent controls and deliberate regression checks.
+  A development commit, a snapshot without a runtime or a same-source comparison cannot establish a release speedup.
+  After publication, [record the first full release](releasing.md#record-the-performance-baseline) as the reference.
+- If the resolver returns a commit, use its signed tag, source tree and dependency lock.
+  If the checkout tip is the signed candidate tag, use `revision --candidate-tag "$tag"` to select its predecessor.
+  For the native collector, set `RCA_QUALIFICATION_TAG` to the same tag.
+- If the resolver reports an error, stop. Missing evidence, a partial publication or a mismatched tag does not count as a first release.
+
+Before capture, review the exact source. Do not run unreviewed PR code on a measurement host.
+Use the enrolled host and its private runner profile. Keep the protocol’s absolute limits and 10% relative limit.
+Compare both products on the same host under the same conditions. Results on one host do not qualify another.
+Before measurement, select the useful work, controls, stopping rule and permitted extension.
+If a result is inconclusive, use only its permitted extension or the full qualification method. Do not retry for a favourable result.
+
+Keep the runner profile, protocol, source identities, toolchain, workload and evidence hashes with the private release record.
+To replay a result, use its original controller and inputs. A new baseline does not change an earlier result.
+
+#### Focused Windows screens
+
+These two comparisons guide changes to cancellation or cold builds. A passing screen does not replace full release qualification.
+Use the [Windows protocol](../performance/composition/README.md#windows-paired-measurements) for host requirements.
 
 Only the measurement host operator runs the Windows cancellation and compile comparisons below.
 The operator supplies a launcher that runs the controller and its children in a Windows Job Object.
@@ -128,29 +146,6 @@ It uses the original order and limit for up to 20 blocks. It can stop early when
 An early rejection does not establish the cause while the unchanged control remains uncertain.
 Read the saved decision after the guard finishes. An incomplete or inconclusive result does not pass.
 
-The hosted job measures resource use for selected workloads. It does not measure native latency, cold-build time, energy or release readiness.
-For a release, use the integrated candidate and the existing [native](../performance/method.md) and [composition](../performance/composition/README.md) checks.
-Reuse a result only when its source, workload, dependencies, configuration, toolchain and host conditions still apply.
-Missing evidence stays open. Never relabel a focused PR comparison as a release result.
-
-Use a clean release checkout with the remote tags available. The resolver needs read access to GitHub and crates.io.
-Before a release capture, identify the published baseline:
-
-```sh
-python3 scripts/release_baseline.py revision
-```
-
-If the result is `none`, report “no prior released runtime”. Do not substitute a development commit or call a same-source comparison a speedup.
-Keep the absolute limits, independent controls, deliberate regression checks, and initial measurements.
-After publication, [record the first full release](releasing.md#record-the-performance-baseline) as the reference for future work.
-
-For a later release, use the returned commit. It identifies the signed tag, source tree, and dependency lock that the measurements must match.
-If the resolver reports an error, stop. Missing evidence, a partial publication, or a mismatched tag is not an initial release.
-If you qualify a signed release tag at the exact checkout tip, select its predecessor with `revision --candidate-tag "$tag"`.
-For the native collector, set `RCA_QUALIFICATION_TAG` to that same tag. It cannot select another commit as the baseline.
-Keep the source, workloads, toolchain, protocol, and hashes of the measurement files with the release record.
-For replay, use that exact controller and those inputs. A new baseline does not change a previous result.
-
 ## Start with the changed behaviour
 
 For a change to typed task names, run the Shared and Local behaviour and allocation tests together.
@@ -202,15 +197,6 @@ check --offline --locked --manifest-path benches/compile/Cargo.toml -p rca-compi
 
 This fixture compiles required, optional and keyed children. Keep its build directory between edits.
 Use runtime tests for routing behaviour. Use fresh build directories for the release measurement of cold compile time.
-
-For release review, start with the last accepted evidence for each affected suite.
-If its measured inputs, toolchain, runner conditions and contract still apply, reuse the complete evidence.
-For example, `scripts/compare-performance.sh REFERENCE.json CANDIDATE.json` checks the native pair against the checkout and recomputes the result.
-Use the checkout that matches the recorded collector. An earlier collector's result remains evidence for that earlier run.
-Keep the accompanying source and guard receipts as specified in the [performance method](../performance/method.md).
-Replay checks a past measurement. It cannot establish how a changed executable performs.
-If the evidence is missing, inapplicable or uncertain, run the affected qualification on the final candidate.
-Do not substitute a focused test for a release measurement or combine rows from different runs.
 
 ## Examples: feature costs, optimisations and compiler upgrades
 
@@ -303,8 +289,13 @@ Retain the small JSON results and discard the temporary build outputs after revi
 
 ## What the evidence covers
 
-Record the revision, toolchain, features, platform and workloads with each result.
-For a later change, identify which inputs still match. Run new checks for the inputs that changed.
+Keep the original source and guard receipts with each result, including failures.
+Reuse complete evidence only while the source, dependencies, configuration, toolchain, workload, runner conditions and contract still apply.
+If evidence is missing or uncertain, run the affected qualification on the final candidate.
+Do not combine measurements from different runs or replace a release measurement with a focused test.
+
+For example, the [runtime replay command](../performance/method.md#commands) checks a previous capture using its original controller.
+It cannot measure a changed executable.
 If a crate packages its README without compiling it, a README edit changes the archive but not the library code.
 Check the archive and its consumer. Do not report a new runtime measurement.
 
@@ -313,7 +304,6 @@ Audit tests, compile-failure fixtures and conformance-test bodies separately.
 A passing test count or a link to a past run does not establish full coverage for a different revision.
 See [coverage evidence](../../CONTRIBUTING.md#coverage-evidence) for the required records.
 
-Keep the original measurements and known failures with their release records.
 Release-specific changes belong in the [changelog](../../CHANGELOG.md), not in this procedure.
 
 ## Hosted checks and publication

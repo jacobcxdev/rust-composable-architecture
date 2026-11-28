@@ -2,6 +2,7 @@
 
 from contextlib import redirect_stderr, redirect_stdout
 from io import StringIO
+import json
 from pathlib import Path
 import sys
 import tempfile
@@ -10,6 +11,7 @@ from unittest.mock import patch
 
 from scripts.tests import test_composition_performance as fixtures
 from scripts.tests.composition_inputs import divan_output
+from scripts.tests.test_composition_windows_runner import windows_profile_fixture
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import composition_cold_timing as bounds
@@ -32,8 +34,11 @@ class RankProductDecisionTests(unittest.TestCase):
         self.enterContext(patch("native_release_reference.latest_baseline", return_value=release))
         sources = {"controller": {"revision": "c"*40}, "measured_subject": {"revision": "b"*40},
                    "control": {"revision": release.revision}}
+        host = {"identity": {**windows_profile_fixture(self), "os_version": "10.0.10000",
+                             "os_build": "10000", "platform": "windows", "target": "x86_64-pc-windows-msvc"}}
         runner.write_json(self.directory / "capture.json", {"experiment": runner.rank_method_identity(),
-                                                            "reference_kind": "release-comparison", **sources})
+                                                            "host": host, "reference_kind": "release-comparison",
+                                                            **sources})
         runner.write_json(self.directory / "source-identities-after.json", {
             "capture_sha256": runner.evidence._sha256(self.directory / "capture.json"), **sources})
         self.diagnostics = {}
@@ -116,13 +121,22 @@ class RankProductDecisionTests(unittest.TestCase):
         self.assert_no_canonical_result()
 
     def select_look(self, **selection):
-        import json
         header = self.directory / "capture.json"
         source = json.loads(header.read_bytes())
         source["experiment"] = runner.rank_method_identity(**selection)
         header.write_text(json.dumps(source))
         after = self.directory / "source-identities-after.json"
         after.write_text(json.dumps({**json.loads(after.read_bytes()), "capture_sha256": runner.evidence._sha256(header)}))
+
+    def test_replay_rejects_an_unregistered_host_even_with_matching_capture_hashes(self):
+        header = self.directory / "capture.json"
+        source = json.loads(header.read_bytes())
+        source["host"]["identity"]["hostname"] = "not-enrolled"
+        header.write_text(json.dumps(source))
+        self.select_look()  # Refresh the digest in the final source record.
+        timing = self.seal_timing("fail")
+        with self.assertRaisesRegex(ValueError, "Windows composition runner"):
+            runner.experimental_composition_result(self.directory, timing, {}, {})
 
     def test_single_look_timing_pass_still_requires_the_product_gates(self):
         self.select_look(single_look=True)
@@ -247,7 +261,6 @@ class RankProductDecisionTests(unittest.TestCase):
             capture.assert_not_called()
 
     def test_rejection_requires_the_same_real_subject_after_measurement(self):
-        import json
         timing = self.seal_timing("fail")
         path = self.directory / "source-identities-after.json"
         after = json.loads(path.read_bytes())

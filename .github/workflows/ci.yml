@@ -92,7 +92,7 @@ jobs:
                   PYTHONDONTWRITEBYTECODE: 1
               run: |
                   python3 -m unittest scripts.tests.test_performance_scope scripts.tests.test_compare_change_resources
-                  python3 -m unittest scripts.tests.test_release_baseline scripts.tests.test_composition_process_inputs
+                  python3 -m unittest scripts.tests.test_release_baseline scripts.tests.test_runner_profile scripts.tests.test_composition_process_inputs
                   python3 -m unittest scripts.tests.test_performance_cohort scripts.tests.test_performance_sources
                   python3 -m unittest scripts.tests.test_controlled_cost
                   python3 -m unittest scripts.tests.test_task_fold_profile
@@ -105,7 +105,7 @@ jobs:
                   python3 -m unittest scripts.tests.test_composition_subject scripts.tests.test_windows_performance_inputs
                   PYTHONPATH=scripts/tests python3 -m unittest test_composition_compile_portfolio test_composition_pe_seed test_composition_zero_host test_native_allocation_counts test_composition_cancellation_exposure test_qualification_reference_cache test_composition_reference_sizes
                   PYTHONPATH=scripts/tests python3 -m unittest test_composition_reference_allocations test_native_reference_enrol test_native_reference_stock
-                  python3 -m unittest scripts.tests.test_composition_runner.RunnerTests -k interleaved -k recorded_load -k busy_monitor -k prepared_modes -k candidate_cli -k absolute_capture -k registry_preparation
+                  python3 -m unittest scripts.tests.test_composition_runner.RunnerTests -k interleaved -k recorded_load -k busy_monitor -k prepared_modes -k candidate_cli -k absolute_capture -k registry_preparation -k test_host_
 
             - name: Lint all targets and features
               run: cargo clippy --keep-going --workspace --all-targets --all-features -- -D warnings

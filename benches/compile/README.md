@@ -29,5 +29,5 @@ rustup run 1.100.0 cargo check --locked --manifest-path benches/compile/Cargo.to
 ```
 
 A successful check confirms that the fixture compiles. It does not produce a linked binary or measure a cold build.
-For comparable build times and binary sizes, follow the [qualification guide](../../docs/maintainers/qualification.md#native-review-and-release).
+For release build times and binary sizes, follow the [composition procedure](../../docs/performance/composition/README.md). To measure an application's runtime instead, see [measure your app](../../docs/guides/performance.md).
 Keep generated binaries, timings, and raw command output outside the source tree.

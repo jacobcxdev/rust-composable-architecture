@@ -29,7 +29,7 @@ class WindowsPerformanceInputs(unittest.TestCase):
         self.sources = [dict(revision=r, tree=t * 40, hashes={"Cargo.lock": t * 64})
                         for r, t in zip(self.revs, "123")]
         self.host = dict(system="Windows", hostname="FIXTURE-RUNNER", os="Windows-11-10.0.26200-SP0",
-                         machine_model="AMD64", cpu="AMD Ryzen 9 3900X 12-Core Processor", logical_cpus=24)
+                         machine_model="AMD64", cpu="fixture CPU", logical_cpus=8)
         self.comp_host = dict(self.host, os_version="10.0.26200", os_build="26200",
                               platform="windows", target="x86_64-pc-windows-msvc")
         self.tools = {n: {"sha256": d * 64} for n, d in zip(("rustc", "cargo", "rustdoc"), "def")}

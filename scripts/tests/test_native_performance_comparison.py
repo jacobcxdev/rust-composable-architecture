@@ -49,6 +49,10 @@ def historical_release_pair(tag):
             "crates/rca-tokio/benches/qualification.rs": b"harness\n",
             "crates/rca-tokio/benches/qualification/shutdown.rs": b"shutdown harness\n",
             "scripts/qualify-performance.sh": b"Mac capture\n",
+            "scripts/runner_profile.py": (
+                b'print(\'{"native_runner":"test-mac","host":{"machine_model":"fixture",'
+                b'"cpu_model":"fixture CPU","logical_cpus":"8","memory_bytes":"17179869184"}}\')\n'
+            ),
             "scripts/guard_cargo_memory.py": b"Mac memory watchdog\n",
             "scripts/capture-windows-performance.py": (ROOT / "scripts/capture-windows-performance.py").read_bytes(),
         }
@@ -102,11 +106,13 @@ esac
             "reference_lock_sha256": digest(b"reference lock\n"),
         }
         if not windows:
+            cohort.update(machine_model="fixture", cpu="fixture CPU", logical_cpus=8, memory_bytes=17179869184)
+            runner_policy_hash = digest((self.root / "scripts/runner_profile.py").read_bytes())
             cohort["memory_limit_bytes"] = memory_limit_gib * 1024**3
             cohort["memory_watchdog_sha256"] = digest((self.root / "scripts/guard_cargo_memory.py").read_bytes())
             cohort["memory_watchdog_receipt"] = str((self.root / "memory.json").resolve())
             cohort["protocol_sha256"] = digest(
-                f"{harness_hash}\n{module_hash}\n{scenario_hash}\n{capture_hash}\n{cohort['memory_watchdog_sha256']}\n{cohort['memory_limit_bytes']}\n".encode())
+                f"{harness_hash}\n{module_hash}\n{scenario_hash}\n{capture_hash}\n{runner_policy_hash}\n{cohort['memory_watchdog_sha256']}\n{cohort['memory_limit_bytes']}\n".encode())
         for role in ("candidate", "reference"):
             cohort[f"{role}_source_tree"] = "d" * 40
             cohort[f"{role}_manifest_sha256"] = digest(b"manifest\n")
@@ -287,6 +293,20 @@ esac
     def test_mac_evidence_keeps_its_existing_counter_contract(self):
         result = self.compare(*self.evidence(False))
         self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_mac_rejects_evidence_from_a_different_runner(self):
+        reference, candidate = self.evidence(False)
+        for document in (reference, candidate):
+            document["metadata"]["cohort"]["cpu"] = "another CPU"
+        result = self.compare(reference, candidate)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("does not match the pinned Mac runner", result.stderr)
+
+    def test_mac_rejects_runner_policy_changed_after_capture(self):
+        reference, candidate = self.evidence(False)
+        with (self.root / "scripts/runner_profile.py").open("ab") as policy:
+            policy.write(b"# changed policy\n")
+        self.assertNotEqual(self.compare(reference, candidate).returncode, 0)
 
     def test_authenticated_historical_mac_replay_is_not_current_qualification(self):
         base, candidate = self.evidence(False)

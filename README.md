@@ -211,6 +211,7 @@ The [persistent counter](examples/persistent-counter/README.md) shows how to sav
 | How do I stop a task or replace a child safely? | [Cancel a timer](examples/timer/src/main.rs) or [replace an upload worker](examples/composition-search/docs/uploader.md) |
 | Which example fits my application? | [Runnable examples and tested recipes](examples/README.md) |
 | How do I connect a native UI or another service? | [Host integration guide](docs/integration-boundaries.md) |
+| How do I reduce work on a busy application path? | [Application performance](docs/guides/performance.md) |
 | How do I choose between runtime speed and binary size? | [Application build profiles](docs/guides/authoring.md#choose-a-release-profile) |
 | Where can I find a type or method? | [Choose the API reference for your version or checkout](docs/README.md#api-reference-and-support) |
 

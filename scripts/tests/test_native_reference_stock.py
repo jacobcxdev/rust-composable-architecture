@@ -47,8 +47,8 @@ class NativeStockTests(unittest.TestCase):
                               "-p", "rca-tokio", "--bench", "qualification", "--no-run", "--message-format=json"]
             if cmd["binary_role"].endswith("allocation"):
                 cmd["command"] += ["--features", "qualification-dhat"]
-        self.host = {"system": "Windows", "os": "Windows-11", "machine_model": "AMD64", "cpu": "AMD Ryzen 9 3900X",
-                     "logical_cpus": 24, "hostname": "test", "python": "3.12", "python_executable": "C:/python.exe"}
+        self.host = {"system": "Windows", "os": "Windows-11", "machine_model": "AMD64", "cpu": "fixture CPU",
+                     "logical_cpus": 8, "hostname": "test", "python": "3.12", "python_executable": "C:/python.exe"}
 
     def inputs(self, meta=None):
         return self.stock.inputs(self.meta if meta is None else meta, self.tools, self.host)

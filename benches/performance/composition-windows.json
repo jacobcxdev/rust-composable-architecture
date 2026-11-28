@@ -2,9 +2,9 @@
   "schema_version": 1,
   "method_version": "composition-windows-paired-v6",
   "status": "frozen-before-measurement",
-  "runner": "ryzen9-3900x-windows-x86_64-msvc",
+  "runner": "windows-release",
   "reference_revision": "published-stable-release",
-  "budget_sha256": "b358b2ed7c960996341af43930e483a8b09795169de75f0461292aaa0c41503c",
+  "budget_sha256": "a0cadfceeee97264775c78a8265424ecfc852e83f90070497ef0786a94d25f7b",
   "allocation_manifest_sha256": "95a9e2ee87deaa3046d4a51893efe164282d51aef6a3b3eec61e9f1ca0b3bf32",
   "regression_limit": 1.1,
   "early_rejection": {

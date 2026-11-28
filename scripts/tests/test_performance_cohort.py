@@ -1,5 +1,6 @@
 """Exercise the canonical runner check without building or collecting samples."""
 
+import json
 import os
 from pathlib import Path
 import subprocess
@@ -29,12 +30,19 @@ uname() {
     case "$1" in -s) printf 'Darwin\n' ;; -m) printf 'arm64\n' ;; esac
 }
 pgrep() { return 1; }
+python3() {
+    if [[ "$1" == "-B" && "${2##*/}" == "runner_profile.py" && "$3" == "macos" ]]; then
+        printf '%s\n' "$RCA_TEST_PROFILE"
+    else
+        command python3 "$@"
+    fi
+}
 sysctl() {
     case "$2" in
-        hw.model) printf 'Mac15,9\n' ;;
-        machdep.cpu.brand_string) printf 'Apple M3 Max\n' ;;
-        hw.logicalcpu) printf '16\n' ;;
-        hw.memsize) printf '51539607552\n' ;;
+        hw.model) printf 'test-machine\n' ;;
+        machdep.cpu.brand_string) printf 'test-cpu\n' ;;
+        hw.logicalcpu) printf '8\n' ;;
+        hw.memsize) printf '17179869184\n' ;;
         *) return 98 ;;
     esac
 }
@@ -57,19 +65,23 @@ rustup() {
     return 91
 }
 xcrun() { return 98; }
-export -f git uname pgrep sysctl sw_vers pmset rustup xcrun
+export -f git uname pgrep python3 sysctl sw_vers pmset rustup xcrun
 exec bash "$RCA_TEST_QUALIFIER" "$RCA_TEST_ROOT/candidate.json" \
     "$RCA_TEST_ROOT" "$RCA_TEST_ROOT/reference.json"
 """
 
 
 class CanonicalPerformanceCohortTests(unittest.TestCase):
-    def preflight(self, version, build, runner=None, memory_limit_bytes=8 * 1024**3):
+    def preflight(self, version, build, runner=None, memory_limit_bytes=8 * 1024**3, host_change=None):
         with tempfile.TemporaryDirectory(prefix="rca-cohort-test-") as directory:
             environment = dict(os.environ)
             for name in ("RCA_PERF_RUNNER", "RCA_QUALIFY_ALLOCATIONS", "RCA_DHAT_FILE"):
                 environment.pop(name, None)
             environment.update(
+                RCA_TEST_PROFILE=json.dumps(dict(native_runner="test-runner", host={
+                    "architecture": "arm64", "machine_model": "test-machine", "cpu_model": "test-cpu",
+                    "logical_cpus": "8", "memory_bytes": "17179869184", **(host_change or {}),
+                })),
                 RCA_TEST_ROOT=directory,
                 RCA_TEST_QUALIFIER=str(QUALIFIER),
                 RCA_TEST_OS_VERSION=version,
@@ -116,13 +128,20 @@ class CanonicalPerformanceCohortTests(unittest.TestCase):
                 self.assertIn("host does not match pinned runner", result.stderr)
                 self.assertNotIn("cohort accepted", result.stderr)
 
+    def test_different_hardware_stops_before_any_build(self):
+        for field in ("architecture", "machine_model", "cpu_model", "logical_cpus", "memory_bytes"):
+            with self.subTest(field=field):
+                result = self.preflight("27.0", "26A428", host_change={field: "different"})
+                self.assertEqual(result.returncode, 1, result.stderr)
+                self.assertIn("host does not match pinned runner", result.stderr)
+
     def test_old_runner_identity_cannot_label_the_current_host(self):
         result = self.preflight(
-            "27.0", "26A428", "mac15-9-m3-max-16c-48gb-macos26-ac-high"
+            "27.0", "26A428", "another-runner"
         )
         self.assertEqual(result.returncode, 1, result.stderr)
         self.assertIn(
-            "runner must be pinned to mac15-9-m3-max-16c-48gb-macos27-ac-high",
+            "runner must be pinned to test-runner",
             result.stderr,
         )
         self.assertNotIn("cohort accepted", result.stderr)

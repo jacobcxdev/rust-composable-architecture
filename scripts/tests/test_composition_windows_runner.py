@@ -24,6 +24,16 @@ TELEMETRY_IMAGE = {
 }
 
 
+def windows_profile_fixture(case):
+    """Supply an invented release host for live and replay checks."""
+    profile = {"hostname_sha256": hashlib.sha256(b"fixture-runner").hexdigest(),
+               "logical_cpus": 8, "machine_model": "amd64", "cpu_contains": "Fixture CPU",
+               "composition_runner": "fixture-recorder"}
+    case.enterContext(patch("runner_profile.load", side_effect={"windows": profile}.__getitem__))
+    return {"hostname": "Fixture-Runner", "logical_cpus": 8, "machine_model": "AMD64",
+            "cpu": "Fixture CPU Series X"}
+
+
 class WindowsRunnerTests(unittest.TestCase):
     def test_v6_monitor_rejects_a_backend_without_primary_thread_proof(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -442,19 +452,17 @@ class WindowsRunnerTests(unittest.TestCase):
             self.assertIs(complete["mac_absolute_qualified"], False)
 
     def test_windows_host_rejects_different_machine_and_records_kernel_version(self):
-        identity = {"hostname": "Fixture-Runner", "logical_cpus": 24, "machine_model": "AMD64",
-                    "cpu": "AMD Ryzen 9 3900X 12-Core Processor"}
+        identity = windows_profile_fixture(self)
         with patch.object(runner, "windows_provider", return_value=SimpleNamespace(host_metadata=lambda: identity)), \
-             patch.object(runner, "WINDOWS_HOSTNAME_SHA256", hashlib.sha256(b"fixture-runner").hexdigest()), \
              patch.object(runner.platform, "version", return_value="10.0.26200"):
             recorded = runner.windows_host()["identity"]
             self.assertEqual(recorded["os_version"], "10.0.26200")
             self.assertEqual(recorded["os_build"], "26200")
             self.assertEqual(recorded["target"], "x86_64-pc-windows-msvc")
             self.assertEqual(recorded["hostname"], "Fixture-Runner")
-            for hostname in ("", "another-host"):
-                identity["hostname"] = hostname
-                with self.subTest(hostname=hostname), \
+            for field, value in (("hostname", ""), ("hostname", "another-host"), ("logical_cpus", 6),
+                                 ("machine_model", "arm64"), ("cpu", "Another CPU")):
+                with self.subTest(field=field, value=value), patch.dict(identity, {field: value}), \
                      self.assertRaisesRegex(ValueError, "Windows composition runner"):
                     runner.windows_host()
 

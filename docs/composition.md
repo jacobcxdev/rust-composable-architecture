@@ -89,16 +89,10 @@ only while that reducer executes. Nested wrappers shadow their parent for the
 same key. Sibling and parent reducers retain their own view, including when a
 child panics: the borrowed context restores its previous layer during unwind.
 
-`ReduceContext::with_dependency_override` sets an override for one action.
-An explicit TestStore override wins over the action override, which wins over the nearest feature override.
-If none applies, the Store uses its explicit value or the default for its environment.
-TestStore selects a test default, not the live default.
-See [dependency precedence](guides/dependencies-and-shared-state.md#which-dependency-value-does-the-feature-receive) for missing defaults and preview environments.
-
-An effect cannot retain or query `ReduceContext` after reduction. Clone the
-specific service handle needed by the future while reducing, then move that
-handle into the effect. This explicit Rust boundary avoids ambient task-local
-state and prevents accidental capture of the complete dependency environment.
+For overrides that apply to one action or a whole Store, see
+[which dependency value the feature receives](guides/dependencies.md#which-dependency-value-does-the-feature-receive).
+An effect needs an owned client after this scope ends. The
+[external-client recipe](guides/external-clients.md) shows where to capture it.
 
 ## Scoped Store handles
 

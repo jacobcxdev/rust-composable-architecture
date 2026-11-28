@@ -27,6 +27,7 @@ import time
 sys.dont_write_bytecode = True
 import composition_performance as evidence  # noqa: E402 -- suppress bytecode before local imports
 import native_release_reference  # noqa: E402
+import runner_profile  # noqa: E402
 import windows_strip  # noqa: E402
 
 
@@ -499,6 +500,7 @@ def rank_subject(checkout, controller, expected_controller, expected_subject):
 
 
 def canonical_host():
+    profile = runner_profile.load("macos")
     values = {
         "architecture": read(["uname", "-m"]),
         "machine_model": read(["sysctl", "-n", "hw.model"]),
@@ -510,24 +512,17 @@ def canonical_host():
         "power_source": read(["pmset", "-g", "batt"]),
         "power_settings": read(["pmset", "-g", "custom"]),
     }
-    expected = {
-        "architecture": "arm64",
-        "machine_model": "Mac15,9",
-        "cpu_model": "Apple M3 Max",
-        "logical_cpus": "16",
-        "memory_bytes": "51539607552",
-    }
     ac_settings = values["power_settings"].split("AC Power:")[-1]
     import re
 
     evidence.validate_measurement_os(values["os_version"])
     if (
-        any(values[key] != value for key, value in expected.items())
+        any(values[key] != value for key, value in profile["host"].items())
         or "AC Power" not in values["power_source"]
         or not re.search(r"^\s*powermode\s+2\s*$", ac_settings, re.MULTILINE)
     ):
         raise ValueError(f"host does not match canonical runner {evidence.RUNNER}")
-    if os.environ.get("RCA_PERF_RUNNER", evidence.RUNNER) != evidence.RUNNER:
+    if os.environ.get("RCA_PERF_RUNNER", profile["composition_runner"]) != profile["composition_runner"]:
         raise ValueError("RCA_PERF_RUNNER is not canonical")
     return {
         "identity": {**values, "power_source": "AC Power"},
@@ -535,20 +530,23 @@ def canonical_host():
     }
 
 
-WINDOWS_HOSTNAME_SHA256 = "6c1f7706bd2507833c76d36ad2109bf97babf9385f20ee6b889b7e4e3775d4d1"
+def validate_windows_host(values, version):
+    """Check recorded or live hardware against the same approved profile."""
+    profile = runner_profile.load("windows")
+    hostname = values.get("hostname", "").casefold().encode("utf-8")
+    if (hashlib.sha256(hostname).hexdigest() != profile["hostname_sha256"]
+            or values.get("logical_cpus") != profile["logical_cpus"]
+            or values.get("machine_model", "").casefold() != profile["machine_model"]
+            or profile["cpu_contains"] not in values.get("cpu", "")
+            or not version or len(version.split(".")) != 3):
+        raise ValueError("host does not match the Windows composition runner")
 
 
 def windows_host():
     """Check the pinned runner without publishing its local name."""
     values = windows_provider().host_metadata()
     version = platform.version()
-    hostname = values.get("hostname", "").casefold().encode("utf-8")
-    if (hashlib.sha256(hostname).hexdigest() != WINDOWS_HOSTNAME_SHA256
-            or values.get("logical_cpus") != 24
-            or values.get("machine_model", "").casefold() != "amd64"
-            or "AMD Ryzen 9 3900X" not in values.get("cpu", "")
-            or not version or len(version.split(".")) != 3):
-        raise ValueError("host does not match the Windows composition runner")
+    validate_windows_host(values, version)
     return {"identity": {**values, "platform": "windows", "target": "x86_64-pc-windows-msvc",
                          "os_version": version, "os_build": version.rsplit(".", 1)[-1]}}
 
@@ -1495,7 +1493,7 @@ def rank_receipt(*, single_look=False, two_look=False):
 
 def rank_method_identity(*, single_look=False, two_look=False):
     """Pin the collection and replay code before the first experimental measurement."""
-    names = ("composition_runner.py", "composition_performance.py", "release_baseline.py",
+    names = ("composition_runner.py", "composition_performance.py", "runner_profile.py", "release_baseline.py",
              "native_release_reference.py", "composition_cold_timing.py",
              "composition_timing_inputs.py", "composition_product_commands.py",
              "composition_windows_complete.py", "composition_windows_absolute.py",
@@ -1569,6 +1567,8 @@ def experimental_composition_result(directory, timing_digest, products, diagnost
     options = look_options(single_look, two_look)
     if manifest.get("experiment") != rank_method_identity(**options):
         raise ValueError("missing or changed prospective method identity")
+    host = manifest.get("host", {}).get("identity", {})
+    validate_windows_host(host, host.get("os_version"))
     revisions = verify_rank_git_sources(directory, manifest, expected_controller, expected_subject)
     after_path = directory / "source-identities-after.json"
     if after_path.resolve() != after_path.absolute() or not after_path.is_file():
@@ -1805,7 +1805,8 @@ def qualify(output, staging, reference, mode, aa_evidence=None, *, platform_name
     pinned_files = [
         selected_protocol, BUDGET, evidence.DEFAULT_ALLOCATION_MANIFEST, Path(__file__),
         ROOT / "scripts/release_baseline.py", ROOT / "scripts/native_release_reference.py",
-        ROOT / "scripts/composition_performance.py", ROOT / "scripts/qualify-composition-performance.sh",
+        ROOT / "scripts/composition_performance.py", ROOT / "scripts/runner_profile.py",
+        ROOT / "scripts/qualify-composition-performance.sh",
         *(ROOT / item["source"] for item in protocol["common_workloads"]["files"].values()),
         *(Path(path) for path in tools.values()),
     ]

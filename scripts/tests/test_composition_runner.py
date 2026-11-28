@@ -35,6 +35,14 @@ def setup_guard_fixture(case):
 
 
 class RunnerTests(unittest.TestCase):
+    def mac_host_values(self):
+        """Supply an invented enrolled machine and its five sysctl/uname answers."""
+        host = {"architecture": "arm64", "machine_model": "Fixture Mac",
+                "cpu_model": "Fixture CPU", "logical_cpus": "4", "memory_bytes": "8589934592"}
+        profile = {"host": host, "composition_runner": "fixture-recorder"}
+        self.enterContext(patch("runner_profile.load", side_effect={"macos": profile}.__getitem__))
+        return list(host.values())
+
     def setUp(self):
         setup_guard_fixture(self)
         baseline = patch("native_release_reference.composition_reference", return_value={
@@ -770,7 +778,7 @@ class RunnerTests(unittest.TestCase):
         controller = {"revision": "1" * 40}
         host = {
             "identity": {
-                "machine_model": "Mac15,9",
+                "machine_model": "Fixture Mac",
                 "os_version": "27.0",
                 "os_build": "26A428",
             }
@@ -1002,6 +1010,7 @@ class RunnerTests(unittest.TestCase):
                         )
 
     def test_host_requires_minimum_macos_27(self):
+        host = self.mac_host_values()
         for version, accepted in (
             ("27.0", True),
             ("27.2.1", True),
@@ -1017,8 +1026,7 @@ class RunnerTests(unittest.TestCase):
                     runner,
                     "read",
                     side_effect=[
-                        "arm64", "Mac15,9", "Apple M3 Max", "16", "51539607552",
-                        version, "26A428", "Now drawing from 'AC Power'",
+                        *host, version, "fixture-build", "Now drawing from 'AC Power'",
                         "AC Power:\n powermode 2",
                     ],
                 ),
@@ -1030,15 +1038,7 @@ class RunnerTests(unittest.TestCase):
                         runner.canonical_host()
 
     def test_host_identity_accepts_charging_progress_and_retains_telemetry(self):
-        stable = [
-            "arm64",
-            "Mac15,9",
-            "Apple M3 Max",
-            "16",
-            "51539607552",
-            "27.0",
-            "26A428",
-        ]
+        stable = [*self.mac_host_values(), "27.0", "fixture-build"]
         charging = "Now drawing from 'AC Power'\n99%; charging; 0:02 remaining"
         charged = "Now drawing from 'AC Power'\n100%; charged; 0:00 remaining"
         policy = "Battery Power:\n powermode 0\nAC Power:\n powermode 2"
@@ -1053,16 +1053,18 @@ class RunnerTests(unittest.TestCase):
         self.assertEqual(before["telemetry"]["battery"], charging)
         self.assertEqual(after["telemetry"]["battery"], charged)
 
+    def test_host_rejects_each_mismatched_hardware_field(self):
+        host = self.mac_host_values()
+        for index in range(len(host)):
+            answers = host.copy()
+            answers[index] = "not enrolled"
+            with self.subTest(index=index), patch.object(runner, "read", side_effect=[
+                *answers, "27.0", "fixture-build", "Now drawing from 'AC Power'", "AC Power:\n powermode 2",
+            ]), self.assertRaisesRegex(ValueError, "canonical runner"):
+                runner.canonical_host()
+
     def test_host_rejects_ac_loss_and_required_power_policy_drift(self):
-        stable = [
-            "arm64",
-            "Mac15,9",
-            "Apple M3 Max",
-            "16",
-            "51539607552",
-            "27.0",
-            "26A428",
-        ]
+        stable = [*self.mac_host_values(), "27.0", "fixture-build"]
         for battery, policy in (
             (
                 "Now drawing from 'Battery Power'\n99%; discharging",
@@ -1079,13 +1081,9 @@ class RunnerTests(unittest.TestCase):
 
     def test_final_host_check_rejects_stable_identity_drift(self):
         initial_values = [
-            "arm64",
-            "Mac15,9",
-            "Apple M3 Max",
-            "16",
-            "51539607552",
+            *self.mac_host_values(),
             "27.0",
-            "26A428",
+            "fixture-build",
             "Now drawing from 'AC Power'",
             "AC Power:\n powermode 2",
         ]
@@ -1093,7 +1091,7 @@ class RunnerTests(unittest.TestCase):
             before = runner.canonical_host()
         with tempfile.TemporaryDirectory() as tmp:
             monitor = runner.HostMonitor(Path(tmp), {})
-            changed = [*initial_values[:6], "26A429", *initial_values[7:]]
+            changed = [*initial_values[:6], "different-build", *initial_values[7:]]
             with patch.object(runner, "read", side_effect=changed):
                 with self.assertRaisesRegex(ValueError, "host identity changed"):
                     runner.check_host_unchanged(before, monitor)

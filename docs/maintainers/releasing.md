@@ -98,7 +98,7 @@ python3 scripts/release_baseline.py record
 ```
 
 Check the signed tag, resolved commit, source tree, and dependency-lock hash against the qualification record.
-Keep the record with the release evidence outside Git. Include the toolchain, workload and protocol identities, and hashes of the measurement files.
+Keep the record outside Git with the runner profile used for the capture, the ordered observations, and the guard receipts. Record the hashes of the profile and measurement files, and identify the toolchain, workloads, and protocol. This lets another maintainer check what passed without relying on an expiring CI artifact.
 If the registry has only a partial release or the identities differ, stop. Do not substitute a development commit.
 Future qualification compares the candidate with the [last full published release](qualification.md#native-review-and-release).
 

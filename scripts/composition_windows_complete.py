@@ -11,7 +11,7 @@ import native_release_reference
 
 
 POLICY = Path(__file__).resolve().parents[1] / "benches/performance/composition-windows-complete.json"
-V6_POLICY_SHA256 = "0702f76a633c118107dfdb56bd1f692a68db1747496c1ce2d65d487c186f13ec"
+V6_POLICY_SHA256 = "853fee255dae5373f76389a751a3ca873cf3d23cb1306388ad09ebde6b7c70a5"
 V6_METHOD = "composition-windows-complete-v6"
 
 
