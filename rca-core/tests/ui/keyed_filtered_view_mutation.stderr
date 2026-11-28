@@ -1,0 +1,9 @@
+error[E0502]: cannot borrow `states` as mutable because it is also borrowed as immutable
+ --> tests/ui/keyed_filtered_view_mutation.rs:6:5
+  |
+5 |     let selected = states.try_filter(|_, _| Ok::<_, ()>(true)).unwrap();
+  |                    ------ immutable borrow occurs here
+6 |     states.try_insert_at(0, 2, String::from("two")).unwrap();
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ mutable borrow occurs here
+7 |     println!("{}", selected[0].1);
+  |                    -------- immutable borrow later used here

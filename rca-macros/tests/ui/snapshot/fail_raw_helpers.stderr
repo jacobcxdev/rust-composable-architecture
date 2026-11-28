@@ -1,0 +1,47 @@
+error: duplicate snapshot option `name`
+ --> tests/ui/snapshot/fail_raw_helpers.rs:5:14
+  |
+5 | #[r#snapshot(r#name)]
+  |              ^^^^^^
+
+error: expected snapshot item option `name` or `into`
+ --> tests/ui/snapshot/fail_raw_helpers.rs:9:14
+  |
+9 | #[r#snapshot(r#redact)]
+  |              ^^^^^^^^
+
+error: expected snapshot item option `name` or `into`
+  --> tests/ui/snapshot/fail_raw_helpers.rs:13:14
+   |
+13 | #[r#snapshot(r#nested::r#name = Other)]
+   |              ^^^^^^^^^^^^^^^^
+
+error: duplicate snapshot option `redact`
+  --> tests/ui/snapshot/fail_raw_helpers.rs:19:18
+   |
+19 |     #[r#snapshot(r#redact)]
+   |                  ^^^^^^^^
+
+error: duplicate snapshot option `with`
+  --> tests/ui/snapshot/fail_raw_helpers.rs:21:36
+   |
+21 |     #[r#snapshot(r#with = capture, with)]
+   |                                    ^^^^
+
+error: expected snapshot field option `with`, `value`, `omit` or `redact`
+  --> tests/ui/snapshot/fail_raw_helpers.rs:23:18
+   |
+23 |     #[r#snapshot(r#name = Field)]
+   |                  ^^^^^^
+
+error: expected snapshot field option `with`, `value`, `omit` or `redact`
+  --> tests/ui/snapshot/fail_raw_helpers.rs:25:36
+   |
+25 |     #[r#snapshot(r#with = capture, r#nested::r#value = usize)]
+   |                                    ^^^^^^^^^^^^^^^^^
+
+error: snapshot options are not supported on variants; case identity is always captured
+  --> tests/ui/snapshot/fail_raw_helpers.rs:31:18
+   |
+31 |     #[r#snapshot(r#omit = "Case identity cannot be omitted")]
+   |                  ^^^^^^

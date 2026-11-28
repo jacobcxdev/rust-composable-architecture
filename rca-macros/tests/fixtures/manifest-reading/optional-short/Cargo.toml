@@ -1,0 +1,4 @@
+# Resolver input only. The short facade is disabled unless the consumer enables it.
+[dependencies]
+domain_core = { package = "rca-core", version = "0.1" }
+short = { package = "rca", version = "0.1", optional = true }

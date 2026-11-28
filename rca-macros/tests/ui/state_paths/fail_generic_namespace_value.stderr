@@ -1,0 +1,31 @@
+error[E0532]: cannot find tuple struct or tuple variant `StatePaths` in this scope
+  --> tests/ui/state_paths/fail_generic_namespace_value.rs:15:9
+   |
+15 |     let StatePaths(_) = state;
+   |         ^^^^^^^^^^ not found in this scope
+   |
+   = note: a type alias named `StatePaths` exists in another namespace
+
+error[E0532]: cannot find tuple struct or tuple variant `ActionPaths` in this scope
+  --> tests/ui/state_paths/fail_generic_namespace_value.rs:16:9
+   |
+16 |     let ActionPaths(_) = action;
+   |         ^^^^^^^^^^^ not found in this scope
+   |
+   = note: a type alias named `ActionPaths` exists in another namespace
+
+error[E0423]: cannot find function, tuple struct or tuple variant `StatePaths` in this scope
+  --> tests/ui/state_paths/fail_generic_namespace_value.rs:20:13
+   |
+20 |     let _ = StatePaths::<u8>(PhantomData);
+   |             ^^^^^^^^^^ not found in this scope
+   |
+   = note: a type alias named `StatePaths` exists in another namespace
+
+error[E0423]: cannot find function, tuple struct or tuple variant `ActionPaths` in this scope
+  --> tests/ui/state_paths/fail_generic_namespace_value.rs:21:13
+   |
+21 |     let _ = ActionPaths::<u8>(PhantomData);
+   |             ^^^^^^^^^^^ not found in this scope
+   |
+   = note: a type alias named `ActionPaths` exists in another namespace

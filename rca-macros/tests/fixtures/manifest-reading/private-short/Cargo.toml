@@ -1,0 +1,10 @@
+# Resolver input only. A private package may share the short facade's name.
+[package]
+name = "rca"
+version = "0.0.0"
+publish = false
+
+[dependencies]
+architecture = { package = "rust-composable-architecture", version = "0.1" }
+
+[workspace]

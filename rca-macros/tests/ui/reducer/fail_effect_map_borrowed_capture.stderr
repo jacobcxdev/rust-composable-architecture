@@ -1,0 +1,17 @@
+error[E0373]: closure may outlive the current function, but it borrows `captured`, which is owned by the current function
+ --> tests/ui/reducer/fail_effect_map_borrowed_capture.rs:5:38
+  |
+5 |     let _ = Effect::send(1usize).map(|value| value + captured);
+  |                                      ^^^^^^^         -------- `captured` is borrowed here
+  |                                      |
+  |                                      may outlive borrowed value `captured`
+  |
+note: function requires argument type to outlive `'static`
+ --> tests/ui/reducer/fail_effect_map_borrowed_capture.rs:5:13
+  |
+5 |     let _ = Effect::send(1usize).map(|value| value + captured);
+  |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+help: to force the closure to take ownership of `captured` (and any other referenced variables), use the `move` keyword
+  |
+5 |     let _ = Effect::send(1usize).map(move |value| value + captured);
+  |                                      ++++

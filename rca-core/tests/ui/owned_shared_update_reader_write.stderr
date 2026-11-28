@@ -1,0 +1,11 @@
+error[E0599]: no method named `update` found for struct `SharedReader<Value>` in the current scope
+ --> tests/ui/owned_shared_update_reader_write.rs:6:12
+  |
+6 |     reader.update(|value| *value = 1, || {}).unwrap();
+  |            ^^^^^^ method not found in `SharedReader<{integer}>`
+
+error[E0599]: no method named `update` found for struct `SharedReadProjection<Root, Value, Get>` in the current scope
+ --> tests/ui/owned_shared_update_reader_write.rs:8:16
+  |
+8 |     projection.update(|value| *value = 1, || {}).unwrap();
+  |                ^^^^^^ method not found in `SharedReadProjection<{integer}, {integer}, {closure@$DIR/tests/ui/owned_shared_update_reader_write.rs:7:37: 7:44}>`

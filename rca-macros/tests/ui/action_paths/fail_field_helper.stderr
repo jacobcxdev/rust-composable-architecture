@@ -1,0 +1,5 @@
+error: rca helper attributes are only supported on ActionPaths enum variants
+ --> tests/ui/action_paths/fail_field_helper.rs:7:11
+  |
+7 |     Child(#[rca(keyed)] u8),
+  |           ^^^^^^^^^^^^^

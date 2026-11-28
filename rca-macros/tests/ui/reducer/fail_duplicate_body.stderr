@@ -1,0 +1,5 @@
+error: duplicate `body` selection
+ --> tests/ui/reducer/fail_duplicate_body.rs:2:70
+  |
+2 |     state(supplied(())), action(supplied(())), body(supplied(body)), body(generated),
+  |                                                                      ^^^^

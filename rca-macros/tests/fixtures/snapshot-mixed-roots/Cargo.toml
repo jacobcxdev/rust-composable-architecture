@@ -1,0 +1,16 @@
+[package]
+name = "snapshot-mixed-roots"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[workspace]
+
+[features]
+short = ["dep:short_arch"]
+core = ["dep:core_arch"]
+
+[dependencies]
+short_arch = { package = "rca", path = "../../../../rca", features = ["macros"], optional = true }
+core_arch = { package = "rca-core", path = "other-core", optional = true }
+rca-macros = { path = "../../.." }

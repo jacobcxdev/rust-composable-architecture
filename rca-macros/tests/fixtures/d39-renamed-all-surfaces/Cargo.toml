@@ -1,0 +1,11 @@
+[package]
+name = "d39-renamed-all-surfaces"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[workspace]
+
+[dependencies]
+gen = { package = "rca-core", path = "../../../../rca-core" }
+syntax = { package = "rca-macros", path = "../../.." }

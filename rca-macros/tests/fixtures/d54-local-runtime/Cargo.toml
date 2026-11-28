@@ -1,0 +1,21 @@
+[package]
+name = "d54-local-runtime"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[workspace]
+
+[lib]
+path = "../../ui/reducer/runtime_local_order.rs"
+
+[[bin]]
+name = "required-child-local-action"
+path = "../../ui/reducer/pass_required_child_local_action.rs"
+
+[dependencies]
+rca-core = { path = "../../../../rca-core" }
+rca-macros = { path = "../../.." }
+futures-executor = "0.3.34"
+futures-channel = "0.3.34"
+futures-util = { version = "0.3.34", default-features = false, features = ["async-await", "std"] }

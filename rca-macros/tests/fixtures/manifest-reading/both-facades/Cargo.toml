@@ -1,0 +1,4 @@
+# Resolver input only: neither facade is the invoking package or a direct core.
+[dependencies]
+short = { package = "rca", version = "0.1" }
+long = { package = "rust-composable-architecture", version = "0.1" }

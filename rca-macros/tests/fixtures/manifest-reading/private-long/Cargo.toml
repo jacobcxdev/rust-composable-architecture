@@ -1,0 +1,10 @@
+# Resolver input only. The calling package is not its aliased external facade.
+[package]
+name = "rust-composable-architecture"
+version = "0.0.0"
+publish = false
+
+[dependencies]
+architecture = { package = "rca", version = "0.1" }
+
+[workspace]

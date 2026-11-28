@@ -1,0 +1,41 @@
+error[E0603]: module `composition` is private
+ --> tests/ui/private_implementation_paths.rs:1:15
+  |
+1 | use rca_core::composition::KeyedState;
+  |               ^^^^^^^^^^^  ---------- struct `KeyedState` is not publicly re-exported
+  |               |
+  |               private module
+  |
+note: the module `composition` is defined here
+ --> src/crate_items.rs
+  |
+  | mod composition;
+  | ^^^^^^^^^^^^^^^
+
+error[E0603]: module `feature` is private
+ --> tests/ui/private_implementation_paths.rs:2:15
+  |
+2 | use rca_core::feature::Feature;
+  |               ^^^^^^^  ------- trait `Feature` is not publicly re-exported
+  |               |
+  |               private module
+  |
+note: the module `feature` is defined here
+ --> src/crate_items.rs
+  |
+  | mod feature;
+  | ^^^^^^^^^^^
+
+error[E0603]: module `store` is private
+ --> tests/ui/private_implementation_paths.rs:3:15
+  |
+3 | use rca_core::store::Store;
+  |               ^^^^^  ----- struct `Store` is not publicly re-exported
+  |               |
+  |               private module
+  |
+note: the module `store` is defined here
+ --> src/crate_items.rs
+  |
+  | mod store;
+  | ^^^^^^^^^

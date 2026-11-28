@@ -1,178 +1,175 @@
-#![forbid(unsafe_code)]
 #![deny(rustdoc::broken_intra_doc_links)]
+#![forbid(unsafe_code)]
 
-//! Captures independent historical values without retaining live state authority.
+//! Builds headless applications from composable state, actions and effects.
 //!
-//! [`Snapshot`] is an explicit value projection, not a blanket deep-clone promise.
-//! Shared or cyclic graphs require an application-defined finite owned projection.
-//! Capturing does not register observers or run implicitly at production commits.
+//! Shared APIs use root imports such as [`Store`], [`Feature`] and [`Runtime`].
+//! A [`Reducer`] changes state synchronously and returns [`Effect`] values.
+//! [`combine`], [`scope`] and [`for_each`] compose reducers, including keyed child instances.
+//! Every reducer implements [`Feature`] automatically. Both forms support mounted children.
+//! A direct `Feature` implementation can also declare typed [`Task`] values.
+//! The caller supplies the runtime. RCA installs no executor or UI framework.
+//!
+//! # Choosing an authoring form
+//!
+//! Start with [`Reduce::new`] or [`Reducer`] when inputs and asynchronous results
+//! pass through actions. Use [`Feature`] directly when tasks need typed reads
+//! or updates of current State between awaits. Both callbacks are synchronous.
+//! Both use the same [`Store::new`] and [`Store::builder`] constructors.
+//! Reducer-only combinators require `Reducer`; installed children accept either form.
+//! A type implements one trait explicitly, not both. See [`Feature`] for the
+//! ownership and testing consequences.
+//!
+//! # Features
+//!
+//! Default features are empty. Each optional feature adds a separate capability.
+//!
+//! | Feature | Capability |
+//! | --- | --- |
+//! | `local` | Owner-thread types under `local` for non-`Send` values. |
+//! | `diagnostics` | Reducer tracing and lifecycle callbacks under `diagnostics`. |
+//! | `futures-stream` | Stream interoperability for observations. |
+//! | `macros` | Reducer, path, snapshot and dependency macros. |
+//! | `test-util` | `TestStore` and deterministic test tools. |
+//! | `tokio` | `TokioRuntime` for an existing Tokio runtime. |
+//!
+//! Reducer tracing runs only in debug builds. Lifecycle callbacks remain available
+//! in release builds. Clocks and issue reporters do not require a particular runtime.
+//!
+//! With `test-util`, `TestStore` compares state after every send and receive.
+//! Move-only state can use independent projected snapshots. Unchanged steps use
+//! `send` or `receive`. Changed steps use `send_with` or `receive_with`.
+//! Explicit `finish` and normal teardown both reject unfinished test obligations.
+//!
+//! Controlled futures, streams and gates come directly from `rca-test`.
+//! Persistence comes from `rca-persistence`, with explicit codec and backend selection.
+//! Its receipts acknowledge published persistence results. If saved state is
+//! required, close the document before Store shutdown. Before restart, wait for
+//! the backend to stop all earlier writes.
+//!
+//! # Examples
+//!
+//! ```
+//! use rca::{Effect, Reduce, Runtime, Store};
+//!
+//! // Runtime selection belongs to the application, not the feature.
+//! fn counter(runtime: Runtime) -> Store<usize, ()> {
+//!     let reducer = Reduce::new(|count: &mut usize, _: &(), _| {
+//!         *count += 1;
+//!         Effect::none()
+//!     });
+//!
+//!     Store::new(0, reducer, runtime)
+//! }
+//! ```
 
-/// Captures values independent of later source and expected-history mutations.
-///
-/// Implementations must preserve independence in both directions: later writes to
-/// the source or its shared aliases must not alter captured history, and editing
-/// history must not mutate the source, other aliases, subscriptions or lifetime
-/// authority. Capturing reads values; it must not retain an operation handle.
-/// Rust cannot prove this semantic contract for arbitrary custom implementations.
-/// Consumers that clone history also require those clones to remain independent.
-///
-/// The trait imposes no consumer-specific `Clone`, `Debug`, equality, `Send`,
-/// `Sync` or `'static` bounds. A manual implementation may capture a borrowed or
-/// local source into an owned value. Fallible reads and consistency across
-/// independently changing resources remain the caller's explicit policy; this
-/// interface does not create an atomic transaction or hide capture errors.
-///
-/// Scalar implementations cover primitive numbers, `bool`, `char`, `()`,
-/// and [`Duration`](std::time::Duration). `String` copies its text.
-/// `Option`, `Result`, `Vec`, arrays, `Box` and tuples of one to four elements
-/// preserve their shape and capture each contained value.
-///
-/// References, shared handles and interior-mutable wrappers have no implicit
-/// implementation, even when they implement `Clone`. Use a manual projection to
-/// read their values and explicitly choose omitted or retained information.
-///
-/// # Examples
-///
-/// ```
-/// use rca::Snapshot;
-///
-/// struct Progress<'a>(&'a str);
-/// impl Snapshot for Progress<'_> {
-///     type Value = String;
-///
-///     fn snapshot(&self) -> String {
-///         self.0.to_owned()
-///     }
-/// }
-/// let history = {
-///     let local = String::from("imported");
-///     Progress(&local).snapshot()
-/// };
-/// assert_eq!(history, "imported");
-/// ```
-///
-/// ```
-/// use rca::Snapshot;
-/// let mut live = vec![Some(String::from("queued"))];
-/// let mut history = live.snapshot();
-/// live[0] = None;
-/// assert_eq!(history[0].as_deref(), Some("queued"));
-/// history[0] = Some(String::from("started"));
-/// assert_eq!(live, [None]);
-/// ```
-pub trait Snapshot {
-    /// Stores the explicitly selected historical values.
-    type Value;
+#[cfg(feature = "local")]
+#[doc(inline)]
+pub use rca_core::local;
 
-    /// Captures an independent value without retaining mutation or lifetime authority.
-    ///
-    /// # Panics
-    ///
-    /// Container implementations propagate panics from element capture. During
-    /// unwinding, they drop completed values instead of returning partial history.
-    /// Custom capture side effects are not rolled back.
-    fn snapshot(&self) -> Self::Value;
-}
+#[cfg(feature = "diagnostics")]
+#[doc(inline)]
+pub use rca_core::diagnostics;
 
-/// Implements capture by copying an explicit set of independent scalar values.
-macro_rules! scalar_snapshots {
-    ($($ty:ty),+ $(,)?) => {
-        $(impl Snapshot for $ty {
-            type Value = Self;
+#[doc(inline)]
+pub use rca_core::{
+    ActionEmbedding, ActionPath, ActionReceipt, ActionReceiptFuture, ActionTask,
+    AggregateActionPath, AggregateCase, AggregateStatePath, ApplicationIds, CaseStatePath,
+    CivilData, Clock, ClockCapabilities, ClockDriver, ClockTimer, CloneActionPath, Combine,
+    ComposedActionEmbedding, ComposedActionPath, ComputedPath, DEFAULT_MAILBOX_CAPACITY,
+    DependencyDefaultPolicy, DependencyDefaults, DependencyKey, DependencyMockMismatch,
+    DependencyPreparationError, DependencyReducer, DependencyRegistrationError, DependencyValues,
+    Dismiss, DuplicateId, Effect, EffectError, EffectSendError, EffectSender, ExternalObservation,
+    ForEach, ForEachShared, IfCase, IfCaseIdentified, IfSome, IfSomeIdentified,
+    InvalidTimerInterval, Issue, IssueCallback, IssueContext, IssueDelivery, IssueDeliveryFailure,
+    IssueReportError, IssueReporter, IssueReporters, IssueSeverity, KeyedAction, KeyedActionPath,
+    KeyedActionPayload, KeyedDecodeError, KeyedMergeDecision, KeyedMutationError,
+    KeyedPositionError, KeyedReserveError, KeyedState, KeyedStatePath, KeyedStatePayload,
+    LiftedActionEmbedding, LiftedActionPath, MissingChildPolicy, MonotonicInstant,
+    MutableAggregateCase, Observation, ObservationError, ObservationProducer, OnChange,
+    OperationReport, OptionalStatePath, OptionalStatePayload, OwnedCaseMismatch, OwnedCasePath,
+    PredicateWait, PredicateWaitOutcome, Presentation, PresentationAction, RandomBytes, Reduce,
+    ReduceContext, Reducer, ReducerExt, Runtime, RuntimeDriver, RuntimeFuture, Scope,
+    ScopeIdentified, ScopedStore, ScopedStoreEnded, SharedReducer, SharedScope, ShutdownError,
+    StatePath, Store, StoreBuildError, StoreBuilder, StoreStopped, StoredActionPath,
+    TryScopedSendError, TrySendError, UnsupportedClockTolerance, WallTime, combine, constant_path,
+    err_path, for_each, for_each_shared, identity_action_path, identity_keyed_action_path,
+    identity_keyed_state_path, identity_state_path, if_case, if_case_identified, if_some,
+    if_some_identified, none_path, ok_path, on_change, presentation, scope, scope_identified,
+    scope_shared, some_path, try_dependency_mock, unit_path, with_dependency,
+};
 
-            fn snapshot(&self) -> Self::Value {
-                *self
-            }
-        })+
+// Generated paths name the library both inside it and from sibling binary targets.
+#[cfg(feature = "macros")]
+extern crate self as rca;
+
+#[doc(inline)]
+pub use rca_core::Snapshot;
+#[doc(inline)]
+pub use rca_core::{
+    CancellingOperationWait, Operation, OperationPolicy, OperationStatus, OperationWait, SelfWait,
+};
+#[doc(inline)]
+pub use rca_core::{
+    CommandPort, CommandReceipt, CommandSite, Committed, EntryMount, Feature, FeatureContext, Fold,
+    FoldKey, FoldView, InitialPolicy, InputGate, MountChildren, MountIdentity, MountSite,
+    OptionalMount, Output, OutputDelivery, OutputError, OutputFlow, OutputHandlers, ReactionChange,
+    ReactionContext, RemovalOrigin, RemovalSite, RemovedChild, RemovedOutputError, RootMount, Task,
+    TaskAccessError, TaskAccessReason, TaskContext, TaskProgress, TaskSendError, TryCommandError,
+};
+#[doc(inline)]
+pub use rca_core::{
+    EncodedStackRoute, Stack, StackAction, StackDecodeError, StackEncoding, StackId,
+    StackMutationError, StackState, stack,
+};
+#[doc(inline)]
+pub use rca_core::{Ephemeral, WeakScopedStore, ephemeral};
+
+#[cfg(feature = "test-util")]
+#[doc(inline)]
+pub use rca_core::{
+    EndpointStub, ForbiddenClock, ForbiddenClockUsed, ImmediateClock, IssueCollector,
+};
+
+#[doc(inline)]
+pub use rca_core::{
+    Shared, SharedAccessError, SharedKey, SharedKeyCache, SharedKeyDefault, SharedKeyError,
+    SharedKeyIdentity, SharedLoadContext, SharedMutationError, SharedProjection, SharedPublication,
+    SharedReadProjection, SharedReader, SharedReaderKey, SharedSubscribeContext, SharedSubscriber,
+};
+
+#[cfg(feature = "macros")]
+#[doc(inline)]
+pub use rca_macros::{
+    __RcaShortActionPaths as ActionPaths, __RcaShortDependencyKey as DependencyKey,
+    __RcaShortSnapshot as Snapshot, __RcaShortStatePaths as StatePaths, CaseDescriptors,
+    DependencyClient, short_reducer as reducer, short_reducers as reducers,
+};
+
+/// Supplies the long facade's generated paths without a second public dependency.
+#[cfg(feature = "macros")]
+#[doc(hidden)]
+pub mod __long_facade_macros {
+    pub use rca_core::{DependencyKey, Snapshot};
+    pub use rca_macros::{
+        __RcaLongActionPaths as ActionPaths, __RcaLongDependencyKey as DependencyKey,
+        __RcaLongSnapshot as Snapshot, __RcaLongStatePaths as StatePaths, long_reducer as reducer,
+        long_reducers as reducers,
     };
 }
 
-scalar_snapshots!(
-    (),
-    bool,
-    char,
-    u8,
-    u16,
-    u32,
-    u64,
-    u128,
-    usize,
-    i8,
-    i16,
-    i32,
-    i64,
-    i128,
-    isize,
-    f32,
-    f64,
-    std::time::Duration,
-);
+#[cfg(feature = "test-util")]
+#[doc(inline)]
+pub use rca_test::{
+    CancellationIdentityDiagnostic, CaptureExpectations, CaptureKey, CaseAssertionFailure,
+    ChangeCheck, ComparisonFailure, DEFAULT_STEP_BUDGET, DeterministicRuntime, DriveError,
+    DriveReport, Exhaustivity, FinishDiagnostics, IssueExpectation, IssueExpectationError,
+    IssueExpectationMode, OmissionReporting, PendingSleep, TestActionTask, TestStore,
+    TestStoreBuilder, TestStoreError, TestTaskError, check_case, check_case_with, check_change,
+    check_change_async, check_equal, check_expected_changes, conformance, expect_issues,
+    expect_issues_async,
+};
 
-impl Snapshot for String {
-    type Value = Self;
-
-    fn snapshot(&self) -> Self::Value {
-        self.clone()
-    }
-}
-
-impl<T: Snapshot> Snapshot for Option<T> {
-    type Value = Option<T::Value>;
-
-    fn snapshot(&self) -> Self::Value {
-        self.as_ref().map(Snapshot::snapshot)
-    }
-}
-
-impl<T: Snapshot, E: Snapshot> Snapshot for Result<T, E> {
-    type Value = Result<T::Value, E::Value>;
-
-    fn snapshot(&self) -> Self::Value {
-        match self {
-            Ok(value) => Ok(value.snapshot()),
-            Err(error) => Err(error.snapshot()),
-        }
-    }
-}
-
-impl<T: Snapshot> Snapshot for Vec<T> {
-    type Value = Vec<T::Value>;
-
-    fn snapshot(&self) -> Self::Value {
-        self.iter().map(Snapshot::snapshot).collect()
-    }
-}
-
-impl<T: Snapshot, const N: usize> Snapshot for [T; N] {
-    type Value = [T::Value; N];
-
-    fn snapshot(&self) -> Self::Value {
-        std::array::from_fn(|index| self[index].snapshot())
-    }
-}
-
-impl<T: Snapshot> Snapshot for Box<T> {
-    type Value = Box<T::Value>;
-
-    fn snapshot(&self) -> Self::Value {
-        Box::new((**self).snapshot())
-    }
-}
-
-/// Preserves tuple positions while capturing each element without extra trait bounds.
-macro_rules! tuple_snapshots {
-    ($($ty:ident : $index:tt),+ $(,)?) => {
-        impl<$($ty: Snapshot),+> Snapshot for ($($ty,)+) {
-            type Value = ($($ty::Value,)+);
-
-            fn snapshot(&self) -> Self::Value {
-                ($(self.$index.snapshot(),)+)
-            }
-        }
-    };
-}
-
-tuple_snapshots!(A: 0);
-tuple_snapshots!(A: 0, B: 1);
-tuple_snapshots!(A: 0, B: 1, C: 2);
-tuple_snapshots!(A: 0, B: 1, C: 2, D: 3);
+#[cfg(feature = "tokio")]
+#[doc(inline)]
+pub use rca_tokio::{TokioRuntime, TokioRuntimeError};
