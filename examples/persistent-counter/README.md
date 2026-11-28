@@ -17,7 +17,7 @@ A malformed file causes an error. The CLI does not replace it with zero.
 ## Choose the document type
 
 The counter uses `Document::new` because one Store owns the value. Its file backend does not detect competing writers.
-See [persistence](../../docs/guides/persistence.md) for shared documents, revision checks, and save receipts.
+See [persistence](../../docs/usage/persistence.md) for shared documents, revision checks, and save receipts.
 
 The codec accepts exactly 16 bytes: the eight bytes `RCACTR01`, then a little-endian unsigned 64-bit value.
 It rejects unknown versions, incomplete records and trailing data. It does not migrate old records.
@@ -37,7 +37,7 @@ The CLI uses this order:
 Keep the runtime alive through steps 3 and 4. The document receipt says the
 value was saved; backend close says no file operation is still running.
 To save without closing, or to retry a failed save, see
-[save and close a document](../../docs/guides/persistence.md#save-and-close-a-document).
+[save and close a document](../../docs/usage/persistence.md#save-and-close-a-document).
 
 ## File replacement
 

@@ -131,11 +131,13 @@ class ScopeTests(unittest.TestCase):
         return self.git("rev-parse", "HEAD")
 
     def test_guide_and_skill_are_prose_but_root_readme_requires_real_consumers(self):
-        prose = self.commit("guide", ("docs/guides/tasks.md", "guide"), ("plugins/rca/skills/rca/SKILL.md", "skill"))
+        prose = self.commit("guide", ("docs/usage/tasks.md", "guide"),
+                            ("docs/development/benchmarking.md", "instructions"),
+                            ("plugins/rca/skills/rca/SKILL.md", "skill"))
         self.assertEqual(scope.mode_between(self.base, prose), "docs")
         readme = self.commit("example", ("README.md", "example"), ("docs/support.md", "support"))
         self.assertEqual(scope.mode_between(prose, readme), "readme")
-        mixed = self.commit("unknown", ("docs/performance/limits.json", "{}"))
+        mixed = self.commit("unknown", ("docs/development/limits.json", "{}"))
         self.assertEqual(scope.mode_between(self.base, mixed), "full")
         self.assertEqual(scope.mode_between(self.base, self.base), "full")
 
@@ -175,7 +177,7 @@ class ScopeTests(unittest.TestCase):
     def test_previous_green_merge_is_required_for_docs_followup_on_code_pr(self):
         self.git("checkout", "-q", "-b", "topic")
         previous = self.commit("behavior", ("lib.rs", "pub fn changed() {}"))
-        head = self.commit("guide", ("docs/guides/tasks.md", "guide"))
+        head = self.commit("guide", ("docs/usage/tasks.md", "guide"))
         self.git("checkout", "-q", "main")
         self.git("merge", "--no-ff", "-qm", "GitHub test merge", head)
         checked = self.git("rev-parse", "HEAD")

@@ -2,7 +2,7 @@
 
 Read [CONTRIBUTING.md](CONTRIBUTING.md) before changing this repository.
 Use its formatting, documentation, testing and review requirements.
-Use the [authoring guide](docs/guides/authoring.md) for application design.
+Use the [authoring guide](docs/usage/authoring.md) for application design.
 Use the [support policy](docs/support.md) for feature and platform boundaries.
 
 ## Design and scope

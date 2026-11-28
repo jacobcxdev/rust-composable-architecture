@@ -37,5 +37,5 @@ Assert rejection and unchanged replacement state. Deliver a distinct result thro
 Cancelling the old future alone does not exercise late delivery. Use a real `Store` with a `DeterministicRuntime` to control mailbox order.
 The regression test in `crates/rca-test/tests/shared_keyed_composition.rs` shows that race.
 
-For the other typed operations, see `docs/guides/testing.md`.
+For the other typed operations, see `docs/usage/testing.md`.
 For progress, replacement, and a move-only result without a live service, see `examples/composition-search/docs/uploader.md`.

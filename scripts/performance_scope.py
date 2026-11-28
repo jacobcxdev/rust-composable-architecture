@@ -18,11 +18,11 @@ FAMILIES = (
 # publication rules are intentionally absent.
 PROSE = {
     "AGENTS.md", "CONTRIBUTING.md", "SECURITY.md", ".github/pull_request_template.md",
-    "docs/guides/authoring.md", "docs/guides/debounce-throttle.md",
-    "docs/guides/dependencies.md", "docs/guides/shared-state.md", "docs/guides/persistence.md",
-    "docs/guides/performance.md", "docs/guides/diagnostics.md",
-    "docs/guides/external-clients.md", "docs/guides/owned-resources.md",
-    "docs/guides/testing.md",
+    "docs/usage/authoring.md", "docs/usage/debounce-throttle.md",
+    "docs/usage/dependencies.md", "docs/usage/shared-state.md", "docs/usage/persistence.md",
+    "docs/usage/performance.md", "docs/usage/diagnostics.md",
+    "docs/usage/external-clients.md", "docs/usage/owned-resources.md",
+    "docs/usage/testing.md",
 }
 
 # Cargo discovers these as independent libtest executables, not as product or

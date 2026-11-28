@@ -44,7 +44,7 @@ This file records notable changes to RCA.
 - Required Rust 1.100.0 and Rust Edition 2024.
 
 The [support policy](docs/support.md) defines compatibility and target requirements.
-The [qualification guide](docs/maintainers/qualification.md) explains the scope of recorded evidence.
+The [qualification guide](docs/development/qualification.md) explains the scope of recorded evidence.
 
 ## 0.0.1
 

@@ -79,12 +79,9 @@ fn additional_mailbox_capacity_has_bounded_storage_cost() {
     drop(profiler);
     let additional = measurements[1] - measurements[0];
     println!("additional 128 slots: {additional} bytes");
-    // The representative 64-bit slot now carries typed request authority and
-    // unique causal work. The reviewed 152-byte budget explicitly accepts
-    // 64 bytes above the historical 88-byte budget, without extra per-send
-    // boxing. It is not an ABI or a bound for arbitrary Action payloads.
-    // Capacity, Full rejection and ordered drain remain checked above; see
-    // docs/audits/2026-10-01-mailbox-input-storage.md for the cost disposition.
+    // Each slot in this 64-bit case holds the request and tracks the work it
+    // starts without a separate box per send. The 152-byte limit applies to
+    // this action type. It does not specify the layout for other action types.
     assert!(
         additional <= 128 * 152,
         "additional mailbox slots exceeded storage budget: {additional} bytes"

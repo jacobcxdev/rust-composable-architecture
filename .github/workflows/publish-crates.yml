@@ -63,7 +63,7 @@ jobs:
                       if [[ -n "$previous_tag" ]]; then
                           echo "[Compare with $previous_tag]($repo_url/compare/$previous_tag..$source_commit)."
                       fi
-                      echo "Use the [documentation and skill checklist]($repo_url/blob/$source_commit/docs/maintainers/releasing.md#review-documentation-and-skills)."
+                      echo "Use the [documentation and skill checklist]($repo_url/blob/$source_commit/docs/development/releasing.md#review-documentation-and-skills)."
                       echo "Approve the crates-io deployment only if the guides, skills and migration notes match this commit."
                   } >> "$GITHUB_STEP_SUMMARY"
 

@@ -1170,7 +1170,7 @@ printf '%s\\n' "$qualification_root" > "$TEST_ROOT/allocated-root"
         )
 
     def test_qualification_points_to_existing_tokio_conformance_source(self) -> None:
-        qualification = (self.repo_root / "docs/maintainers/qualification.md").read_text(
+        qualification = (self.repo_root / "docs/development/qualification.md").read_text(
             encoding="utf-8"
         )
 

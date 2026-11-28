@@ -35,20 +35,21 @@ def snapshots():
 
 class ScopeTests(unittest.TestCase):
     def test_only_reviewed_non_product_paths_skip_native_measurements(self):
-        for path in ("CONTRIBUTING.md", "docs/guides/authoring.md",
-                     "docs/guides/dependencies.md", "docs/guides/shared-state.md",
-                     "docs/guides/persistence.md", "docs/guides/performance.md",
+        for path in ("CONTRIBUTING.md", "docs/usage/authoring.md",
+                     "docs/usage/dependencies.md", "docs/usage/shared-state.md",
+                     "docs/usage/persistence.md", "docs/usage/performance.md",
                      "scripts/tests/test_composition_compile_portfolio.py"):
             with self.subTest(path=path):
                 self.assertEqual(scope.families_for(path), ())
 
     def test_ambiguous_docs_tests_and_shared_inputs_expand(self):
         for path in ("README.md", "crates/rca-core/tests/support/mod.rs", "docs/new-input.md",
+                     "docs/development/benchmarking.md",
                      "crates/rca-core/tests/observation_take_allocations.rs", "crates/rca-core/tests/unreviewed.rs",
                      "benches/performance/composition-windows.json", "scripts/runner_profile.py",
                      "rust-toolchain.toml", "Cargo.lock", "crates/rca-core/src/store/actor.rs",
                      "crates/rca-macros/src/reducer.rs", "crates/rca-tokio/src/lib.rs",
-                     ".github/workflows/ci.yml", "new-consumer/logic", "docs/guides/typo\n.rs"):
+                     ".github/workflows/ci.yml", "new-consumer/logic", "docs/usage/typo\n.rs"):
             with self.subTest(path=path):
                 self.assertEqual(scope.families_for(path), scope.FAMILIES)
 
@@ -87,7 +88,7 @@ class ScopeTests(unittest.TestCase):
             source.write_text("// workload", encoding="utf-8")
             first = tree()
 
-            guide = repo / "docs/guides/testing.md"
+            guide = repo / "docs/usage/testing.md"
             guide.parent.mkdir(parents=True)
             source.rename(guide)
             second = tree()
@@ -96,7 +97,7 @@ class ScopeTests(unittest.TestCase):
             self.assertEqual(renamed["families"], ["cancellation-shutdown", "headless-worker"])
 
             source.parent.mkdir(parents=True, exist_ok=True)
-            source.write_text('const DATA: &str = include_str!("../../../docs/guides/testing.md");',
+            source.write_text('const DATA: &str = include_str!("../../../docs/usage/testing.md");',
                               encoding="utf-8")
             third = tree()
             guide.write_text("changed data", encoding="utf-8")

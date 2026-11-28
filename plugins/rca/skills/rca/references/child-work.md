@@ -16,7 +16,7 @@ RCA cannot undo a request that already reached the server.
 
 For replacement **within** one live child, give competing requests a cancellation identity.
 For example, `.cancellable_in_flight(SearchRequestId)` retires the previous search at the same scope.
-If each child needs its own feature instance or typed context, use a mount. See `docs/structural-features.md` in the matching revision.
+If each child needs its own feature instance or typed context, use a mount. See `docs/usage/structural-features.md` in the matching revision.
 After `Store::ready`, acquire the context from its typed mount site. A retained context belongs to its original installation.
 `Store::scope` projects from the root. It does not track the child lifetime. Do not retry through the root after a context expires.
 
@@ -32,4 +32,4 @@ After `Store::ready`, acquire the context from its typed mount site. A retained 
 Observations can coalesce state changes. They are not an event log.
 For membership and order alone, `observe_ordered_ids` avoids projecting every child's value.
 Store shutdown cancels pending effects. Finish the required finite work before shutdown.
-For subscriptions, cancellation, and graceful closure, see `docs/receipt-lifetimes.md` in the matching revision.
+For subscriptions, cancellation, and graceful closure, see `docs/usage/receipt-lifetimes.md` in the matching revision.

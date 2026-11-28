@@ -3,7 +3,7 @@
 Use these programs to measure RCA while it completes a known amount of work.
 A successful run tells you that the workload completed as specified.
 To decide whether a change is faster, compare the same workload on both revisions.
-See the [qualification guide](../../docs/maintainers/qualification.md) for release checks.
+See the [qualification guide](../../docs/development/qualification.md) for release checks.
 
 | Program | Use it to measure |
 | --- | --- |
@@ -141,7 +141,7 @@ physical owner release before reporting. It does not measure native contention
 or elapsed latency. The existing default executable remains
 `rca-performance-profile`.
 
-The [controlled instruction comparison](../../docs/performance/method.md#controlled-instruction-comparison)
+The [controlled instruction comparison](../../docs/development/benchmarking.md#count-instructions)
 describes paired builds, exact repeatability checks and the added-work control.
 Do not infer an improvement from instruction counts without the separate native
 performance evidence.

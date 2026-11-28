@@ -101,7 +101,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 `send(action).await` returns after the state change commits. The returned
 handle's `finish().await` also waits for work that RCA tracks for that action.
-Neither wait proves that unrelated work has finished. [Choose the right wait](docs/receipt-lifetimes.md#choose-the-wait-that-answers-your-question).
+Neither wait proves that unrelated work has finished. [Choose the right wait](docs/usage/receipt-lifetimes.md#choose-the-wait-that-answers-your-question).
 
 ### Keyed testing
 
@@ -205,21 +205,21 @@ The [persistent counter](examples/persistent-counter/README.md) shows how to sav
 
 | Start with a question | Try this |
 | --- | --- |
-| How do I split an application into features? | [Authoring guide](docs/guides/authoring.md), including [when to use a reducer or a feature](docs/guides/authoring.md#choose-an-authoring-form) |
+| How do I split an application into features? | [Authoring guide](docs/usage/authoring.md), including [when to use a reducer or a feature](docs/usage/authoring.md#choose-an-authoring-form) |
 | How can a coding agent use RCA in my application? | [Install the optional RCA skill](docs/README.md#use-rca-with-a-coding-agent) |
-| How do I test a request without a real server or a timer? | [Testing guide](docs/guides/testing.md) and [controlled clients](docs/guides/external-clients.md) |
+| How do I test a request without a real server or a timer? | [Testing guide](docs/usage/testing.md) and [controlled clients](docs/usage/external-clients.md) |
 | How do I stop a task or replace a child safely? | [Cancel a timer](examples/timer/src/main.rs) or [replace an upload worker](examples/composition-search/docs/uploader.md) |
 | Which example fits my application? | [Runnable examples and tested recipes](examples/README.md) |
-| How do I connect a native UI or another service? | [Host integration guide](docs/integration-boundaries.md) |
-| How do I reduce work on a busy application path? | [Application performance](docs/guides/performance.md) |
-| How do I choose between runtime speed and binary size? | [Application build profiles](docs/guides/authoring.md#choose-a-release-profile) |
+| How do I connect a native UI or another service? | [Host integration guide](docs/usage/integration-boundaries.md) |
+| How do I reduce work on a busy application path? | [Application performance](docs/usage/performance.md) |
+| How do I choose between runtime speed and binary size? | [Application build profiles](docs/usage/authoring.md#choose-a-release-profile) |
 | Where can I find a type or method? | [Choose the API reference for your version or checkout](docs/README.md#api-reference-and-support) |
 
 ## Requirements and compatibility
 
 The [workspace manifest](Cargo.toml) declares the minimum Rust version.
 The [support policy](docs/support.md) describes API compatibility and distinguishes native execution from
-compile-only targets. The [qualification guide](docs/maintainers/qualification.md) explains
+compile-only targets. The [qualification guide](docs/development/qualification.md) explains
 what the test and performance checks establish for a revision.
 
 The six main libraries use safe Rust. The maintained transport dependencies

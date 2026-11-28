@@ -1,107 +1,123 @@
 # RCA documentation
 
+Rust Composable Architecture (RCA) helps you build and test the logic of a Rust program.
+It does not draw a user interface. You can use it in a command-line tool, a background service, or an application with a separate interface.
+
+| What brings you here? | Start here |
+| --- | --- |
+| **Learn about RCA.** Does it fit my project? | [Run a small example](#start-here), see [supported platforms and features](support.md), or read the [roadmap](roadmap.md). |
+| **Build with RCA.** How do I write my application? | [Choose a task](#guides-by-task), [find a type or method](#api-reference-and-support), or [use the optional coding skills](#use-rca-with-a-coding-agent). |
+| **Work on RCA.** How do I change the library? | [Start contributing](#contribute-and-release). This route covers library tests, benchmarks, documentation, and releases. |
+
 ## Start here
 
-1. [Run the counter](../README.md#quick-start). Send one action and read the new state.
-2. [Write a feature](guides/authoring.md). Learn what the Store owns and when to use a reducer or a task.
-3. [Test the result](guides/testing.md). Check state changes and follow-up actions without a network connection or a real timer.
-4. [Compose child features](composition.md). Route an action to the right child, even after the children change order.
+Consider a counter. Its **state** is the current number. An **action** says what happened, such as a request to add one.
+A **reducer** describes how that action changes the number. A **Store** owns the state and processes actions in order.
 
-If you already use RCA, the [authoring decision table](guides/authoring.md#find-a-decision) links each design question to its API.
+1. [Run the counter](../README.md#quick-start). On success, the counter exits without printing. The build tools can still print messages.
+2. [Write a feature](usage/authoring.md). A feature describes one part of your program, such as the counter.
+3. [Test your feature](usage/testing.md). Check the state after an action without waiting for a real clock or calling a server.
+4. [Combine features](usage/composition.md). Give each counter its own identity so an action reaches the intended counter.
+
+If you are new to Rust, [Hello, Cargo!](https://doc.rust-lang.org/book/ch01-03-hello-cargo.html) introduces its build and package tool.
+You do not need experience with Swift or another architecture library.
+
+## Guides by task
+
+| I want to… | Read |
+| --- | --- |
+| Decide where a value belongs | [Choose feature state, a dependency, or shared state](usage/authoring.md#where-does-this-value-belong) |
+| Give several items the same behaviour but different state | [Compose child features](usage/composition.md) |
+| Start or stop a child independently of its parent | [Install a child feature](usage/structural-features.md) |
+| Represent jobs that create more jobs | [Choose a tree or a stack](usage/recursive-jobs.md) |
+| Work with a value that must stay on one thread | [Use local composition or a Local Store](usage/local-composition.md) |
+| Replace a real service in a test | [Supply a dependency](usage/dependencies.md) or [test a request or stream](usage/external-clients.md) |
+| Share one mutable value between owners | [Share state](usage/shared-state.md) |
+| Save edits and load them after a restart | [Persist a document](usage/persistence.md) |
+| Pass ownership of an open file or another resource | [Transfer an owned resource](usage/owned-resources.md) |
+| Limit how often a request starts | [Debounce or throttle requests](usage/debounce-throttle.md) |
+| Read state or receive updates | [Observe a value or a list of IDs](usage/runtime.md#observation) |
+| Reduce the cost of work in my application | [Measure application performance](usage/performance.md) |
+| Wait for the right result or stop the Store | [Choose a receipt](usage/receipt-lifetimes.md) or [shut down the Store](usage/runtime.md#shutdown-and-host-lifetime) |
+| Check state that cannot be copied for a test | [Test a projection](usage/testing.md) or [derive a snapshot](usage/snapshot-derive.md) |
+| Find out why an action changed state | [Trace a change](usage/diagnostics.md) |
+| Connect a user interface, database, or notification source | [Decide what the host must do](usage/integration-boundaries.md) |
+
+For working code, see the [runnable examples and tested recipes](../examples/README.md).
+The [authoring decision table](usage/authoring.md#find-a-decision) also links design questions to specific APIs.
+
+## API reference and support
+
+The API reference describes the Rust types, methods, and functions your code can call.
+Cargo records the package versions it selected in your application's `Cargo.lock`.
+
+- **For a published version**, open the docs.rs link for the package you use. Select the version from `Cargo.lock`.
+- **For a branch or tag**, look for the matching build in the [documentation catalogue](https://docs.jacobcx.dev/).
+- **For this checkout**, use the source links below or [build a local API reference](development/documentation-publishing.md#build-a-local-preview).
+
+If the catalogue has no build for your revision, open the source at that revision or build the local reference.
+If a crate or version is not on docs.rs, use the source column below.
+For example, the [`v0.0.1` preview](https://github.com/jacobcxdev/rust-composable-architecture/tree/v0.0.1) exposes only the snapshot API, not the Store in this guide.
+A branch can change before its documentation updates. To identify the exact build, compare the `commitSha` in its `docs-meta.json` with your Git commit.
+A Git tag names a revision. It does not publish a package or make its reference available on docs.rs.
+
+| What you need | Source in this revision | docs.rs after publication |
+| --- | --- | --- |
+| The usual application imports, including dependencies and shared state | [`rca`](../crates/rca/src/lib.rs) | [`rca`](https://docs.rs/rca) |
+| The same API under the long package name | [`rust-composable-architecture`](../crates/rust-composable-architecture/src/lib.rs) | [`rust-composable-architecture`](https://docs.rs/rust-composable-architecture) |
+| Core types for state changes, effects, runtimes, and children | [`rca-core`](../crates/rca-core/src/lib.rs) | [`rca-core`](https://docs.rs/rca-core) |
+| Connect a Store to an existing Tokio runtime | [`rca-tokio`](../crates/rca-tokio/src/lib.rs) | [`rca-tokio`](https://docs.rs/rca-tokio) |
+| Control time and check every expected change in a test | [`rca-test`](../crates/rca-test/src/lib.rs) | [`rca-test`](https://docs.rs/rca-test) |
+| Load and save documents | [`rca-persistence`](../crates/rca-persistence/src/lib.rs) | [`rca-persistence`](https://docs.rs/rca-persistence) |
+| Generate Rust code for common RCA patterns | [`rca-macros`](../crates/rca-macros/src/lib.rs) | [`rca-macros`](https://docs.rs/rca-macros) |
+
+Start with `rca`. Dependencies and shared state need no extra package or feature.
+For optional integrations, see the [Cargo features](support.md#features) and [public import paths](support.md#public-api-paths).
+
+## Contribute and release
+
+| What are you changing? | Start here |
+| --- | --- |
+| The library or a test | [Build and review a change](../CONTRIBUTING.md), then [choose the checks for it](development/qualification.md). |
+| What callers can compile | [Test a compiler contract](development/compiler-contract-testing.md). For generated sequences of child actions, see the [keyed collection fuzzer](../fuzz/README.md). |
+| The cost of using RCA | [Benchmark the library](development/benchmarking.md). To measure your own program instead, see [application performance](usage/performance.md). |
+| The guides or API reference | [Review documentation](../CONTRIBUTING.md#documentation-acceptance) or [preview and publish documentation](development/documentation-publishing.md). |
+| A crate release | [Prepare and publish packages](development/releasing.md). Package and documentation publication use separate workflows. |
 
 ## Use RCA with a coding agent
 
-The optional Codex plugin contains two skills. It adds no dependency to a Rust application.
+A skill gives a coding agent instructions and examples for a particular task.
+The optional Codex plugin bundles two skills. It adds no dependency to your application.
 
 | Task | Skill | Example request |
 | --- | --- | --- |
-| Build an application **with** RCA | [`$rca:rca`](../plugins/rca/skills/rca/SKILL.md) | Test that a removed worker cannot update its replacement, even when both use the same ID. |
-| Change **RCA itself** | [`$rca:rca-contribute`](../plugins/rca/skills/rca-contribute/SKILL.md) | Review a cancellation change. Which contracts and tests distinguish the old behavior from the new one? |
+| Build an application with RCA | [`$rca:rca`](../plugins/rca/skills/rca/SKILL.md) | Test that a removed worker cannot send a result to its replacement. |
+| Change RCA itself | [`$rca:rca-contribute`](../plugins/rca/skills/rca-contribute/SKILL.md) | Which tests catch a change to the order of cancellation and shutdown? |
 
-The [`v0.0.1` preview](https://github.com/jacobcxdev/rust-composable-architecture/tree/v0.0.1) has no plugin or standalone skills. Use the source at that tag.
-For a published crate whose tag includes the plugin, find the resolved version in your application's `Cargo.lock`.
-Set `RCA_TAG` to the matching [release tag](https://github.com/jacobcxdev/rust-composable-architecture/tags), including the leading `v`. Then install:
+Use the skills from the same revision as your code. The [`v0.0.1` preview](https://github.com/jacobcxdev/rust-composable-architecture/tree/v0.0.1) contains neither the plugin nor standalone skills.
+
+For a published version with skills, set `RCA_TAG` in your shell to the matching [release tag](https://github.com/jacobcxdev/rust-composable-architecture/tags), including the leading `v`.
+Run these commands with the Codex CLI:
 
 ```sh
 codex plugin marketplace add jacobcxdev/rust-composable-architecture --ref "$RCA_TAG"
 codex plugin add rca@rca-tools
 ```
 
-If your checkout contains `.agents/plugins/marketplace.json`, run `codex plugin marketplace add .` from its root instead of the first command.
-This selects guidance for that checkout, including changes that do not yet have a tag.
-When you upgrade RCA, select guidance from the same revision.
-See the [changelog](../CHANGELOG.md) for deprecations and migration steps.
+For a Git dependency, use the commit from `Cargo.lock` instead of the tag.
+If your checkout contains `.agents/plugins/marketplace.json`, you can install from the checkout instead.
+From its root, use `codex plugin marketplace add .` as the first command.
 
-To switch from one pinned release to another, remove the old plugin and its catalog first:
+To switch releases, remove the old plugin and catalogue first:
 
 ```sh
 codex plugin remove rca@rca-tools
 codex plugin marketplace remove rca-tools
 ```
 
-Set `RCA_TAG` to the new tag and repeat the two install commands. This changes the agent's guidance, not the application's dependencies.
-For a Git dependency, use its resolved commit from `Cargo.lock` in place of the tag.
+Set `RCA_TAG` to the new tag. Repeat the two installation commands.
+The plugin changes the agent's guidance, not your application's dependencies.
+The [changelog](../CHANGELOG.md) lists deprecations and migration steps.
 
-For agents that read standalone skills, install the desired [skill directories](../plugins/rca/skills) from the same revision instead.
-The standalone names are `$rca` and `$rca-contribute`. Use either the plugin or standalone skills, not both.
-
-## Guides by task
-
-| What do you need to do? | Where to look |
-| --- | --- |
-| Route an action to a child or change the order of keyed children | [Reducer composition](composition.md) |
-| Give a child its own lifetime or send a result to its parent | [Installed children](structural-features.md) |
-| Choose between a flat stack and a tree of jobs | [Recursive jobs](recursive-jobs.md) |
-| Keep a value on its owner thread | [Local composition and the Local Store](local-composition.md) |
-| Decide who owns a value | [Choose feature state, a dependency, or shared state](guides/authoring.md#where-does-this-value-belong) |
-| Replace a live service or override it in a test | [Dependencies](guides/dependencies.md) |
-| Share a value between owners or give a caller read-only access | [Shared state](guides/shared-state.md) |
-| Load a document, save an edit, or handle a competing writer | [Persistence](guides/persistence.md) |
-| Connect a service or transfer ownership of a resource | [External clients](guides/external-clients.md) and [owned resources](guides/owned-resources.md) |
-| Limit how often a request starts | [Debounce and throttle](guides/debounce-throttle.md) |
-| Read current state or observe changes to a value or a list of child IDs | [Observation](runtime.md#observation) |
-| Reduce unnecessary work in an application | [Application performance](guides/performance.md) |
-| Cancel work, wait for it to finish or shut down the Store | [Receipt lifetimes](receipt-lifetimes.md) and [shutdown](runtime.md#shutdown-and-host-lifetime) |
-| Write a deterministic test or keep test history for state that cannot be cloned | [Testing](guides/testing.md) and [owned snapshots](snapshot-derive.md) |
-| Trace a state change or report an issue | [Diagnostics](guides/diagnostics.md) |
-| Connect a native UI, database or notification source | [Host responsibilities](integration-boundaries.md) |
-
-## Examples
-
-Start with the [runnable examples](../examples/README.md). Each application teaches a different decision, from sending one action to restoring state from a file.
-For scoped work, owned values, or multiple children, use the [worked recipes](../examples/README.md#worked-recipes).
-
-## API reference and support
-
-If you followed a link here from the API reference, return to that page to search the same revision.
-The **Source** links below stay in the revision of this guide.
-
-For hosted HTML, look for RCA and your branch or tag in the [documentation catalogue](https://docs.jacobcx.dev/).
-A branch can move before its next build. To check a snapshot, compare its `docs-meta.json` field `commitSha` with your commit.
-If the catalogue has no matching build, [build a local preview](maintainers/documentation-publishing.md#build-a-local-preview).
-Open `index.html` in the output directory from that recipe.
-
-For a published crate, the **Released API** column opens docs.rs. Select the version from your application's
-`Cargo.lock`. The reference becomes available after docs.rs builds the package. A Git tag alone is not a crate release.
-
-| What you need | Source in this revision | Released API on docs.rs |
-| --- | --- | --- |
-| Application imports, including service dependencies and shared state | [`rca`](../crates/rca/src/lib.rs) | [`rca`](https://docs.rs/rca) |
-| The same application API under the long package name | [`rust-composable-architecture`](../crates/rust-composable-architecture/src/lib.rs) | [`rust-composable-architecture`](https://docs.rs/rust-composable-architecture) |
-| State changes, effects, runtime contracts, and child identity | [`rca-core`](../crates/rca-core/src/lib.rs) | [`rca-core`](https://docs.rs/rca-core) |
-| An existing Tokio runtime | [`rca-tokio`](../crates/rca-tokio/src/lib.rs) | [`rca-tokio`](https://docs.rs/rca-tokio) |
-| A test Store, a clock you control, and exhaustive assertions | [`rca-test`](../crates/rca-test/src/lib.rs) | [`rca-test`](https://docs.rs/rca-test) |
-| Documents, storage backends, and recovery | [`rca-persistence`](../crates/rca-persistence/src/lib.rs) | [`rca-persistence`](https://docs.rs/rca-persistence) |
-| Macros for dependencies, paths, snapshots, and reducer composition | [`rca-macros`](../crates/rca-macros/src/lib.rs) | [`rca-macros`](https://docs.rs/rca-macros) |
-
-The support policy lists [Cargo features](support.md#features) and [public import paths](support.md#public-api-paths).
-Service dependencies and shared state need no feature. To save a value, see [persistence](guides/persistence.md).
-
-The [support policy](support.md#targets) lists current targets. The [roadmap](roadmap.md) describes plans for embedded devices.
-
-## Contribute and release
-
-1. [Build and review a change](../CONTRIBUTING.md).
-2. [Choose checks for the change](maintainers/qualification.md). Use [compiler contracts](maintainers/compiler-contract-testing.md) for compile-time behaviour and the [keyed fuzzer](../fuzz/README.md) for generated lifecycle tests.
-   To measure a change to RCA itself, start with the [benchmark guide](performance/README.md).
-3. [Publish the crates](maintainers/releasing.md) or [check a documentation build](maintainers/documentation-publishing.md#check-a-build). These use separate workflows.
+For an agent that reads standalone skills, install the [skill directories](../plugins/rca/skills) from the same revision instead.
+Their names are `$rca` and `$rca-contribute`. Use the plugin or the standalone skills, not both.

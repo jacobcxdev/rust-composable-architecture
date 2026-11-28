@@ -7,7 +7,7 @@ If an issue or accepted design exists, link it here.
 
 Describe effects on public APIs, ownership, cancellation, ordering and shutdown.
 State any feature, platform, dependency or migration effects.
-For performance-sensitive changes, use the [qualification guide](../docs/maintainers/qualification.md#choose-performance-evidence-for-the-change).
+For performance-sensitive changes, use the [qualification guide](../docs/development/qualification.md#choose-performance-evidence-for-the-change).
 Report the results that apply to this change:
 
 - All measurements: name the workload, metric and revisions. Give the result, any trade-off and any inconclusive measurement.

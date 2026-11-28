@@ -1,6 +1,6 @@
 //! Exercises actual stack scope authority and deterministic effect retirement.
 
-/// Exercises the bounded job-tree recipe described in `docs/recursive-jobs.md`.
+/// Exercises the bounded job-tree recipe described in `docs/usage/recursive-jobs.md`.
 mod finite_jobs {
     use super::{ChildAction, Route, drive, reducer, scope};
     use rca_core::{

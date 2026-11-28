@@ -23,7 +23,7 @@ Choose the smallest test that distinguishes the proposed behavior from the old b
 | --- | --- |
 | Keyed child lifetime | Remove a child while a reply is pending. Reuse its ID. Reject the old reply and accept the new one. See `crates/rca-test/tests/shared_keyed_composition.rs`. |
 | Cancellation inheritance | Hold the child effect pending. Cancel its inherited or explicit key, then release it. See `crates/rca-core/tests/cancellation_handoff.rs`. |
-| A borrow or trait bound | Pair a passing caller with a caller that fails at the intended operation. Use the owning suite in `docs/maintainers/compiler-contract-testing.md`. |
+| A borrow or trait bound | Pair a passing caller with a caller that fails at the intended operation. Use the owning suite in `docs/development/compiler-contract-testing.md`. |
 | A warning or deprecation | Keep the old caller compiling with the intended warning. Check that its replacement compiles without the warning. |
 | A public path, feature flag, or macro | Build an external consumer with the smallest affected feature set. For facade exports or macro paths, check each affected package with its default import and a Cargo alias. |
 | A runtime adapter | Run its conformance suite. In `crates/rca-tokio/tests/async_cleanup_host.rs`, the peer checks that the local socket closed. This does not prove that a remote service released its resource. |
@@ -31,8 +31,8 @@ Choose the smallest test that distinguishes the proposed behavior from the old b
 
 On macOS, use the repository's Cargo memory watchdog before compiling. If it stops a build, inspect its receipt. Do not bypass it.
 After the focused check, test the affected integration boundaries.
-For a performance change, choose a public workload from `docs/performance/README.md` that exercises the affected path. Compare the same completed work, including cleanup.
-An allocation count alone does not establish lower latency. See `docs/maintainers/qualification.md` for the release gates.
+For a performance change, choose a public workload from `docs/development/benchmarking.md` that exercises the affected path. Compare the same completed work, including cleanup.
+An allocation count alone does not establish lower latency. See `docs/development/qualification.md` for the release gates.
 Keep runner profiles and raw measurements out of the public repository. Without the required profile, report the missing release check. Do not substitute a local timing.
 
 ## Keep guidance with the contract
@@ -40,5 +40,5 @@ Keep runner profiles and raw measurements out of the public repository. Without 
 If a public contract changes, update its rustdoc, guide or example, and the affected agent instructions together.
 For a new derive, show the caller which code it replaces and when to use the manual form.
 For a deprecation, state the replacement and any change in behavior. Record migration steps in the changelog.
-Use `docs/support.md` for compatibility policy and `docs/maintainers/releasing.md` for the release review.
+Use `docs/support.md` for compatibility policy and `docs/development/releasing.md` for the release review.
 A passing PR does not authorize a tag or publication.
