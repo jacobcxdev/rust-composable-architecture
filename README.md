@@ -1,5 +1,10 @@
 # Rust Composable Architecture
 
+[![Build status on main](https://github.com/jacobcxdev/rust-composable-architecture/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/jacobcxdev/rust-composable-architecture/actions/workflows/ci.yml?query=branch%3Amain)
+[![Licence: MIT or Apache-2.0](https://img.shields.io/badge/licence-MIT_OR_Apache--2.0-blue)](#licence)
+[![Latest rca version on crates.io](https://img.shields.io/crates/v/rca.svg)](https://crates.io/crates/rca)
+[![API documentation on docs.rs](https://docs.rs/rca/badge.svg)](https://docs.rs/rca)
+
 Build headless Rust applications from small, testable pieces. One Store owns
 the state and processes changes in order. Your application owns the runtime,
 the external services and any user interface.
