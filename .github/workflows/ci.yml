@@ -146,8 +146,8 @@ jobs:
               # These independent lockfiles can differ from the workspace lockfile.
               # Download their dependencies before the tests run Cargo offline.
               run: |
-                  cargo fetch --locked --manifest-path rca-core/tests/fixtures/modular-dependencies/Cargo.toml
-                  cargo fetch --locked --manifest-path rca-core/tests/fixtures/rc07-owned-snapshot/Cargo.toml
+                  cargo fetch --locked --manifest-path crates/rca-core/tests/fixtures/modular-dependencies/Cargo.toml
+                  cargo fetch --locked --manifest-path crates/rca-core/tests/fixtures/rc07-owned-snapshot/Cargo.toml
 
             - name: Verify legacy compiler contracts without Local
               # Collect every target's diagnostics before the long workspace suite.
@@ -169,6 +169,13 @@ jobs:
               env:
                   PROPTEST_CASES: 10000
               run: cargo test --locked -p rca-core --features test-util --test lifecycle_properties --test keyed_properties --test scoped_properties
+
+            - name: Replay the keyed child lifetime seed
+              timeout-minutes: 10
+              env:
+                  CARGO_TARGET_DIR: ${{ github.workspace }}/target
+                  CARGO_PROFILE_DEV_DEBUG: "0"
+              run: cargo run --locked --manifest-path fuzz/Cargo.toml --bin keyed_lifecycle -- fuzz/seeds/keyed_lifecycle/reused-key
 
             - name: Test documentation
               if: ${{ !cancelled() && steps.consumer_dependencies.outcome == 'success' }}
@@ -590,12 +597,29 @@ jobs:
                   test "$(git -C "$baseline" rev-parse HEAD)" = "$PROFILE_BASELINE"
                   git diff --exit-code HEAD
                   git -C "$baseline" diff --exit-code HEAD
-                  inputs=(tests/performance-profile rca-core/src/allocation_test/child.rs rca-core/tests/named_operation_allocations.rs rca-core/tests/fold_costs.rs rca-core/tests/fold/local_driver.rs)
-                  git archive HEAD -- "${inputs[@]}" | tar -x -C "$baseline"
+                  fixture=tests/performance-profile
+                  core=crates/rca-core
+                  if [[ ! -f "$baseline/$core/Cargo.toml" ]]; then core=rca-core; fi
+                  test -f "$baseline/$core/Cargo.toml"
+                  archive="$RUNNER_TEMP/task-fold-fixture.tar"
+                  git archive --output="$archive" HEAD -- "$fixture"
+                  tar -xf "$archive" -C "$baseline"
+                  rm -- "$archive"
+                  inputs=("$fixture")
+                  exclusions=(":!$fixture")
+                  for file in src/allocation_test/child.rs tests/named_operation_allocations.rs tests/fold_costs.rs tests/fold/local_driver.rs; do
+                      inputs+=("crates/rca-core/$file")
+                      exclusions+=(":!$core/$file")
+                      mkdir -p "$(dirname "$baseline/$core/$file")"
+                      cp "crates/rca-core/$file" "$baseline/$core/$file"
+                  done
                   git ls-files -z -- "${inputs[@]}" | xargs -0 shasum -a 256 > "$output/harness.sha256"
-                  (cd "$baseline" && shasum -a 256 -c "$output/harness.sha256") > "$output/baseline-harness-check.txt"
+                  (cd "$baseline" && sed "s|  crates/rca-core/|  $core/|" "$output/harness.sha256" | shasum -a 256 -c -) > "$output/baseline-harness-check.txt"
+                  # Older references use different relative paths to the same workload inputs.
+                  python3 scripts/stage_profile_layout.py "$baseline"
                   production_check() {
-                      git -C "$baseline" diff --exit-code HEAD -- . ':!tests/performance-profile' ':!rca-core/src/allocation_test/child.rs' ':!rca-core/tests/named_operation_allocations.rs' ':!rca-core/tests/fold_costs.rs' ':!rca-core/tests/fold/local_driver.rs'
+                      python3 "$root/scripts/stage_profile_layout.py" "$baseline" --check
+                      git -C "$baseline" diff --exit-code HEAD -- . "${exclusions[@]}"
                   }
                   production_check
                   git rev-parse HEAD 'HEAD^{tree}' > "$output/candidate-git.txt"

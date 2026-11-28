@@ -65,11 +65,11 @@ class CompilePortfolioTests(unittest.TestCase):
                 ]
             )
             manifests = [
-                ("rca-core", "rca_core", "lib"),
+                ("crates/rca-core", "rca_core", "lib"),
                 ("benches/compile/support", "rca_compile_fixture_support", "lib"),
             ]
             if stage == "composed-macro":
-                manifests.extend([("rca", "rca", "lib"), ("rca-macros", "rca_macros", "proc-macro")])
+                manifests.extend([("crates/rca", "rca", "lib"), ("crates/rca-macros", "rca_macros", "proc-macro")])
             if stage != "support":
                 manifests.append(("benches/compile/" + stage, "rca-compile-" + stage, "bin"))
             rows = []

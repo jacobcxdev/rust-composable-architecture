@@ -2,7 +2,7 @@
 // one existing implementation across the three standalone fixture workspaces.
 include!(concat!(
     env!("CARGO_MANIFEST_DIR"),
-    "/../../../../rca-core/src/allocation_test/child.rs"
+    "/../../../../crates/rca-core/src/allocation_test/child.rs"
 ));
 
 pub(super) fn capture_bounded(command: &mut Command, timeout: Duration) -> Result<Output, String> {

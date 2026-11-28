@@ -10,7 +10,7 @@ Use `rca-core` directly or use the `rca` facade. The facade has no default featu
 `test-util`, `diagnostics`, `futures-stream`, `macros` and `local` features add
 their named surfaces, not a UI framework. Clocks, typed dependencies, sharing and
 scoped observation remain core capabilities. See the actual
-[facade features](../rca/Cargo.toml) and [exports](../rca/src/lib.rs).
+[facade features](../crates/rca/Cargo.toml) and [exports](../crates/rca/src/lib.rs).
 
 At the same version, `rca` and `rust-composable-architecture` expose the same types.
 Import macros from the package you use for those types.
@@ -65,7 +65,7 @@ Before adding revision-aware storage, choose an explicit conflict policy.
 The revisioned shared document retains local and external evidence on a conflict
 instead of silently overwriting newer data. RCA does not choose a merge policy.
 Application code owns recovery and any caller decision. The
-[shared-document tests](../rca-persistence/tests/shared_document.rs) cover conflict,
+[shared-document tests](../crates/rca-persistence/tests/shared_document.rs) cover conflict,
 failed saves, superseded loads and retained backend sessions.
 
 The [persistent counter](../examples/persistent-counter/README.md) separates a
@@ -76,9 +76,9 @@ Neither a state snapshot nor a finished action task proves durable storage.
 
 A native host owns its controls, draws them and handles platform events.
 For example, a taskbar item can send a command to a particular worker.
-After `Store::ready`, use [`Store::acquire(&typed_mount_site)`](../rca-core/src/store/mod.rs)
-with that worker's [`MountSite`](../rca-core/src/store/mount.rs). The actor handles the request in order.
-If the worker is present, give its [`TaskContext`](../rca-core/src/store/task_context.rs) to the callback.
+After `Store::ready`, use [`Store::acquire(&typed_mount_site)`](../crates/rca-core/src/store/mod.rs)
+with that worker's [`MountSite`](../crates/rca-core/src/store/mount.rs). The actor handles the request in order.
+If the worker is present, give its [`TaskContext`](../crates/rca-core/src/store/task_context.rs) to the callback.
 Use its `read`/`update`/`send` operations without blocking the event loop.
 
 Handle a missing worker or a rejected command explicitly. A replacement or
@@ -97,12 +97,12 @@ lifetime. It does not bind a callback to one installation and configuration.
 The host still owns the connection between state observation and its controls.
 
 Keep thread-affine resources on their owner thread and arrange teardown there.
-The optional [`rca::local` surface](../rca-core/src/local.rs) exposes an owner-local
-Store/runtime; its [driver contract](../rca-core/src/runtime/local.rs) requires
+The optional [`rca::local` surface](../crates/rca-core/src/local.rs) exposes an owner-local
+Store/runtime; its [driver contract](../crates/rca-core/src/runtime/local.rs) requires
 owner-thread polling and destruction, including unpolled work at host teardown.
 Cross-thread wakes only notify that owner. Portable Stores can instead exchange
 owned `Send` commands with a host-owned resource, as in the
-[thread-affine host fixture](../rca-tokio/tests/thread_affine_host.rs).
+[thread-affine host fixture](../crates/rca-tokio/tests/thread_affine_host.rs).
 Neither route supplies a native event-loop adapter.
 
 Keep the host driven through Store shutdown and any separate provider cleanup.
@@ -115,7 +115,7 @@ turnkey native renderer or Swift/Objective-C runtime wrapper.
 
 ## Define external notification delivery
 
-[`ExternalObservation`](../rca-core/src/observation/adapters.rs) owns one lazy
+[`ExternalObservation`](../crates/rca-core/src/observation/adapters.rs) owns one lazy
 subscription with initial and latest values. It is not an ordered broadcast or
 an all-listener completion barrier. Store observations also allow independent
 consumers to progress at different rates.
@@ -145,7 +145,7 @@ Inject an existing engine/client through an application-owned dependency and
 return owned typed rows, revisions or events. The
 [external-client recipe](guides/external-clients.md) demonstrates this boundary
 without selecting a network or database provider. For shared readable resources,
-[`SharedReaderKey` and `SharedKey`](../rca-core/src/sharing/cache.rs) expose typed
+[`SharedReaderKey` and `SharedKey`](../crates/rca-core/src/sharing/cache.rs) expose typed
 loading, subscription and optional saving. Their contracts do not supply SQL,
 an ORM, migrations, pagination or automatic query-delivery laws.
 
@@ -171,19 +171,19 @@ measured workload volume justifies it, not for API parity.
 Scoped generations reject stale work; document sessions can fence admission and
 join physical operations. Neither establishes multi-device replication,
 cross-account access control, conflict resolution or remote rollback. A local
-[`SharedReader`](../rca-core/src/sharing.rs) restricts that handle's mutation
+[`SharedReader`](../crates/rca-core/src/sharing.rs) restricts that handle's mutation
 surface; it is not a security authority.
 
 Keep those services in an optional provider with explicit device/account,
 offline, conflict, deletion and quiescence semantics. Qualify them against the
 actual devices and accounts before claiming support. Even a
-[`RevisionBackend`](../rca-persistence/src/revision.rs) must provide genuine atomic
+[`RevisionBackend`](../crates/rca-persistence/src/revision.rs) must provide genuine atomic
 comparison against its covered writers; the file adapter does not implement
 that protocol for arbitrary external writers.
 
 ## Mixed-version writers need an explicit codec policy
 
-[`Codec`](../rca-persistence/src/document.rs) converts values and bytes; the
+[`Codec`](../crates/rca-persistence/src/document.rs) converts values and bytes; the
 application/provider chooses its versioned envelope, validation, defaults,
 relationships and migration/cutover policy. A backend revision identifies a
 storage version, not a schema version. RCA does not promise universal unknown-field

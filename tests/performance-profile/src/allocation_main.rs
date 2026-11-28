@@ -10,7 +10,7 @@
 mod allocation_runner {
     const CASES: &[(&str, fn())] = crate::allocation_cases::CASES;
 
-    include!("../../../rca-core/src/allocation_test/runner.rs");
+    include!("../../../crates/rca-core/src/allocation_test/runner.rs");
 
     /// Checks both child-marker families before running a selected control.
     pub(super) fn main() -> std::process::ExitCode {

@@ -1,6 +1,6 @@
 # Restore a document in stages
 
-The [restoration tests](../../../rca-persistence/tests/staged_restoration.rs) load a
+The [restoration tests](../../../crates/rca-persistence/tests/staged_restoration.rs) load a
 checkpoint, fetch the document it names and publish the document with its selected
 page.
 The example uses `Backend`, `Codec` and `Feature` with test controls that own their
@@ -80,7 +80,7 @@ original document as its result.
 An invalid fetched document also returns to the caller. Neither case means that
 `TaskAccessError` can recover values already moved into an update callback.
 
-The [public control tests](../../../rca-test/tests/controls.rs) cover replies sent
+The [public control tests](../../../crates/rca-test/tests/controls.rs) cover replies sent
 after the receiver drops.
 The [authorisation tests](../examples/authorisation.rs) cover a repeatable callback
 that must return duplicate or late payloads.
@@ -100,8 +100,8 @@ Plain `Document` does not require a `BackendSession`.
 If the backend supplies this capability, await `BackendSession::close` separately.
 Its first poll stops new operations. Success means that all operations the session accepted have ended.
 On error, only the backend's own error contract can establish that work stopped.
-The [session replacement tests](../../../rca-persistence/tests/shared_document_session_replacement.rs)
+The [session replacement tests](../../../crates/rca-persistence/tests/shared_document_session_replacement.rs)
 distinguish an obsolete actor update from waiting for the old backend session.
-The [SharedDocument tests](../../../rca-persistence/tests/shared_document.rs) cover
+The [SharedDocument tests](../../../crates/rca-persistence/tests/shared_document.rs) cover
 dropped close waiters and errors that remain available to later waiters.
 This restoration example acquires no durable external resource.

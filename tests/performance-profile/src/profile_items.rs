@@ -265,7 +265,7 @@ pub(crate) mod tests {
 
     /// Reuses bounded child execution for allocation and lock-reentry controls.
     pub(crate) mod allocation_child {
-        include!("../../../rca-core/src/allocation_test/child.rs");
+        include!("../../../crates/rca-core/src/allocation_test/child.rs");
 
         /// Keeps the file-safety fixture's directory setup outside shared process support.
         #[cfg(feature = "allocations")]

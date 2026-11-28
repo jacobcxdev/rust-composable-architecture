@@ -15,7 +15,7 @@ import sys
 from typing import Any
 
 
-BUDGET_SHA256 = "f96c9f8ed2ebcee6ff63b11750ed1fd02d9f88f5c60ff740a184071c8032a878"
+BUDGET_SHA256 = "b358b2ed7c960996341af43930e483a8b09795169de75f0461292aaa0c41503c"
 RUNNER = "mac15-9-m3-max-16c-48gb-macos27plus-ac-high"
 MINIMUM_MACOS_MAJOR = 27
 RUST100_TOOL_VERSIONS = {
@@ -26,8 +26,8 @@ RUST100_TOOL_VERSIONS = {
 RUST100_METHOD = "composition-paired-v9"
 WINDOWS_V6_METHOD = "composition-windows-paired-v6"
 TWO_LOOK_METHOD = "two-look-seven-twelve-v2"
-RUST100_PROTOCOL_SHA256 = "432ab7f75a41c288f2c3f9ccb79fc39199c0942b449bd862a20ae04e48efa37b"
-WINDOWS_V6_PROTOCOL_SHA256 = "407231c0d126a0e5e32caf580ba40e5f78fe0cd5465e68f34bd5f166f92e51ca"
+RUST100_PROTOCOL_SHA256 = "3b800b28e4f9cfeff6b007cea1acd3df90c8f36e86d1f6ec6ae7087d032667ec"
+WINDOWS_V6_PROTOCOL_SHA256 = "4c6dc3609ef404566a608a90c68a127fde9e42ef7e1d1cda2a8b29536924f052"
 REGRESSION_LIMIT = 1.10
 EXPECTED_DIVAN_ROWS = 153
 EXPECTED_ALLOCATIONS = 47
@@ -1260,7 +1260,7 @@ def _load_protocol_metadata(
         if not _HASH.fullmatch(str(metadata.get(field, ""))):
             raise ValueError(f"paired protocol metadata hash is invalid: {field}")
     if metadata["workload_sha256"] != protocol["common_workloads"]["files"][
-        "rca-core/benches/composition.rs"]["sha256"]:
+        "crates/rca-core/benches/composition.rs"]["sha256"]:
         raise ValueError("paired common benchmark hash differs from the protocol")
     workload_paths = {row["workload_source"] for row in validate_budget_document(
         pathlib.Path(__file__).resolve().parents[1] / "benches/performance/composition-budgets.json")["rows"]}
@@ -1273,7 +1273,7 @@ def _load_protocol_metadata(
         if not _HASH.fullmatch(str(provenance.get("receipt_sha256", ""))):
             raise ValueError(f"paired source receipt hash is invalid: {role}")
     if metadata.get("zero_host_sha256") != protocol["common_workloads"]["files"][
-        "rca-core/tests/composition_qualification/main.rs"]["sha256"]:
+        "crates/rca-core/tests/composition_qualification/main.rs"]["sha256"]:
         raise ValueError("paired zero host hash differs from the protocol")
     return metadata
 
@@ -1281,7 +1281,7 @@ def _load_protocol_metadata(
 def validate_protocol_sources(directory: pathlib.Path, metadata: dict[str, Any], protocol: dict[str, Any]) -> None:
     """Authenticate source receipts without requiring disposable source archives to remain."""
     files = protocol["common_workloads"]["files"]
-    allowed = files.keys() | {"rca-core/Cargo.toml"}
+    allowed = files.keys() | {"crates/rca-core/Cargo.toml"}
     for role in ("subject", "control"):
         path = directory / "sources" / f"{role}.json"
         declared = metadata["workload_provenance"][role]
@@ -1619,9 +1619,9 @@ def evaluate_absolute(
         raise ValueError("absolute capture allocation manifest hash mismatch")
     sources = paired_host["workload_provenance"]["subject"]["effective"]
     workload_environment_keys = {
-        "rca-core/benches/composition.rs": "benchmark_source_sha256",
-        "rca-core/src/composition/scope.rs": "scope_zero_test_source_sha256",
-        "rca-core/src/composition/combine.rs": "combine_zero_test_source_sha256",
+        "crates/rca-core/benches/composition.rs": "benchmark_source_sha256",
+        "crates/rca-core/src/composition/scope.rs": "scope_zero_test_source_sha256",
+        "crates/rca-core/src/composition/combine.rs": "combine_zero_test_source_sha256",
     }
     for source, environment_key in workload_environment_keys.items():
         if environment[environment_key] != sources.get(source):
@@ -1705,7 +1705,7 @@ def evaluate_absolute(
             "combine_empty_effect_arities_1_through_12",
         }:
             result["product_source_sha256"] = result["workload_source_sha256"]
-            result["workload_source"] = "rca-core/tests/composition_qualification/main.rs"
+            result["workload_source"] = "crates/rca-core/tests/composition_qualification/main.rs"
             result["workload_source_sha256"] = paired_host["zero_host_sha256"]
             result["zero_host_sha256"] = paired_host["zero_host_sha256"]
         if samples is not None:

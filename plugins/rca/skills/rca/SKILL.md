@@ -60,7 +60,7 @@ For a controlled test, inject a client that you can complete. Do not wait for a 
 - **Decide where a value belongs:** `docs/guides/dependencies-and-shared-state.md` explains when to use feature state, a shared value, or an injected dependency.
 - **Connect an external service:** `docs/guides/external-clients.md` shows how to inject a client and control its responses in tests.
   See `examples/search/src/main.rs` for a feature that replaces a pending search.
-- **Keep a stale save from overwriting newer data:** read about `RevisionBackend` in the `rca-persistence` crate guide (`rca-persistence/src/lib.rs`).
+- **Keep a stale save from overwriting newer data:** read about `RevisionBackend` in the `rca-persistence` crate guide (`crates/rca-persistence/src/lib.rs`).
 - **Connect a host:** `examples/counter/src/main.rs` shows one Store on an existing Tokio runtime.
   For a callback that needs a committed reply, read “Synchronous hosts” in `docs/runtime.md` at the matching revision.
 - **Read a total from child features:** `docs/structural-features.md` explains scoped folds and when to maintain the total in state.

@@ -82,7 +82,7 @@ class FixtureValidationTests(unittest.TestCase):
         libraries = package_registry.RCA_PACKAGES - package_registry.TRANSPORT_PACKAGES
         for name in sorted(libraries):
             with self.subTest(package=name):
-                member = root / name
+                member = root / "crates" / name
                 package = tomllib.loads((member / "Cargo.toml").read_text())["package"]
                 readme = package.get("readme", "README.md")
                 if readme == {"workspace": True}:
@@ -112,14 +112,14 @@ class FixtureValidationTests(unittest.TestCase):
         root = pathlib.Path(__file__).resolve().parents[2]
         for name in ("rca", "rust-composable-architecture"):
             with self.subTest(package=name):
-                manifest = tomllib.loads((root / name / "Cargo.toml").read_text())
+                manifest = tomllib.loads((root / "crates" / name / "Cargo.toml").read_text())
                 options = manifest["package"].get("metadata", {}).get("docs", {}).get("rs", {})
                 features = set(manifest["features"]) - {"default"}
                 documented = features if options.get("all-features") else set(options.get("features", []))
                 self.assertEqual(documented, features)
 
     def test_macro_tests_use_workspace_crates_without_published_back_edges(self) -> None:
-        path = pathlib.Path(__file__).resolve().parents[2] / "rca-macros" / "Cargo.toml"
+        path = pathlib.Path(__file__).resolve().parents[2] / "crates/rca-macros/Cargo.toml"
         dependencies = tomllib.loads(path.read_text(encoding="utf-8"))["dev-dependencies"]
         for alias, package in (("rca", "rca-core"), ("rca-test", "rca-test")):
             with self.subTest(alias=alias):
@@ -134,7 +134,7 @@ class FixtureValidationTests(unittest.TestCase):
             if name in package_registry.TRANSPORT_PACKAGES:
                 directory = root / "dependencies" / name
             else:
-                directory = root / name
+                directory = root / "crates" / name
             with self.subTest(package=name):
                 manifest = tomllib.loads((directory / "Cargo.toml").read_text(encoding="utf-8"))
                 self.assertEqual(expected, manifest.get("features", {}))
@@ -1087,11 +1087,11 @@ printf '%s\\n' "$qualification_root" > "$TEST_ROOT/allocated-root"
 
     def test_packaged_allocation_runners_match_shared_source(self) -> None:
         source = (
-            self.repo_root / "rca-core/src/allocation_test/runner.rs"
+            self.repo_root / "crates/rca-core/src/allocation_test/runner.rs"
         ).read_text(encoding="utf-8")
         copies = (
-            "rca-tokio/tests/support/allocation_runner.rs",
-            "rca-persistence/src/allocation_runner.rs",
+            "crates/rca-tokio/tests/support/allocation_runner.rs",
+            "crates/rca-persistence/src/allocation_runner.rs",
         )
         for path in copies:
             with self.subTest(path=path):
@@ -1170,12 +1170,12 @@ printf '%s\\n' "$qualification_root" > "$TEST_ROOT/allocated-root"
         )
 
     def test_qualification_points_to_existing_tokio_conformance_source(self) -> None:
-        qualification = (self.repo_root / "docs/qualification.md").read_text(
+        qualification = (self.repo_root / "docs/maintainers/qualification.md").read_text(
             encoding="utf-8"
         )
 
-        self.assertIn("`rca-tokio/src/lib.rs`", qualification)
-        self.assertTrue((self.repo_root / "rca-tokio/src/lib.rs").is_file())
+        self.assertIn("`crates/rca-tokio/src/lib.rs`", qualification)
+        self.assertTrue((self.repo_root / "crates/rca-tokio/src/lib.rs").is_file())
         self.assertNotIn("rca-tokio/tests/conformance_tokio.rs", qualification)
 
 

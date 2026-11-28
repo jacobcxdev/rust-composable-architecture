@@ -47,11 +47,11 @@ class MacroRejectionTests(unittest.TestCase):
         self.addCleanup(self.directory.cleanup)
         self.root = Path(self.directory.name)
         for relative in (
-            "Cargo.toml", "Cargo.lock", "rust-toolchain.toml", "rca-macros/Cargo.toml",
-            "rca-macros/src/lib.rs", "rca-macros/tests/ui/snapshot/fail_syntax.rs",
-            "rca-macros/tests/ui/state_paths/fail_malformed_path_namespace.rs",
-            "rca-macros/tests/fixtures/missing-reducers-dependency/Cargo.toml",
-            "rca-macros/tests/fixtures/missing-reducers-dependency/src/main.rs",
+            "Cargo.toml", "Cargo.lock", "rust-toolchain.toml", "crates/rca-macros/Cargo.toml",
+            "crates/rca-macros/src/lib.rs", "crates/rca-macros/tests/ui/snapshot/fail_syntax.rs",
+            "crates/rca-macros/tests/ui/state_paths/fail_malformed_path_namespace.rs",
+            "crates/rca-macros/tests/fixtures/missing-reducers-dependency/Cargo.toml",
+            "crates/rca-macros/tests/fixtures/missing-reducers-dependency/src/main.rs",
         ):
             destination = self.root / relative
             destination.parent.mkdir(parents=True, exist_ok=True)
@@ -139,8 +139,8 @@ class MacroRejectionTests(unittest.TestCase):
             self.assertIn("rca_macros=" + str(self.dll), argv)
             self.assertIn("dependency=" + str(self.deps), argv)
             self.assertEqual(env["LLVM_PROFILE_FILE"], self.env["LLVM_PROFILE_FILE"])
-            manifest = self.root / ("rca-macros" if index < 2 else
-                                   "rca-macros/tests/fixtures/missing-reducers-dependency")
+            manifest = self.root / ("crates/rca-macros" if index < 2 else
+                                   "crates/rca-macros/tests/fixtures/missing-reducers-dependency")
             self.assertEqual(env["CARGO_MANIFEST_DIR"], str(manifest))
             self.assertEqual(cwd, manifest)
             self.assertEqual(timeout, 120)

@@ -9,6 +9,7 @@ import tomllib
 
 
 ROOT = Path(__file__).resolve().parents[1]
+CRATE_ROOT = ROOT / "crates"
 CRATES = ("rca", "rca-core", "rca-test", "rca-tokio", "rca-macros", "rca-persistence", "rust-composable-architecture")
 DOC = re.compile(r"^\s*//[/!] ?(.*)$")
 SHIM = re.compile(r"# (?:use rca_(?:core|test|tokio) as rca;|mod rca \{ "
@@ -27,7 +28,7 @@ def fences(path):
         elif doc:
             line = doc[1]
         elif (match := re.fullmatch(r'\s*(doc = )?r(\x23*)"', line)) and (
-            match[1] or path.relative_to(ROOT).as_posix() in
+            match[1] or path.relative_to(CRATE_ROOT).as_posix() in
             {"rca-test/src/store.rs", "rca-test/src/store/local.rs"}
         ):
             raw = match[2]
@@ -80,7 +81,7 @@ def runtime_example(body):
 
 def requirements(path, body):
     """Use the documented owning API's feature; do not expose its implementation crate."""
-    crate, _, relative = path.as_posix().split("/", 2)
+    crate, _, relative = path.relative_to(CRATE_ROOT).as_posix().split("/", 2)
     features = set()
     if crate == "rca-macros":
         features.add("macros")
@@ -100,7 +101,7 @@ def requirements(path, body):
     if "futures_executor::" in body:
         extra.append("executor")
     if "rca_test::" in body:
-        if path.as_posix() != "rca-test/src/store/local.rs" or "rca_test::local::TestStore" not in body:
+        if (crate, relative) != ("rca-test", "store/local.rs") or "rca_test::local::TestStore" not in body:
             raise ValueError(f"{path}: check and document the explicit rca-test dependency first")
         extra.append("direct-test-local")
     return tuple(sorted(features)), tuple(extra)
@@ -110,7 +111,7 @@ def generate(destination, registry=None):
     """Group by manifest, not all-features. Cargo must test each member separately."""
     groups, controls, counts = defaultdict(list), defaultdict(set), Counter()
     for crate in CRATES:
-        for file in sorted((ROOT / crate / "src").rglob("*.rs")):
+        for file in sorted((CRATE_ROOT / crate / "src").rglob("*.rs")):
             path = file.relative_to(ROOT)
             for line, tag, original in fences(file):
                 body, hosted = runtime_example(consumer_body(original))
@@ -123,7 +124,7 @@ def generate(destination, registry=None):
                 if not re.fullmatch(r"(?:rust|no_run|compile_fail(?:,E\d{4})?)?", tag):
                     raise ValueError(f"{path}:{line}: classify Rust fence {tag!r}")
                 counts["compile_fail" if "compile_fail" in tag else tag or "rust"] += 1
-                features, extra = requirements(path, body)
+                features, extra = requirements(file, body)
                 block = f"## {path}:{line}\n\n```{tag}\n{body}\n```\n"
                 groups[features, extra, "rca"].append(block)
                 if hosted:
@@ -145,7 +146,7 @@ def generate(destination, registry=None):
     version = workspace["package"]["version"]
 
     def dependency(name):
-        return f'version = "={version}", ' + (f'registry = "{registry}"' if registry else f'path = {json.dumps(str(ROOT / name))}')
+        return f'version = "={version}", ' + (f'registry = "{registry}"' if registry else f'path = {json.dumps(str(CRATE_ROOT / name))}')
 
     for (features, extra, alias), blocks in sorted(groups.items()):
         parts = (["alias"] if alias != "rca" else []) + list(features) + list(extra)

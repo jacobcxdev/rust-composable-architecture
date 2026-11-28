@@ -7,7 +7,7 @@ use std::process::Command;
     reason = "CLI checks reuse bounded capture, not allocation-test selection"
 )]
 mod child {
-    include!("../../../rca-core/src/allocation_test/child.rs");
+    include!("../../../crates/rca-core/src/allocation_test/child.rs");
 
     /// Captures the direct fixture process without unbounded output or waits.
     pub(super) fn output(command: &mut Command) -> Output {

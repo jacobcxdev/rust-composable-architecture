@@ -3,7 +3,7 @@
 The host drives asynchronous work. RCA decides which requests the Store accepts,
 which state changes it commits, and when it considers tracked work complete.
 `rca-core` does not supply an executor, reactor, wall clock, UI loop, global Store
-or thread-local authority. The [qualification summary](qualification.md)
+or thread-local authority. The [qualification summary](maintainers/qualification.md)
 describes the checks for these contracts.
 
 ## Choose a runtime and ownership model
@@ -94,7 +94,7 @@ without allowing a sustained mailbox flood to starve them.
 Dropping any runtime future is terminal and must release captured resources.
 Cloned runtimes share one monotonic origin.
 
-An adapter must meet the [`RuntimeDriver` contract](../rca-core/src/runtime.rs):
+An adapter must meet the [`RuntimeDriver` contract](../crates/rca-core/src/runtime.rs):
 
 - Accept the task promptly without polling it inside `spawn`.
 - While the host runs, poll accepted tasks according to Rust's `Future` contract.
@@ -118,7 +118,7 @@ advances time implicitly.
 
 A synchronous headless application can own one Tokio runtime shared by several
 Stores. It does not need an executor or thread per Store. Two supported usage
-patterns are exercised in `rca-tokio/tests/synchronous_host.rs`:
+patterns are exercised in `crates/rca-tokio/tests/synchronous_host.rs`:
 
 - A finite caller constructs Stores while the current-thread runtime is entered,
   then uses `Runtime::block_on` to drive admitted actions, await causal completion
@@ -244,7 +244,7 @@ actor; it is not a realtime bound or a generic opaque-program timeout. Root
 cancellation and shutdown cancel work without inventing a timeout action.
 Shutdown acknowledges issued aborts; runtime-owned captures drop when the host
 cooperatively polls the aborted task wrappers, not necessarily before that reply.
-The executable fixture is `rca-test/tests/request_deadlines.rs`. Its controlled
+The executable fixture is `crates/rca-test/tests/request_deadlines.rs`. Its controlled
 client send is deliberately polled for the queued-output test; application code
 normally awaits `sender.send` directly. Generic timeout operators remain a
 separate design decision, especially for multi-action subtrees and explicit
@@ -257,7 +257,7 @@ child slots before emitting their Begin actions. Each child owns its attempt
 count, injected client and retry timer. The parent sees terminal child state,
 records the outcome, removes the child and admits the next queued item.
 
-`rca-test/tests/bounded_jobs.rs` qualifies two slots and at most three attempts,
+`crates/rca-test/tests/bounded_jobs.rs` qualifies two slots and at most three attempts,
 with 10 ms then 20 ms Store-clock backoffs. Backoff keeps its slot: predictable
 bounds at the cost of throughput. Permanent errors terminate immediately.
 The injected client also owns two permits. Each actual operation retains one
@@ -282,7 +282,7 @@ decisions; native-host and comparative performance qualification remain separate
 
 ### Parent-owned persistence
 
-`rca-test/tests/persistence_coordination.rs` qualifies an injected storage recipe:
+`crates/rca-test/tests/persistence_coordination.rs` qualifies an injected storage recipe:
 the parent owns a value, current revision, acknowledged revision and one in-flight
 snapshot. Edits during a save coalesce into the latest value. An older successful
 save acknowledges only its captured revision, then starts the latest snapshot.
@@ -319,7 +319,7 @@ For value coalescing, start with explicit domain state: a window deadline and
 at most one pending latest value. In Leading mode, suppress in-window inputs;
 in Latest mode, replace that pending value without moving the deadline. A
 boundary publishes the pending value and opens another window, or closes when
-empty. `rca-test/tests/throttled_actions.rs` demonstrates this using
+empty. `crates/rca-test/tests/throttled_actions.rs` demonstrates this using
 `ReduceContext::now`, `send_at` and a scope-local typed cancellation ID.
 
 Its policy intentionally makes input at `now >= deadline` eligible. When such an
@@ -506,8 +506,8 @@ Cancellation does not acknowledge a selected boundary. `receive_terminal` matche
 its actual production error; `receive_output_terminal` identifies the exact output
 declaration even after its live authority ends. Terminal acknowledgement is
 separate from successful state comparison and cannot clear earlier failed matcher,
-snapshot or capture expectations. See the [method contracts](../rca-test/src/store/api.rs)
-and the Shared/Local [terminal-frontier tests](../rca-test/tests/terminal_frontier.rs).
+snapshot or capture expectations. See the [method contracts](../crates/rca-test/src/store/api.rs)
+and the Shared/Local [terminal-frontier tests](../crates/rca-test/tests/terminal_frontier.rs).
 
 In `NonExhaustive` mode, explicit `skip_received` can skip a pending mutation
 before user code runs, then verifies unchanged state. Structural installation

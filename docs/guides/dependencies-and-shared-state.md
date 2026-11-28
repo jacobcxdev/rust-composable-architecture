@@ -19,7 +19,7 @@ value, consider shared ownership.
 borrows during one synchronous reduction. The parent still owns both values.
 Neither borrow can escape into asynchronous work. See
 [shared reducer composition](../composition.md) and its
-[executable examples](../../rca-test/tests/shared_composition.rs).
+[executable examples](../../crates/rca-test/tests/shared_composition.rs).
 
 `Shared<T>` lets several owners change the same value outside Store transactions.
 Putting the handle in State does not change this rule. For example, a host can
@@ -61,7 +61,7 @@ Lookup uses this precedence, from highest to lowest:
 
 Nested overrides in the same tier select the innermost matching key. An override
 for another key leaves this key unchanged. The
-[dependency-scope tests](../../rca-test/tests/dependency_scope.rs) demonstrate
+[dependency-scope tests](../../crates/rca-test/tests/dependency_scope.rs) demonstrate
 the full precedence and an asynchronous client.
 
 A feature override applies only while its wrapped reducer runs. A private action
@@ -81,7 +81,7 @@ explicitly injected into a test can still contact its service. Prefer
 For an optional service, use `Option<Client>` as the dependency value. An explicit
 `None` disables it and masks lower-priority values. It does not request fallback.
 If unconfigured and disabled must differ, use an enum that represents both states.
-The [optional dependency tests](../../rca-test/tests/optional_dependencies.rs)
+The [optional dependency tests](../../crates/rca-test/tests/optional_dependencies.rs)
 show absence, nested overrides and captured effects.
 
 ## When are clients created or replaced?
@@ -95,7 +95,7 @@ If an interface crate must not depend on its provider, use `DependencyDefaults`
 and `register_defaults`. Registration supplies lazy constructors, not a running
 service. Register before the first default attempt for that key. A failed attempt
 also closes registration for that key. The
-[modular dependency fixture](../../rca-core/tests/fixtures/modular-dependencies/consumer/src/lib.rs)
+[modular dependency fixture](../../crates/rca-core/tests/fixtures/modular-dependencies/consumer/src/lib.rs)
 shows separate interface, provider and consumer crates.
 
 `DependencyValues::prepare` groups setup before the environment's first lookup.
@@ -110,7 +110,7 @@ environment can lend values within its own asynchronous scope.
 For example, a request that captures the old session client keeps that client
 after sign-in selects a new one. An override changes future lookups, not work
 that already holds the client. See the
-[session refresh tests](../../rca-test/tests/session_client_refresh.rs).
+[session refresh tests](../../crates/rca-test/tests/session_client_refresh.rs).
 
 ## Does a shared reader follow rebinding?
 
@@ -121,8 +121,8 @@ snapshot: later mutations of its captured value remain visible.
 
 For example, a reader captured from a shared value containing `2` still reads
 that value after the writable handle rebinds to a different value containing `10`.
-The [sharing doctest](../../rca-core/src/sharing.rs) and
-[alias tests](../../rca-core/tests/shared_value.rs) demonstrate this distinction.
+The [sharing doctest](../../crates/rca-core/src/sharing.rs) and
+[alias tests](../../crates/rca-core/tests/shared_value.rs) demonstrate this distinction.
 
 A reader cannot rebind the handle or borrow its value mutably. If the value
 contains a `Cell`, Rust still permits the changes that `Cell` exposes through
@@ -130,7 +130,7 @@ contains a `Cell`, Rust still permits the changes that `Cell` exposes through
 Use an independent owned projection for historical assertions, not a cloned
 shared handle. TestStore can track selected external values with
 `with_capture`, as shown in the
-[namespace tests](../../rca-test/tests/shared_namespaces.rs).
+[namespace tests](../../crates/rca-test/tests/shared_namespaces.rs).
 
 Shared access uses short synchronous callbacks. It reports `Busy` for overlapping
 access instead of waiting. A panic inside value access poisons that value.
@@ -145,7 +145,7 @@ order need not match mutation order. If the notification needs that exact result
 return an owned snapshot from the mutation.
 
 Retaining shared data does not retain permission to send to a removed child.
-The [scope tests](../../rca-test/tests/shared_value_scopes.rs) show readable data
+The [scope tests](../../crates/rca-test/tests/shared_value_scopes.rs) show readable data
 alongside rejected stale feedback.
 
 ## When is a shared-key cache appropriate?
@@ -181,7 +181,7 @@ explicit continuity policy.
 automatically. Use an explicit save policy or the separate persistence APIs for
 coalescing, conflict handling and close acknowledgements. See the
 [persistent counter](../../examples/persistent-counter/README.md) and
-[shared-key cache tests](../../rca-core/tests/shared_key_cache.rs).
+[shared-key cache tests](../../crates/rca-core/tests/shared_key_cache.rs).
 
 ## When can a document codec reuse a buffer?
 
@@ -196,4 +196,4 @@ Reusing a codec buffer does not remove the need for an independent value to save
 `Document` clones the value before it starts the save. An immutable shared value works.
 A clone of an `Arc<Mutex<Vec<u8>>>` still shares mutable bytes.
 Another owner can change those bytes before encoding without creating a document revision.
-See the [byte-buffer codec example](../../rca-persistence/src/lib.rs) and its [ownership tests](../../rca-persistence/tests/document.rs).
+See the [byte-buffer codec example](../../crates/rca-persistence/src/lib.rs) and its [ownership tests](../../crates/rca-persistence/tests/document.rs).

@@ -46,6 +46,6 @@ of `--check`. Review the diff, then run the check again. CI never records expect
 
 When adapting this sample to an application, use that application's normal RCA
 dependency and registry. Keep compiler tooling in `[dev-dependencies]`. See the
-[compiler-contract guide](../../docs/compiler-contract-testing.md) for ownership,
+[compiler-contract guide](../../docs/maintainers/compiler-contract-testing.md) for ownership,
 toolchain and recording guidance. Runtime tests still establish cancellation,
 ordering and effect completion. Compilation alone does not.

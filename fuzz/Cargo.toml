@@ -12,8 +12,8 @@ cargo-fuzz = true
 async-channel = "2.5.0"
 futures-executor = "0.3.34"
 libfuzzer-sys = "0.4"
-rca-core = { path = "../rca-core", features = ["test-util"] }
-rca-test = { path = "../rca-test" }
+rca-core = { path = "../crates/rca-core", features = ["test-util"] }
+rca-test = { path = "../crates/rca-test" }
 
 # Keep fuzz-only dependencies and nightly builds out of the release workspace.
 [workspace]

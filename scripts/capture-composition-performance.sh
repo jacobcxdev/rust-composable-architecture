@@ -193,11 +193,11 @@ recorded_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
   echo "cargo_bloat_version=$(cargo bloat --version)"
   echo "root_lock_sha256=$(shasum -a 256 Cargo.lock | sed 's/[[:space:]].*//')"
   echo "fixture_lock_sha256=$(shasum -a 256 benches/compile/Cargo.lock | sed 's/[[:space:]].*//')"
-  echo "benchmark_source_sha256=$(shasum -a 256 rca-core/benches/composition.rs | sed 's/[[:space:]].*//')"
-  echo "scope_zero_test_source_sha256=$(shasum -a 256 rca-core/src/composition/scope.rs | sed 's/[[:space:]].*//')"
-  echo "combine_zero_test_source_sha256=$(shasum -a 256 rca-core/src/composition/combine.rs | sed 's/[[:space:]].*//')"
+  echo "benchmark_source_sha256=$(shasum -a 256 crates/rca-core/benches/composition.rs | sed 's/[[:space:]].*//')"
+  echo "scope_zero_test_source_sha256=$(shasum -a 256 crates/rca-core/src/composition/scope.rs | sed 's/[[:space:]].*//')"
+  echo "combine_zero_test_source_sha256=$(shasum -a 256 crates/rca-core/src/composition/combine.rs | sed 's/[[:space:]].*//')"
   if [[ -n "${source_receipt}" ]]; then
-    echo "zero_host_sha256=$(shasum -a 256 rca-core/tests/composition_qualification/main.rs | sed 's/[[:space:]].*//')"
+    echo "zero_host_sha256=$(shasum -a 256 crates/rca-core/tests/composition_qualification/main.rs | sed 's/[[:space:]].*//')"
     echo "staged_source_receipt_sha256=$(shasum -a 256 "${source_receipt}" | sed 's/[[:space:]].*//')"
   fi
   echo "runner_source_sha256=${runner_source_sha256}"

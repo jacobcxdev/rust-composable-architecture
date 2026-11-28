@@ -74,7 +74,7 @@ The **Source** links below stay in the revision of this guide.
 
 For hosted HTML, look for RCA and your branch or tag in the [documentation catalogue](https://docs.jacobcx.dev/).
 A branch can move before its next build. To check a snapshot, compare its `docs-meta.json` field `commitSha` with your commit.
-If the catalogue has no matching build, [build a local preview](documentation-publishing.md#build-a-local-preview).
+If the catalogue has no matching build, [build a local preview](maintainers/documentation-publishing.md#build-a-local-preview).
 Open `index.html` in the output directory from that recipe.
 
 For a published crate, the **Released API** column opens docs.rs. Select the version from your application's
@@ -82,13 +82,13 @@ For a published crate, the **Released API** column opens docs.rs. Select the ver
 
 | What you need | Source in this revision | Released API on docs.rs |
 | --- | --- | --- |
-| Application imports, including service dependencies and shared state | [`rca`](../rca/src/lib.rs) | [`rca`](https://docs.rs/rca) |
-| The same application API under the long package name | [`rust-composable-architecture`](../rust-composable-architecture/src/lib.rs) | [`rust-composable-architecture`](https://docs.rs/rust-composable-architecture) |
-| State changes, effects, runtime contracts, and child identity | [`rca-core`](../rca-core/src/lib.rs) | [`rca-core`](https://docs.rs/rca-core) |
-| An existing Tokio runtime | [`rca-tokio`](../rca-tokio/src/lib.rs) | [`rca-tokio`](https://docs.rs/rca-tokio) |
-| A test Store, a clock you control, and exhaustive assertions | [`rca-test`](../rca-test/src/lib.rs) | [`rca-test`](https://docs.rs/rca-test) |
-| Documents, storage backends, and recovery | [`rca-persistence`](../rca-persistence/src/lib.rs) | [`rca-persistence`](https://docs.rs/rca-persistence) |
-| Macros for dependencies, paths, snapshots, and reducer composition | [`rca-macros`](../rca-macros/src/lib.rs) | [`rca-macros`](https://docs.rs/rca-macros) |
+| Application imports, including service dependencies and shared state | [`rca`](../crates/rca/src/lib.rs) | [`rca`](https://docs.rs/rca) |
+| The same application API under the long package name | [`rust-composable-architecture`](../crates/rust-composable-architecture/src/lib.rs) | [`rust-composable-architecture`](https://docs.rs/rust-composable-architecture) |
+| State changes, effects, runtime contracts, and child identity | [`rca-core`](../crates/rca-core/src/lib.rs) | [`rca-core`](https://docs.rs/rca-core) |
+| An existing Tokio runtime | [`rca-tokio`](../crates/rca-tokio/src/lib.rs) | [`rca-tokio`](https://docs.rs/rca-tokio) |
+| A test Store, a clock you control, and exhaustive assertions | [`rca-test`](../crates/rca-test/src/lib.rs) | [`rca-test`](https://docs.rs/rca-test) |
+| Documents, storage backends, and recovery | [`rca-persistence`](../crates/rca-persistence/src/lib.rs) | [`rca-persistence`](https://docs.rs/rca-persistence) |
+| Macros for dependencies, paths, snapshots, and reducer composition | [`rca-macros`](../crates/rca-macros/src/lib.rs) | [`rca-macros`](https://docs.rs/rca-macros) |
 
 The support policy lists [Cargo features](support.md#features) and [public import paths](support.md#public-api-paths).
 Service dependencies and shared state need no feature. See [how to choose between them](guides/dependencies-and-shared-state.md).
@@ -98,6 +98,6 @@ The [support policy](support.md#targets) lists current targets. The [roadmap](ro
 ## Contribute and release
 
 1. [Build and review a change](../CONTRIBUTING.md).
-2. [Choose checks for the change](qualification.md). Use [compiler contracts](compiler-contract-testing.md) for compile-time behaviour and the [keyed fuzzer](../fuzz/README.md) for generated lifecycle tests.
+2. [Choose checks for the change](maintainers/qualification.md). Use [compiler contracts](maintainers/compiler-contract-testing.md) for compile-time behaviour and the [keyed fuzzer](../fuzz/README.md) for generated lifecycle tests.
    See [runtime measurements](performance/method.md), [composition measurements](performance/composition/README.md), and [compile and size fixtures](../benches/compile/README.md) for benchmarks.
-3. [Publish the crates](releasing.md) or [check a documentation build](documentation-publishing.md#check-a-build). These use separate workflows.
+3. [Publish the crates](maintainers/releasing.md) or [check a documentation build](maintainers/documentation-publishing.md#check-a-build). These use separate workflows.

@@ -120,7 +120,7 @@ pub(crate) mod tests {
 
     // Reuse the isolated runner, including its exact one-test summary check.
     mod child {
-        include!("../../../rca-core/src/allocation_test/child.rs");
+        include!("../../../crates/rca-core/src/allocation_test/child.rs");
     }
 
     fn in_child(name: &str) -> bool {

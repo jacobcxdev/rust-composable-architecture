@@ -59,7 +59,7 @@ every effect. A cancelled network request can still have changed the remote serv
 Use `finish_cancelling_on_drop` when abandoning the wait must also request
 cancellation. The policy starts only after a task is acquired. Dropping an
 earlier send or receipt future does not install that guard.
-The [receipt API example](../rca-core/src/store/receipt.rs) shows both waits.
+The [receipt API example](../crates/rca-core/src/store/receipt.rs) shows both waits.
 
 ## Keep ancestor completion waits outside their descendants
 
@@ -93,8 +93,8 @@ Timer-active commands and due timers have their own existing bounded batches.
 These mechanisms allow scheduling opportunities, not a wall-clock latency
 guarantee, and cannot pre-empt a blocking reducer or user future.
 
-The qualification tests are `rca-test/tests/actor_cooperative_budget.rs` and
-`rca-core/tests/receipt_cycles.rs`. The latter also runs without `test-util`,
+The qualification tests are `crates/rca-test/tests/actor_cooperative_budget.rs` and
+`crates/rca-core/tests/receipt_cycles.rs`. The latter also runs without `test-util`,
 so assertion-gate scheduling cannot supply the fairness being tested. Its
 external watchdog polls the actual descendant twice with independent actor
 read progress between polls, then cancels and verifies capture release,

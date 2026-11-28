@@ -99,7 +99,7 @@ def _subject_bench(capture):
     if log.resolve() != staging.resolve() / "builds/subject.txt":
         raise ValueError("ordinary subject benchmark build log was redirected")
     ordinary = _artifact(log, target, "composition", "bench",
-                         root / "rca-core/benches/composition.rs", allocation=False)
+                         root / "crates/rca-core/benches/composition.rs", allocation=False)
     measured = Path(capture["executables"]["subject"])
     digest = capture["metadata"]["subject_executable_sha256"]
     if measured.is_symlink() or ordinary != measured or evidence._sha256(ordinary) != digest:
@@ -222,7 +222,7 @@ def _run_zero_tests(raw, target, root, env, monitor, cargo):
     )
     binary = _artifact(
         build, target, "composition_zero", "test",
-        root / "rca-core/tests/composition_qualification/main.rs",
+        root / "crates/rca-core/tests/composition_qualification/main.rs",
     )
     results = {}
     for label, name in ZERO_TESTS.items():
@@ -247,7 +247,7 @@ def _run_allocations(raw, target, root, env, monitor, cargo, *, ordinary=None):
     else:
         monitor.run(command, build, root, {**build_env, "CARGO_TARGET_DIR": str(target)})
     binary = _artifact(build, target, "composition", "bench",
-                       root / "rca-core/benches/composition.rs", allocation=True if ordinary else None)
+                       root / "crates/rca-core/benches/composition.rs", allocation=True if ordinary else None)
     if ordinary:
         measured, digest = ordinary
         if (target.resolve() != target or measured.resolve() != measured or binary == measured

@@ -14,7 +14,7 @@
 //! This executable makes no OS-latency or production-speed claim.
 
 /// Reuses the common manual runtime without starting its worker threads.
-#[path = "../../../../rca-core/tests/support/mod.rs"]
+#[path = "../../../../crates/rca-core/tests/support/mod.rs"]
 #[expect(dead_code, reason = "controlled fixtures never start runtime threads")]
 mod support;
 

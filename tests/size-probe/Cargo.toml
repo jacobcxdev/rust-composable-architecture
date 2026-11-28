@@ -7,7 +7,7 @@ license.workspace = true
 publish = false
 
 [dependencies]
-rca = { path = "../../rca", version = "=0.1.0", default-features = false }
+rca = { path = "../../crates/rca", version = "=0.1.0", default-features = false }
 
 [lints]
 workspace = true

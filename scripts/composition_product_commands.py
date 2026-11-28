@@ -60,9 +60,9 @@ def product_commands(directory, mode, source_root, tools, executable, capture_ro
     zero_target = root.parent / "absolute-windows-zero"
     binary_target = root.parent / "absolute-windows-binary"
     allocation = _built_host(_read(directory, prefix+"/allocation-build.jsonl"), "composition", "bench",
-                             root/"rca-core/benches/composition.rs", subject)
+                             root/"crates/rca-core/benches/composition.rs", subject)
     zero = _built_host(_read(directory, prefix+"/zero-build.jsonl"), "composition_zero", "test",
-                       root/"rca-core/tests/composition_qualification/main.rs", zero_target)
+                       root/"crates/rca-core/tests/composition_qualification/main.rs", zero_target)
     if allocation == PureWindowsPath(executable):
         raise ValueError("an ordinary timing executable cannot provide allocation evidence")
     jobs = []

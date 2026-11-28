@@ -5,7 +5,7 @@
   "runner": "mac15-9-m3-max-16c-48gb-macos27plus-ac-high",
   "minimum_macos_major": 27,
   "reference_revision": "published-stable-release",
-  "budget_sha256": "f96c9f8ed2ebcee6ff63b11750ed1fd02d9f88f5c60ff740a184071c8032a878",
+  "budget_sha256": "b358b2ed7c960996341af43930e483a8b09795169de75f0461292aaa0c41503c",
   "allocation_manifest_sha256": "95a9e2ee87deaa3046d4a51893efe164282d51aef6a3b3eec61e9f1ca0b3bf32",
   "regression_limit": 1.1,
   "randomisation": {
@@ -149,8 +149,8 @@
     "policy": "controller-owned hash-pinned consumer sources on exact archived product revisions; no product implementation overlays",
     "ancestry": "Bind both product revisions and trees before measurement. Compare the same workload on each.",
     "files": {
-      "rca-core/benches/composition.rs": {
-        "source": "rca-core/benches/composition.rs",
+      "crates/rca-core/benches/composition.rs": {
+        "source": "crates/rca-core/benches/composition.rs",
         "sha256": "e6cd05a98824081fb020ed3e12b27bf6a3c46f3ebb4f004b0cad2b3403ffa214"
       },
       "benches/compile/direct/src/main.rs": {
@@ -185,16 +185,16 @@
         "source": "scripts/fixtures/composition-app.rs",
         "sha256": "6c9eb3e1cd4324fd510ef66584e7fcb5067c8309e1996b423adf62d33124166c"
       },
-      "rca-core/tests/composition_qualification/main.rs": {
+      "crates/rca-core/tests/composition_qualification/main.rs": {
         "source": "scripts/fixtures/composition-zero.rs",
         "sha256": "b6ccac719d31c8358d143663e0c44fd42c7034a6adbd96ce458717e54d72973c"
       },
-      "rca-core/tests/composition_qualification/composition-zero-runner.rs": {
-        "source": "rca-core/src/allocation_test/runner.rs",
+      "crates/rca-core/tests/composition_qualification/composition-zero-runner.rs": {
+        "source": "crates/rca-core/src/allocation_test/runner.rs",
         "sha256": "93b1373d2e9177085b0793e0a17592929cd61bab2818f68016ba55cd61ef9fb1"
       },
-      "rca-core/benches/composition/fixtures.rs": {
-        "source": "rca-core/benches/composition/fixtures.rs",
+      "crates/rca-core/benches/composition/fixtures.rs": {
+        "source": "crates/rca-core/benches/composition/fixtures.rs",
         "sha256": "bb0ab1e526fcfe22b2a2056356023dc3878f4ca60236aa40337bdde1a76c3bc1"
       }
     },

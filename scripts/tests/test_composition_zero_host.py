@@ -28,7 +28,7 @@ class ZeroHostTests(unittest.TestCase):
     def units(self):
         rows = []
         for name, package, src in (
-            ("rca_core", "rca-core", "src/lib.rs"),
+            ("rca_core", "crates/rca-core", "src/lib.rs"),
             ("composition_zero", zero.HOST, "main.rs"),
             ("dhat", "dhat", "src/lib.rs"),
         ):
@@ -51,7 +51,7 @@ class ZeroHostTests(unittest.TestCase):
         self.log.write_text("\n".join(map(json.dumps, rows)), encoding="utf-8")
 
     def test_original_debug_profile_and_owned_inputs_are_required(self):
-        graph = {str(self.source / p): tuple(zero.FEATURES) for p in ("rca-core", zero.HOST)}
+        graph = {str(self.source / p): tuple(zero.FEATURES) for p in ("crates/rca-core", zero.HOST)}
         graph[zero.registry.REGISTRY + "#dhat@0.3.3"] = ()
         self.write(self.units())
         self.assertEqual(zero._binary(self.log, self.source, self.target, graph), self.exe)

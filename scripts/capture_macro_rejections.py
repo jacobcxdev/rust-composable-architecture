@@ -14,7 +14,7 @@ import shlex
 
 
 CASES = (
-    ("snapshot", "rca-macros/tests/ui/snapshot/fail_syntax.rs", "rca-macros", (
+    ("snapshot", "crates/rca-macros/tests/ui/snapshot/fail_syntax.rs", "crates/rca-macros", (
         "expected identifier",
         "snapshot `into` requires a named struct path, not a qualified associated type",
         "expected identifier",
@@ -24,8 +24,8 @@ CASES = (
         "expected identifier, found reserved identifier `$crate`",
         "Snapshot cannot derive a valid companion name",
     )),
-    ("path-names", "rca-macros/tests/ui/state_paths/fail_malformed_path_namespace.rs",
-     "rca-macros", (
+    ("path-names", "crates/rca-macros/tests/ui/state_paths/fail_malformed_path_namespace.rs",
+     "crates/rca-macros", (
         "expected identifier, found reserved identifier `$crate`",
         "StatePaths cannot derive a valid path namespace name",
         "expected identifier, found reserved identifier `$crate`",
@@ -33,8 +33,8 @@ CASES = (
         "expected identifier, found reserved identifier `$crate`",
         "CaseDescriptors cannot derive valid case names",
     )),
-    ("missing-dependency", "rca-macros/tests/fixtures/missing-reducers-dependency/src/main.rs",
-     "rca-macros/tests/fixtures/missing-reducers-dependency", (
+    ("missing-dependency", "crates/rca-macros/tests/fixtures/missing-reducers-dependency/src/main.rs",
+     "crates/rca-macros/tests/fixtures/missing-reducers-dependency", (
         "RCA macros require `rca`, `rust-composable-architecture` or `rca-core` in Cargo dependencies",
     ) * 5),
 )
@@ -58,12 +58,12 @@ def identity(path):
 def source_identities(root):
     """Bind macro implementation, fixed fixtures and their manifest context."""
     paths = {root / relative for relative in (
-        "Cargo.toml", "Cargo.lock", "rust-toolchain.toml", "rca-macros/Cargo.toml",
-        "rca-macros/tests/fixtures/missing-reducers-dependency/Cargo.toml",
+        "Cargo.toml", "Cargo.lock", "rust-toolchain.toml", "crates/rca-macros/Cargo.toml",
+        "crates/rca-macros/tests/fixtures/missing-reducers-dependency/Cargo.toml",
     )}
-    paths.update((root / "rca-macros/src").rglob("*.rs"))
+    paths.update((root / "crates/rca-macros/src").rglob("*.rs"))
     paths.update(root / case[1] for case in CASES)
-    if not (root / "rca-macros/src/lib.rs").is_file():
+    if not (root / "crates/rca-macros/src/lib.rs").is_file():
         raise ValueError("Macro implementation is missing")
     if any(not path.is_file() or path.is_symlink() for path in paths):
         raise ValueError("Macro rejection source or manifest is missing or symlinked")

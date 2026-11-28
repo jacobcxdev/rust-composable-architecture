@@ -85,8 +85,8 @@ def windows_provider():
 # Only consumer workloads and their test-only support can replace archived inputs.
 COMMON_HARNESS_FILES = {
     path: path for path in (
-        "rca-core/benches/composition.rs",
-        "rca-core/benches/composition/fixtures.rs",
+        "crates/rca-core/benches/composition.rs",
+        "crates/rca-core/benches/composition/fixtures.rs",
         "benches/compile/direct/src/main.rs",
         "benches/compile/composed-manual/src/main.rs",
         "benches/compile/composed-macro/src/main.rs",
@@ -97,8 +97,8 @@ COMMON_HARNESS_FILES = {
     )
 } | {
     "examples/composition-search/tests/app.rs": "scripts/fixtures/composition-app.rs",
-    "rca-core/tests/composition_qualification/main.rs": "scripts/fixtures/composition-zero.rs",
-    "rca-core/tests/composition_qualification/composition-zero-runner.rs": "rca-core/src/allocation_test/runner.rs",
+    "crates/rca-core/tests/composition_qualification/main.rs": "scripts/fixtures/composition-zero.rs",
+    "crates/rca-core/tests/composition_qualification/composition-zero-runner.rs": "crates/rca-core/src/allocation_test/runner.rs",
 }
 
 
@@ -136,7 +136,7 @@ def stage_source(source, identity, destination, protocol):
     original = source_hashes(destination)
     files = protocol["common_workloads"]["files"]
     apply_common_harness(ROOT, destination, files)
-    manifest = destination / "rca-core/Cargo.toml"
+    manifest = destination / "crates/rca-core/Cargo.toml"
     with manifest.open("a", encoding="utf-8", newline="\n") as stream:
         stream.write('\n[[test]]\nname = "composition_zero"\npath = "tests/composition_qualification/main.rs"\n'
                      'harness = false\nrequired-features = ["allocation-measurement"]\n')
@@ -151,7 +151,7 @@ def validate_staged_source(receipt_path):
     root = Path(receipt["root"])
     changed = {name for name in receipt["original"].keys() | receipt["effective"].keys()
                if receipt["original"].get(name) != receipt["effective"].get(name)}
-    if changed - (COMMON_HARNESS_FILES.keys() | {"rca-core/Cargo.toml"}):
+    if changed - (COMMON_HARNESS_FILES.keys() | {"crates/rca-core/Cargo.toml"}):
         raise ValueError("staged source replaced product implementation")
     if source_hashes(root) != receipt["effective"]:
         raise ValueError("staged composition source changed")
@@ -1320,8 +1320,8 @@ def prepare_pair_capture(protocol, budget, mode, staging, targets, reference, co
         "capture_script_sha256": controller["hashes"][
             "scripts/capture-composition-performance.sh"
         ],
-        "workload_sha256": sources["subject"]["effective"]["rca-core/benches/composition.rs"],
-        "zero_host_sha256": sources["subject"]["effective"]["rca-core/tests/composition_qualification/main.rs"],
+        "workload_sha256": sources["subject"]["effective"]["crates/rca-core/benches/composition.rs"],
+        "zero_host_sha256": sources["subject"]["effective"]["crates/rca-core/tests/composition_qualification/main.rs"],
         "workload_provenance": {
             role: {
                 **{kind: {name: receipt[kind][name] for name in {

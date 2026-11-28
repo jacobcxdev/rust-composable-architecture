@@ -3,7 +3,7 @@
 For a search request, wait for a pause in typing. For a stream of progress updates,
 publish at intervals even while updates continue. The examples import effects and clock types
 from `rca` without extra features. Neither needs a global scheduler.
-See the [recipes and tests](../../rca-core/tests/debounce_throttle.rs).
+See the [recipes and tests](../../crates/rca-core/tests/debounce_throttle.rs).
 
 ## Choose an input policy first
 

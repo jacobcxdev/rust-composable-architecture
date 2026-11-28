@@ -9,7 +9,7 @@ publish = false
 [dependencies]
 rca-core.workspace = true
 rca-persistence = { workspace = true, features = ["file"] }
-rca-tokio = { path = "../../rca-tokio", version = "=0.1.0" }
+rca-tokio = { path = "../../crates/rca-tokio", version = "=0.1.0" }
 tokio.workspace = true
 
 [dev-dependencies]

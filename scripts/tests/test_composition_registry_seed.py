@@ -52,7 +52,7 @@ class RegistrySeedTests(unittest.TestCase):
         self.path_id = "path+file:///owned/rca-core#0.1.0"
         self.rows = [self.artifact(self.identity, "ordinary", self.src, self.donor/self.compiled),
                      self.artifact(self.path_id, "composition",
-                                   self.lock(self.donor).parent / "rca-core/benches/composition.rs",
+                                   self.lock(self.donor).parent / "crates/rca-core/benches/composition.rs",
                                    self.donor/self.owned),
                      {"reason":"build-finished","success": True}]
 

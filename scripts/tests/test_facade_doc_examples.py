@@ -12,6 +12,22 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 class FacadeDocExamples(unittest.TestCase):
+    def test_checkout_consumers_resolve_local_paths_to_the_documented_packages(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "consumers"
+            subprocess.run([sys.executable, ROOT / "scripts/facade_doc_examples.py", out],
+                           check=True, stdout=subprocess.DEVNULL)
+            found = set()
+            for manifest in out.glob("consumer-*/Cargo.toml"):
+                cfg = tomllib.loads(manifest.read_text())
+                for table in ("dependencies", "dev-dependencies"):
+                    for alias, dep in cfg.get(table, {}).items():
+                        if isinstance(dep, dict) and "path" in dep:
+                            package = tomllib.loads((Path(dep["path"]) / "Cargo.toml").read_text())
+                            self.assertEqual(package["package"]["name"], dep.get("package", alias))
+                            found.add(package["package"]["name"])
+            self.assertEqual(found, {"rca", "rca-test"})
+
     def test_generates_independent_consumers_and_keeps_rustdoc_contracts(self):
         with tempfile.TemporaryDirectory() as tmp:
             out = Path(tmp) / "consumers"

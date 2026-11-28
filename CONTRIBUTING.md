@@ -6,7 +6,20 @@ Changes must preserve its ownership, cancellation and deterministic testing cont
 - Before compiling on macOS, read [build memory safety](#build-memory-safety).
 - For a code change, start with [source review](#reviewing-a-change) and [required checks](#documentation-and-checks).
 - For changes to a guide or public API, use the [documentation checklist](#documentation-acceptance).
-- For release work, use the [qualification guide](docs/qualification.md) and the [crate release guide](docs/releasing.md).
+- For release work, use the [qualification guide](docs/maintainers/qualification.md) and the [crate release guide](docs/maintainers/releasing.md).
+
+## Where things live
+
+| Task | Start here |
+| --- | --- |
+| Change a library | [`crates/`](crates) contains the RCA packages. Start with the [package guide](docs/README.md#api-reference-and-support) to find the owner of an API. |
+| Change a transport dependency | [`dependencies/`](dependencies) contains three upstream forks. Each fork records its origin in `UPSTREAM.md`. |
+| Write or test an application | [`examples/`](examples/README.md) contains runnable applications. [`docs/`](docs/README.md) contains the application guides. |
+| Test a contract | Each crate keeps its own tests. [`tests/`](tests) contains independent consumers and runtime fixtures. The [keyed fuzzer](fuzz/README.md) tests generated action sequences. |
+| Measure a change | [`benches/compile/`](benches/compile/README.md) contains build probes. [`benches/performance/`](benches/performance) contains the workload lists and limits. See the [measurement commands](docs/performance/method.md#commands). |
+| Change a guide or skill | [`plugins/rca/skills/`](plugins/rca/skills) contains the application and contributor skills. [Check the documentation and standalone skills](#documentation-acceptance). |
+| Run repository checks | [`scripts/`](scripts) contains the [macOS build guard](#build-memory-safety), [package checks](scripts/verify-packaged-downstream.sh), and other tools used by [CI](.github/workflows/ci.yml). |
+| Maintain a release | [`docs/maintainers/`](docs/maintainers) contains procedures for compiler contracts, qualification, crate releases, and documentation publication. |
 
 ## Proposing a change
 
@@ -48,7 +61,7 @@ release actions.
 
 Use `dev/next` for changes to the next version. Promote reviewed changes to `main` through a pull request.
 Crate publication requires a signed tag on the reviewed tip of `main`.
-Both branches use the same [CI selection rules](#how-ci-selects-checks). Their [documentation channels](docs/documentation-publishing.md) are separate.
+Both branches use the same [CI selection rules](#how-ci-selects-checks). Their [documentation channels](docs/maintainers/documentation-publishing.md) are separate.
 
 Before release, check these settings in GitHub:
 
@@ -60,7 +73,7 @@ Before release, check these settings in GitHub:
   The [source-review requirements](#reviewing-a-change) still apply.
 - Use read-only workflow tokens by default. Prevent Actions from approving pull requests.
   Require workflow approval for external contributors. Pin remote actions from approved sources to full commit SHAs.
-- Use the separate [documentation environment](docs/documentation-publishing.md#configure-automatic-publication) for signing.
+- Use the separate [documentation environment](docs/maintainers/documentation-publishing.md#configure-automatic-publication) for signing.
 
 ## Toolchain and formatting
 
@@ -302,7 +315,7 @@ CI can reuse a passing run for unchanged inputs. It compares both sides of renam
 
 Tags, manual runs and changes without an applicable passing base run require full CI.
 The `CI passed` job checks the outcome of every selected job. A skipped measurement is not a fresh performance result.
-Branch protection and [release qualification](docs/qualification.md) are separate requirements.
+Branch protection and [release qualification](docs/maintainers/qualification.md) are separate requirements.
 
 ### Documentation acceptance
 
@@ -337,16 +350,16 @@ On an isolated runner with a memory limit, download their dependencies before th
 On macOS, run each compilation through the [memory watchdog](#build-memory-safety), not the block below.
 
 ```sh
-rustup run "$toolchain" cargo fetch --locked --manifest-path rca-core/tests/fixtures/modular-dependencies/Cargo.toml
-rustup run "$toolchain" cargo fetch --locked --manifest-path rca-core/tests/fixtures/rc07-owned-snapshot/Cargo.toml
+rustup run "$toolchain" cargo fetch --locked --manifest-path crates/rca-core/tests/fixtures/modular-dependencies/Cargo.toml
+rustup run "$toolchain" cargo fetch --locked --manifest-path crates/rca-core/tests/fixtures/rc07-owned-snapshot/Cargo.toml
 rustup run "$toolchain" cargo test --locked --workspace --all-features
 rustup run "$toolchain" cargo test --locked --workspace --all-features --doc
 ```
 
-Then [build the API reference for this checkout](docs/documentation-publishing.md#build-a-local-preview).
+Then [build the API reference for this checkout](docs/maintainers/documentation-publishing.md#build-a-local-preview).
 That recipe treats rustdoc warnings as errors and links the guides to the checkout's commit.
 
-Start with [checks for the changed behaviour](docs/qualification.md#start-with-the-changed-behaviour) during development. Before completion, run checks for the
+Start with [checks for the changed behaviour](docs/maintainers/qualification.md#start-with-the-changed-behaviour) during development. Before completion, run checks for the
 affected integration boundaries. CI adds feature, platform, compiler-contract and
 dependency checks. Release qualification also requires applicable performance and
 100% executable-production coverage evidence. Test-only code has a separate audit scope.
@@ -499,7 +512,7 @@ If a check cannot run, report the missing evidence and its cause. Do not replace
 an unmet requirement with a completion claim.
 
 CI and publication first build selected dependency documentation for inherited API links.
-See [documentation publication](docs/documentation-publishing.md) for the build order and signing requirements.
+See [documentation publication](docs/maintainers/documentation-publishing.md) for the build order and signing requirements.
 
-To publish the Rust packages, follow the [crate release guide](docs/releasing.md).
+To publish the Rust packages, follow the [crate release guide](docs/maintainers/releasing.md).
 Crates and documentation use separate workflows and credentials. After configuration, the documentation workflow publishes successful builds automatically.

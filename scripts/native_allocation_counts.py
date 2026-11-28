@@ -45,7 +45,7 @@ def core_features(source, configuration):
     """Read the features that the checked source enables for the deterministic runner."""
     if configuration == "native":
         return ["default"]
-    manifest = tomllib.loads((source / "rca-test/Cargo.toml").read_text(encoding="utf-8"))
+    manifest = tomllib.loads((source / "crates/rca-test/Cargo.toml").read_text(encoding="utf-8"))
     dependency = manifest["dependencies"]["rca-core"]
     if dependency not in (
         {"workspace": True, "features": ["test-util"]},
@@ -60,7 +60,7 @@ def adapt_inputs(source, dependency, configuration):
     manifest = source / "Cargo.toml"
     lock = source / "Cargo.lock"
     workspace = tomllib.loads(manifest.read_text(encoding="utf-8"))
-    adapter = tomllib.loads((source / "rca-tokio/Cargo.toml").read_text(encoding="utf-8"))
+    adapter = tomllib.loads((source / "crates/rca-tokio/Cargo.toml").read_text(encoding="utf-8"))
     dev = adapter["dev-dependencies"]
     if (
         workspace.get("patch")
@@ -176,16 +176,16 @@ def check_build(directory, expected, log, binary):
         ("dhat", dependency, "src/lib.rs", [], "lib"),
         (
             "rca_core",
-            product / "rca-core",
+            product / "crates/rca-core",
             "src/lib.rs",
             core_features(product, receipt["configuration"]),
             "lib",
         ),
-        ("rca_tokio", product / "rca-tokio", "src/lib.rs", ["qualification-dhat"], "lib"),
-        ("qualification", product / "rca-tokio", "benches/qualification.rs", ["qualification-dhat"], "bench"),
+        ("rca_tokio", product / "crates/rca-tokio", "src/lib.rs", ["qualification-dhat"], "lib"),
+        ("qualification", product / "crates/rca-tokio", "benches/qualification.rs", ["qualification-dhat"], "bench"),
     ]
     if receipt["configuration"] == "deterministic":
-        expected_units.append(("rca_test", product / "rca-test", "src/lib.rs", [], "lib"))
+        expected_units.append(("rca_test", product / "crates/rca-test", "src/lib.rs", [], "lib"))
     elif any(row["target"]["name"] == "rca_test" for row in records):
         raise ValueError("native allocator build contains the deterministic test runtime")
     for name, root, relative, features, kind in expected_units:

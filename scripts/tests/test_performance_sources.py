@@ -24,8 +24,8 @@ class PerformanceSourceTests(unittest.TestCase):
         self.git("init", "--quiet")
         self.write(".gitignore", "target/\nCargo.lock\n")
         self.write("Cargo.toml", "[workspace]\n")
-        self.write("rca-tokio/benches/qualification.rs", "// original workload\n")
-        self.write("rca-core/src/lib.rs", "// exact product source\n")
+        self.write("crates/rca-tokio/benches/qualification.rs", "// original workload\n")
+        self.write("crates/rca-core/src/lib.rs", "// exact product source\n")
         self.git("add", ".")
         self.revision = self.git("write-tree").stdout.strip()
         self.lock = self.root / "Cargo.lock"
@@ -79,15 +79,15 @@ class PerformanceSourceTests(unittest.TestCase):
     def test_common_harness_does_not_change_original_product_or_lock(self):
         result = self.run_stage()
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual((self.destination / "rca-core/src/lib.rs").read_text(),
+        self.assertEqual((self.destination / "crates/rca-core/src/lib.rs").read_text(),
                          "// exact product source\n")
         self.assertEqual((self.destination / "Cargo.lock").read_bytes(), self.lock.read_bytes())
-        self.assertEqual((self.destination / "rca-tokio/benches/qualification.rs").read_bytes(),
+        self.assertEqual((self.destination / "crates/rca-tokio/benches/qualification.rs").read_bytes(),
                          self.harness.read_bytes())
-        self.assertEqual((self.destination / "rca-tokio/benches/qualification/shutdown.rs").read_bytes(),
+        self.assertEqual((self.destination / "crates/rca-tokio/benches/qualification/shutdown.rs").read_bytes(),
                          self.module.read_bytes())
-        self.assertFalse((self.source / "rca-tokio/benches/qualification/shutdown.rs").exists())
-        self.assertEqual((self.source / "rca-tokio/benches/qualification.rs").read_text(),
+        self.assertFalse((self.source / "crates/rca-tokio/benches/qualification/shutdown.rs").exists())
+        self.assertEqual((self.source / "crates/rca-tokio/benches/qualification.rs").read_text(),
                          "// original workload\n")
         self.assertFalse((self.source / "Cargo.lock").exists())
 
@@ -136,8 +136,8 @@ class PerformanceSourceTests(unittest.TestCase):
         self.assertFalse(self.destination.exists())
 
     def test_modified_product_lock_or_harness_is_rejected_after_build(self):
-        for relative in ("rca-core/src/lib.rs", "Cargo.lock", "rca-tokio/benches/qualification.rs",
-                         "rca-tokio/benches/qualification/shutdown.rs"):
+        for relative in ("crates/rca-core/src/lib.rs", "Cargo.lock", "crates/rca-tokio/benches/qualification.rs",
+                         "crates/rca-tokio/benches/qualification/shutdown.rs"):
             with self.subTest(relative=relative):
                 self.destination = self.root / ("staged-" + relative.replace("/", "-"))
                 after = f'printf "changed\\n" >> "$DESTINATION/{relative}"\n'
@@ -148,7 +148,7 @@ class PerformanceSourceTests(unittest.TestCase):
 
     def test_added_source_file_is_rejected_after_build(self):
         result = self.run_stage(after='''
-printf 'unexpected\n' > "$DESTINATION/rca-core/src/extra.rs"
+printf 'unexpected\n' > "$DESTINATION/crates/rca-core/src/extra.rs"
 check_staged_source "$SOURCE" "$REVISION" "$LOCK_HASH" "$HARNESS_HASH" "$DESTINATION" "$MODULE_HASH"
 ''')
         self.assertNotEqual(result.returncode, 0)
@@ -191,7 +191,8 @@ check_staged_source "$SOURCE" "$REVISION" "$LOCK_HASH" "$HARNESS_HASH" "$DESTINA
     def test_comparator_invalidates_changed_transport_persistence_examples_and_probe(self):
         paths = (
             "dependencies/rca-event-listener/src/lib.rs",
-            "rca-persistence/src/lib.rs",
+            "crates/rca-persistence/src/lib.rs",
+            "crates/rust-composable-architecture/src/lib.rs",
             "examples/persistent-counter/src/main.rs",
             "tests/size-probe/Cargo.toml",
         )
@@ -213,7 +214,7 @@ check_staged_source "$SOURCE" "$REVISION" "$LOCK_HASH" "$HARNESS_HASH" "$DESTINA
         self.write("docs/guide.md", "updated guide\n")
         result = self.run_comparison_check("check_measured_inputs", self.revision, self.revision)
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.write("rca-core/src/extra.rs", "new source\n")
+        self.write("crates/rca-core/src/extra.rs", "new source\n")
         result = self.run_comparison_check("check_measured_inputs", self.revision, self.revision)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("measured candidate inputs changed", result.stderr)

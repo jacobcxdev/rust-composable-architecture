@@ -9,7 +9,7 @@ Three allocation limits require exactly zero. Keep machine inputs with the harne
 
 ## Choose the comparison
 
-Use the [release procedure](../../qualification.md#native-review-and-release) to identify the reference.
+Use the [release procedure](../../maintainers/qualification.md#native-review-and-release) to identify the reference.
 For the first full release, use a clean checkout of the same signed candidate for the reference. Build each control independently.
 This records repeatability and absolute costs, not performance relative to an earlier release.
 For a relative claim, measure a candidate against the reference, and two independent builds of the reference against each other.

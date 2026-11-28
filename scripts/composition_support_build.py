@@ -45,8 +45,8 @@ def benchmark_paths(log, source, target, names):
         if (name not in names or name in paths or row["fresh"] is not False or not row["executable"]
                 or row["executable"] not in row["filenames"] or not row["package_id"].startswith("path+")
                 or row["profile"] != PROFILE or row["features"] != ["default"]
-                or type(target)(row["manifest_path"]) != source / "rca-core/Cargo.toml"
-                or type(target)(row["target"]["src_path"]) != source / f"rca-core/benches/{name}.rs"):
+                or type(target)(row["manifest_path"]) != source / "crates/rca-core/Cargo.toml"
+                or type(target)(row["target"]["src_path"]) != source / f"crates/rca-core/benches/{name}.rs"):
             raise ValueError(f"wrong or duplicate Core benchmark build: {name}")
         path = type(target)(row["executable"])
         if not path.is_relative_to(target) or ".." in path.parts or path in paths.values():

@@ -30,12 +30,12 @@ let _response = store
 store.finish().await?;
 ```
 
-The complete example, including the reducer, is in `rca-test/tests/test_store.rs` in the matching revision.
+The complete example, including the reducer, is in `crates/rca-test/tests/test_store.rs` in the matching revision.
 
 For same-ID replacement, hold the original child's effect sender. Replace the child, then deliver through that sender.
 Assert rejection and unchanged replacement state. Deliver a distinct result through the live child and assert that it succeeds.
 Cancelling the old future alone does not exercise late delivery. Use a real `Store` with a `DeterministicRuntime` to control mailbox order.
-The regression test in `rca-test/tests/shared_keyed_composition.rs` shows that race.
+The regression test in `crates/rca-test/tests/shared_keyed_composition.rs` shows that race.
 
 For the other typed operations, see `docs/guides/testing.md`.
 For progress, replacement, and a move-only result without a live service, see `examples/composition-search/docs/uploader.md`.

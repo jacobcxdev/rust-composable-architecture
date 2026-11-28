@@ -321,8 +321,8 @@ def validate_configurations(value):
                        value[f"{role}_source_manifest_sha256"], command["transcript_sha256"]):
             if not re.fullmatch("[0-9a-f]{64}", digest):
                 raise ValueError(f"invalid source/build hash: {key}")
-        before = {"rca-tokio/benches/qualification.rs": ("harness_sha256", value["harness_sha256"]),
-                  "rca-tokio/Cargo.toml": ("manifest_sha256", value[role]["tokio_manifest_sha256"]),
+        before = {"crates/rca-tokio/benches/qualification.rs": ("harness_sha256", value["harness_sha256"]),
+                  "crates/rca-tokio/Cargo.toml": ("manifest_sha256", value[role]["tokio_manifest_sha256"]),
                   "Cargo.lock": ("lock_sha256", value[role]["lock_sha256"])}
         if native:
             expected = {path: {"before_sha256": digest, "after_sha256": binary[field]}
@@ -347,8 +347,8 @@ def validate_configurations(value):
             target, profile = artifact["target"], artifact["profile"]
             if (artifact["reason"] != "compiler-artifact" or target["name"] != name or target["kind"] != [kind]
                     or target["crate_types"] != [crate_type] or artifact["features"] != features
-                    or artifact["manifest_path"].replace("\\", "/") != f"{source_root}/{package}/Cargo.toml"
-                    or target["src_path"].replace("\\", "/") != f"{source_root}/{package}/{src}"
+                    or artifact["manifest_path"].replace("\\", "/") != f"{source_root}/crates/{package}/Cargo.toml"
+                    or target["src_path"].replace("\\", "/") != f"{source_root}/crates/{package}/{src}"
                     or profile["opt_level"] != "3" or profile["debuginfo"] != 2
                     or profile["test"] is not test or profile["debug_assertions"] is not False
                     or profile["overflow_checks"] is not False):
@@ -401,7 +401,7 @@ def native_staged_files(original):
             raise ValueError("native staging input does not match the fixed transformation")
         return text.replace(old, new, 1)
 
-    harness = original["rca-tokio/benches/qualification.rs"].decode("utf-8")
+    harness = original["crates/rca-tokio/benches/qualification.rs"].decode("utf-8")
     for declaration in ("use rca_test::{DEFAULT_STEP_BUDGET, DeterministicRuntime};",
                         "fn measure_sync<F>(", "fn deterministic(", "struct InfiniteSelfWake;",
                         "impl Future for InfiniteSelfWake {"):
@@ -410,15 +410,15 @@ def native_staged_files(original):
         harness = once(harness, f'    "deterministic/{name}",\n', "")
     harness = once(harness, '    if let Some(kind) = scenario.strip_prefix("deterministic/") {\n'
                            '        return deterministic(kind, samples);\n    }\n', "")
-    manifest = once(original["rca-tokio/Cargo.toml"], b"rca-test.workspace = true\n", b"")
+    manifest = once(original["crates/rca-tokio/Cargo.toml"], b"rca-test.workspace = true\n", b"")
     lock = original["Cargo.lock"]
     packages = list(re.finditer(rb'(?ms)^\[\[package\]\]\nname = "rca-tokio"\n.*?(?=^\[\[package\]\]|\Z)', lock))
     if len(packages) != 1:
         raise ValueError("native staging requires one rca-tokio lockfile package")
     package = packages[0]
     lock = lock[:package.start()] + once(package.group(), b' "rca-test",\n', b"") + lock[package.end():]
-    return {"rca-tokio/benches/qualification.rs": harness.encode("utf-8"),
-            "rca-tokio/Cargo.toml": manifest, "Cargo.lock": lock}
+    return {"crates/rca-tokio/benches/qualification.rs": harness.encode("utf-8"),
+            "crates/rca-tokio/Cargo.toml": manifest, "Cargo.lock": lock}
 
 
 def validate_staged_sources(source):
@@ -447,9 +447,9 @@ def validate_staged_sources(source):
             raise ValueError("staged source membership differs from its inventory")
         for relative, digest in (("Cargo.toml", source[role]["manifest_sha256"]),
                                  ("Cargo.lock", binary["lock_sha256"]),
-                                 ("rca-tokio/Cargo.toml", binary["manifest_sha256"]),
-                                 ("rca-tokio/benches/qualification.rs", binary["harness_sha256"]),
-                                 ("rca-tokio/benches/qualification/shutdown.rs", source["harness_module_sha256"])):
+                                 ("crates/rca-tokio/Cargo.toml", binary["manifest_sha256"]),
+                                 ("crates/rca-tokio/benches/qualification.rs", binary["harness_sha256"]),
+                                 ("crates/rca-tokio/benches/qualification/shutdown.rs", source["harness_module_sha256"])):
             if inventory.get(relative) != digest:
                 raise ValueError(f"source inventory does not bind {relative}")
         inventories[role, configuration] = inventory
@@ -612,8 +612,8 @@ def rank_reference(output, report, replay_release=None):
         if original["tree"] != tree:
             raise ValueError(f"{role} tree differs from its Git commit")
         for path, field in (("Cargo.lock", "lock_sha256"), ("Cargo.toml", "manifest_sha256"),
-                            ("rca-tokio/Cargo.toml", "tokio_manifest_sha256"),
-                            ("rca-tokio/benches/qualification.rs", "original_harness_sha256")):
+                            ("crates/rca-tokio/Cargo.toml", "tokio_manifest_sha256"),
+                            ("crates/rca-tokio/benches/qualification.rs", "original_harness_sha256")):
             data = subprocess.check_output(["git", "--no-replace-objects", "show", f"{rev}:{path}"], cwd=ROOT)
             if hashlib.sha256(data).hexdigest() != original[field]:
                 raise ValueError(f"{role} {path} differs from its Git commit")
@@ -644,7 +644,7 @@ def capture(binaries, metadata_path, output, timeout, *, keep_going=False, jq=No
     identities = {key: {"path": str(path), "sha256": sha256(path)} for key, path in binaries.items()}
     if any(identity["sha256"] != source["binaries"][key]["sha256"] for key, identity in identities.items()):
         raise ValueError("binary role hash differs from source/build receipt")
-    if source["harness_sha256"] != sha256(ROOT / "rca-tokio/benches/qualification.rs"):
+    if source["harness_sha256"] != sha256(ROOT / "crates/rca-tokio/benches/qualification.rs"):
         raise ValueError("common harness differs from source/build receipt")
     if source["scenario_manifest_sha256"] != sha256(MANIFEST):
         raise ValueError("scenario manifest differs from source/build receipt")
@@ -772,7 +772,7 @@ def capture(binaries, metadata_path, output, timeout, *, keep_going=False, jq=No
             raise ValueError("binary changed during capture")
         if sha256(metadata_path) != metadata["source_build_sha256"] or sha256(Path(__file__)) != script_hash or sha256(MANIFEST) != manifest_hash:
             raise ValueError("capture inputs changed")
-        if sha256(ROOT / "rca-tokio/benches/qualification.rs") != source["harness_sha256"]:
+        if sha256(ROOT / "crates/rca-tokio/benches/qualification.rs") != source["harness_sha256"]:
             raise ValueError("common harness changed during capture")
         if any(sha256(path) != digest for path, digest in build_pins.items()):
             raise ValueError("build transcript changed during capture")

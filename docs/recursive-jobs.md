@@ -8,7 +8,7 @@ Choose the structure by what happens to the other jobs when one job ends:
 
 These choices describe ownership, not presentation. A `Vec` alone does not
 tell RCA when a child ends or which delayed outputs to reject.
-The `finite_jobs` module in the [stack scope tests](../rca-test/tests/stack_scopes.rs)
+The `finite_jobs` module in the [stack scope tests](../crates/rca-test/tests/stack_scopes.rs)
 compares delayed leaf updates in a flat stack and a tree of stacks. Both produce
 `10 -> 11` and `30 -> 31`. The tree's ancestor values do not change.
 
@@ -73,4 +73,4 @@ The bounds belong to this recipe, not a global maximum for RCA applications.
 Changing them requires new decoder, routing, retirement and destruction tests.
 For installed child instances and private command routes, see
 [structural features](structural-features.md). For the wider evidence boundary,
-see [qualification](qualification.md).
+see [qualification](maintainers/qualification.md).

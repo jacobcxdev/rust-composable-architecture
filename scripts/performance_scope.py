@@ -28,7 +28,7 @@ PROSE = {
 # benchmark modules. Coverage still tests them. Do not extend this to their
 # support code, allocation hosts, compiler fixtures or every file under tests/.
 OBSERVATION_TESTS = {
-    f"rca-core/tests/observation_{suite}.rs"
+    f"crates/rca-core/tests/observation_{suite}.rs"
     for suite in ("callbacks", "scope_lifecycle", "waker_lifecycle", "adapter_scopes")
 }
 
@@ -39,13 +39,13 @@ def families_for(path):
         return ()
     if path.startswith("benches/compile/"):
         return ("cold-build",)
-    if path in {"scripts/composition_cancellation_exposure.py", "rca-core/src/effect/cancellation.rs"}:
+    if path in {"scripts/composition_cancellation_exposure.py", "crates/rca-core/src/effect/cancellation.rs"}:
         return ("cancellation-shutdown", "headless-worker")
     if path == "scripts/composition_compile_portfolio.py":
         return ("cold-build",)
-    if re.fullmatch(r"rca-core/src/(composition/keyed|store/removal)(/[^\n]+)?\.rs", path):
+    if re.fullmatch(r"crates/rca-core/src/(composition/keyed|store/removal)(/[^\n]+)?\.rs", path):
         return ("keyed-routing", "cancellation-shutdown", "headless-worker")
-    if re.fullmatch(r"rca-core/src/store/(mailbox(/[^\n]+)?|ingress)\.rs", path):
+    if re.fullmatch(r"crates/rca-core/src/store/(mailbox(/[^\n]+)?|ingress)\.rs", path):
         return ("dispatch", "queue-pressure", "cancellation-shutdown", "headless-worker")
     # Actor, runtime, generated code, dependencies, toolchain, manifests and
     # unfamiliar paths can change more than the immediate caller.

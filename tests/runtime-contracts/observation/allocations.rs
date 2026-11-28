@@ -114,7 +114,7 @@ pub(crate) mod tests {
 
     // Keep profiler isolation, exact test selection and bounded capture in one helper.
     mod child {
-        include!("../../../rca-core/src/allocation_test/child.rs");
+        include!("../../../crates/rca-core/src/allocation_test/child.rs");
     }
 
     /// Keeps the allocation control outside the threaded semantic test harness.

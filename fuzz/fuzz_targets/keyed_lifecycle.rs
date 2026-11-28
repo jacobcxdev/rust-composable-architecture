@@ -2,7 +2,7 @@
 
 #![no_main]
 
-#[path = "../../rca-core/tests/support/keyed_model.rs"]
+#[path = "../../crates/rca-core/tests/support/keyed_model.rs"]
 #[expect(
     dead_code,
     reason = "the shared model exposes property-only lifetime inspection methods"

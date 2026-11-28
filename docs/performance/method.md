@@ -1,11 +1,11 @@
 # Measure runtime performance
 
-Use the [qualification guide](../qualification.md) to choose the test before you make a change.
+Use the [qualification guide](../maintainers/qualification.md) to choose the test before you make a change.
 The runtime suite measures admission, committed actions, effect completion, scheduling and shutdown. The [composition suite](composition/README.md) measures feature composition and downstream builds.
 
 ## What counts as a comparison
 
-Use the published baseline identified by the [release procedure](../qualification.md#native-review-and-release).
+Use the published baseline identified by the [release procedure](../maintainers/qualification.md#native-review-and-release).
 Record the candidate, reference, and controller separately. The controller supplies the common workload and the rules for evaluating it.
 Keep the same toolchain, features, workload, input size, platform, and build settings on both sides. Keep each product’s own implementation and dependency lockfile.
 
@@ -75,7 +75,7 @@ Use the [specified Windows host](composition/README.md#windows-paired-measuremen
 The guard limits the controller and its children to two GiB of committed memory. Closing the Job Object stops its processes.
 Keep four GiB each of available physical memory and unused commit capacity for the host.
 Check free space for outputs and temporary builds before capture.
-The [Windows comparison instructions](../qualification.md#native-review-and-release) require more than 20 GiB free for cancellation and at least 24 GiB for cold builds.
+The [Windows comparison instructions](../maintainers/qualification.md#native-review-and-release) require more than 20 GiB free for cancellation and at least 24 GiB for cold builds.
 Without the guarded host, request the build and capture receipts from its operator.
 
 Pin the candidate, reference, controller, Rust tools, dependencies, effective source, and executable hashes before measurement.

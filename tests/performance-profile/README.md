@@ -3,7 +3,7 @@
 Use these programs to measure RCA while it completes a known amount of work.
 A successful run tells you that the workload completed as specified.
 To decide whether a change is faster, compare the same workload on both revisions.
-See the [qualification guide](../../docs/qualification.md) for release checks.
+See the [qualification guide](../../docs/maintainers/qualification.md) for release checks.
 
 | Program | Use it to measure |
 | --- | --- |

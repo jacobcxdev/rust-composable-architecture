@@ -42,7 +42,7 @@ class WindowsSupportTests(unittest.TestCase):
         binary.write_bytes(b"runtime")
         sibling.write_bytes(b"paired workload")
         cargo = self.root / "cargo.exe"
-        package = source / "rca-tokio"
+        package = source / "crates/rca-tokio"
 
         def row(name, path):
             return {"reason": "compiler-artifact", "package_id": "path+" + package.as_uri() + "#0.1.0",
@@ -121,8 +121,8 @@ class WindowsSupportTests(unittest.TestCase):
     def inputs(self):
         source = self.root / "source"
         source.mkdir()
-        for name in ("Cargo.toml", "Cargo.lock", "rca-tokio/benches/qualification.rs",
-                     "rca-tokio/benches/qualification/shutdown.rs", "benches/performance/scenarios.txt"):
+        for name in ("Cargo.toml", "Cargo.lock", "crates/rca-tokio/benches/qualification.rs",
+                     "crates/rca-tokio/benches/qualification/shutdown.rs", "benches/performance/scenarios.txt"):
             path = source / name
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(name)
@@ -144,8 +144,8 @@ class WindowsSupportTests(unittest.TestCase):
                           "original_harness_sha256": "c" * 64},
             "reference": {"revision": "d" * 40, "tree": "e" * 40, "lock_sha256": "f" * 64,
                           "manifest_sha256": "1" * 64, "original_harness_sha256": "2" * 64},
-            "harness_sha256": manifest["rca-tokio/benches/qualification.rs"],
-            "harness_module_sha256": manifest["rca-tokio/benches/qualification/shutdown.rs"],
+            "harness_sha256": manifest["crates/rca-tokio/benches/qualification.rs"],
+            "harness_module_sha256": manifest["crates/rca-tokio/benches/qualification/shutdown.rs"],
             "scenario_manifest_sha256": manifest["benches/performance/scenarios.txt"],
             "candidate_source_manifest_sha256": self.capture.file_record(manifest_path)["sha256"],
             "toolchain": {"rustc": "rustc 1.100.0 (pinned)", "cargo": "cargo 1.100.0 (pinned)",
@@ -254,7 +254,7 @@ class WindowsSupportTests(unittest.TestCase):
         metadata = json.loads(args.metadata.read_bytes())
         path, = map(Path, metadata["input_hashes"])
         build = json.loads(path.read_bytes())
-        build["source_roles"]["candidate"]["original_files"].pop("rca-core/src/lib.rs")
+        build["source_roles"]["candidate"]["original_files"].pop("crates/rca-core/src/lib.rs")
         path.write_text(json.dumps(build))
         with self.assertRaisesRegex(ValueError, "hash"):
             self.validate(args)

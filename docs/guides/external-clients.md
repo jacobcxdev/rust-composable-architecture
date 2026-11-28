@@ -4,7 +4,7 @@ An RCA feature can request data, listen for events or ask the host to open a URL
 The application supplies the client and decides which operations it permits.
 The Store decides whether output from that client still belongs to a live feature.
 
-The executable recipe is [`rca-test/tests/external_clients.rs`](../../rca-test/tests/external_clients.rs).
+The executable recipe is [`crates/rca-test/tests/external_clients.rs`](../../crates/rca-test/tests/external_clients.rs).
 It uses the public `rca-core` and `rca-test` APIs, a deterministic runtime and
 controlled endpoints. It never performs network requests or opens URLs.
 
@@ -26,7 +26,7 @@ A task keeps the client and inputs it captured. A later change to State does not
 replace them. If the task needs the current policy, read it from the Store.
 If the policy determines whether a change is allowed, check it inside the update.
 A separate read leaves time for the policy to change.
-The [session-refresh tests](../../rca-test/tests/session_client_refresh.rs)
+The [session-refresh tests](../../crates/rca-test/tests/session_client_refresh.rs)
 distinguish captured clients, current services and request identity.
 
 ## Define the boundary in the application

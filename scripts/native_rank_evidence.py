@@ -134,7 +134,7 @@ def _pairs(raw, capture, scenario, index, mode, maximum, hashes, short_budget):
 
 def _check_cohort(capture, cohort, source, source_hash):
     """Resolve repeated source identities against the build, never against each other alone."""
-    root = capture.ROOT / "rca-tokio" / "benches"
+    root = capture.ROOT / "crates/rca-tokio" / "benches"
     hashes = (capture.sha256(root / "qualification.rs"), capture.sha256(root / "qualification/shutdown.rs"),
               capture.sha256(capture.MANIFEST), capture.sha256(Path(capture.__file__)), source_hash)
     expected = dict(zip(("qualification_source_sha256", "qualification_module_sha256", "scenario_manifest_sha256",

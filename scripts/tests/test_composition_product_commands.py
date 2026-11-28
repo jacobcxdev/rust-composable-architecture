@@ -28,8 +28,8 @@ class ProductCommandTests(unittest.TestCase):
         self.alloc = self.staged.parent/"subject/release/deps/composition-allocation.exe"
         self.zero = self.staged.parent/"absolute-windows-zero/debug/deps/composition_zero-123.exe"
         for alloc, path in ((True, self.alloc), (False, self.zero)):
-            name, kind, src = (("composition", "bench", "rca-core/benches/composition.rs") if alloc else
-                               ("composition_zero", "test", "rca-core/tests/composition_qualification/main.rs"))
+            name, kind, src = (("composition", "bench", "crates/rca-core/benches/composition.rs") if alloc else
+                               ("composition_zero", "test", "crates/rca-core/tests/composition_qualification/main.rs"))
             record = {"reason": "compiler-artifact", "fresh": False, "features": ["allocation-measurement"],
                       "target": {"name": name, "kind": [kind], "src_path": str(self.staged/src)}, "executable": str(path)}
             (self.raw/("allocation-build.jsonl" if alloc else "zero-build.jsonl")).write_text(json.dumps(record)+"\n")

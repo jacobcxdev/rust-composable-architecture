@@ -7,6 +7,6 @@ publish = false
 [workspace]
 
 [dependencies]
-rca-core = { path = "../../../../rca-core" }
-rca-test = { path = "../../../../rca-test" }
+rca-core = { path = "../../../../crates/rca-core" }
+rca-test = { path = "../../../../crates/rca-test" }
 futures-executor = "0.3"

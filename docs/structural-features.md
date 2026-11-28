@@ -99,15 +99,15 @@ their Features before the Initial hooks run. Initial factories run in
 child-before-parent order. Returned task bodies start only when the runtime
 polls them. Loading saved State does not resume former asynchronous work.
 
-The [startup order tests](../rca-core/tests/mount_acquisition/initial_order.rs)
-exercise these boundaries. The [keyed roster tests](../rca-core/tests/fold_keyed.rs)
+The [startup order tests](../crates/rca-core/tests/mount_acquisition/initial_order.rs)
+exercise these boundaries. The [keyed roster tests](../crates/rca-core/tests/fold_keyed.rs)
 exercise reordering and replacement.
 [`Store::scope`](composition.md#scoped-store-handles) is a projection with root
 lifetime, not an equivalent installation handle.
 
-The [compatibility tests](../rca-test/tests/legacy_feature_compatibility.rs)
+The [compatibility tests](../crates/rca-test/tests/legacy_feature_compatibility.rs)
 exercise both routes without treating static scopes as mounted authority.
-The [five-level plugin fixture](../rca-core/tests/depth_five_plugins.rs) sends
+The [five-level plugin fixture](../crates/rca-core/tests/depth_five_plugins.rs) sends
 10,000 private commands without adding ancestor action cases. The
 [recursive jobs guide](recursive-jobs.md) compares recursive and flat ownership.
 
@@ -121,16 +121,16 @@ does not replace the task's captured dependencies.
 
 Eager State arguments exist before a Store constructor runs. Dependency
 configuration inside that constructor cannot affect their prior construction.
-The [provider example](../rca-core/tests/feature_provider_handover.rs) uses an
+The [provider example](../crates/rca-core/tests/feature_provider_handover.rs) uses an
 explicit scoped factory for construction, then distinguishes captured clients
-from later State reads. The [session refresh example](../rca-test/tests/session_client_refresh.rs)
+from later State reads. The [session refresh example](../crates/rca-test/tests/session_client_refresh.rs)
 also preserves request identity across a client change.
 
 `on_change` compares selected values across a committed transaction. It is not
 an event for every transient assignment. `on_initial` represents installation,
 not an ordinary value change. `ReactionChange` distinguishes the owned initial
 selection from the previous and current selections of a changed transaction.
-[Reaction tests](../rca-core/tests/changed_reactions.rs)
+[Reaction tests](../crates/rca-core/tests/changed_reactions.rs)
 describe the exact pairing and callback order.
 
 ## Choose a reaction, an observation or an explicit update
@@ -162,7 +162,7 @@ event log when the application must retain every business event.
 A `CommandPort` captures send-only authority. `try_send` succeeds at queue
 admission, not at commit. Its receipt supplies the later commit result.
 `send` waits for admission and commit. Neither result means that all resulting
-work has physically finished. [Command tests](../rca-core/tests/command_port.rs)
+work has physically finished. [Command tests](../crates/rca-core/tests/command_port.rs)
 cover owned payload recovery and stale destinations.
 
 Closing an input gate rejects ordinary input. It does not remove the Feature,
@@ -182,9 +182,9 @@ its captured context before it updates State.
 `ControlFlow`. Ordinary contributions follow preorder. A declared transform
 groups only its subtree. A `Break` ends that group, whose transform still runs.
 Fold therefore does not require commutative or associative combination.
-The [fold tests](../rca-core/tests/fold.rs) and
-[shape tests](../rca-core/tests/fold_shape.rs) show the actual ordering.
-The [capacity fixture](../rca-core/tests/fold_input_gate.rs) checks the literal
+The [fold tests](../crates/rca-core/tests/fold.rs) and
+[shape tests](../crates/rca-core/tests/fold_shape.rs) show the actual ordering.
+The [capacity fixture](../crates/rca-core/tests/fold_input_gate.rs) checks the literal
 `5 → 3 → 0` result as domain values change while both declarations stay installed.
 
 ### Choose a query or a maintained aggregate
@@ -202,7 +202,7 @@ an optional view of that pool. If the pool is absent at a live site, the result 
 With `Some(view)`, `view.read().await?` reads the pool and its descendants, not its siblings.
 Reordering pools preserves the view. Replacing the pool or refreshing its configuration invalidates the view.
 The old view cannot read a replacement, even if the replacement has the same key.
-The [keyed fold example](../rca-core/tests/fold_keyed.rs) shows how to acquire a fresh view.
+The [keyed fold example](../crates/rca-core/tests/fold_keyed.rs) shows how to acquire a fresh view.
 
 If the application needs a continuously published total, maintain that total in
 domain State through explicit updates, outputs, or reactions.
@@ -235,9 +235,9 @@ Its delivery callback and the provider's cleanup still need their own handling.
 Checked stack removal through `stack_removable` accepts only the last entry,
 unlike the suffix removal of `StackAction::PopFrom`.
 
-The [owned removal tests](../rca-core/tests/removed_child.rs) exercise exact payload
+The [owned removal tests](../crates/rca-core/tests/removed_child.rs) exercise exact payload
 ownership, stale targets, parent-owned output and rejected transfer. The
-[Local tests](../rca-core/tests/local_removed_child.rs) cover non-`Send` values.
+[Local tests](../crates/rca-core/tests/local_removed_child.rs) cover non-`Send` values.
 
 ## Keep thread-affine work on its owner
 
@@ -263,9 +263,9 @@ Local `observe` delivers owned projections without requiring `Clone`.
 values. Both selectors run on the owner thread. Dropping an observation ends
 its registration, not the Store or work the Store already accepted.
 
-The [local worker](../rca-core/tests/local_worker_replacement.rs) keeps an `Rc`
+The [local worker](../crates/rca-core/tests/local_worker_replacement.rs) keeps an `Rc`
 interpreter through suspension, current-State reads and updates, then rejects
-its old context after replacement. The [local mount examples](../rca-core/tests/local_mount.rs)
+its old context after replacement. The [local mount examples](../crates/rca-core/tests/local_mount.rs)
 show independent child actions and nested installation. These examples supply
 no platform event loop. [Synchronous local reducers](local-composition.md) are
 a separate use case and require no asynchronous host.
@@ -287,7 +287,7 @@ An independently acquired child context can identify the original action for
 `receive_mounted`. A mismatching matcher does not consume that pending action.
 An exact-source mismatch retains sticky assertion debt; a later match permits
 cleanup, not assertion recovery. Wrong-source matching creates no such debt.
-The [mounted reception tests](../rca-test/tests/mounted_frontier.rs) exercise this
+The [mounted reception tests](../crates/rca-test/tests/mounted_frontier.rs) exercise this
 contract for both portable and local Stores. Latest-value observation can
 coalesce changes. It cannot replace exhaustive transaction assertions.
 
@@ -299,10 +299,10 @@ acquisition without occupying mailbox capacity; an already-admitted acquisition
 still checks its original lifetime and cannot retarget a successor.
 The [receipt guide](receipt-lifetimes.md) separates commit, completion and
 destruction. For an external resource, wait for the host to finish cleanup.
-The [document session tests](../rca-persistence/tests/shared_document_session_replacement.rs)
+The [document session tests](../crates/rca-persistence/tests/shared_document_session_replacement.rs)
 show why replacing a child and closing its old backend are separate operations.
 
 The [timing guide](guides/debounce-throttle.md) covers debounce and throttle.
-[Predicate waits](../rca-core/tests/predicate_wait.rs) observe a State condition,
+[Predicate waits](../crates/rca-core/tests/predicate_wait.rs) observe a State condition,
 not causal task completion. Native controls remain host-owned, as described in
 [integration boundaries](integration-boundaries.md).

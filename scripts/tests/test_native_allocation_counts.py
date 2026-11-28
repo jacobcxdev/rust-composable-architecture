@@ -62,8 +62,8 @@ class AllocationCountTests(unittest.TestCase):
     def test_references_keep_their_own_test_runtime_features(self):
         with tempfile.TemporaryDirectory() as tmp:
             source = Path(tmp).resolve()
-            package = source / "rca-test"
-            package.mkdir()
+            package = source / "crates/rca-test"
+            package.mkdir(parents=True)
             manifest = package / "Cargo.toml"
             for enabled in (["test-util"], ["diagnostics", "test-util"], ["local"]):
                 manifest.write_text(
@@ -80,8 +80,8 @@ class AllocationCountTests(unittest.TestCase):
     def test_invalid_lock_cannot_change_the_profiler(self):
         with tempfile.TemporaryDirectory() as tmp:
             source = Path(tmp).resolve()
-            (source / "rca-tokio").mkdir()
-            (source / "rca-tokio/Cargo.toml").write_text(
+            (source / "crates/rca-tokio").mkdir(parents=True)
+            (source / "crates/rca-tokio/Cargo.toml").write_text(
                 "[features]\nqualification-dhat=[]\n[dev-dependencies]\ndhat.workspace=true"
             )
             (source / "Cargo.toml").write_text('[workspace.dependencies]\ndhat="0.3.3"')
@@ -98,11 +98,11 @@ class AllocationCountTests(unittest.TestCase):
             dependency = root / counts.CRATE
             cases = (
                 ("dhat", dependency, "src/lib.rs", [], "lib"),
-                ("rca_core", source / "rca-core", "src/lib.rs", ["default"], "lib"),
-                ("rca_tokio", source / "rca-tokio", "src/lib.rs", ["qualification-dhat"], "lib"),
+                ("rca_core", source / "crates/rca-core", "src/lib.rs", ["default"], "lib"),
+                ("rca_tokio", source / "crates/rca-tokio", "src/lib.rs", ["qualification-dhat"], "lib"),
                 (
                     "qualification",
-                    source / "rca-tokio",
+                    source / "crates/rca-tokio",
                     "benches/qualification.rs",
                     ["qualification-dhat"],
                     "bench",

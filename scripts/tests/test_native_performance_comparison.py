@@ -46,8 +46,8 @@ def historical_release_pair(tag):
         tag="v0.1.0", revision="b"*40, tree="d"*40, lock_sha256=hashlib.sha256(b"reference lock\\n").hexdigest()))
 """,
             "benches/performance/scenarios.txt": (ROOT / "benches/performance/scenarios.txt").read_bytes(),
-            "rca-tokio/benches/qualification.rs": b"harness\n",
-            "rca-tokio/benches/qualification/shutdown.rs": b"shutdown harness\n",
+            "crates/rca-tokio/benches/qualification.rs": b"harness\n",
+            "crates/rca-tokio/benches/qualification/shutdown.rs": b"shutdown harness\n",
             "scripts/qualify-performance.sh": b"Mac capture\n",
             "scripts/guard_cargo_memory.py": b"Mac memory watchdog\n",
             "scripts/capture-windows-performance.py": (ROOT / "scripts/capture-windows-performance.py").read_bytes(),
@@ -72,8 +72,8 @@ case "$1" in
     case "$2" in
       *:Cargo.lock) printf 'candidate lock\\n' ;;
       *:Cargo.toml) printf 'manifest\\n' ;;
-      *:rca-tokio/Cargo.toml) printf 'package manifest\\n' ;;
-      *:rca-tokio/benches/qualification.rs) printf 'harness\\n' ;;
+      *:crates/rca-tokio/Cargo.toml) printf 'package manifest\\n' ;;
+      *:crates/rca-tokio/benches/qualification.rs) printf 'harness\\n' ;;
       *) exit 99 ;;
     esac ;;
   verify-commit) test ! -f "$RCA_TEST_ROOT/unsigned" ;;
@@ -163,8 +163,8 @@ esac
                             binary["transformation"] = {"files": {
                                 path: {"before_sha256": before, "after_sha256": binary[field]}
                                 for path, field, before in (
-                                    ("rca-tokio/benches/qualification.rs", "harness_sha256", harness_hash),
-                                    ("rca-tokio/Cargo.toml", "manifest_sha256", source[role]["tokio_manifest_sha256"]),
+                                    ("crates/rca-tokio/benches/qualification.rs", "harness_sha256", harness_hash),
+                                    ("crates/rca-tokio/Cargo.toml", "manifest_sha256", source[role]["tokio_manifest_sha256"]),
                                     ("Cargo.lock", "lock_sha256", source[role]["lock_sha256"]))}}
                         source["binaries"][key] = binary
                         metadata["binaries"][key] = {field: binary[field] for field in ("path", "sha256")}
@@ -173,9 +173,9 @@ esac
                                 ("core_artifact", "rca_core", "rca-core", "lib", "lib", "src/lib.rs", binary["core_features"], False),
                                 ("cargo_artifact", "qualification", "rca-tokio", "bench", "bin", "benches/qualification.rs",
                                  ["qualification-dhat"] if mode == "allocation" else [], True)):
-                            artifacts[field] = {"reason": "compiler-artifact", "manifest_path": f"{source_root}/{package}/Cargo.toml",
+                            artifacts[field] = {"reason": "compiler-artifact", "manifest_path": f"{source_root}/crates/{package}/Cargo.toml",
                                                 "target": {"name": name, "kind": [kind_name], "crate_types": [crate_type],
-                                                           "src_path": f"{source_root}/{package}/{src}"},
+                                                           "src_path": f"{source_root}/crates/{package}/{src}"},
                                                 "profile": {"opt_level": "3", "debuginfo": 2, "test": test,
                                                             "debug_assertions": False, "overflow_checks": False},
                                                 "features": features, "executable": binary["path"] if test else None,
@@ -423,7 +423,7 @@ esac
                 elif mutation == "same-roots":
                     binary["source_root"] = source["binaries"]["reference_normal"]["source_root"]
                 elif mutation == "transformation":
-                    binary["transformation"]["files"]["rca-core/src/store/actor.rs"] = {
+                    binary["transformation"]["files"]["crates/rca-core/src/store/actor.rs"] = {
                         "before_sha256": "a" * 64, "after_sha256": "b" * 64}
                 elif mutation == "normal-allocation":
                     source["binaries"]["candidate_allocation"]["harness_sha256"] = "0" * 64

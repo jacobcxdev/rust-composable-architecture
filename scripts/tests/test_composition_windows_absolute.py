@@ -125,7 +125,7 @@ class WindowsAbsoluteTests(unittest.TestCase):
             target.mkdir()
             executable = target / "composition.exe"
             executable.write_bytes(b"compiled")
-            expected = root / "rca-core/benches/composition.rs"
+            expected = root / "crates/rca-core/benches/composition.rs"
             expected.parent.mkdir(parents=True)
             expected.write_text("benchmark", encoding="utf-8")
             log = root / "build.jsonl"
@@ -156,7 +156,7 @@ class WindowsAbsoluteTests(unittest.TestCase):
                 exe.write_bytes(b"ordinary")
                 record = {"reason": "compiler-artifact", "fresh": False, "features": ["default"],
                           "target": {"name": "composition", "kind": ["bench"],
-                                     "src_path": str(root / "rca-core/benches/composition.rs")},
+                                     "src_path": str(root / "crates/rca-core/benches/composition.rs")},
                           "executable": str(exe)}
                 capture = {"staging": staging, "targets": targets, "mode": mode,
                            "roots": {"subject": root}, "executables": {"subject": exe},
@@ -214,7 +214,7 @@ class WindowsAbsoluteTests(unittest.TestCase):
                         "reason": "compiler-artifact", "fresh": change == "cached",
                         "features": [] if change == "wrong-feature" else ["allocation-measurement"],
                         "target": {"name": "composition", "kind": ["bench"],
-                                   "src_path": str(root / "rca-core/benches/composition.rs")},
+                                   "src_path": str(root / "crates/rca-core/benches/composition.rs")},
                         "executable": str(allocation),
                     }))
 
@@ -414,7 +414,7 @@ class WindowsAbsoluteTests(unittest.TestCase):
             (staging / "builds/subject.txt").write_text(json.dumps({
                 "reason": "compiler-artifact", "fresh": False, "features": ["default"],
                 "target": {"name": "composition", "kind": ["bench"],
-                           "src_path": str(root / "rca-core/benches/composition.rs")},
+                           "src_path": str(root / "crates/rca-core/benches/composition.rs")},
                 "executable": str(ordinary),
             }))
             (root / "Cargo.lock").write_text("lock", encoding="utf-8")
@@ -465,8 +465,8 @@ class WindowsAbsoluteTests(unittest.TestCase):
                         binary = target / f"{name}.exe"
                         binary.parent.mkdir(parents=True, exist_ok=True)
                         binary.write_bytes(b"bench" if name == "composition" else image())
-                        source = (root / "rca-core/benches/composition.rs" if name == "composition" else
-                                  root / "rca-core/tests/composition_qualification/main.rs" if name == "composition_zero" else
+                        source = (root / "crates/rca-core/benches/composition.rs" if name == "composition" else
+                                  root / "crates/rca-core/tests/composition_qualification/main.rs" if name == "composition_zero" else
                                   root / "examples/composition-search/tests/app.rs" if name == "app" else
                                   root / "examples/composition-search/src/main.rs" if name == "rca-example-composition-search" else
                                   root / f"benches/compile/{name.removeprefix('rca-compile-')}/src/main.rs")

@@ -41,10 +41,10 @@ cargo run --manifest-path examples/counter/Cargo.toml
 ```
 
 To use this checkout in a separate application, run the following commands **in the application directory**.
-Replace the example path with the path to the checkout's `rca` directory:
+Replace the example path with the path to `crates/rca` in your checkout:
 
 ```sh
-cargo add --path ../rust-composable-architecture/rca --features tokio
+cargo add --path ../rust-composable-architecture/crates/rca --features tokio
 cargo add tokio@1 --features macros,rt,time
 ```
 
@@ -184,7 +184,7 @@ actions, state changes and unfinished work.
 ## Features and integration
 
 The `rca` package has no default features.
-The [`rust-composable-architecture` package](rust-composable-architecture/README.md)
+The [`rust-composable-architecture` package](crates/rust-composable-architecture/README.md)
 re-exports the same API and features from the matching `rca` release.
 
 | Need | Cargo feature |
@@ -197,7 +197,7 @@ re-exports the same API and features from the matching `rca` release.
 | Trace reducer changes in debug builds or receive lifecycle events | `diagnostics` |
 
 Dependencies, clocks and shared values do not need a Cargo feature.
-For storage, add the separate [`rca-persistence` crate](rca-persistence/src/lib.rs).
+For storage, add the separate [`rca-persistence` crate](crates/rca-persistence/src/lib.rs).
 Store shutdown cancels work. It does not flush pending writes.
 The [persistent counter](examples/persistent-counter/README.md) shows how to save before shutdown.
 
@@ -218,7 +218,7 @@ The [persistent counter](examples/persistent-counter/README.md) shows how to sav
 
 The [workspace manifest](Cargo.toml) declares the minimum Rust version.
 The [support policy](docs/support.md) describes API compatibility and distinguishes native execution from
-compile-only targets. The [qualification guide](docs/qualification.md) explains
+compile-only targets. The [qualification guide](docs/maintainers/qualification.md) explains
 what the test and performance checks establish for a revision.
 
 The six main libraries use safe Rust. The maintained transport dependencies

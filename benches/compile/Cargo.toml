@@ -15,8 +15,8 @@ rust-version = "1.100.0"
 [workspace.dependencies]
 futures-executor = { version = "0.3.31", features = ["thread-pool"] }
 futures-util = "0.3.31"
-rca = { path = "../../rca" }
-rca-core = { path = "../../rca-core" }
+rca = { path = "../../crates/rca" }
+rca-core = { path = "../../crates/rca-core" }
 rca-compile-fixture-support = { path = "support" }
 
 [profile.release]

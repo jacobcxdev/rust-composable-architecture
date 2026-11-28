@@ -10,6 +10,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import tomllib
 from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
@@ -62,6 +63,13 @@ class CaptureCoverageTests(unittest.TestCase):
             with self.subTest(group=group):
                 self.assertEqual(set(self.capture.TARGETS[group].tests), {"bounded", "unbounded", "public_contracts"})
 
+    def test_capture_groups_name_the_package_in_their_checkout_directory(self):
+        for name, group in self.capture.TARGETS.items():
+            with self.subTest(group=name):
+                manifest = SCRIPT.parents[1] / group.directory / "Cargo.toml"
+                with manifest.open("rb") as stream:
+                    self.assertEqual(tomllib.load(stream)["package"]["name"], group.package)
+
     def test_group_commands_do_not_enable_rich_features_in_minimal(self):
         self.assertEqual(self.capture.group_arguments("core-minimal"), [
             "-p", "rca-core", "--no-default-features", "--features", "local",
@@ -80,7 +88,7 @@ class CaptureCoverageTests(unittest.TestCase):
             self.capture.group_arguments("all")
 
     def test_all_ordinary_test_store_hosts_are_explicitly_selected(self):
-        expected = {path.stem for path in (SCRIPT.parents[1] / "rca-test/tests").glob("*.rs")}
+        expected = {path.stem for path in (SCRIPT.parents[1] / "crates/rca-test/tests").glob("*.rs")}
         expected -= {"compiler_contracts", "panic_subprocess"}
         self.assertEqual(len(expected), 86)
         selected = self.capture.TARGETS["test-store"]
@@ -150,7 +158,7 @@ class CaptureCoverageTests(unittest.TestCase):
         for key in ("CARGO_PROFILE_RELEASE_LTO", "CARGO_ENCODED_RUSTFLAGS", "LD_PRELOAD", "GITHUB_TOKEN"):
             self.assertNotIn(key, env)
 
-    def artifact(self, name, features=None, group="core-minimal", package="rca-core", library="rca_core"):
+    def artifact(self, name, features=None, group="core-minimal", package="crates/rca-core", library="rca_core"):
         executable = self.root / "target/coverage" / group / "debug/deps" / (name + "-123")
         executable.parent.mkdir(parents=True, exist_ok=True)
         executable.write_text("object")
@@ -176,7 +184,7 @@ class CaptureCoverageTests(unittest.TestCase):
             with self.subTest(change=change), self.assertRaises(ValueError):
                 rows = self.records()
                 rows[0][change] = {"features": ["local", "test-util"],
-                                   "manifest_path": str(self.root / "rca-test/Cargo.toml"),
+                                   "manifest_path": str(self.root / "crates/rca-test/Cargo.toml"),
                                    "executable": "/tmp/foreign-executable",
                                    "profile": {"test": False}}[change]
                 self.parse(rows)
@@ -221,8 +229,8 @@ class CaptureCoverageTests(unittest.TestCase):
         dynamic.parent.mkdir(parents=True)
         dynamic.write_bytes(b"instrumented macro object")
         record = {"reason": "compiler-artifact",
-                  "package_id": f"path+file://{self.root / 'rca-macros'}#0.1.0",
-                  "manifest_path": str(self.root / "rca-macros/Cargo.toml"),
+                  "package_id": f"path+file://{self.root / 'crates/rca-macros'}#0.1.0",
+                  "manifest_path": str(self.root / "crates/rca-macros/Cargo.toml"),
                   "target": {"name": "rca_macros", "kind": ["proc-macro"],
                              "crate_types": ["proc-macro"]},
                   "profile": {"test": False}, "features": [], "fresh": False,
@@ -398,7 +406,7 @@ class CaptureCoverageTests(unittest.TestCase):
                 self.assertEqual(self.capture.host_arguments("core-terminal", ["test"], executable), expected)
 
     def test_test_store_group_selects_local_library_and_unfiltered_integration_hosts(self):
-        names = sorted(path.stem for path in (SCRIPT.parents[1] / "rca-test/tests").glob("*.rs")
+        names = sorted(path.stem for path in (SCRIPT.parents[1] / "crates/rca-test/tests").glob("*.rs")
                        if path.stem not in ("compiler_contracts", "panic_subprocess"))
         self.assertIn("test-store", self.capture.TARGETS)
         self.assertEqual(self.capture.group_arguments("test-store"), [
@@ -447,19 +455,19 @@ class CaptureCoverageTests(unittest.TestCase):
     def test_macro_parser_requires_its_unit_executable_and_one_owned_dynamic_object(self):
         group = "macros"
         target = self.root / "target/coverage/macros"
-        unit = self.artifact("rca_macros", [], group, "rca-macros", "rca_macros")
+        unit = self.artifact("rca_macros", [], group, "crates/rca-macros", "rca_macros")
         unit["target"]["kind"] = ["proc-macro"]
-        unit["package_id"] = f"path+file://{self.root / 'rca-macros'}#0.1.0"
+        unit["package_id"] = f"path+file://{self.root / 'crates/rca-macros'}#0.1.0"
         client_names = ("action_paths", "aggregate_paths", "case_descriptors",
                         "dependency_client", "derive_dependency_key", "reducer",
                         "reducers", "snapshot_owned")
-        clients = [self.artifact(name, [], group, "rca-macros", "rca_macros")
+        clients = [self.artifact(name, [], group, "crates/rca-macros", "rca_macros")
                    for name in client_names]
         for client in clients:
             client["package_id"] = unit["package_id"]
         facade = self.artifact("rust_composable_architecture", ["default", "macros"], group,
-                               "rust-composable-architecture", "rust_composable_architecture")
-        facade["package_id"] = f"path+file://{self.root / 'rust-composable-architecture'}#0.1.0"
+                               "crates/rust-composable-architecture", "rust_composable_architecture")
+        facade["package_id"] = f"path+file://{self.root / 'crates/rust-composable-architecture'}#0.1.0"
         clients.append(facade)
         dynamic = target / "debug/deps/librca_macros-123abc.so"
         dynamic.write_bytes(b"instrumented macro object")
@@ -482,7 +490,7 @@ class CaptureCoverageTests(unittest.TestCase):
             [unit, *clients[:-1], dict(facade, features=["default"]), macro],
             [unit, *clients[:-1], dict(facade, package_id=unit["package_id"]), macro],
             [unit, *clients], [unit, *clients, macro, macro],
-            [unit, *clients, dict(macro, manifest_path=str(self.root / "rca-test/Cargo.toml"))],
+            [unit, *clients, dict(macro, manifest_path=str(self.root / "crates/rca-test/Cargo.toml"))],
             [unit, *clients, dict(macro, features=["test-util"])],
             [unit, *clients, dict(macro, package_id="path+file:///foreign/rca-macros#0.1.0")],
             [unit, *clients, dict(macro, filenames=[str(dynamic.with_suffix(".rlib"))])],
@@ -494,7 +502,7 @@ class CaptureCoverageTests(unittest.TestCase):
                 parse(bad)
 
     def test_macro_entry_validation_requires_each_owned_positive_body(self):
-        source = str(self.root / "rca-macros/src/lib.rs")
+        source = str(self.root / "crates/rca-macros/src/lib.rs")
         entries = ("derive_snapshot", "reducer", "derive_case_descriptors",
                    "derive_dependency_key", "derive_dependency_client", "derive_state_paths",
                    "derive_action_paths", "reducers",
@@ -544,36 +552,36 @@ class CaptureCoverageTests(unittest.TestCase):
 
     def test_added_group_artifacts_reject_foreign_package_features_and_hosts(self):
         cases = (
-            ("core-removal", "rca-core", "rca_core", ["default", "diagnostics", "futures-stream", "local", "test-util"],
+            ("core-removal", "crates/rca-core", "rca_core", ["default", "diagnostics", "futures-stream", "local", "test-util"],
              ["removed_child", "local_removed_child", "stack_removed_child", "local_stack_removed_child",
               "missing_children", "ephemeral"]),
-            ("core-reactions", "rca-core", "rca_core", ["default", "diagnostics", "futures-stream", "local", "test-util"],
+            ("core-reactions", "crates/rca-core", "rca_core", ["default", "diagnostics", "futures-stream", "local", "test-util"],
              ["changed_reactions", "stack", "keyed", "keyed_batch_position", "shared_update", "on_change"]),
-            ("core-fold-commands", "rca-core", "rca_core", ["default", "diagnostics", "futures-stream", "local", "test-util"],
+            ("core-fold-commands", "crates/rca-core", "rca_core", ["default", "diagnostics", "futures-stream", "local", "test-util"],
              ["fold_local", "fold_gate", "fold_shape", "fold_terminal", "fold_selector_close",
               "recipe_commands", "recipe_commands_local", "recipe_command_failures",
               "command_port", "local_input_gate", "fold_views", "command_acquisition_admission",
               "fold", "fold_input_gate", "fold_keyed"]),
-            ("core-observation-operations", "rca-core", "rca_core", ["default", "diagnostics", "futures-stream", "local", "test-util"],
+            ("core-observation-operations", "crates/rca-core", "rca_core", ["default", "diagnostics", "futures-stream", "local", "test-util"],
              ["observation", "observation_adapters", "observation_scope_lifecycle",
               "observation_waker_lifecycle", "observation_adapter_scopes", "named_operations",
               "named_operation_races", "local_named_operations", "shared_value", "weak_scoped_store",
               "captured_graph", "owned_snapshot"]),
-            ("core-terminal", "rca-core", "rca_core", ["default", "diagnostics", "futures-stream", "local", "test-util"],
+            ("core-terminal", "crates/rca-core", "rca_core", ["default", "diagnostics", "futures-stream", "local", "test-util"],
              ["clock_fixtures", "store_actor", "local_store", "effects", "terminal_unwind",
               "lifecycle", "error_contracts", "debounce_throttle", "effect_send_lifetime"]),
-            ("core-services", "rca-core", "rca_core", ["default", "diagnostics", "futures-stream", "local", "test-util"],
+            ("core-services", "crates/rca-core", "rca_core", ["default", "diagnostics", "futures-stream", "local", "test-util"],
              ["dependency_defaults", "dependency_preparation", "issue_operations", "issue_contexts",
               "diagnostics", "diagnostics_checkpoint", "presentation", "fallible_effect", "fallible_effect_lifecycle",
               "application_clients", "dependency_fixture", "dependency_scope", "issue_stubs", "issue_collector", "issues"]),
-            ("test-store", "rca-test", "rca_test", ["local"],
-             ["rca_test", *sorted(path.stem for path in (SCRIPT.parents[1] / "rca-test/tests").glob("*.rs")
+            ("test-store", "crates/rca-test", "rca_test", ["local"],
+             ["rca_test", *sorted(path.stem for path in (SCRIPT.parents[1] / "crates/rca-test/tests").glob("*.rs")
                                   if path.stem not in ("compiler_contracts", "panic_subprocess"))]),
-            ("persistence-file", "rca-persistence", "rca_persistence", ["default", "file"],
+            ("persistence-file", "crates/rca-persistence", "rca_persistence", ["default", "file"],
              ["rca_persistence", "document", "file", "shared_document_session_replacement",
               "shared_document", "shared_key_cache", "shared_subscription", "staged_restoration",
               "shared_quiescence", "subscription_ownership_contracts"]),
-            ("tokio", "rca-tokio", "rca_tokio", [],
+            ("tokio", "crates/rca-tokio", "rca_tokio", [],
              ["rca_tokio", "async_cleanup_host", "client_clock", "panic_subprocess", "synchronous_host", "thread_affine_host"]),
             ("listener-std", "dependencies/rca-event-listener", "event_listener", ["default", "parking", "std"],
              ["event_listener", "notify", "public_surface", "callback_contracts", "first_use", "backend_contention",
@@ -602,7 +610,7 @@ class CaptureCoverageTests(unittest.TestCase):
                     return self.capture.parse_artifacts("\n".join(map(json.dumps, records)), self.root, target, group)
 
                 self.assertEqual({row["target"]["name"] for row in parse(rows)}, set(names))
-                foreign_package = "rca-core" if package == "rca-test" else "rca-test"
+                foreign_package = "crates/rca-core" if package == "crates/rca-test" else "crates/rca-test"
                 for change, value in (("manifest_path", str(self.root / foreign_package / "Cargo.toml")),
                                       ("features", ["default", "test-util"]),
                                       ("target", {"name": names[0], "kind": ["test" if names[0] == library else "lib"]})):
@@ -763,7 +771,7 @@ class CaptureCoverageTests(unittest.TestCase):
                 self.capture.validate_tool_versions(dict(versions, **{name: value}))
 
     def capture_fixture(self, mode="success", group="core-minimal"):
-        package, package_name, library = "rca-core", "rca-core", "rca_core"
+        package, package_name, library = "crates/rca-core", "rca-core", "rca_core"
         names = ["rca_core", "store_actor", "local_store", "command_port", "removed_child", "local_removed_child"]
         features = ["local"]
         options = ["-p", "rca-core", "--no-default-features", "--features", "local",
@@ -773,14 +781,14 @@ class CaptureCoverageTests(unittest.TestCase):
             features = sorted(self.capture.TARGETS[group].features)
             options = self.capture.group_arguments(group)
         if group == "test-store":
-            package, package_name, library = "rca-test", "rca-test", "rca_test"
-            ordinary = {path.stem for path in (SCRIPT.parents[1] / "rca-test/tests").glob("*.rs")}
+            package, package_name, library = "crates/rca-test", "rca-test", "rca_test"
+            ordinary = {path.stem for path in (SCRIPT.parents[1] / "crates/rca-test/tests").glob("*.rs")}
             names = [library, *sorted(ordinary - {"compiler_contracts", "panic_subprocess"})]
             features = ["local"]
             options = ["-p", package_name, "--features", "local", "--lib",
                        *[item for name in names[1:] for item in ("--test", name)]]
         if group == "persistence-file":
-            package, package_name, library = "rca-persistence", "rca-persistence", "rca_persistence"
+            package, package_name, library = "crates/rca-persistence", "rca-persistence", "rca_persistence"
             names = [library, "document", "file", "shared_document_session_replacement", "shared_document",
                      "shared_key_cache", "shared_subscription", "staged_restoration", "shared_quiescence",
                      "subscription_ownership_contracts"]
@@ -894,7 +902,7 @@ if listener and not os.environ.get("CAPTURE_FIXTURE_CHILD"):
     assert sys.argv[1:] == ["--test-threads=1"]
     subprocess.run([sys.executable, __file__], env=dict(os.environ, CAPTURE_FIXTURE_CHILD="1"), check=True)
 if mode == "source-change":
-    (root / "rca-core/src/lib.rs").write_text("pub fn changed() {{}}\\n")
+    (root / "crates/rca-core/src/lib.rs").write_text("pub fn changed() {{}}\\n")
 if mode == "tool-change":
     with (root / ".tools/cc").open("a") as stream:
         stream.write("\\n# changed\\n")
@@ -1334,7 +1342,7 @@ elif name == "llvm-cov":
         with self.assertRaises(ValueError):
             self.run_capture_fixture(tools, output)
         self.assertFalse(json.loads((output / "capture.json").read_text())["capture_complete"])
-        self.assertNotEqual((self.root / "rca-core/src/lib.rs").read_text(), "pub fn fixture() {}\n")
+        self.assertNotEqual((self.root / "crates/rca-core/src/lib.rs").read_text(), "pub fn fixture() {}\n")
 
     def macro_capture_fixture(self, positive=True, warning=False, foreign_id="bb"):
         """Supply Cargo records and separate fake compiler and runtime profiles."""
@@ -1348,13 +1356,13 @@ elif name == "llvm-cov":
                 destination = self.root / relative
                 destination.parent.mkdir(parents=True, exist_ok=True)
                 destination.write_bytes((SCRIPT.parents[1] / relative).read_bytes())
-        macro_source = self.root / "rca-macros/src/lib.rs"
+        macro_source = self.root / "crates/rca-macros/src/lib.rs"
         macro_source.parent.mkdir(parents=True, exist_ok=True)
         macro_source.write_text("pub fn fixture() {}\n")
-        (self.root / "rca-macros/Cargo.toml").write_text(
+        (self.root / "crates/rca-macros/Cargo.toml").write_text(
             '[package]\nname = "rca-macros"\nversion = "0.1.0"\n')
         env = dict(os.environ, GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL=os.devnull)
-        subprocess.run(["git", "add", "rca-macros"], cwd=self.root, env=env, check=True)
+        subprocess.run(["git", "add", "crates/rca-macros"], cwd=self.root, env=env, check=True)
         subprocess.run(["git", "-c", "user.name=Capture test", "-c", "user.email=test@example.invalid",
                         "-c", "commit.gpgsign=false", "commit", "-qm", "macro fixture"],
                        cwd=self.root, env=env, check=True)
@@ -1377,23 +1385,23 @@ elif name == "llvm-cov":
                     executable = target / (selected + "-123abc")
                     executable.write_bytes(b"libtest object")
                     records.append({"reason": "compiler-artifact",
-                                    "package_id": f"path+file://{self.root / 'rca-macros'}#0.1.0",
-                                    "manifest_path": str(self.root / "rca-macros/Cargo.toml"),
+                                    "package_id": f"path+file://{self.root / 'crates/rca-macros'}#0.1.0",
+                                    "manifest_path": str(self.root / "crates/rca-macros/Cargo.toml"),
                                     "target": {"name": selected, "kind": ["proc-macro" if selected == "rca_macros" else "test"]},
                                     "profile": {"test": True}, "features": [],
                                     "filenames": [str(executable)], "executable": str(executable)})
                 facade = target / "rust_composable_architecture-123abc"
                 facade.write_bytes(b"facade test object")
                 records.append(dict(records[0],
-                                    package_id=f"path+file://{self.root / 'rust-composable-architecture'}#0.1.0",
-                                    manifest_path=str(self.root / "rust-composable-architecture/Cargo.toml"),
+                                    package_id=f"path+file://{self.root / 'crates/rust-composable-architecture'}#0.1.0",
+                                    manifest_path=str(self.root / "crates/rust-composable-architecture/Cargo.toml"),
                                     target={"name": "rust_composable_architecture", "kind": ["lib"]},
                                     features=["default", "macros"], filenames=[str(facade)], executable=str(facade)))
                 library = target / "librca_macros-123abc.so"
                 library.write_bytes(b"macro dynamic object")
                 records.append({"reason": "compiler-artifact",
-                                "package_id": f"path+file://{self.root / 'rca-macros'}#0.1.0",
-                                "manifest_path": str(self.root / "rca-macros/Cargo.toml"),
+                                "package_id": f"path+file://{self.root / 'crates/rca-macros'}#0.1.0",
+                                "manifest_path": str(self.root / "crates/rca-macros/Cargo.toml"),
                                 "target": {"name": "rca_macros", "kind": ["proc-macro"],
                                            "crate_types": ["proc-macro"]},
                                 "profile": {"test": False}, "features": [], "fresh": False,

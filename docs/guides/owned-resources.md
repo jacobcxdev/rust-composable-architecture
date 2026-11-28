@@ -22,7 +22,7 @@ Start with the resource's owner and lifetime, not a requirement to make everythi
 The [owned importer](../../examples/composition-search/docs/owned-importer.md)
 awaits an owned result and moves it into state with `TaskContext::update`.
 This avoids a one-shot action slot when no domain event needs that payload.
-The [owned action tests](../../rca-test/tests/owned_actions.rs) demonstrate the
+The [owned action tests](../../crates/rca-test/tests/owned_actions.rs) demonstrate the
 separate reducer route, including a resource that implements neither `Clone` nor `Sync`.
 
 When an effect owns an ongoing operation, keep its resource in that effect. Return
@@ -104,4 +104,4 @@ signal from the part of the client that releases the resource.
 
 RCA provides no consuming-reducer phase or generic one-shot payload wrapper.
 A wrapper alone cannot enforce exclusive use across reducers.
-See the [qualification summary](../qualification.md) for the scope of recorded evidence.
+See the [qualification summary](../maintainers/qualification.md) for the scope of recorded evidence.

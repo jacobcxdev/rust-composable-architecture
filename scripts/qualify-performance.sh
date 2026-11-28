@@ -11,17 +11,17 @@ require_reference_object() {
 # The separate index lets Git check exported files without touching either checkout.
 check_staged_source() {
   local source=$1 revision=$2 lock_hash=$3 harness_hash=$4 destination=$5 module_hash=$6
-  if [[ -L "${destination}/Cargo.lock" || -L "${destination}/rca-tokio/benches/qualification.rs" \
+  if [[ -L "${destination}/Cargo.lock" || -L "${destination}/crates/rca-tokio/benches/qualification.rs" \
     || "$(shasum -a 256 "${destination}/Cargo.lock" | awk '{print $1}')" != "${lock_hash}" \
-    || "$(shasum -a 256 "${destination}/rca-tokio/benches/qualification.rs" | awk '{print $1}')" != "${harness_hash}" \
-    || -L "${destination}/rca-tokio/benches/qualification/shutdown.rs" \
-    || "$(shasum -a 256 "${destination}/rca-tokio/benches/qualification/shutdown.rs" | awk '{print $1}')" != "${module_hash}" ]] \
+    || "$(shasum -a 256 "${destination}/crates/rca-tokio/benches/qualification.rs" | awk '{print $1}')" != "${harness_hash}" \
+    || -L "${destination}/crates/rca-tokio/benches/qualification/shutdown.rs" \
+    || "$(shasum -a 256 "${destination}/crates/rca-tokio/benches/qualification/shutdown.rs" | awk '{print $1}')" != "${module_hash}" ]] \
     || ! GIT_INDEX_FILE="${destination}.index" git -C "${source}" --work-tree="${destination}" \
-      diff --quiet "${revision}" -- . ':(exclude)Cargo.lock' ':(exclude)rca-tokio/benches/qualification.rs' \
-        ':(exclude)rca-tokio/benches/qualification/shutdown.rs' \
+      diff --quiet "${revision}" -- . ':(exclude)Cargo.lock' ':(exclude)crates/rca-tokio/benches/qualification.rs' \
+        ':(exclude)crates/rca-tokio/benches/qualification/shutdown.rs' \
     || [[ -n "$(GIT_INDEX_FILE="${destination}.index" git -C "${source}" --work-tree="${destination}" \
       ls-files --others --exclude-standard -- . ':(exclude)Cargo.lock' \
-        ':(exclude)rca-tokio/benches/qualification/shutdown.rs')" ]]; then
+        ':(exclude)crates/rca-tokio/benches/qualification/shutdown.rs')" ]]; then
     echo "staged source changed outside the common harness and pinned lockfile" >&2
     return 1
   fi
@@ -66,9 +66,9 @@ stage_source() {
   rm -- "${destination}.tar"
   GIT_INDEX_FILE="${destination}.index" git -C "${source}" read-tree "${revision}"
   cp "${lock}" "${destination}/Cargo.lock"
-  cp "${harness}" "${destination}/rca-tokio/benches/qualification.rs"
-  mkdir -p "${destination}/rca-tokio/benches/qualification"
-  cp "${module}" "${destination}/rca-tokio/benches/qualification/shutdown.rs"
+  cp "${harness}" "${destination}/crates/rca-tokio/benches/qualification.rs"
+  mkdir -p "${destination}/crates/rca-tokio/benches/qualification"
+  cp "${module}" "${destination}/crates/rca-tokio/benches/qualification/shutdown.rs"
   check_staged_source "${source}" "${revision}" "${lock_hash}" "${harness_hash}" "${destination}" "${module_hash}"
 }
 
@@ -266,12 +266,12 @@ fi
 candidate_manifest_sha256=$(git show "${revision}:Cargo.toml" | shasum -a 256 | awk '{print $1}')
 reference_manifest_sha256=$(git -C "${reference_repository}" show "${reference_revision}:Cargo.toml" \
   | shasum -a 256 | awk '{print $1}')
-candidate_original_harness_sha256=$(git show "${revision}:rca-tokio/benches/qualification.rs" \
+candidate_original_harness_sha256=$(git show "${revision}:crates/rca-tokio/benches/qualification.rs" \
   | shasum -a 256 | awk '{print $1}')
 reference_original_harness_sha256=$(git -C "${reference_repository}" \
-  show "${reference_revision}:rca-tokio/benches/qualification.rs" | shasum -a 256 | awk '{print $1}')
-qualification_source_sha256=$(shasum -a 256 rca-tokio/benches/qualification.rs | awk '{print $1}')
-qualification_module_sha256=$(shasum -a 256 rca-tokio/benches/qualification/shutdown.rs | awk '{print $1}')
+  show "${reference_revision}:crates/rca-tokio/benches/qualification.rs" | shasum -a 256 | awk '{print $1}')
+qualification_source_sha256=$(shasum -a 256 crates/rca-tokio/benches/qualification.rs | awk '{print $1}')
+qualification_module_sha256=$(shasum -a 256 crates/rca-tokio/benches/qualification/shutdown.rs | awk '{print $1}')
 scenario_manifest_sha256=$(shasum -a 256 benches/performance/scenarios.txt | awk '{print $1}')
 qualification_script_sha256=$(shasum -a 256 scripts/qualify-performance.sh | awk '{print $1}')
 memory_watchdog_sha256=$(shasum -a 256 scripts/guard_cargo_memory.py | awk '{print $1}')
@@ -285,7 +285,7 @@ if [[ "${repo_root}" == *'"'* ]]; then
   exit 1
 fi
 umbrella_package=$("${cargo}" metadata --locked --no-deps --format-version 1 \
-  | jq -r --arg manifest "${repo_root}/rca/Cargo.toml" '
+  | jq -r --arg manifest "${repo_root}/crates/rca/Cargo.toml" '
       .packages[] | select(.manifest_path == $manifest) | .name
     ')
 case "${umbrella_package}" in
@@ -328,10 +328,10 @@ reference_build_root=${temporary}/reference-source
 git -C "${reference_repository}" show "${reference_revision}:Cargo.lock" > "${temporary}/reference.lock"
 stage_source "${repo_root}" "${revision}" "${candidate_source_tree}" \
   "${repo_root}/Cargo.lock" "${candidate_lock_sha256}" \
-  "${repo_root}/rca-tokio/benches/qualification.rs" "${qualification_source_sha256}" "${candidate_build_root}" "${qualification_module_sha256}"
+  "${repo_root}/crates/rca-tokio/benches/qualification.rs" "${qualification_source_sha256}" "${candidate_build_root}" "${qualification_module_sha256}"
 stage_source "${reference_repository}" "${reference_revision}" "${reference_source_tree}" \
   "${temporary}/reference.lock" "${reference_lock_sha256}" \
-  "${repo_root}/rca-tokio/benches/qualification.rs" "${qualification_source_sha256}" "${reference_build_root}" "${qualification_module_sha256}"
+  "${repo_root}/crates/rca-tokio/benches/qualification.rs" "${qualification_source_sha256}" "${reference_build_root}" "${qualification_module_sha256}"
 "${cargo}" metadata --locked --manifest-path "${reference_build_root}/Cargo.toml" \
   --no-deps --format-version 1 >/dev/null
 

@@ -8,9 +8,9 @@ rust-version = "1.100.0"
 publish = false
 
 [dependencies]
-rca = { path = "../../rca", features = ["tokio"] }
+rca = { path = "../../crates/rca", features = ["tokio"] }
 tokio = { version = "1.53.3", features = ["macros", "rt", "time"] }
 
 [dev-dependencies]
-rca = { path = "../../rca", features = ["test-util"] }
+rca = { path = "../../crates/rca", features = ["test-util"] }
 futures-executor = "0.3.34"

@@ -35,8 +35,8 @@ class WindowsPerformanceTests(unittest.TestCase):
                           "manifest_sha256": "2" * 64, "original_harness_sha256": "3" * 64},
             "reference": {"revision": "d" * 40, "tree": "e" * 40, "lock_sha256": "f" * 64,
                           "manifest_sha256": "4" * 64, "original_harness_sha256": "5" * 64},
-            "harness_sha256": hashlib.sha256((SCRIPT.parents[1] / "rca-tokio/benches/qualification.rs").read_bytes()).hexdigest(),
-            "harness_module_sha256": hashlib.sha256((SCRIPT.parents[1] / "rca-tokio/benches/qualification/shutdown.rs").read_bytes()).hexdigest(),
+            "harness_sha256": hashlib.sha256((SCRIPT.parents[1] / "crates/rca-tokio/benches/qualification.rs").read_bytes()).hexdigest(),
+            "harness_module_sha256": hashlib.sha256((SCRIPT.parents[1] / "crates/rca-tokio/benches/qualification/shutdown.rs").read_bytes()).hexdigest(),
             "scenario_manifest_sha256": hashlib.sha256((SCRIPT.parents[1] / "benches/performance/scenarios.txt").read_bytes()).hexdigest(),
             "toolchain": {"rustc": "rustc 1.100.0 (pinned)", "cargo": "cargo 1.100.0 (pinned)",
                           "target": "x86_64-pc-windows-msvc", "rustc_commit": "6" * 40},
@@ -66,8 +66,8 @@ class WindowsPerformanceTests(unittest.TestCase):
                         binary["transformation"] = {"files": {
                             path: {"before_sha256": before, "after_sha256": binary[field]}
                             for path, field, before in (
-                                ("rca-tokio/benches/qualification.rs", "harness_sha256", value["harness_sha256"]),
-                                ("rca-tokio/Cargo.toml", "manifest_sha256", value[role]["tokio_manifest_sha256"]),
+                                ("crates/rca-tokio/benches/qualification.rs", "harness_sha256", value["harness_sha256"]),
+                                ("crates/rca-tokio/Cargo.toml", "manifest_sha256", value[role]["tokio_manifest_sha256"]),
                                 ("Cargo.lock", "lock_sha256", value[role]["lock_sha256"]))}}
                     value["binaries"][key] = binary
                     artifacts = []
@@ -76,9 +76,9 @@ class WindowsPerformanceTests(unittest.TestCase):
                             ("rca_core", "lib", "lib", binary["core_features"], False)):
                         package, src = ("rca-tokio", "benches/qualification.rs") if test else ("rca-core", "src/lib.rs")
                         source_root = binary["source_root"]
-                        artifacts.append({"reason": "compiler-artifact", "manifest_path": f"{source_root}/{package}/Cargo.toml",
+                        artifacts.append({"reason": "compiler-artifact", "manifest_path": f"{source_root}/crates/{package}/Cargo.toml",
                                           "target": {"name": name, "kind": [kind], "crate_types": [crate_type],
-                                                     "src_path": f"{source_root}/{package}/{src}"}, "features": features,
+                                                     "src_path": f"{source_root}/crates/{package}/{src}"}, "features": features,
                                           "profile": {"opt_level": "3", "debuginfo": 2, "debug_assertions": False,
                                                       "overflow_checks": False, "test": test},
                                           "executable": binary["path"] if test else None,
@@ -111,17 +111,17 @@ class WindowsPerformanceTests(unittest.TestCase):
     def capture_inputs(self):
         binaries = {}
         metadata = self.metadata()
-        common_harness = (SCRIPT.parents[1] / "rca-tokio/benches/qualification.rs").read_bytes()
+        common_harness = (SCRIPT.parents[1] / "crates/rca-tokio/benches/qualification.rs").read_bytes()
         for role in ("candidate", "reference"):
             original = {"Cargo.toml": f"{role} workspace".encode(),
                         "Cargo.lock": f'# {role}\n[[package]]\nname = "rca-tokio"\ndependencies = [\n "rca-test",\n]\n'.encode(),
-                        "rca-tokio/Cargo.toml": f"# {role}\n[dev-dependencies]\nrca-test.workspace = true\n".encode(),
-                        "rca-tokio/benches/qualification.rs": common_harness,
-                        "rca-tokio/benches/qualification/shutdown.rs": (SCRIPT.parents[1] / "rca-tokio/benches/qualification/shutdown.rs").read_bytes(),
-                        "rca-core/src/lib.rs": f"{role} production source".encode()}
+                        "crates/rca-tokio/Cargo.toml": f"# {role}\n[dev-dependencies]\nrca-test.workspace = true\n".encode(),
+                        "crates/rca-tokio/benches/qualification.rs": common_harness,
+                        "crates/rca-tokio/benches/qualification/shutdown.rs": (SCRIPT.parents[1] / "crates/rca-tokio/benches/qualification/shutdown.rs").read_bytes(),
+                        "crates/rca-core/src/lib.rs": f"{role} production source".encode()}
             metadata[role].update(manifest_sha256=hashlib.sha256(original["Cargo.toml"]).hexdigest(),
                                   lock_sha256=hashlib.sha256(original["Cargo.lock"]).hexdigest(),
-                                  tokio_manifest_sha256=hashlib.sha256(original["rca-tokio/Cargo.toml"]).hexdigest())
+                                  tokio_manifest_sha256=hashlib.sha256(original["crates/rca-tokio/Cargo.toml"]).hexdigest())
             for configuration in ("deterministic", "native"):
                 contents = dict(original)
                 if configuration == "native":
@@ -141,12 +141,12 @@ class WindowsPerformanceTests(unittest.TestCase):
                     metadata[f"{role}_source_manifest_sha256"] = inventory_hash
                 for mode in ("normal", "allocation"):
                     binary = metadata["binaries"][key.removesuffix("normal") + mode]
-                    binary.update(source_manifest_sha256=inventory_hash, harness_sha256=inventory["rca-tokio/benches/qualification.rs"],
-                                  manifest_sha256=inventory["rca-tokio/Cargo.toml"], lock_sha256=inventory["Cargo.lock"])
+                    binary.update(source_manifest_sha256=inventory_hash, harness_sha256=inventory["crates/rca-tokio/benches/qualification.rs"],
+                                  manifest_sha256=inventory["crates/rca-tokio/Cargo.toml"], lock_sha256=inventory["Cargo.lock"])
                     if configuration == "native":
                         binary["transformation"]["files"] = {
                             path: {"before_sha256": hashlib.sha256(original[path]).hexdigest(), "after_sha256": inventory[path]}
-                            for path in ("rca-tokio/benches/qualification.rs", "rca-tokio/Cargo.toml", "Cargo.lock")}
+                            for path in ("crates/rca-tokio/benches/qualification.rs", "crates/rca-tokio/Cargo.toml", "Cargo.lock")}
         for key, binary in metadata["binaries"].items():
             binaries[key] = self.root / key
             binaries[key].write_text(key)
@@ -610,8 +610,8 @@ class WindowsPerformanceTests(unittest.TestCase):
             lambda value: value["binaries"]["candidate_normal"].update(core_features=["default", "test-util"]),
             lambda value: command(value)["core_artifact"].update(features=["default", "diagnostics"]),
             lambda value: command(value)["core_artifact"]["profile"].update(test=True),
-            lambda value: command(value)["core_artifact"]["target"].update(src_path="/borrowed/rca-core/src/lib.rs"),
-            lambda value: command(value)["cargo_artifact"].update(manifest_path="/borrowed/rca-tokio/Cargo.toml"),
+            lambda value: command(value)["core_artifact"]["target"].update(src_path="/borrowed/crates/rca-core/src/lib.rs"),
+            lambda value: command(value)["cargo_artifact"].update(manifest_path="/borrowed/crates/rca-tokio/Cargo.toml"),
             lambda value: command(value)["cargo_artifact"].update(features=["qualification-dhat"]),
             lambda value: command(value).update(returncode=1),
             lambda value: value["commands"].append(copy.deepcopy(value["commands"][0])),
@@ -621,7 +621,7 @@ class WindowsPerformanceTests(unittest.TestCase):
             lambda value: value["candidate"].update(deterministic_core_features=["default"]),
             lambda value: value["binaries"]["candidate_normal"]["transformation"]["files"].pop("Cargo.lock"),
             lambda value: value["binaries"]["candidate_normal"]["transformation"]["files"]["Cargo.lock"].update(before_sha256="e" * 64),
-            lambda value: value["binaries"]["candidate_normal"]["transformation"]["files"].update({"rca-core/src/lib.rs": {}}),
+            lambda value: value["binaries"]["candidate_normal"]["transformation"]["files"].update({"crates/rca-core/src/lib.rs": {}}),
         )
         self.runner.validate_metadata(self.metadata())
         for index, mutate in enumerate(mutations):
@@ -672,16 +672,16 @@ class WindowsPerformanceTests(unittest.TestCase):
         source = json.loads(metadata.read_text())
         native = source["binaries"]["candidate_normal"]
         root, manifest = Path(native["source_root"]), Path(native["source_manifest"])
-        original = (root / "rca-core/src/lib.rs").read_bytes()
-        (root / "rca-core/src/lib.rs").write_text("unrelated changed production source")
+        original = (root / "crates/rca-core/src/lib.rs").read_bytes()
+        (root / "crates/rca-core/src/lib.rs").write_text("unrelated changed production source")
         inventory = json.loads(manifest.read_text())
-        inventory["rca-core/src/lib.rs"] = hashlib.sha256((root / "rca-core/src/lib.rs").read_bytes()).hexdigest()
+        inventory["crates/rca-core/src/lib.rs"] = hashlib.sha256((root / "crates/rca-core/src/lib.rs").read_bytes()).hexdigest()
         manifest.write_text(json.dumps(inventory))
         native["source_manifest_sha256"] = hashlib.sha256(manifest.read_bytes()).hexdigest()
         with self.assertRaisesRegex(ValueError, "three-file"):
             self.runner.validate_staged_sources(source)
-        (root / "rca-core/src/lib.rs").write_bytes(original)
-        inventory["rca-core/src/lib.rs"] = hashlib.sha256(original).hexdigest()
+        (root / "crates/rca-core/src/lib.rs").write_bytes(original)
+        inventory["crates/rca-core/src/lib.rs"] = hashlib.sha256(original).hexdigest()
         manifest.write_text(json.dumps(inventory))
         native["source_manifest_sha256"] = hashlib.sha256(manifest.read_bytes()).hexdigest()
         (root / "extra.rs").write_text("unlisted source")
@@ -690,13 +690,13 @@ class WindowsPerformanceTests(unittest.TestCase):
 
     def test_native_staging_matches_reviewed_harness_and_removes_only_test_runtime_edges(self):
         original = {relative: (SCRIPT.parents[1] / relative).read_bytes() for relative in
-                    ("rca-tokio/benches/qualification.rs", "rca-tokio/Cargo.toml", "Cargo.lock")}
+                    ("crates/rca-tokio/benches/qualification.rs", "crates/rca-tokio/Cargo.toml", "Cargo.lock")}
         native = self.runner.native_staged_files(original)
-        self.assertFalse(b'if scenario.starts_with("deterministic/")' in native["rca-tokio/benches/qualification.rs"],
+        self.assertFalse(b'if scenario.starts_with("deterministic/")' in native["crates/rca-tokio/benches/qualification.rs"],
                          "the original scenario membership check already rejects unsupported rows")
-        self.assertEqual(hashlib.sha256(native["rca-tokio/benches/qualification.rs"]).hexdigest(),
+        self.assertEqual(hashlib.sha256(native["crates/rca-tokio/benches/qualification.rs"]).hexdigest(),
                          "a64f68ad3a849929fb9f23e420215c5254b793ff81cfb0dce8434df74faf0f0e")
-        self.assertEqual(native["rca-tokio/Cargo.toml"], original["rca-tokio/Cargo.toml"].replace(b"rca-test.workspace = true\n", b""))
+        self.assertEqual(native["crates/rca-tokio/Cargo.toml"], original["crates/rca-tokio/Cargo.toml"].replace(b"rca-test.workspace = true\n", b""))
         self.assertEqual(native["Cargo.lock"].count(b' "rca-test",\n'), original["Cargo.lock"].count(b' "rca-test",\n') - 1)
         for relative in original:
             broken = dict(original)
@@ -719,7 +719,7 @@ class WindowsPerformanceTests(unittest.TestCase):
                     source["harness_module_sha256"] = "0" * 64
                 else:
                     binary = source["binaries"]["candidate_normal"]
-                    relative = "rca-tokio/benches/qualification/shutdown.rs"
+                    relative = "crates/rca-tokio/benches/qualification/shutdown.rs"
                     module = Path(binary["source_root"]) / relative
                     module.write_text("changed shutdown workload")
                     manifest = Path(binary["source_manifest"])
@@ -735,7 +735,7 @@ class WindowsPerformanceTests(unittest.TestCase):
         source = json.loads(metadata.read_text())
         binary = source["binaries"]["candidate_normal"]
         manifest = Path(binary["source_manifest"])
-        relative = "rca-tokio/benches/qualification.rs"
+        relative = "crates/rca-tokio/benches/qualification.rs"
         harness = Path(binary["source_root"]) / relative
         harness.write_bytes(harness.read_bytes() + b"\n// an unreviewed staging edit\n")
         digest = hashlib.sha256(harness.read_bytes()).hexdigest()
@@ -816,7 +816,7 @@ class WindowsPerformanceTests(unittest.TestCase):
         value["harness_sha256"] = "0" * 64
         for binary in value["binaries"].values():
             if binary["configuration"] == "native":
-                binary["transformation"]["files"]["rca-tokio/benches/qualification.rs"]["before_sha256"] = "0" * 64
+                binary["transformation"]["files"]["crates/rca-tokio/benches/qualification.rs"]["before_sha256"] = "0" * 64
             else:
                 binary["harness_sha256"] = "0" * 64
         metadata.write_text(json.dumps(value))

@@ -23,11 +23,11 @@ name = "uploader"
 test = true
 
 [dependencies]
-rca = { path = "../../rca", version = "=0.1.0", features = ["macros", "tokio"] }
+rca = { path = "../../crates/rca", version = "=0.1.0", features = ["macros", "tokio"] }
 tokio = { workspace = true, features = ["macros", "rt", "time"] }
 
 [dev-dependencies]
-rca = { path = "../../rca", version = "=0.1.0", features = ["macros", "test-util"] }
+rca = { path = "../../crates/rca", version = "=0.1.0", features = ["macros", "test-util"] }
 futures-executor.workspace = true
 # Request/reply examples need sync; the main application does not.
 tokio = { workspace = true, features = ["sync"] }

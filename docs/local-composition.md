@@ -96,9 +96,9 @@ case overrides the independent Store payload requirements.
 The ordinary-import compiler fixtures contain real `Reducer::reduce` calls
 inside functions that receive a framework-provided `ReduceContext`:
 
-- [Shared scope local domains](../rca-core/tests/ui/rc04_local_shared_scope.rs)
-- [Identified and lifecycle local domains](../rca-core/tests/ui/rc04_local_identified_lifecycle.rs)
-- [Retained and hosted compiler controls](../rca-core/tests/compile.rs)
+- [Shared scope local domains](../crates/rca-core/tests/ui/rc04_local_shared_scope.rs)
+- [Identified and lifecycle local domains](../crates/rca-core/tests/ui/rc04_local_identified_lifecycle.rs)
+- [Retained and hosted compiler controls](../crates/rca-core/tests/compile.rs)
 
 These compiler examples show which types Rust accepts. They do not run the
 reducers. Separate runtime tests check that the child runs first and the base

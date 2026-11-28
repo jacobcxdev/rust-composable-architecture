@@ -13,6 +13,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import performance_scope as scope
+import stage_profile_layout as layout
 
 
 @contextmanager
@@ -40,30 +41,30 @@ class ScopeTests(unittest.TestCase):
                 self.assertEqual(scope.families_for(path), ())
 
     def test_ambiguous_docs_tests_and_shared_inputs_expand(self):
-        for path in ("README.md", "rca-core/tests/support/mod.rs", "docs/new-input.md",
-                     "rca-core/tests/observation_take_allocations.rs", "rca-core/tests/unreviewed.rs",
+        for path in ("README.md", "crates/rca-core/tests/support/mod.rs", "docs/new-input.md",
+                     "crates/rca-core/tests/observation_take_allocations.rs", "crates/rca-core/tests/unreviewed.rs",
                      "benches/performance/composition-windows.json",
-                     "rust-toolchain.toml", "Cargo.lock", "rca-core/src/store/actor.rs",
-                     "rca-macros/src/reducer.rs", "rca-tokio/src/lib.rs",
+                     "rust-toolchain.toml", "Cargo.lock", "crates/rca-core/src/store/actor.rs",
+                     "crates/rca-macros/src/reducer.rs", "crates/rca-tokio/src/lib.rs",
                      ".github/workflows/ci.yml", "new-consumer/logic", "docs/guides/typo\n.rs"):
             with self.subTest(path=path):
                 self.assertEqual(scope.families_for(path), scope.FAMILIES)
 
     def test_consumer_boundaries_select_focused_families(self):
-        for path in ("rca-core/src/store/removal.rs", "rca-core/src/store/removal/local.rs",
-                     "rca-core/src/composition/keyed/operations.rs"):
+        for path in ("crates/rca-core/src/store/removal.rs", "crates/rca-core/src/store/removal/local.rs",
+                     "crates/rca-core/src/composition/keyed/operations.rs"):
             with self.subTest(path=path):
                 self.assertEqual(scope.families_for(path),
                                  ("keyed-routing", "cancellation-shutdown", "headless-worker"))
-        self.assertIn("queue-pressure", scope.families_for("rca-core/src/store/mailbox.rs"))
-        self.assertNotIn("cold-build", scope.families_for("rca-core/src/effect/cancellation.rs"))
+        self.assertIn("queue-pressure", scope.families_for("crates/rca-core/src/store/mailbox.rs"))
+        self.assertNotIn("cold-build", scope.families_for("crates/rca-core/src/effect/cancellation.rs"))
         self.assertEqual(scope.families_for("benches/compile/composed-macro/src/main.rs"),
                          ("cold-build",))
-        self.assertEqual(scope.families_for("rca-core/src/store/removal_of_mailbox.rs"), scope.FAMILIES)
+        self.assertEqual(scope.families_for("crates/rca-core/src/store/removal_of_mailbox.rs"), scope.FAMILIES)
 
     def test_git_does_not_hide_deletions_or_split_unusual_names(self):
         base, head = "a" * 40, "b" * 40
-        paths = (b"rca-core/src/store/removal.rs\0CONTRIBUTING.md\0"
+        paths = (b"crates/rca-core/src/store/removal.rs\0CONTRIBUTING.md\0"
                  b"scripts/tests/test_one.py\nscripts/tests/test_two.py\0")
         with patch.object(scope.subprocess, "check_output", side_effect=[
             (base + "\n").encode(), (head + "\n").encode(), paths,
@@ -79,7 +80,7 @@ class ScopeTests(unittest.TestCase):
 
     def test_real_trees_preserve_rename_and_document_input_scope(self):
         with snapshots() as (repo, tree):
-            source = repo / "rca-core/src/effect/cancellation.rs"
+            source = repo / "crates/rca-core/src/effect/cancellation.rs"
             source.parent.mkdir(parents=True)
             source.write_text("// workload", encoding="utf-8")
             first = tree()
@@ -106,7 +107,7 @@ class ScopeTests(unittest.TestCase):
 
     def test_independent_libtest_body_skips_native_unless_a_workload_consumes_it(self):
         with snapshots() as (repo, tree):
-            suite = repo / "rca-core/tests/observation_callbacks.rs"
+            suite = repo / "crates/rca-core/tests/observation_callbacks.rs"
             suite.parent.mkdir(parents=True)
             suite.write_text("#[test] fn callback() {}", encoding="utf-8")
             parent = tree()
@@ -114,9 +115,9 @@ class ScopeTests(unittest.TestCase):
             self.assertEqual(scope.scope_between_trees(repo, parent, tree())["scope"], "none")
 
             for consumer, reference in (
-                ("rca-core/benches/observation.rs", 'include!("../tests/observation_callbacks.rs");'),
+                ("crates/rca-core/benches/observation.rs", 'include!("../tests/observation_callbacks.rs");'),
                 ("scripts/capture.sh", "cargo test --test observation_callbacks"),
-                ("rca-core/Cargo.toml", '[[bench]]\nname = "observation_callbacks"'),
+                ("crates/rca-core/Cargo.toml", '[[bench]]\nname = "observation_callbacks"'),
             ):
                 with self.subTest(consumer=consumer):
                     path = repo / consumer
@@ -164,7 +165,8 @@ case "$1 $2" in
   "rev-parse HEAD") echo "$PERF_HEAD" ;;
   "merge-base --is-ancestor") exit 0 ;;
   "merge-base "*) echo "$2" ;;
-  "cat-file -e") test "$3" != '{self.preview}:rca-core/Cargo.toml' ;;
+  "cat-file -e") case "$3" in
+    {self.preview}:*|{self.first}:crates/rca-core/Cargo.toml) exit 1 ;; *) exit 0 ;; esac ;;
   *) exit 1 ;;
 esac
 """)
@@ -188,12 +190,47 @@ esac
 
     def test_ordinary_pr_uses_merge_base_and_branch_push_measures_cumulative_cost(self):
         self.assertEqual(self.select(base=self.second, release=self.first)["comparison"], self.second)
+        self.assertEqual(self.select(base=self.first)["comparison"], self.first)
         decision = self.select(previous=self.second, release=self.first)
         self.assertEqual(decision["comparison"], self.first)
         self.assertEqual(decision["changed_from"], self.second)
 
     def test_equal_source_is_not_a_relative_result(self):
         self.assertEqual(self.select(previous=self.first, release=self.head)["status"], "same-revision")
+
+
+class ProfileLayoutTests(unittest.TestCase):
+    def test_only_checkout_paths_differ_between_layouts(self):
+        for prefix in (Path("crates"), Path()):
+            with self.subTest(prefix=prefix), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                manifest = root / prefix / "rca-core/Cargo.toml"
+                manifest.parent.mkdir(parents=True)
+                manifest.touch()
+                for name in layout.INPUTS:
+                    path = root / layout.PROFILE / name
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copyfile(layout.ROOT / layout.PROFILE / name, path)
+                layout.stage(root)
+                layout.stage(root, check=True)
+                for name in layout.INPUTS:
+                    path = root / layout.PROFILE / name
+                    before = (layout.ROOT / layout.PROFILE / name).read_bytes()
+                    after = path.read_bytes()
+                    self.assertIn(b"../crates/rca-", before)
+                    if prefix == Path("crates"):
+                        self.assertEqual(after, before)
+                    else:
+                        self.assertNotIn(b"../crates/rca-", after)
+                        self.assertEqual(after.replace(b"../rca-", b"../crates/rca-"), before)
+                path.write_bytes(after + b"// different workload")
+                with self.assertRaisesRegex(ValueError, "differs"):
+                    layout.stage(root, check=True)
+                other = root / ("rca-core" if prefix == Path("crates") else "crates/rca-core")
+                other.mkdir(parents=True)
+                (other / "Cargo.toml").touch()
+                with self.assertRaisesRegex(ValueError, "exactly one"):
+                    layout.stage(root)
 
 
 if __name__ == "__main__":

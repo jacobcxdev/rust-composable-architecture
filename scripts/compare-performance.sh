@@ -9,9 +9,9 @@ check_source_identity() {
   reference_tree=$(git rev-parse "${reference_revision}^{tree}")
   candidate_manifest=$(git show "${candidate_revision}:Cargo.toml" | shasum -a 256 | awk '{print $1}')
   reference_manifest=$(git show "${reference_revision}:Cargo.toml" | shasum -a 256 | awk '{print $1}')
-  candidate_harness=$(git show "${candidate_revision}:rca-tokio/benches/qualification.rs" \
+  candidate_harness=$(git show "${candidate_revision}:crates/rca-tokio/benches/qualification.rs" \
     | shasum -a 256 | awk '{print $1}')
-  reference_harness=$(git show "${reference_revision}:rca-tokio/benches/qualification.rs" \
+  reference_harness=$(git show "${reference_revision}:crates/rca-tokio/benches/qualification.rs" \
     | shasum -a 256 | awk '{print $1}')
   if ! jq -e --arg candidate_tree "${candidate_tree}" --arg reference_tree "${reference_tree}" \
     --arg candidate_manifest "${candidate_manifest}" --arg reference_manifest "${reference_manifest}" \
@@ -33,12 +33,13 @@ check_measured_inputs() {
   local candidate_revision=$1 head_revision=$2
   local measured_paths=(
     Cargo.lock Cargo.toml rust-toolchain.toml .cargo dependencies
-    rca/Cargo.toml rca/build.rs rca/src
-    rca-core/Cargo.toml rca-core/build.rs rca-core/src rca-core/benches
-    rca-macros/Cargo.toml rca-macros/build.rs rca-macros/src
-    rca-persistence/Cargo.toml rca-persistence/build.rs rca-persistence/src
-    rca-test/Cargo.toml rca-test/build.rs rca-test/src rca-test/benches
-    rca-tokio/Cargo.toml rca-tokio/build.rs rca-tokio/src rca-tokio/benches
+    crates/rca/Cargo.toml crates/rca/build.rs crates/rca/src
+    crates/rca-core/Cargo.toml crates/rca-core/build.rs crates/rca-core/src crates/rca-core/benches
+    crates/rca-macros/Cargo.toml crates/rca-macros/build.rs crates/rca-macros/src
+    crates/rca-persistence/Cargo.toml crates/rca-persistence/build.rs crates/rca-persistence/src
+    crates/rca-test/Cargo.toml crates/rca-test/build.rs crates/rca-test/src crates/rca-test/benches
+    crates/rca-tokio/Cargo.toml crates/rca-tokio/build.rs crates/rca-tokio/src crates/rca-tokio/benches
+    crates/rust-composable-architecture/Cargo.toml crates/rust-composable-architecture/build.rs crates/rust-composable-architecture/src
     examples tests/size-probe
   )
   if ! git diff --quiet "${candidate_revision}" "${head_revision}" -- "${measured_paths[@]}" \
@@ -78,9 +79,9 @@ PY
   then
     return 1
   fi
-  candidate_tokio_manifest=$(git show "$(jq -r '.metadata.method.pair.candidate_revision' "${result}"):rca-tokio/Cargo.toml" \
+  candidate_tokio_manifest=$(git show "$(jq -r '.metadata.method.pair.candidate_revision' "${result}"):crates/rca-tokio/Cargo.toml" \
     | shasum -a 256 | awk '{print $1}')
-  reference_tokio_manifest=$(git show "$(jq -r '.metadata.method.pair.reference_revision' "${result}"):rca-tokio/Cargo.toml" \
+  reference_tokio_manifest=$(git show "$(jq -r '.metadata.method.pair.reference_revision' "${result}"):crates/rca-tokio/Cargo.toml" \
     | shasum -a 256 | awk '{print $1}')
   if ! jq -e --slurpfile receipt "${receipt}" \
     --arg candidate_tokio_manifest "${candidate_tokio_manifest}" \
@@ -159,8 +160,8 @@ fi
 repo_root=$(git rev-parse --show-toplevel)
 head_revision=$(git rev-parse HEAD)
 candidate_lock=${repo_root}/Cargo.lock
-protocol=${repo_root}/rca-tokio/benches/qualification.rs
-qualification_module=${repo_root}/rca-tokio/benches/qualification/shutdown.rs
+protocol=${repo_root}/crates/rca-tokio/benches/qualification.rs
+qualification_module=${repo_root}/crates/rca-tokio/benches/qualification/shutdown.rs
 qualification_script=${repo_root}/scripts/qualify-performance.sh
 windows=false
 if [[ -f "${candidate}" ]] && [[ "$(jq -r '.schema_version' "${candidate}")" == "6" ]]; then

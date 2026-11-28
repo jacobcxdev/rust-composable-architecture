@@ -14,7 +14,7 @@ Local results do not establish that hosted checks passed.
 
 For hosted results, use the [CI runs](https://github.com/jacobcxdev/rust-composable-architecture/actions/workflows/ci.yml)
 for the exact commit under review. Later changes require their own applicable checks.
-The [qualification guide](qualification.md) explains which checks apply and when an earlier result still counts.
+The [qualification guide](maintainers/qualification.md) explains which checks apply and when an earlier result still counts.
 Passing checks do not publish packages or establish support beyond the tested configurations.
 
 ## Targets

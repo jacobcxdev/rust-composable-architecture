@@ -677,7 +677,7 @@ class CurrentMacProtocolTests(unittest.TestCase):
         self.assertEqual(protocol["scope"], "paired-and-macos-absolute")
         self.assertEqual(protocol["toolchain"], composition_performance.expected_toolchain(protocol))
         files = protocol["common_workloads"]["files"]
-        for source in ("rca-core/benches/composition.rs", "rca-core/benches/composition/fixtures.rs"):
+        for source in ("crates/rca-core/benches/composition.rs", "crates/rca-core/benches/composition/fixtures.rs"):
             self.assertEqual(files[source]["sha256"], composition_performance._sha256(REPO_ROOT / source))
 
     def test_current_mac_plan_and_gate_evaluation_keep_interleaving(self):
@@ -1239,8 +1239,8 @@ class WindowsPairedProtocolTests(unittest.TestCase):
         self.assertNotIn("process_monitor_interval_seconds", protocol["quiescence"])
         self.assertEqual(protocol["process_memory_limit_bytes"], 2 * 1024**3)
         self.assertNotEqual(protocol["runner"], mac["runner"])
-        self.assertEqual(protocol["common_workloads"]["files"]["rca-core/benches/composition.rs"]["sha256"],
-                         composition_performance._sha256(REPO_ROOT / "rca-core/benches/composition.rs"))
+        self.assertEqual(protocol["common_workloads"]["files"]["crates/rca-core/benches/composition.rs"]["sha256"],
+                         composition_performance._sha256(REPO_ROOT / "crates/rca-core/benches/composition.rs"))
         for mode in ("candidate-reference", "reference-reference-aa"):
             plan = composition_performance.measurement_plan(protocol, mode)
             self.assertEqual(len(plan["runtime"]), 180)
@@ -1399,9 +1399,9 @@ class AbsoluteBudgetTests(unittest.TestCase):
             "runtime_process_repetitions": "10", "runtime_expected_timing_rows": "153",
             "recorded_at": "2000-01-01T00:00:00Z", "completed_at": "2000-01-01T00:00:01Z",
             "root_lock_sha256": "4" * 64, "fixture_lock_sha256": "5" * 64, "runner_source_sha256": "6" * 64,
-            "benchmark_source_sha256": sources["rca-core/benches/composition.rs"],
-            "scope_zero_test_source_sha256": sources["rca-core/src/composition/scope.rs"],
-            "combine_zero_test_source_sha256": sources["rca-core/src/composition/combine.rs"],
+            "benchmark_source_sha256": sources["crates/rca-core/benches/composition.rs"],
+            "scope_zero_test_source_sha256": sources["crates/rca-core/src/composition/scope.rs"],
+            "combine_zero_test_source_sha256": sources["crates/rca-core/src/composition/combine.rs"],
             "zero_host_sha256": cls.zero_hash, "staged_source_receipt_sha256": provenance["receipt_sha256"],
             "allocation_manifest_sha256": composition_performance.ALLOCATION_MANIFEST_SHA256,
             **{f"{tool}_version": version for tool, version in versions.items()},
@@ -1439,7 +1439,7 @@ class AbsoluteBudgetTests(unittest.TestCase):
         self.assertEqual(direct["measured_value"], 100)
         self.assertEqual(direct["raw_evidence"][0], str(self.subject / "runtime/direct__1/block-01.txt"))
         zero = next(row for row in absolute["rows"] if row["scenario"] == "allocation/direct_warmed_synchronous")
-        self.assertEqual(zero["workload_source"], "rca-core/tests/composition_qualification/main.rs")
+        self.assertEqual(zero["workload_source"], "crates/rca-core/tests/composition_qualification/main.rs")
         self.assertEqual(zero["workload_source_sha256"], self.zero_hash)
         self.assertEqual(absolute["toolchain"], composition_performance.expected_toolchain(self.protocol))
 

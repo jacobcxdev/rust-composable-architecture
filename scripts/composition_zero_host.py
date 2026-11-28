@@ -23,8 +23,8 @@ PACKAGE = "rca-qualification-zero"
 HOST = "bench-zero-host"
 FEATURES = ["allocation-measurement", "default"]
 FIXTURES = {
-    "main.rs": "rca-core/tests/composition_qualification/main.rs",
-    "composition-zero-runner.rs": "rca-core/tests/composition_qualification/composition-zero-runner.rs",
+    "main.rs": "crates/rca-core/tests/composition_qualification/main.rs",
+    "composition-zero-runner.rs": "crates/rca-core/tests/composition_qualification/composition-zero-runner.rs",
 }
 TEMPLATE = Path(__file__).parent / "fixtures/composition-zero-host.toml"
 
@@ -122,7 +122,7 @@ def _features_match(original, narrow, host):
 
 def _binary(log, source, target, graph):
     """Check the compiled product, allocator, test profile and selected fixture."""
-    required = {"rca_core": source / "rca-core/src/lib.rs", "composition_zero": source / HOST / "main.rs"}
+    required = {"rca_core": source / "crates/rca-core/src/lib.rs", "composition_zero": source / HOST / "main.rs"}
     found = []
     allocators = 0
     packages = set()
@@ -147,7 +147,7 @@ def _binary(log, source, target, graph):
             raise ValueError("local zero-host input escaped its subject")
         if info["name"] in required:
             name = info["name"]
-            expected_manifest = source / (HOST if host else "rca-core") / "Cargo.toml"
+            expected_manifest = source / (HOST if host else "crates/rca-core") / "Cargo.toml"
             if (manifest != expected_manifest or Path(info["src_path"]) != required[name]
                     or info["kind"] != (["test"] if host else ["lib"]) or row["features"] != FEATURES):
                 raise ValueError("zero host compiled the wrong source or features")

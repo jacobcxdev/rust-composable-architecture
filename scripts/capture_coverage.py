@@ -40,12 +40,12 @@ class CaptureGroup:
 
 TARGETS = {
     "core-minimal": CaptureGroup(
-        "rca-core", "rca-core", "rca_core", frozenset({"local"}),
+        "rca-core", "crates/rca-core", "rca_core", frozenset({"local"}),
         ("--no-default-features", "--features", "local"),
         ("store_actor", "local_store", "command_port", "removed_child", "local_removed_child"),
     ),
     "core-rich": CaptureGroup(
-        "rca-core", "rca-core", "rca_core",
+        "rca-core", "crates/rca-core", "rca_core",
         frozenset({"default", "diagnostics", "futures-stream", "local", "test-util"}),
         ("--features", "diagnostics,futures-stream,local,test-util"),
         ("structural_diagnostics", "mount_acquisition", "local_mount",
@@ -54,14 +54,14 @@ TARGETS = {
          "owned_case_path", "keyed_iterator_contracts"),
     ),
     "core-removal": CaptureGroup(
-        "rca-core", "rca-core", "rca_core",
+        "rca-core", "crates/rca-core", "rca_core",
         frozenset({"default", "diagnostics", "futures-stream", "local", "test-util"}),
         ("--features", "diagnostics,futures-stream,local,test-util"),
         ("removed_child", "local_removed_child", "stack_removed_child", "local_stack_removed_child",
          "missing_children", "ephemeral"), include_library=False,
     ),
     "core-timers-rich": CaptureGroup(
-        "rca-core", "rca-core", "rca_core",
+        "rca-core", "crates/rca-core", "rca_core",
         frozenset({"default", "diagnostics", "futures-stream", "local", "test-util"}),
         ("--features", "diagnostics,futures-stream,local,test-util"),
         ("timers", "local_clock_timer", "named_operation_timers", "typed_transactions",
@@ -70,20 +70,20 @@ TARGETS = {
          "lifecycle_registration_window", "listener_registration_window"), include_library=False,
     ),
     "core-timers-minimal": CaptureGroup(
-        "rca-core", "rca-core", "rca_core", frozenset({"local"}),
+        "rca-core", "crates/rca-core", "rca_core", frozenset({"local"}),
         ("--no-default-features", "--features", "local"),
         ("timers", "local_clock_timer", "named_operation_timers", "typed_transactions"),
         include_library=False,
     ),
     "core-reactions": CaptureGroup(
-        "rca-core", "rca-core", "rca_core",
+        "rca-core", "crates/rca-core", "rca_core",
         frozenset({"default", "diagnostics", "futures-stream", "local", "test-util"}),
         ("--features", "diagnostics,futures-stream,local,test-util"),
         ("changed_reactions", "stack", "keyed", "keyed_batch_position", "shared_update", "on_change"),
         include_library=False,
     ),
     "core-fold-commands": CaptureGroup(
-        "rca-core", "rca-core", "rca_core",
+        "rca-core", "crates/rca-core", "rca_core",
         frozenset({"default", "diagnostics", "futures-stream", "local", "test-util"}),
         ("--features", "diagnostics,futures-stream,local,test-util"),
         ("fold_local", "fold_gate", "fold_shape", "fold_terminal", "fold_selector_close",
@@ -93,7 +93,7 @@ TARGETS = {
         include_library=False,
     ),
     "core-observation-operations": CaptureGroup(
-        "rca-core", "rca-core", "rca_core",
+        "rca-core", "crates/rca-core", "rca_core",
         frozenset({"default", "diagnostics", "futures-stream", "local", "test-util"}),
         ("--features", "diagnostics,futures-stream,local,test-util"),
         ("observation", "observation_adapters", "observation_scope_lifecycle",
@@ -102,14 +102,14 @@ TARGETS = {
          "captured_graph", "owned_snapshot"), include_library=False,
     ),
     "core-terminal": CaptureGroup(
-        "rca-core", "rca-core", "rca_core",
+        "rca-core", "crates/rca-core", "rca_core",
         frozenset({"default", "diagnostics", "futures-stream", "local", "test-util"}),
         ("--features", "diagnostics,futures-stream,local,test-util"),
         ("clock_fixtures", "store_actor", "local_store", "effects", "terminal_unwind",
          "lifecycle", "error_contracts", "debounce_throttle", "effect_send_lifetime"), include_library=False,
     ),
     "core-services": CaptureGroup(
-        "rca-core", "rca-core", "rca_core",
+        "rca-core", "crates/rca-core", "rca_core",
         frozenset({"default", "diagnostics", "futures-stream", "local", "test-util"}),
         ("--features", "diagnostics,futures-stream,local,test-util"),
         ("dependency_defaults", "dependency_preparation", "issue_operations", "issue_contexts",
@@ -118,13 +118,13 @@ TARGETS = {
         include_library=False,
     ),
     "macros": CaptureGroup(
-        "rca-macros", "rca-macros", "rca_macros", frozenset(),
+        "rca-macros", "crates/rca-macros", "rca_macros", frozenset(),
         ("-p", "rust-composable-architecture", "--features", "rust-composable-architecture/macros"),
         ("action_paths", "aggregate_paths", "case_descriptors", "dependency_client",
          "derive_dependency_key", "reducer", "reducers", "snapshot_owned"),
     ),
     "test-store": CaptureGroup(
-        "rca-test", "rca-test", "rca_test", frozenset({"local"}),
+        "rca-test", "crates/rca-test", "rca_test", frozenset({"local"}),
         ("--features", "local"),
         # Compiler-contract and intentional panic-process hosts have separate qualification.
         ("absolute_scheduling", "action_task_guard", "actor_cooperative_budget", "admission_ownership_contracts",
@@ -149,14 +149,14 @@ TARGETS = {
          "typed_transactions"),
     ),
     "persistence-file": CaptureGroup(
-        "rca-persistence", "rca-persistence", "rca_persistence", frozenset({"default", "file"}),
+        "rca-persistence", "crates/rca-persistence", "rca_persistence", frozenset({"default", "file"}),
         ("--features", "file"),
         ("document", "file", "shared_document_session_replacement",
          "shared_document", "shared_key_cache", "shared_subscription", "staged_restoration",
          "shared_quiescence", "subscription_ownership_contracts"),
     ),
     "tokio": CaptureGroup(
-        "rca-tokio", "rca-tokio", "rca_tokio", frozenset(), (),
+        "rca-tokio", "crates/rca-tokio", "rca_tokio", frozenset(), (),
         ("async_cleanup_host", "client_clock", "panic_subprocess",
          "synchronous_host", "thread_affine_host"),
     ),
@@ -302,7 +302,7 @@ def parse_artifacts(text, root, target, group):
         expected[selected.library] = selected.directory, selected.features, kind
     if group == "macros":
         # Compile both public facades against the same instrumented proc-macro library.
-        expected["rust_composable_architecture"] = "rust-composable-architecture", {"default", "macros"}, ["lib"]
+        expected["rust_composable_architecture"] = "crates/rust-composable-architecture", {"default", "macros"}, ["lib"]
     hosts = {}
     for line in text.splitlines():
         record = json.loads(line)
@@ -341,8 +341,8 @@ def parse_macro_object(text, root, target):
     if len(filenames) != 1:
         raise ValueError("Expected one proc-macro dynamic object path")
     path = Path(filenames[0])
-    if (record.get("manifest_path") != str(root / "rca-macros/Cargo.toml")
-            or not record.get("package_id", "").startswith(f"path+file://{root / 'rca-macros'}#")
+    if (record.get("manifest_path") != str(root / "crates/rca-macros/Cargo.toml")
+            or not record.get("package_id", "").startswith(f"path+file://{root / 'crates/rca-macros'}#")
             or record.get("features") != [] or record.get("fresh") is not False
             or record.get("profile", {}).get("test") is not False
             or record.get("target", {}).get("kind") != ["proc-macro"]
@@ -361,7 +361,7 @@ MACRO_ENTRIES = ("derive_snapshot", "reducer", "derive_case_descriptors",
 
 def validate_macro_entries(data, root):
     """Require a positive owned region in each compiler-stage macro entry body."""
-    source = str(root / "rca-macros/src/lib.rs")
+    source = str(root / "crates/rca-macros/src/lib.rs")
     functions = [function for group in data.get("data", []) for function in group.get("functions", [])]
     for entry in MACRO_ENTRIES:
         suffix = f"_10rca_macros{len(entry)}{entry}"
@@ -666,7 +666,7 @@ def capture(root, group, output):
             if not profiles or set(build_raw.iterdir()) != set(profiles) or any(path.is_symlink() for path in profiles):
                 raise ValueError("Missing or unexpected compiler-stage profiles")
             write_json(macro / "raw-sha256.json", {path.name: digest(path) for path in profiles})
-            package = root / "rca-macros"
+            package = root / "crates/rca-macros"
             run_command([str(tools["llvm-profdata"]), "merge", "-sparse", *map(str, profiles),
                          "-o", str(macro / "build.profdata")], package, env, macro / "merge", 120)
             run_command([str(tools["llvm-cov"]), "export", "-format=text",

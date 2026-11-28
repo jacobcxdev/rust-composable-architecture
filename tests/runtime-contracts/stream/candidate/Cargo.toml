@@ -31,7 +31,7 @@ required-features = ["allocation-measurement"]
 
 [dependencies]
 dhat = { version = "=0.3.3", optional = true }
-rca-core = { path = "../../../../rca-core" }
-rca-tokio = { path = "../../../../rca-tokio" }
+rca-core = { path = "../../../../crates/rca-core" }
+rca-tokio = { path = "../../../../crates/rca-tokio" }
 tokio = { version = "1.53.3", features = ["rt", "time"] }
 futures = "0.3"

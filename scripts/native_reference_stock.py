@@ -13,8 +13,8 @@ from release_baseline import require_baseline
 
 provider = windows_provider()
 PRODUCTS = ("native-normal", "native-allocation", "deterministic-normal", "deterministic-allocation")
-WORKLOAD = {"harness_sha256": "rca-tokio/benches/qualification.rs",
-            "harness_module_sha256": "rca-tokio/benches/qualification/shutdown.rs",
+WORKLOAD = {"harness_sha256": "crates/rca-tokio/benches/qualification.rs",
+            "harness_module_sha256": "crates/rca-tokio/benches/qualification/shutdown.rs",
             "scenario_manifest_sha256": "benches/performance/scenarios.txt"}
 HOST_FIELDS = ("system", "os", "machine_model", "cpu", "hostname", "python", "python_executable", "logical_cpus")
 

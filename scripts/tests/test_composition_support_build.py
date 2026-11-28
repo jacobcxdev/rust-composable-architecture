@@ -62,8 +62,8 @@ class PreparationTests(unittest.TestCase):
                 path = self.target / name
                 path.write_bytes(name.encode())
                 items.append({"reason":"compiler-artifact", "fresh":False, "package_id":"path+file:///rca-core",
-                              "manifest_path":str(source / "rca-core/Cargo.toml"), "features":["default"],
-                              "target":{"name":name, "kind":["bench"], "src_path":str(source / f"rca-core/benches/{name}.rs")},
+                              "manifest_path":str(source / "crates/rca-core/Cargo.toml"), "features":["default"],
+                              "target":{"name":name, "kind":["bench"], "src_path":str(source / f"crates/rca-core/benches/{name}.rs")},
                               "profile":dict(support.PROFILE), "filenames":[str(path)], "executable":str(path)})
             if self.damage:
                 self.damage(items)

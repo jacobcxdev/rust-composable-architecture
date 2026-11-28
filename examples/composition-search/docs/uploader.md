@@ -55,7 +55,7 @@ Neither path undoes the upload request.
 The worker also has a typed command. It does not wrap that command in a root action.
 The upload test expects progress with `receive_update` and the final receipt with
 `receive_output`.
-The separate [command tests](../../../rca-test/tests/command_frontier.rs) cover
+The separate [command tests](../../../crates/rca-test/tests/command_frontier.rs) cover
 `mount_with_children`, `command_port` and `receive_command` on Shared and Local
 TestStores.
 

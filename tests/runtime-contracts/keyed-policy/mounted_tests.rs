@@ -7,7 +7,7 @@ use std::process::Command;
     reason = "only bounded capture is needed from the shared allocation child support"
 )]
 mod subprocess {
-    include!("../../../rca-core/src/allocation_test/child.rs");
+    include!("../../../crates/rca-core/src/allocation_test/child.rs");
 
     /// Captures one direct child with bounded output and a fifteen-second deadline.
     ///

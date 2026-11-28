@@ -8,8 +8,8 @@ import tomllib
 
 
 def check(metadata):
-    root = Path(metadata["workspace_root"])
-    macros = root / "rca-macros" / "Cargo.toml"
+    crates = Path(metadata["workspace_root"]) / "crates"
+    macros = crates / "rca-macros" / "Cargo.toml"
     packages = {package["id"]: package for package in metadata["packages"]}
     allowed = {"rca": "rca-core", "rca-test": "rca-test"}
     for node in metadata["resolve"]["nodes"]:
@@ -30,8 +30,8 @@ def check(metadata):
                 if (owner["source"] is None and Path(owner["manifest_path"]) == macros
                         and owner["name"] == "rca-macros" and allowed.get(alias) == dep["name"]
                         and dep["kind"] == "dev" and dep["target"] is None and dep["source"] is None
-                        and dep.get("path") == str(root / dep["name"])
-                        and Path(target["manifest_path"]) == root / dep["name"] / "Cargo.toml"):
+                        and dep.get("path") == str(crates / dep["name"])
+                        and Path(target["manifest_path"]) == crates / dep["name"] / "Cargo.toml"):
                     # Metadata reports both an omitted version and an explicit `*` as `*`.
                     with macros.open("rb") as source:
                         declared = tomllib.load(source)["dev-dependencies"][alias]

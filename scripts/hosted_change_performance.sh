@@ -22,7 +22,8 @@ case "${1:-}" in
             [[ "$PERF_BASE_TIP" =~ ^[0-9a-f]{40}$ ]]
             changed_from=$(git merge-base "$PERF_BASE_TIP" "$PERF_HEAD")
             # A metadata-only or snapshot-preview base has no RCA runtime to measure.
-            if git cat-file -e "$changed_from:rca-core/Cargo.toml" 2>/dev/null; then
+            if git cat-file -e "$changed_from:crates/rca-core/Cargo.toml" 2>/dev/null ||
+                git cat-file -e "$changed_from:rca-core/Cargo.toml" 2>/dev/null; then
                 comparison="$changed_from"
             fi
         elif [[ "${PERF_PREVIOUS:-}" =~ ^[0-9a-f]{40}$ ]] &&
@@ -69,9 +70,10 @@ case "${1:-}" in
         git archive --format=tar --output="$archive" "$comparison" -- . ":(exclude)$fixture/src"
         tar -xf "$archive" -C "$base_source"
         # The profiler is the common downstream consumer, not the product.
-        git archive --format=tar --output="$archive" HEAD -- "$fixture/src" "$fixture/Cargo.toml"
+        git archive --format=tar --output="$archive" HEAD -- "$fixture/src" "$fixture/Cargo.toml" "$fixture/tests/support/mod.rs"
         tar -xf "$archive" -C "$base_source"
         diff -qr "$fixture/src" "$base_source/$fixture/src"
+        python3 scripts/stage_profile_layout.py "$base_source"
         # Apply the consumer's dependency list without importing a single
         # dependency version from the candidate into the baseline.
         python3 - "$fixture/Cargo.lock" "$base_source/$fixture/Cargo.lock" <<'PY'
@@ -129,6 +131,7 @@ PY
             sha256sum "$binary" "$consumer/Cargo.lock" > "$result/$role.sha256"
             if [[ "$role" == baseline ]]; then baseline_bin="$binary"; fi
         done
+        python3 scripts/stage_profile_layout.py "$base_source" --check
         cmp "$result/baseline-consumer-features.json" "$result/candidate-consumer-features.json"
         status=0
         python3 scripts/compare_change_resources.py --baseline-bin "$baseline_bin" --candidate-bin "$binary" \

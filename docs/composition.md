@@ -33,8 +33,8 @@ An `EntryMount` can instead construct a separate Feature instance for each entry
 Choose that form for per-instance captures or installed capabilities, not merely
 because the application has multiple children.
 
-The [keyed policy tests](../rca-test/tests/keyed_policy.rs) show the shared-reducer
-choice. The [installed roster tests](../rca-core/tests/fold_keyed.rs) show separate
+The [keyed policy tests](../crates/rca-test/tests/keyed_policy.rs) show the shared-reducer
+choice. The [installed roster tests](../crates/rca-core/tests/fold_keyed.rs) show separate
 entry instances, retained order and replacement.
 
 ## Contracts
@@ -185,7 +185,7 @@ structural scopes remain isolated.
 
 A direct, unprovenanced child action sent to absent optional, case, or keyed
 state is a programming error handled by
-[`MissingChildPolicy`](../rca-core/src/composition/missing_child.rs). The default
+[`MissingChildPolicy`](../crates/rca-core/src/composition/missing_child.rs). The default
 `ReportAndBase` reports one required `rca.missing_child` issue with
 `IssueSeverity::Error`, skips the child, and reduces the base (parent) once,
 but only after diagnostic delivery is accepted.
@@ -217,7 +217,7 @@ before reducer entry instead of triggering a missing-child diagnostic.
 
 A queued output from an old child generation is different: the Store rejects
 it before reducer entry, without a missing-child issue or base reduction, and
-remains usable. The [policy tests](../rca-test/tests/missing_children.rs) cover
+remains usable. The [policy tests](../crates/rca-test/tests/missing_children.rs) cover
 both direct missing-child input and stale output.
 
 ## Ordered keyed state
@@ -248,7 +248,7 @@ The shared reducer reads and updates the selected child's values, so policy
 changes remain visible to exhaustive state assertions. Reinsert fresh child
 state to reset those values; removing and reinserting an ID retires that entry's
 effects without cancelling siblings. The executable
-`rca-test/tests/keyed_policy.rs` example qualifies this
+`crates/rca-test/tests/keyed_policy.rs` example qualifies this
 pattern with distinct sequence policies and delayed outputs. It does not provide
 per-entry reducer objects or arbitrary heterogeneous reducer types.
 
@@ -350,7 +350,7 @@ let reducer = combine((scope(counter_state, counter_action, Counter), App));
 let _: &dyn Reducer<State = AppState, Action = AppAction> = &reducer;
 ```
 
-The [required-child doctest](../rca-core/src/composition/scope.rs) shows the parent reading state after the child updates it.
+The [required-child doctest](../crates/rca-core/src/composition/scope.rs) shows the parent reading state after the child updates it.
 The shared deterministic, Tokio current-thread, and Tokio multi-thread
 conformance scenario additionally proves a non-Clone input is borrowed by both
 reducers and a child-owned effect output is mapped back into the parent.
@@ -444,4 +444,4 @@ responsibilities. State mutation stays serial within each Store.
 
 Performance measurements need matching workloads, source revisions and host
 conditions. Historical local timings do not qualify a later release.
-See the [qualification summary](qualification.md) for the current evidence boundary.
+See the [qualification summary](maintainers/qualification.md) for the current evidence boundary.

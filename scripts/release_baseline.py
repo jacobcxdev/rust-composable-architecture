@@ -137,7 +137,7 @@ def checked_history(tags, full, pending=None):
 
 def published_release(number, tags, history):
     release = signed_release(*tags[number])
-    if not git("ls-tree", release.revision, "--", "rca-core/Cargo.toml"):
+    if not git("ls-tree", release.revision, "--", "crates/rca-core/Cargo.toml"):
         raise ValueError("published tag has no runtime package")
 
     def check(name):

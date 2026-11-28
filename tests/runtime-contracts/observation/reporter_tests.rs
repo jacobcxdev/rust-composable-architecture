@@ -10,7 +10,7 @@ use child::command_output;
     reason = "reporter checks reuse bounded capture with their own execution deadline"
 )]
 mod child {
-    include!("../../../rca-core/src/allocation_test/child.rs");
+    include!("../../../crates/rca-core/src/allocation_test/child.rs");
 
     /// Bounds reporter execution and output, excluding compilation time.
     pub(super) fn command_output(command: &mut Command) -> Output {

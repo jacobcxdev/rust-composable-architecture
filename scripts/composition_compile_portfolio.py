@@ -180,9 +180,9 @@ def _units(log, stage, source, target, shared, graph, *, standalone=False):
         units.add(key)
         if row["fresh"]:
             reused.add(key)
-    required = {source / "rca-core/Cargo.toml", source / "benches/compile/support/Cargo.toml"}
+    required = {source / "crates/rca-core/Cargo.toml", source / "benches/compile/support/Cargo.toml"}
     if stage == "composed-macro":
-        required.update((source / "rca/Cargo.toml", source / "rca-macros/Cargo.toml"))
+        required.update((source / "crates/rca/Cargo.toml", source / "crates/rca-macros/Cargo.toml"))
     if root_count != 1 or not required <= manifests or packages != graph or (not cold and reused != shared):
         raise ValueError("compile portfolio source, root or shared units differ")
     return units

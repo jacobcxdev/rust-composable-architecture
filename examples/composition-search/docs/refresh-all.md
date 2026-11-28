@@ -1,6 +1,6 @@
 # Refresh a captured recipient group
 
-The test in [`rca-test/tests/refresh_all.rs`](../../../rca-test/tests/refresh_all.rs)
+The test in [`crates/rca-test/tests/refresh_all.rs`](../../../crates/rca-test/tests/refresh_all.rs)
 sends one document version to a fixed list of recipients.
 Each recipient exposes a `CommandPort<Refresh>`. One full mailbox must not prevent
 delivery to another recipient.
@@ -68,14 +68,14 @@ The parent uses a public `TestStore`. The child Stores use the production
 implementation on deterministic test hosts.
 
 The Shared test covers completion at commit. The
-[command-frontier tests](../../../rca-test/tests/command_frontier.rs) cover child
+[command-frontier tests](../../../crates/rca-test/tests/command_frontier.rs) cover child
 commands on Shared and Local TestStores.
 They exercise `mount_with_children`, `command_port` and `receive_command`.
 Shared TestStore also supports `mount_with_command` for a root-declared command.
 
 The example in [`session-refresh.md`](session-refresh.md) distinguishes a captured
 client from a later read of the current service.
-The tests in [`command_port.rs`](../../../rca-core/tests/command_port.rs) cover
+The tests in [`command_port.rs`](../../../crates/rca-core/tests/command_port.rs) cover
 command ownership and capacity.
 Their `finite_fanout` module joins a captured list of accepted `ActionTask`s,
 including an empty list.

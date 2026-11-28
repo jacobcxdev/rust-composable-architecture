@@ -4,7 +4,7 @@ If an operation belongs to the session that admitted it, keep its owned client.
 If the operation needs the current service, read it from state. This read does not
 change a client that the task already captured.
 
-The [session-client test](../../../rca-test/tests/session_client_refresh.rs) uses root
+The [session-client test](../../../crates/rca-test/tests/session_client_refresh.rs) uses root
 Feature inputs and task updates.
 It is an integration test, not a standalone binary or an API that replaces
 dependencies.
@@ -89,7 +89,7 @@ rollback.
 If external writes must arrive in order, the application needs a backend protocol or
 explicit serial execution.
 The
-[persistence coordination test](../../../rca-test/tests/persistence_coordination.rs)
+[persistence coordination test](../../../crates/rca-test/tests/persistence_coordination.rs)
 illustrates another policy: one save at a time, with later edits combined.
 
 ## Assert every committed response
@@ -108,7 +108,7 @@ independent backends and response controls.
 Clones share the same backend. The test completes one backend while the other still
 awaits a reply.
 
-The [mounted-provider test](../../../rca-core/tests/feature_provider_handover.rs)
+The [mounted-provider test](../../../crates/rca-core/tests/feature_provider_handover.rs)
 covers client ownership, subscription release and stale access after retirement.
 The [uploader](uploader.md) covers policy reads after a wait, progress, owned output
 and same-ID replacement.

@@ -32,9 +32,9 @@ source mutations. Immutable shared values are acceptable when later edits use
 copy-on-write rather than shared mutation.
 
 The [snapshot guide](../snapshot-derive.md) explains capture, omission and
-redaction. The [owned-snapshot tests](../../rca-test/tests/owned_snapshots.rs)
+redaction. The [owned-snapshot tests](../../crates/rca-test/tests/owned_snapshots.rs)
 show projected history and separate capture expectations. The
-[move-only test](../../rca-test/tests/test_store.rs) shows a scalar projection.
+[move-only test](../../crates/rca-test/tests/test_store.rs) shows a scalar projection.
 An omitted field is not tested automatically. Resource release and external
 effects need their own assertions. Snapshot coverage is not a code-coverage metric.
 
@@ -49,7 +49,7 @@ If the expected result changes it, use `send_with` or `receive_with`. Their
 closure edits an independent expected snapshot, not production state. Fields
 that the closure leaves unchanged must also remain unchanged in production.
 
-The [basic TestStore tests](../../rca-test/tests/test_store.rs) define `Feature`,
+The [basic TestStore tests](../../crates/rca-test/tests/test_store.rs) define `Feature`,
 `State` and `Action` for this sequence:
 
 ```rust
@@ -88,7 +88,7 @@ Use `receive_update` for that update, even if the new state equals the old state
 If declared capture values also change, use the method's `*_with_captures` variant.
 
 If a pending task update is cancelled before it runs, there is no state change to receive.
-The [cancellation tests](../../rca-test/tests/terminal_frontier.rs) check the reason instead.
+The [cancellation tests](../../crates/rca-test/tests/terminal_frontier.rs) check the reason instead.
 This extract starts after the task submits its update:
 
 ```rust
@@ -105,7 +105,7 @@ store
 
 `pending_boundary` identifies one pending operation in this TestStore. The token neither keeps the operation alive nor acknowledges it.
 `receive_terminal` checks the actual error for that operation. A token from another Store cannot match.
-For a rejected output, use `receive_output_terminal` to also match its declaration. See the [method contracts](../../rca-test/src/store/api.rs).
+For a rejected output, use `receive_output_terminal` to also match its declaration. See the [method contracts](../../crates/rca-test/src/store/api.rs).
 
 Mount declarations do not construct children during `build`.
 `receive_structural` lets the startup transaction run, including its initial hooks.
@@ -133,8 +133,8 @@ and it cannot skip structural installation.
 
 Focused methods retain production errors, earlier failed assertions and final
 completion requirements. They do not wait for real I/O or advance virtual time.
-The [focused receive tests](../../rca-test/tests/focused_receiving.rs) and
-[focused output tests](../../rca-test/tests/focused_outputs.rs) cover these differences.
+The [focused receive tests](../../crates/rca-test/tests/focused_receiving.rs) and
+[focused output tests](../../crates/rca-test/tests/focused_outputs.rs) cover these differences.
 
 ## Make dependencies and progress explicit
 
@@ -147,12 +147,12 @@ An explicitly injected live client can still perform real I/O.
 If a client must share this TestStore's clock, use `with_clock_dependency`.
 The builder constructs the client after it creates the deterministic runtime.
 Advancing this clock does not advance an unrelated Tokio timer or wall clock.
-The [client-clock tests](../../rca-test/tests/client_clock.rs) include a wrong-clock control.
+The [client-clock tests](../../crates/rca-test/tests/client_clock.rs) include a wrong-clock control.
 
 If an action already waits for an assertion, receive it before calling `advance`.
 Otherwise, `advance` can reach its target time while a newly due action still waits for `receive`.
 The assertion pauses the action, not the clock.
-In the [virtual-time test](../../rca-test/tests/test_store.rs), a response is due at one second.
+In the [virtual-time test](../../crates/rca-test/tests/test_store.rs), a response is due at one second.
 After a single ten-second advance, the clock reads ten seconds before the test receives the response.
 If an intermediate clock reading matters, advance to that deadline first.
 Release controlled request or stream endpoints explicitly before expecting

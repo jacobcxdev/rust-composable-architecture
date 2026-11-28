@@ -75,7 +75,7 @@ def prepared_runtime(metadata, source, cargo):
     if len(rows) != 2 or rows.count(normal) != 1 or normal["target"]["name"] != "qualification" or len(runtime) != 1:
         raise ValueError("expected two freshly compiled sibling benchmarks")
     row = runtime[0]
-    package = source / "rca-tokio"
+    package = source / "crates/rca-tokio"
     executable = Path(row["executable"])
     sibling = Path(normal["executable"])
     release = next((p for p in sibling.parents if p.name == "release"), None)
@@ -182,8 +182,8 @@ def validate_inputs(source, manifest_path, metadata_path, tools_path, normal, al
     verify_source(source, manifest)
     if (manifest.get("Cargo.lock") != metadata["candidate"]["lock_sha256"]
             or manifest.get("Cargo.toml") != metadata["candidate"]["manifest_sha256"]
-            or manifest.get("rca-tokio/benches/qualification.rs") != metadata["harness_sha256"]
-            or manifest.get("rca-tokio/benches/qualification/shutdown.rs") != metadata["harness_module_sha256"]
+            or manifest.get("crates/rca-tokio/benches/qualification.rs") != metadata["harness_sha256"]
+            or manifest.get("crates/rca-tokio/benches/qualification/shutdown.rs") != metadata["harness_module_sha256"]
             or manifest.get("benches/performance/scenarios.txt") != metadata["scenario_manifest_sha256"]):
         raise ValueError("staged workspace differs from the qualification build inputs")
     for name, path in (("candidate_normal", normal), ("candidate_allocation", allocation)):

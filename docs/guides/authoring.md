@@ -43,7 +43,7 @@ one atomic update across both states.
 
 ## 1. Choose the host and ownership model
 
-Start with the [facade features](../../rca/Cargo.toml) and
+Start with the [facade features](../../crates/rca/Cargo.toml) and
 [support policy](../support.md). Default features are empty. Select `tokio` for
 the Tokio adapter, `test-util` for deterministic tests, and other features only
 when needed. Persistence is a separate `rca-persistence` dependency.
@@ -118,7 +118,7 @@ The same rule applies to `local::Reducer` and `local::Feature`.
 
 The [search example](../../examples/search/src/main.rs) demonstrates action-based
 effects. The [two-task search](../../examples/composition-search/docs/named-operations.md)
-demonstrates typed tasks. The [paired tests](../../rca-test/tests/legacy_feature_compatibility.rs)
+demonstrates typed tasks. The [paired tests](../../crates/rca-test/tests/legacy_feature_compatibility.rs)
 exercise both forms through the same constructors, including cancellation and
 late-result rejection. Typed task updates need their own TestStore assertions,
 not fabricated response actions.
@@ -172,12 +172,12 @@ Resolve an owned client or future before leaving synchronous reduction. Do not
 capture a borrowed reducer context across an await. Captured clients stay captured;
 they do not refresh automatically. Use an actor-ordered read when current State
 is required. If policy must hold at commit, inspect it inside the update closure,
-not in an earlier separate read. The [session refresh tests](../../rca-test/tests/session_client_refresh.rs)
+not in an earlier separate read. The [session refresh tests](../../crates/rca-test/tests/session_client_refresh.rs)
 distinguish captured clients, current services and request identity.
 
 Use the Store runtime's clock for clients whose deadlines must follow that Store.
 TestStore creates its deterministic runtime during `build`. Its existing
-[clock-injection doctest](../../rca-test/src/store.rs) uses this builder extract:
+[clock-injection doctest](../../crates/rca-test/src/store.rs) uses this builder extract:
 
 ```rust
 let store = TestStore::builder((), Feature)
@@ -220,7 +220,7 @@ State changes; plain `send` and `receive` assert unchanged State. Receive actual
 effect actions and use the matching methods for task updates, outputs and mounted
 inputs. Do not manually send a fabricated response in place of real client work.
 
-For focused scenarios, [`receive_until`](../../rca-test/src/store/focused.rs)
+For focused scenarios, [`receive_until`](../../crates/rca-test/src/store/focused.rs)
 executes earlier transactions, then runs the matched action and checks its expected
 changes. `receive_until_with_captures` adds capture expectations, while
 `receive_omitting` runs one transaction with no change assertions. These calls adopt
@@ -233,7 +233,7 @@ external progress.
 
 Use controlled clients and explicit virtual-time advancement instead of sleeps.
 Assert pending work before releasing a response, then assert its committed outcome.
-Finish the Store explicitly. The [basic TestStore cases](../../rca-test/tests/test_store.rs)
+Finish the Store explicitly. The [basic TestStore cases](../../crates/rca-test/tests/test_store.rs)
 show pending receives, mismatches, bounded driving and cleanup.
 
 For move-only State, use an independent comparable projection. An `Rc<RefCell<_>>`

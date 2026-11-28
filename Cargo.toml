@@ -4,13 +4,13 @@ members = [
     "dependencies/rca-event-listener",
     "dependencies/rca-event-listener-strategy",
     "dependencies/rca-async-channel",
-    "rca",
-    "rca-core",
-    "rca-macros",
-    "rca-persistence",
-    "rca-test",
-    "rca-tokio",
-    "rust-composable-architecture",
+    "crates/rca",
+    "crates/rca-core",
+    "crates/rca-macros",
+    "crates/rca-persistence",
+    "crates/rca-test",
+    "crates/rca-tokio",
+    "crates/rust-composable-architecture",
     "examples/composition-search",
     "examples/persistent-counter",
     "tests/size-probe",
@@ -26,9 +26,9 @@ keywords = ["architecture", "state-management", "unidirectional", "async"]
 categories = ["asynchronous", "rust-patterns"]
 
 [workspace.dependencies]
-rca-core = { path = "rca-core", version = "=0.1.0" }
-rca-test = { path = "rca-test", version = "=0.1.0" }
-rca-persistence = { path = "rca-persistence", version = "=0.1.0" }
+rca-core = { path = "crates/rca-core", version = "=0.1.0" }
+rca-test = { path = "crates/rca-test", version = "=0.1.0" }
+rca-persistence = { path = "crates/rca-persistence", version = "=0.1.0" }
 async-channel = { package = "rca-async-channel", path = "dependencies/rca-async-channel", version = "=0.1.0" }
 concurrent-queue = "2.5.0"
 event-listener = { package = "rca-event-listener", path = "dependencies/rca-event-listener", version = "=0.1.0" }

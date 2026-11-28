@@ -36,7 +36,10 @@ class ReleaseBaselineTests(unittest.TestCase):
         if args[0] == "show" and args[1].endswith(":Cargo.lock"):
             return b"original lock"
         if args[0] == "ls-tree":
-            return b"" if args[1] == baseline.PREVIEW_COMMIT else b"runtime manifest"
+            if args[1] == baseline.PREVIEW_COMMIT:
+                self.assertEqual(args[2:], ("--", "rca-core"))
+                return b""
+            return b"runtime manifest" if args[2:] == ("--", "crates/rca-core/Cargo.toml") else b""
         if args[0] in ("verify-commit", "merge-base"):
             return b""
         self.fail(args)

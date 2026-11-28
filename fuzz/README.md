@@ -2,7 +2,7 @@
 
 A child can leave a collection while it still has work in flight. If another child takes the same key, an old sender must not reach it.
 
-The [fuzz target](fuzz_targets/keyed_lifecycle.rs) runs generated actions against a real Store and an [independent model](../rca-core/tests/support/keyed_model.rs).
+The [fuzz target](fuzz_targets/keyed_lifecycle.rs) runs generated actions against a real Store and an [independent model](../crates/rca-core/tests/support/keyed_model.rs).
 After each action, it compares child order, values, accepted outputs, commit counts, and active tasks. At shutdown, every outstanding task must finish.
 Each input describes at most 512 operations on eight keys. This standalone package is not part of a normal RCA build.
 
@@ -53,5 +53,5 @@ Keep generated inputs and logs outside Git. See the [Rust Fuzz Book](https://rus
 ## Why one target?
 
 Keyed child lifetimes combine collection edits, effect senders, and cancellation. A long sequence can expose a defect that a single operation cannot.
-Other boundaries have different tests: [property tests](../rca-core/tests/scoped_properties.rs) generate scoped operations, and [Loom tests](../rca-core/tests/loom.rs) explore competing thread schedules.
+Other boundaries have different tests: [property tests](../crates/rca-core/tests/scoped_properties.rs) generate scoped operations, and [Loom tests](../crates/rca-core/tests/loom.rs) explore competing thread schedules.
 Add a fuzz target when it has a distinct input space and an independent way to tell right from wrong.

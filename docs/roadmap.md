@@ -17,7 +17,7 @@ This is planned work, not a release requirement. The [support policy](support.md
 ## Model checks: child lifetimes first
 
 Removing a child ends its [lifetime](composition.md#lifecycle-composition), even if a replacement has the same ID.
-A [Store test](../rca-test/tests/shared_keyed_composition.rs) puts an old result behind a replacement in the mailbox.
+A [Store test](../crates/rca-test/tests/shared_keyed_composition.rs) puts an old result behind a replacement in the mailbox.
 The Store rejects the old result before reduction. The replacement can still commit new work.
 This test covers a particular event order. It does not prove that every possible order is safe.
 
@@ -27,7 +27,7 @@ The Store must reject the old result and deliver the fresh one. The expected out
 This check tests delivery order. It does not prove that every task eventually finishes.
 
 Application authors own their domain rules and the mapping between model events and application actions.
-For a worker limit, [`Effect::future`](../rca-core/tests/direct_future.rs) drops the completed future before it delivers the result.
+For a worker limit, [`Effect::future`](../crates/rca-core/tests/direct_future.rs) drops the completed future before it delivers the result.
 That order matters when processing the result can start another worker.
 For a storage guarantee, an [action commit](receipt-lifetimes.md) does not prove that a database saved the change.
 Use the database result for that claim.

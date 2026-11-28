@@ -11,7 +11,7 @@ import native_release_reference
 
 
 POLICY = Path(__file__).resolve().parents[1] / "benches/performance/composition-windows-complete.json"
-V6_POLICY_SHA256 = "ed88a33b3f67a1735d4e4f5b1e7723280b25b8fe2712403a2bcf93f37b32bf9d"
+V6_POLICY_SHA256 = "0702f76a633c118107dfdb56bd1f692a68db1747496c1ce2d65d487c186f13ec"
 V6_METHOD = "composition-windows-complete-v6"
 
 
@@ -396,8 +396,8 @@ def _read_experimental_mode(directory, mode, sha):
                                   for n in absolute.BINARY_NAMES[:4]]),
         ("binary-tokio-build", [("rca-example-composition-search", "bin", "examples/composition-search/src/main.rs")]),
         ("binary-app-test-build", [("app", "test", "examples/composition-search/tests/app.rs")]),
-        ("allocation-build", [("composition", "bench", "rca-core/benches/composition.rs")]),
-        ("zero-build", [("composition_zero", "test", "rca-core/tests/composition_qualification/main.rs")]),
+        ("allocation-build", [("composition", "bench", "crates/rca-core/benches/composition.rs")]),
+        ("zero-build", [("composition_zero", "test", "crates/rca-core/tests/composition_qualification/main.rs")]),
     ):
         _verified_cargo_products(_retained(raw, f"{log}.jsonl"), root, products,
                                  allocating=True if log in ("allocation-build", "zero-build") else None)

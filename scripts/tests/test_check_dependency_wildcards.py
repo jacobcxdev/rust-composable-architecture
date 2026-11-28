@@ -10,19 +10,20 @@ class DependencyWildcardTests(unittest.TestCase):
         directory = tempfile.TemporaryDirectory()
         self.addCleanup(directory.cleanup)
         self.root = Path(directory.name)
-        self.manifest = self.root / "rca-macros" / "Cargo.toml"
-        self.manifest.parent.mkdir()
+        self.crates = self.root / "crates"
+        self.manifest = self.crates / "rca-macros" / "Cargo.toml"
+        self.manifest.parent.mkdir(parents=True)
         self.manifest.write_text('[dev-dependencies]\nrca = { package = "rca-core", path = "../rca-core" }\n'
                                  'rca-test = { path = "../rca-test" }\n')
 
     def graph(self, *, alias="rca", name="rca-core", owner="rca-macros", kind="dev",
               target=None, private=False, source=None, resolved=None, path=None, req="*"):
         dep = {"name": name, "rename": alias if alias != name else None, "req": req,
-               "source": source, "kind": kind, "target": target, "path": str(self.root / name)}
+               "source": source, "kind": kind, "target": target, "path": str(self.crates / name)}
         packages = [
-            {"name": owner, "id": "owner", "source": None, "manifest_path": str(self.root / owner / "Cargo.toml"),
+            {"name": owner, "id": "owner", "source": None, "manifest_path": str(self.crates / owner / "Cargo.toml"),
              "publish": [] if private else None, "dependencies": [dep]},
-            {"name": name, "id": "dependency", "source": resolved, "manifest_path": str((path or self.root / name) / "Cargo.toml")},
+            {"name": name, "id": "dependency", "source": resolved, "manifest_path": str((path or self.crates / name) / "Cargo.toml")},
         ]
         edge = {"name": alias.replace("-", "_"), "pkg": "dependency", "dep_kinds": [{"kind": kind, "target": target}]}
         return {"workspace_root": str(self.root), "packages": packages,

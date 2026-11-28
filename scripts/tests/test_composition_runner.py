@@ -134,7 +134,7 @@ class RunnerTests(unittest.TestCase):
             archive = io.BytesIO()
             with tarfile.open(fileobj=archive, mode="w") as stream:
                 for name, data in (("bench.rs", b"old work"), ("product.rs", b"unchanged"),
-                                   ("rca-core/Cargo.toml", b"[package]\n")):
+                                   ("crates/rca-core/Cargo.toml", b"[package]\n")):
                     member = tarfile.TarInfo(name)
                     member.size = len(data)
                     stream.addfile(member, io.BytesIO(data))
@@ -150,7 +150,7 @@ class RunnerTests(unittest.TestCase):
             self.assertEqual((product / "product.rs").read_bytes(), b"unchanged")
             self.assertNotEqual(receipt["original"]["bench.rs"], receipt["effective"]["bench.rs"])
             self.assertEqual(receipt["original"]["product.rs"], receipt["effective"]["product.rs"])
-            self.assertNotEqual(receipt["original"]["rca-core/Cargo.toml"], receipt["effective"]["rca-core/Cargo.toml"])
+            self.assertNotEqual(receipt["original"]["crates/rca-core/Cargo.toml"], receipt["effective"]["crates/rca-core/Cargo.toml"])
             self.assertEqual(receipt["effective"], runner.source_hashes(product))
 
     def test_common_harness_rejects_unpinned_work_and_product_overlays(self):
@@ -166,7 +166,7 @@ class RunnerTests(unittest.TestCase):
                         "bench.rs": {"source": "workload.rs", "sha256": "0" * 64}})
                 with self.assertRaisesRegex(ValueError, "allowlist"):
                     runner.apply_common_harness(controller, product, {
-                        "rca-core/src/composition/scope.rs": {
+                        "crates/rca-core/src/composition/scope.rs": {
                             "source": "workload.rs", "sha256": evaluator._sha256(controller / "workload.rs")}})
             self.assertEqual(list(product.iterdir()), [])
 
@@ -847,8 +847,8 @@ class RunnerTests(unittest.TestCase):
                         "adapters": ["external-zero-host-v1"],
                     })
                 metadata.update(
-                    workload_sha256=protocol["common_workloads"]["files"]["rca-core/benches/composition.rs"]["sha256"],
-                    zero_host_sha256=protocol["common_workloads"]["files"]["rca-core/tests/composition_qualification/main.rs"]["sha256"],
+                    workload_sha256=protocol["common_workloads"]["files"]["crates/rca-core/benches/composition.rs"]["sha256"],
+                    zero_host_sha256=protocol["common_workloads"]["files"]["crates/rca-core/tests/composition_qualification/main.rs"]["sha256"],
                     workload_provenance={role: {
                         "original": workload_hashes,
                         "effective": {name: effective[name] for name in workload_hashes},

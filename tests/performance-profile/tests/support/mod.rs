@@ -7,7 +7,7 @@
     reason = "CLI hosts reuse capture, not the allocation-test selection helpers"
 )]
 mod child {
-    include!("../../../../rca-core/src/allocation_test/child.rs");
+    include!("../../../../crates/rca-core/src/allocation_test/child.rs");
 
     /// Captures bounded diagnostics and reaps the direct child before reader joins.
     pub(crate) fn output(command: &mut Command, timeout: Duration) -> Output {

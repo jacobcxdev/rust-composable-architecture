@@ -3,7 +3,7 @@
 /// Preserves the allocation control's original test name and child marker.
 const CASES: &[(&str, fn())] = allocations::tests::CASES;
 
-include!("../../../rca-core/src/allocation_test/runner.rs");
+include!("../../../crates/rca-core/src/allocation_test/runner.rs");
 
 fn main() -> std::process::ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
