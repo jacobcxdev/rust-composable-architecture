@@ -1,7 +1,9 @@
 target/
 **/Cargo.lock
 !/Cargo.lock
-!/rca-core/tests/fixtures/rc07-owned-snapshot/Cargo.lock
+!/fuzz/Cargo.lock
+!/crates/rca-core/tests/fixtures/rc07-owned-snapshot/Cargo.lock
+!/crates/rca-macros/tests/fixtures/**/Cargo.lock
 .idea
 
 .claude/settings.local.json

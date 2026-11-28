@@ -1,0 +1,3 @@
+# Resolver input only: Cargo aliases may also be Rust keywords.
+[dependencies]
+type = { package = "rust-composable-architecture", version = "0.1" }

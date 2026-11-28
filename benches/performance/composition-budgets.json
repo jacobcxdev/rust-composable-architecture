@@ -1,0 +1,236 @@
+{
+  "schema_version": 3,
+  "rows": [
+    {
+      "scenario": "runtime/direct/1",
+      "measured_statistic": "median_of_process_medians",
+      "units": "nanoseconds_per_batch",
+      "workload_source": "crates/rca-core/benches/composition.rs",
+      "absolute_budget": null
+    },
+    {
+      "scenario": "runtime/nonmatching_scope/16",
+      "measured_statistic": "median_of_process_medians",
+      "units": "nanoseconds_per_batch",
+      "workload_source": "crates/rca-core/benches/composition.rs",
+      "absolute_budget": null
+    },
+    {
+      "scenario": "runtime/combine_arity/4",
+      "measured_statistic": "median_of_process_medians",
+      "units": "nanoseconds_per_batch",
+      "workload_source": "crates/rca-core/benches/composition.rs",
+      "absolute_budget": null
+    },
+    {
+      "scenario": "runtime/keyed_matching_route/100000",
+      "measured_statistic": "median_of_process_medians",
+      "units": "nanoseconds_per_batch",
+      "workload_source": "crates/rca-core/benches/composition.rs",
+      "absolute_budget": null
+    },
+    {
+      "scenario": "runtime/effect_map_depth/16",
+      "measured_statistic": "median_of_process_medians",
+      "units": "nanoseconds_per_batch",
+      "workload_source": "crates/rca-core/benches/composition.rs",
+      "absolute_budget": null
+    },
+    {
+      "scenario": "runtime/descendant_cancellation/10000",
+      "measured_statistic": "median_of_process_medians",
+      "units": "nanoseconds_per_batch",
+      "workload_source": "crates/rca-core/benches/composition.rs",
+      "absolute_budget": null
+    },
+    {
+      "scenario": "runtime/scoped_concurrent_senders_32",
+      "measured_statistic": "median_of_process_medians",
+      "units": "nanoseconds_per_32_action_batch",
+      "workload_source": "crates/rca-core/benches/composition.rs",
+      "absolute_budget": null
+    },
+    {
+      "scenario": "runtime/scoped_concurrent_senders_32",
+      "measured_statistic": "median_throughput_across_processes",
+      "units": "actions_per_second",
+      "workload_source": "crates/rca-core/benches/composition.rs",
+      "absolute_budget": null
+    },
+    {
+      "scenario": "runtime/matching_scope/16",
+      "measured_statistic": "median_of_process_medians",
+      "units": "nanoseconds_per_batch",
+      "workload_source": "crates/rca-core/benches/composition.rs",
+      "absolute_budget": null
+    },
+    {
+      "scenario": "runtime/combine_arity/12",
+      "measured_statistic": "median_of_process_medians",
+      "units": "nanoseconds_per_batch",
+      "workload_source": "crates/rca-core/benches/composition.rs",
+      "absolute_budget": null
+    },
+    {
+      "scenario": "allocation/direct_warmed_synchronous",
+      "measured_statistic": "allocations",
+      "units": "allocations_per_operation",
+      "workload_source": "crates/rca-core/src/composition/scope.rs",
+      "absolute_budget": 0
+    },
+    {
+      "scenario": "allocation/required_scope_warmed_synchronous",
+      "measured_statistic": "allocations",
+      "units": "allocations_per_operation",
+      "workload_source": "crates/rca-core/src/composition/scope.rs",
+      "absolute_budget": 0
+    },
+    {
+      "scenario": "allocation/combine_empty_effect_arities_1_through_12",
+      "measured_statistic": "allocations",
+      "units": "allocations_per_operation",
+      "workload_source": "crates/rca-core/src/composition/combine.rs",
+      "absolute_budget": 0
+    },
+    {
+      "scenario": "allocation/effect_map_depth_16_outputs_1/allocations",
+      "measured_statistic": "allocations",
+      "units": "allocations_per_100_logical_operations",
+      "workload_source": "crates/rca-core/benches/composition.rs",
+      "absolute_budget": 6322
+    },
+    {
+      "scenario": "allocation/effect_map_depth_16_outputs_1/allocated_bytes",
+      "measured_statistic": "allocated_bytes",
+      "units": "bytes_per_100_logical_operations",
+      "workload_source": "crates/rca-core/benches/composition.rs",
+      "absolute_budget": 521612
+    },
+    {
+      "scenario": "allocation/keyed_initial_lineage_100000/allocations",
+      "measured_statistic": "allocations",
+      "units": "allocations_per_100000_logical_operations",
+      "workload_source": "crates/rca-core/benches/composition.rs",
+      "absolute_budget": 220090
+    },
+    {
+      "scenario": "allocation/keyed_initial_lineage_100000/allocated_bytes",
+      "measured_statistic": "allocated_bytes",
+      "units": "bytes_per_100000_logical_operations",
+      "workload_source": "crates/rca-core/benches/composition.rs",
+      "absolute_budget": 58354336
+    },
+    {
+      "scenario": "allocation/keyed_matching_route_100000/allocations",
+      "measured_statistic": "allocations",
+      "units": "allocations_per_50_logical_operations",
+      "workload_source": "crates/rca-core/benches/composition.rs",
+      "absolute_budget": 670
+    },
+    {
+      "scenario": "allocation/keyed_matching_route_100000/allocated_bytes",
+      "measured_statistic": "allocated_bytes",
+      "units": "bytes_per_50_logical_operations",
+      "workload_source": "crates/rca-core/benches/composition.rs",
+      "absolute_budget": 84269
+    },
+    {
+      "scenario": "allocation/descendant_task_creation_10000/allocations",
+      "measured_statistic": "allocations",
+      "units": "allocations_per_10000_logical_operations",
+      "workload_source": "crates/rca-core/benches/composition.rs",
+      "absolute_budget": 118971
+    },
+    {
+      "scenario": "allocation/descendant_task_creation_10000/allocated_bytes",
+      "measured_statistic": "allocated_bytes",
+      "units": "bytes_per_10000_logical_operations",
+      "workload_source": "crates/rca-core/benches/composition.rs",
+      "absolute_budget": 11808162
+    },
+    {
+      "scenario": "allocation/scoped_concurrent_senders_32/allocations",
+      "measured_statistic": "allocations",
+      "units": "allocations_per_32_logical_operations",
+      "workload_source": "crates/rca-core/benches/composition.rs",
+      "absolute_budget": 504
+    },
+    {
+      "scenario": "allocation/scoped_concurrent_senders_32/allocated_bytes",
+      "measured_statistic": "allocated_bytes",
+      "units": "bytes_per_32_logical_operations",
+      "workload_source": "crates/rca-core/benches/composition.rs",
+      "absolute_budget": 63088
+    },
+    {
+      "scenario": "compile/direct/clean",
+      "measured_statistic": "median_elapsed",
+      "units": "seconds",
+      "workload_source": "benches/compile/direct/src/main.rs",
+      "absolute_budget": null
+    },
+    {
+      "scenario": "compile/composed-manual/clean",
+      "measured_statistic": "median_elapsed",
+      "units": "seconds",
+      "workload_source": "benches/compile/composed-manual/src/main.rs",
+      "absolute_budget": null
+    },
+    {
+      "scenario": "compile/composed-macro/clean",
+      "measured_statistic": "median_elapsed",
+      "units": "seconds",
+      "workload_source": "benches/compile/composed-macro/src/main.rs",
+      "absolute_budget": null
+    },
+    {
+      "scenario": "compile/scoped/clean",
+      "measured_statistic": "median_elapsed",
+      "units": "seconds",
+      "workload_source": "benches/compile/scoped/src/main.rs",
+      "absolute_budget": null
+    },
+    {
+      "scenario": "binary/direct",
+      "measured_statistic": "stripped_file_size",
+      "units": "bytes",
+      "workload_source": "benches/compile/direct/src/main.rs",
+      "absolute_budget": null
+    },
+    {
+      "scenario": "binary/composed-manual",
+      "measured_statistic": "stripped_file_size",
+      "units": "bytes",
+      "workload_source": "benches/compile/composed-manual/src/main.rs",
+      "absolute_budget": null
+    },
+    {
+      "scenario": "binary/composed-macro",
+      "measured_statistic": "stripped_file_size",
+      "units": "bytes",
+      "workload_source": "benches/compile/composed-macro/src/main.rs",
+      "absolute_budget": null
+    },
+    {
+      "scenario": "binary/scoped",
+      "measured_statistic": "stripped_file_size",
+      "units": "bytes",
+      "workload_source": "benches/compile/scoped/src/main.rs",
+      "absolute_budget": null
+    },
+    {
+      "scenario": "binary/deterministic-composition-test",
+      "measured_statistic": "stripped_file_size",
+      "units": "bytes",
+      "workload_source": "examples/composition-search/tests/app.rs",
+      "absolute_budget": null
+    },
+    {
+      "scenario": "binary/tokio-application",
+      "measured_statistic": "stripped_file_size",
+      "units": "bytes",
+      "workload_source": "examples/composition-search/src/main.rs",
+      "absolute_budget": null
+    }
+  ]
+}

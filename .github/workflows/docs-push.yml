@@ -1,0 +1,13 @@
+name: Documentation Push
+
+on: push
+
+permissions: {}
+
+jobs:
+    notify:
+        if: ${{ !github.event.deleted && !github.event.repository.fork }}
+        runs-on: ubuntu-24.04
+        steps:
+            - name: Notify the default-branch documentation workflow
+              run: 'true'

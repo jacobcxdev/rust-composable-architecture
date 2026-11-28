@@ -1,0 +1,31 @@
+error[E0521]: borrowed data escapes outside of closure
+ --> tests/ui/rc09_removed_escape.rs
+  |
+  |           |_, removed, context| {
+  |               -------
+  |               |
+  |               `removed` is only valid in the closure body
+  |               has type `rca_core::RemovedChild<'1, u32>`
+  |               context.task(Task::run(move |_| async move {
+  |  __________________________^
+  | |                 drop(removed);
+  | |             }));
+  | |              ^
+  | |              |
+  | |______________`removed` escapes the closure body here
+  |                argument requires that `'1` must outlive `'static`
+  |
+note: `'static` lifetime requirement from `rca_core::Task::<S, A>::run` introduced here
+ --> src/store/task_context.rs
+  |
+  | impl<S: 'static, A: 'static> Task<S, A> {
+  |         ^^^^^^^     ^^^^^^^ lifetime requirement introduced here
+  |         |
+  |         lifetime requirement introduced here
+...
+  |     pub fn run<F, Fut>(run: F) -> Self
+  |     where
+  |         F: FnOnce(TaskContext<S, A>) -> Fut + Send + 'static,
+  |                                                      ^^^^^^^ lifetime requirement introduced here
+  |         Fut: Future<Output = ()> + Send + 'static,
+  |                                           ^^^^^^^ lifetime requirement introduced here

@@ -1,0 +1,5 @@
+error: ActionPaths variants `ChildState` and `Child_State` both produce path constructor `child_state`
+  --> tests/ui/action_paths/fail_method_collision.rs:12:5
+   |
+12 |     Child_State(u8),
+   |     ^^^^^^^^^^^

@@ -1,0 +1,1036 @@
+name: CI
+run-name: ${{ github.event_name == 'pull_request' && format('PR {0} against {1}', github.event.number, github.event.pull_request.base.sha) || format('{0} {1}', github.event_name, github.ref_name) }}
+
+on:
+    push:
+        branches: ["main", "dev/next"]
+        tags: ["*"]
+    pull_request:
+        branches: ["main", "dev/next"]
+    workflow_dispatch:
+
+concurrency:
+    group: ci-${{ github.workflow }}-${{ github.ref }}
+    cancel-in-progress: true
+
+permissions:
+    contents: read
+
+env:
+    CARGO_TERM_COLOR: always
+    RUST_BACKTRACE: 1
+
+jobs:
+    scope:
+        uses: ./.github/workflows/change-scope.yml
+        permissions:
+            contents: read
+            actions: read
+        with:
+            workflow: ci.yml
+
+    documentation:
+        name: Documentation and agent skills
+        runs-on: ubuntu-24.04
+        steps:
+            - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+            - name: Install the pinned Markdown link checker
+              run: |
+                  curl --fail --location --silent --show-error --retry 3 \
+                      https://github.com/lycheeverse/lychee/releases/download/lychee-v0.24.2/lychee-x86_64-unknown-linux-musl.tar.gz -o "$RUNNER_TEMP/lychee.tar.gz"
+                  echo "73657a111819a30c47c08352896796f23d64e4eb2b3ed39b6d32149241566fc5  $RUNNER_TEMP/lychee.tar.gz" | sha256sum --check --status
+                  tar -xzf "$RUNNER_TEMP/lychee.tar.gz" -C "$RUNNER_TEMP" lychee-x86_64-unknown-linux-musl/lychee
+                  echo "$RUNNER_TEMP/lychee-x86_64-unknown-linux-musl" >> "$GITHUB_PATH"
+            - run: ruby scripts/check_public_guidance.rb
+            - run: python3 -B -m unittest scripts.tests.test_ci_scope scripts.tests.test_readme_quickstart scripts.tests.test_package_registry scripts.tests.test_check_release_tag
+            - name: Test documentation publication boundaries
+              run: |
+                  python3 -B -m unittest scripts.tests.test_documentation_workflow scripts.tests.test_prepare_public_docs \
+                      scripts.tests.test_build_doc_preview scripts.tests.test_resolve_doc_refs scripts.tests.test_reconcile_doc_refs
+
+    quality:
+        needs: scope
+        if: needs.scope.outputs.mode == 'full'
+        name: Stable quality gate
+        runs-on: ubuntu-24.04
+        steps:
+            - name: Checkout
+              uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+            - name: Install Rust 1.100.0
+              uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772
+              with:
+                  toolchain: 1.100.0
+                  components: clippy, rustfmt, rust-src
+
+            - name: Restore Cargo cache
+              uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+              with:
+                  cache-on-failure: true
+                  cache-all-crates: false
+
+            - name: Test formatting source selection
+              env:
+                  PYTHONDONTWRITEBYTECODE: 1
+              run: python3 -m unittest scripts.tests.test_check_rust_format
+
+            - name: Check all Rust source formatting
+              run: python3 scripts/check_rust_format.py
+
+            - name: Test documentation lint enforcement
+              env:
+                  PYTHONDONTWRITEBYTECODE: 1
+              run: python3 -m unittest scripts.tests.test_documentation_lints
+
+            - name: Test coverage capture boundaries
+              env:
+                  PYTHONDONTWRITEBYTECODE: 1
+              run: python3 -m unittest scripts.tests.test_capture_coverage scripts.tests.test_capture_macro_rejections
+
+            - name: Test performance evidence validation
+              env:
+                  PYTHONDONTWRITEBYTECODE: 1
+              run: |
+                  python3 -m unittest scripts.tests.test_performance_scope scripts.tests.test_compare_change_resources
+                  python3 -m unittest scripts.tests.test_release_baseline scripts.tests.test_runner_profile scripts.tests.test_composition_process_inputs
+                  python3 -m unittest scripts.tests.test_performance_cohort scripts.tests.test_performance_sources
+                  python3 -m unittest scripts.tests.test_controlled_cost
+                  python3 -m unittest scripts.tests.test_task_fold_profile
+                  python3 -m unittest scripts.tests.test_windows_performance scripts.tests.test_native_performance_comparison
+                  python3 -m unittest scripts.tests.test_windows_rank_capture scripts.tests.test_native_rank_evidence scripts.tests.test_native_odd_bounds
+                  python3 -m unittest scripts.tests.test_composition_performance.ProtocolEvidenceTests scripts.tests.test_composition_performance.AbsoluteBudgetTests scripts.tests.test_composition_performance.InterleavedProtocolTests
+                  python3 -m unittest scripts.tests.test_composition_performance.CurrentMacProtocolTests scripts.tests.test_composition_performance.MacWatchdogEvidenceTests scripts.tests.test_composition_performance.WindowsPairedProtocolTests scripts.tests.test_composition_windows_runner
+                  python3 -m unittest scripts.tests.test_composition_windows_absolute scripts.tests.test_composition_windows_complete scripts.tests.test_composition_windows_complete_runner scripts.tests.test_windows_support
+                  python3 -m unittest scripts.tests.test_composition_registry_seed scripts.tests.test_composition_support_build scripts.tests.test_composition_cold_timing scripts.tests.test_composition_first_look scripts.tests.test_composition_timing_inputs scripts.tests.test_composition_product_commands scripts.tests.test_composition_rank_capture scripts.tests.test_composition_rank_products
+                  python3 -m unittest scripts.tests.test_composition_subject scripts.tests.test_windows_performance_inputs
+                  PYTHONPATH=scripts/tests python3 -m unittest test_composition_compile_portfolio test_composition_pe_seed test_composition_zero_host test_native_allocation_counts test_composition_cancellation_exposure test_qualification_reference_cache test_composition_reference_sizes
+                  PYTHONPATH=scripts/tests python3 -m unittest test_composition_reference_allocations test_native_reference_enrol test_native_reference_stock
+                  python3 -m unittest scripts.tests.test_composition_runner.RunnerTests -k interleaved -k recorded_load -k busy_monitor -k prepared_modes -k candidate_cli -k absolute_capture -k registry_preparation -k test_host_
+
+            - name: Lint all targets and features
+              run: cargo clippy --keep-going --workspace --all-targets --all-features -- -D warnings
+
+            - name: Check standalone profiling tools
+              env:
+                  CARGO_TARGET_DIR: ${{ github.workspace }}/target
+                  CARGO_PROFILE_DEV_OPT_LEVEL: "0"
+                  CARGO_PROFILE_DEV_DEBUG: "0"
+                  CARGO_PROFILE_DEV_CODEGEN_UNITS: "256"
+                  CARGO_PROFILE_TEST_OPT_LEVEL: "0"
+                  CARGO_PROFILE_TEST_DEBUG: "0"
+                  CARGO_PROFILE_TEST_CODEGEN_UNITS: "256"
+              run: |
+                  cargo fetch --locked --manifest-path tests/performance-profile/Cargo.toml
+                  cargo clean --manifest-path tests/performance-profile/Cargo.toml --package rca-performance-profile
+                  cargo clippy --locked --manifest-path tests/performance-profile/Cargo.toml --all-targets -- -D warnings
+                  cargo clippy --locked --manifest-path tests/performance-profile/Cargo.toml --all-targets --features allocations -- -D warnings
+                  cargo test --locked --manifest-path tests/performance-profile/Cargo.toml --bin rca-performance-profile measurement:: -- --test-threads=1
+                  cargo test --locked --manifest-path tests/performance-profile/Cargo.toml --features allocations --bin rca-performance-profile measurement:: -- --test-threads=1
+                  cargo test --locked --manifest-path tests/performance-profile/Cargo.toml --bin controlled_cost --test controlled_cost_cli -- --test-threads=1
+                  cargo test --locked --manifest-path tests/performance-profile/Cargo.toml --features allocations --bin controlled_cost --test controlled_cost_cli -- --test-threads=1
+                  cargo clippy --locked --manifest-path tests/performance-profile/Cargo.toml --features task-fold --bin task_fold_cost --test task_fold_cost_cli -- -D warnings
+                  cargo test --locked --manifest-path tests/performance-profile/Cargo.toml --features task-fold --bin task_fold_cost --test task_fold_cost_cli -- --test-threads=1
+                  cargo test --locked --manifest-path tests/performance-profile/Cargo.toml --features task-fold --test controlled_cost_cli -- --test-threads=1
+                  cargo clippy --locked --manifest-path tests/performance-profile/Cargo.toml --features task-fold-groups --bin task_fold_cost --test task_fold_cost_cli -- -D warnings
+                  cargo test --locked --manifest-path tests/performance-profile/Cargo.toml --features task-fold-groups --bin task_fold_cost --test task_fold_cost_cli -- --test-threads=1
+                  cargo clippy --locked --manifest-path tests/performance-profile/Cargo.toml --features task-fold-controlled --bin task_fold_cost --test task_fold_cost_cli -- -D warnings
+                  cargo test --locked --manifest-path tests/performance-profile/Cargo.toml --features task-fold-controlled --bin task_fold_cost --test task_fold_cost_cli -- --test-threads=1
+                  cargo clippy --locked --manifest-path tests/performance-profile/Cargo.toml --features task-fold-controlled,task-fold-groups --bin task_fold_cost --test task_fold_cost_cli -- -D warnings
+                  cargo test --locked --manifest-path tests/performance-profile/Cargo.toml --features task-fold-controlled,task-fold-groups --bin task_fold_cost --test task_fold_cost_cli -- --test-threads=1
+                  # Filter execution here; do not compile the full test images with native fat LTO.
+                  cargo test --locked --manifest-path tests/performance-profile/Cargo.toml --features deterministic,local --bin rca-performance-profile -- mixed_ --test-threads=1
+                  cargo test --locked --manifest-path tests/performance-profile/Cargo.toml --features deterministic,local,allocations --test allocation_controls -- mixed_ --test-threads=1
+
+            - name: Fetch consumer dependencies
+              id: consumer_dependencies
+              # These independent lockfiles can differ from the workspace lockfile.
+              # Download their dependencies before the tests run Cargo offline.
+              run: |
+                  cargo fetch --locked --manifest-path crates/rca-core/tests/fixtures/modular-dependencies/Cargo.toml
+                  cargo fetch --locked --manifest-path crates/rca-core/tests/fixtures/rc07-owned-snapshot/Cargo.toml
+
+            - name: Verify legacy compiler contracts without Local
+              # Collect every target's diagnostics before the long workspace suite.
+              run: cargo test --locked -p rca-core --no-default-features --no-fail-fast --test compile --test typed_compile --test removal_compile
+
+            - name: Verify compiler contracts without Local
+              # A legacy snapshot mismatch must not hide this independent suite.
+              if: ${{ !cancelled() && steps.consumer_dependencies.outcome == 'success' }}
+              run: cargo test --locked -p rca-core -p rca-test --no-default-features --no-fail-fast --test compiler_contracts -- --check
+
+            - name: Verify legacy compiler contracts with Local
+              # Include-file expectations differ from the minimal-feature cases.
+              if: ${{ !cancelled() && steps.consumer_dependencies.outcome == 'success' }}
+              run: cargo test --locked -p rca-core --all-features --no-fail-fast --test compile --test typed_compile --test removal_compile
+
+            - name: Stress composition reference models
+              if: ${{ !cancelled() && steps.consumer_dependencies.outcome == 'success' }}
+              timeout-minutes: 10
+              env:
+                  PROPTEST_CASES: 10000
+              run: cargo test --locked -p rca-core --features test-util --test lifecycle_properties --test keyed_properties --test scoped_properties
+
+            - name: Replay the keyed child lifetime seed
+              timeout-minutes: 10
+              env:
+                  CARGO_TARGET_DIR: ${{ github.workspace }}/target
+                  CARGO_PROFILE_DEV_DEBUG: "0"
+              run: cargo run --locked --manifest-path fuzz/Cargo.toml --bin keyed_lifecycle -- fuzz/seeds/keyed_lifecycle/reused-key
+
+            - name: Test documentation
+              if: ${{ !cancelled() && steps.consumer_dependencies.outcome == 'success' }}
+              run: cargo test --locked --workspace --all-features --no-fail-fast --doc
+
+            - name: Build documentation
+              if: ${{ !cancelled() && steps.consumer_dependencies.outcome == 'success' }}
+              env:
+                  RUSTDOCFLAGS: -D warnings
+              run: |
+                  cargo doc --locked -p futures-core --no-deps
+                  cargo doc --locked -p rca-event-listener --all-features --no-deps
+                  cargo doc --locked --workspace --lib --exclude 'rca-example-*' --exclude rca-size-probe --all-features --no-deps
+                  python3 scripts/prepare_public_docs.py target/doc
+
+            - name: Link workspace binaries with all features
+              # Normal builds do not use the test-only critical-section provider.
+              run: cargo build --locked --workspace --all-features --features critical-section/std
+
+            - name: Test workspace
+              # Earlier independent checks collect failures before this long suite.
+              run: cargo test --locked --workspace --all-features --no-fail-fast
+
+    coverage-evidence:
+        needs: scope
+        if: needs.scope.outputs.mode == 'full'
+        name: Coverage evidence (${{ matrix.group }})
+        runs-on: ubuntu-24.04
+        timeout-minutes: 90
+        strategy:
+            fail-fast: false
+            matrix:
+                group:
+                    - core-minimal
+                    - core-rich
+                    - core-removal
+                    - core-timers-rich
+                    - core-timers-minimal
+                    - core-reactions
+                    - core-fold-commands
+                    - core-observation-operations
+                    - core-terminal
+                    - core-services
+                    - macros
+                    - test-store
+                    - persistence-file
+                    - tokio
+                    - listener-std
+                    - listener-critical-section
+                    - listener-spin
+                    - listener-std-critical-section
+                    - strategy-std
+                    - channel-overflow-std
+                    - channel-overflow-nostd
+        env:
+            CARGO_BUILD_JOBS: 1
+            CARGO_INCREMENTAL: 0
+            CARGO_PROFILE_DEV_OPT_LEVEL: 0
+            CARGO_PROFILE_TEST_OPT_LEVEL: 0
+            CARGO_PROFILE_DEV_DEBUG: 0
+            CARGO_PROFILE_TEST_DEBUG: 0
+            CARGO_PROFILE_DEV_DEBUG_ASSERTIONS: true
+            CARGO_PROFILE_TEST_DEBUG_ASSERTIONS: true
+            CARGO_PROFILE_DEV_OVERFLOW_CHECKS: true
+            CARGO_PROFILE_TEST_OVERFLOW_CHECKS: true
+            RUSTC_BOOTSTRAP: 1
+            RUSTFLAGS: -C opt-level=s -C debuginfo=0 -C debug-assertions=yes -C overflow-checks=yes -C panic=unwind -C instrument-coverage -Z coverage-options=branch
+            PYTHONDONTWRITEBYTECODE: 1
+        steps:
+            - name: Checkout
+              uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+            - name: Install pinned coverage tools
+              uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772
+              with:
+                  toolchain: 1.100.0
+                  components: llvm-tools-preview, rust-src
+
+            - name: Restore instrumented dependencies
+              uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+              with:
+                  key: coverage-${{ matrix.group }}
+                  workspaces: . -> target/coverage/${{ matrix.group }}
+
+            - name: Reclaim unused hosted SDK if needed
+              shell: bash
+              run: |
+                  available=$(df --output=avail -B1 . | tail -n 1 | tr -d '[:space:]')
+                  if [[ ! "$available" =~ ^[0-9]+$ ]]; then
+                      echo "Invalid disk-space reading" >&2
+                      exit 1
+                  fi
+                  if (( 10#$available < 12 * 1024 * 1024 * 1024 )); then
+                      test "$RUNNER_ENVIRONMENT" = github-hosted
+                      test "$(readlink -f /usr/local/lib/android)" = /usr/local/lib/android
+                      du -sh /usr/local/lib/android
+                      sudo rm -rf -- /usr/local/lib/android
+                  fi
+                  df -h .
+
+            # Pure-Python capture tests run once in the required quality job.
+            # Each matrix job still runs the native capture and its guards.
+            - name: Capture native coverage evidence
+              env:
+                  COVERAGE_GROUP: ${{ matrix.group }}
+              run: python3 scripts/capture_coverage.py --group "$COVERAGE_GROUP" --output "target/coverage-evidence/$COVERAGE_GROUP"
+
+            - name: Retain complete or failed capture evidence
+              if: always()
+              uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+              with:
+                  name: coverage-${{ matrix.group }}-${{ github.run_id }}-${{ github.run_attempt }}
+                  path: target/coverage-evidence/${{ matrix.group }}/
+                  if-no-files-found: error
+                  retention-days: 7
+
+    runtime-contracts:
+        name: Runtime contracts
+        needs: scope
+        if: needs.scope.outputs.mode == 'full'
+        runs-on: ubuntu-24.04
+        timeout-minutes: 15
+        defaults:
+            run:
+                working-directory: tests/runtime-contracts
+        steps:
+            - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+            - uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772
+              with:
+                  toolchain: 1.100.0
+                  components: clippy, rustfmt
+            - name: Restore fixture dependencies
+              uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+              with:
+                  workspaces: |
+                      tests/runtime-contracts/counter/candidate
+                      tests/runtime-contracts/stream/candidate
+                      tests/runtime-contracts/timers/candidate
+                      tests/runtime-contracts/observation/candidate
+
+            - name: Check fixture formatting
+              run: |
+                  for fixture in counter stream timers observation; do
+                      cargo fmt --manifest-path "$fixture/candidate/Cargo.toml" --check
+                  done
+
+            - name: Lint runtime contracts
+              run: |
+                  cargo clippy --locked --manifest-path counter/candidate/Cargo.toml --all-targets -- -D warnings
+                  cargo clippy --locked --manifest-path counter/candidate/Cargo.toml --features allocation-measurement --all-targets -- -D warnings
+                  cargo clippy --locked --manifest-path stream/candidate/Cargo.toml --all-targets --all-features -- -D warnings
+                  cargo clippy --locked --manifest-path timers/candidate/Cargo.toml --all-targets -- -D warnings
+                  cargo clippy --locked --manifest-path observation/candidate/Cargo.toml --all-targets --all-features -- -D warnings
+
+            - name: Run runtime contracts
+              run: |
+                  cargo test --locked --manifest-path counter/candidate/Cargo.toml
+                  cargo test --locked --manifest-path stream/candidate/Cargo.toml
+                  cargo test --locked --manifest-path timers/candidate/Cargo.toml
+                  cargo test --locked --manifest-path observation/candidate/Cargo.toml --all-features
+
+            - name: Test allocation controls
+              run: |
+                  cargo test --locked --manifest-path counter/candidate/Cargo.toml --features allocation-measurement
+                  cargo test --locked --manifest-path stream/candidate/Cargo.toml --features allocation-measurement --test outcome --test ready_allocation_controls --test outcome_allocation_controls
+
+    keyed-contracts:
+        name: Keyed runtime contracts
+        needs: scope
+        if: needs.scope.outputs.mode == 'full'
+        runs-on: ubuntu-24.04
+        timeout-minutes: 10
+        defaults:
+            run:
+                working-directory: tests/runtime-contracts/keyed-policy/candidate
+        steps:
+            - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+            - uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772
+              with:
+                  toolchain: 1.100.0
+                  components: clippy, rustfmt
+            - name: Restore fixture dependencies
+              uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+              with:
+                  workspaces: tests/runtime-contracts/keyed-policy/candidate
+            - run: cargo fmt --check
+            - run: cargo clippy --locked --all-targets -- -D warnings
+            - run: cargo test --locked
+
+    feature-powerset:
+        needs: scope
+        if: needs.scope.outputs.mode == 'full'
+        name: Additive feature powerset
+        runs-on: ubuntu-24.04
+        # Feature combinations need distinct outputs, not incremental or debug data.
+        env:
+            CARGO_INCREMENTAL: "0"
+            CARGO_PROFILE_DEV_DEBUG: "0"
+            CARGO_PROFILE_TEST_DEBUG: "0"
+        steps:
+            - name: Checkout
+              uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+            - name: Install Rust 1.100.0
+              uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772
+              with:
+                  toolchain: 1.100.0
+                  components: clippy
+
+            - name: Install cargo-hack
+              uses: taiki-e/install-action@6cd13508893c0e7eab5f273c2575d3859bd7229a # v2.86.6
+              with:
+                  tool: cargo-hack@0.6.45
+
+            - name: Restore Cargo cache
+              uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+
+            # The size probe is binary-only; the following check still covers it.
+            # Normal libraries exclude cfg(test) bodies without hiding library APIs.
+            - name: Require public and private library documentation
+              run: cargo hack clippy --locked --workspace --exclude rca-size-probe --feature-powerset --lib -- -D warnings -D missing_docs -D clippy::missing_docs_in_private_items
+
+            - name: Check workspace powerset
+              run: cargo hack check --workspace --feature-powerset --no-dev-deps
+
+            - name: Test umbrella powerset
+              run: cargo hack test -p rca --feature-powerset
+
+            - name: Prove core dependency boundary
+              run: |
+                  cargo tree -p rca-core --no-default-features --edges normal > core-tree.txt
+                  if grep -Eq '(^| )((tokio)|(rca-test)|(rca-macros)|(rca-persistence)|(tempfile)|(insta)|(ui_test)|(trybuild)) v' core-tree.txt; then
+                      cat core-tree.txt
+                      exit 1
+                  fi
+                  cargo tree -p rca --no-default-features --edges normal > facade-tree.txt
+                  if grep -Eq '(^| )((tokio)|(rca-test)|(rca-macros)|(rca-persistence)|(tempfile)|(insta)|(ui_test)|(trybuild)) v' facade-tree.txt; then
+                      cat facade-tree.txt
+                      exit 1
+                  fi
+                  cargo tree -p rca-persistence --no-default-features --edges normal > persistence-tree.txt
+                  if grep -Eq '(^| )((tokio)|(tempfile)|(insta)) v' persistence-tree.txt; then
+                      cat persistence-tree.txt
+                      exit 1
+                  fi
+
+    targets:
+        needs: scope
+        if: needs.scope.outputs.mode == 'full'
+        name: ${{ matrix.target }}
+        runs-on: ${{ matrix.os }}
+        strategy:
+            fail-fast: false
+            matrix:
+                include:
+                    - os: ubuntu-24.04
+                      target: x86_64-unknown-linux-gnu
+                      tokio: true
+                      native: true
+                    - os: ubuntu-24.04-arm
+                      target: aarch64-unknown-linux-gnu
+                      tokio: true
+                      native: true
+                    - os: macos-26
+                      target: x86_64-apple-darwin
+                      tokio: true
+                      native: false
+                    - os: macos-26
+                      target: aarch64-apple-darwin
+                      tokio: true
+                      native: true
+                    - os: windows-2025
+                      target: x86_64-pc-windows-msvc
+                      tokio: true
+                      native: true
+                    - os: ubuntu-24.04
+                      target: wasm32-unknown-unknown
+                      tokio: false
+                      native: false
+        steps:
+            - name: Checkout
+              uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+            - name: Test macOS build memory protection
+              if: matrix.native && runner.os == 'macOS'
+              env:
+                  PYTHONDONTWRITEBYTECODE: 1
+              run: python3 -m unittest scripts.tests.test_guard_cargo_memory scripts.tests.test_guard_cached_cargo scripts.tests.test_composition_runner.RunnerTests -k guard -k telemetry -k monitored_process -k deadline
+
+            - name: Test Windows build memory protection
+              if: matrix.native && runner.os == 'Windows'
+              env:
+                  PYTHONDONTWRITEBYTECODE: 1
+              run: python -m unittest scripts.tests.test_windows_process
+
+            - name: Install Rust 1.100.0
+              uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772
+              with:
+                  toolchain: 1.100.0
+                  targets: ${{ matrix.target }}
+                  components: clippy
+
+            - name: Restore Cargo cache
+              uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+              with:
+                  key: ${{ matrix.target }}
+
+            - name: Check runtime-neutral core
+              run: cargo check --locked -p rca-core --no-default-features --target ${{ matrix.target }}
+
+            - name: Check runtime-neutral umbrella
+              run: cargo check --locked -p rca --no-default-features --target ${{ matrix.target }}
+
+            - name: Require runtime-neutral library documentation
+              run: cargo clippy --locked -p rca-core -p rca --no-default-features --lib --target ${{ matrix.target }} -- -D warnings -D missing_docs -D clippy::missing_docs_in_private_items
+
+            - name: Require owned transport library documentation
+              run: cargo clippy --locked -p rca-async-channel -p rca-event-listener -p rca-event-listener-strategy --lib --target ${{ matrix.target }} -- -D warnings -D missing_docs -D clippy::missing_docs_in_private_items
+
+            - name: Check Tokio adapter
+              if: matrix.tokio
+              run: cargo check --locked -p rca-tokio --target ${{ matrix.target }}
+
+            - name: Check Tokio umbrella
+              if: matrix.tokio
+              run: cargo check --locked -p rca --no-default-features --features tokio --target ${{ matrix.target }}
+
+            - name: Require Tokio library documentation
+              if: matrix.tokio
+              run: |
+                  cargo clippy --locked -p rca-tokio --lib --target ${{ matrix.target }} -- -D warnings -D missing_docs -D clippy::missing_docs_in_private_items
+                  cargo clippy --locked -p rca --no-default-features --features tokio --lib --target ${{ matrix.target }} -- -D warnings -D missing_docs -D clippy::missing_docs_in_private_items
+
+            - name: Require native persistence and test library documentation
+              if: matrix.tokio && matrix.native != false
+              run: |
+                  cargo clippy --locked -p rca-persistence --features file --lib --target ${{ matrix.target }} -- -D warnings -D missing_docs -D clippy::missing_docs_in_private_items
+                  cargo clippy --locked -p rca-test --lib --target ${{ matrix.target }} -- -D warnings -D missing_docs -D clippy::missing_docs_in_private_items
+
+            - name: Record native runtime host toolchain
+              if: matrix.tokio && matrix.native != false
+              run: |
+                  rustc --version --verbose
+                  cargo --version
+
+            - name: Run native Tokio and host conformance
+              if: matrix.tokio && matrix.native != false
+              timeout-minutes: 10
+              run: cargo test --locked -p rca-tokio --target ${{ matrix.target }} --lib --test synchronous_host --test thread_affine_host --test async_cleanup_host -- --test-threads=1
+
+            - name: Run native file persistence and client lifecycle
+              if: matrix.tokio && matrix.native != false
+              timeout-minutes: 10
+              run: cargo test --locked -p rca-example-persistent-counter --target ${{ matrix.target }} -- --test-threads=1
+
+            - name: Check native socket ownership
+              if: matrix.tokio && matrix.native != false
+              timeout-minutes: 10
+              run: cargo test --locked -p rca-tokio --target ${{ matrix.target }} --test socket_ownership -- --test-threads=1
+
+            - name: Run native deterministic conformance
+              if: matrix.tokio && matrix.native != false
+              timeout-minutes: 10
+              run: cargo test --locked -p rca-test --target ${{ matrix.target }} --test conformance_deterministic -- --test-threads=1
+
+            # This optional route builds public profiling tools; it does not run
+            # statistical benchmarks or upload private comparison sources.
+            - name: Validate optional profiling baseline
+              if: (matrix.target == 'aarch64-apple-darwin' || matrix.target == 'x86_64-unknown-linux-gnu') && vars.RCA_PROFILE_BASELINE != '' && vars.RCA_SKIP_PROFILE_BUILD != 'true'
+              shell: bash
+              env:
+                  PROFILE_BASELINE: ${{ vars.RCA_PROFILE_BASELINE }}
+              run: |
+                  [[ "$PROFILE_BASELINE" =~ ^[0-9a-f]{40}$ ]]
+                  df -h .
+                  available=$(df -Pk . | awk 'NR == 2 { print $4 }')
+                  [[ "$available" =~ ^[0-9]+$ ]]
+                  # Allow eight GiB for two isolated build trees and four GiB spare.
+                  (( available >= 12 * 1024 * 1024 ))
+
+            - name: Checkout exact profiling baseline
+              if: (matrix.target == 'aarch64-apple-darwin' || matrix.target == 'x86_64-unknown-linux-gnu') && vars.RCA_PROFILE_BASELINE != '' && vars.RCA_SKIP_PROFILE_BUILD != 'true'
+              uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+              with:
+                  ref: ${{ vars.RCA_PROFILE_BASELINE }}
+                  path: .ci-profile-baseline
+                  persist-credentials: false
+
+            - name: Restore isolated profiling dependency caches
+              if: (matrix.target == 'aarch64-apple-darwin' || matrix.target == 'x86_64-unknown-linux-gnu') && vars.RCA_PROFILE_BASELINE != '' && vars.RCA_SKIP_PROFILE_BUILD != 'true'
+              uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+              with:
+                  key: native-task-fold-${{ matrix.target }}
+                  cache-on-failure: true
+                  cache-all-crates: false
+                  workspaces: |
+                      tests/performance-profile -> ../../../rca-native-profile-candidate
+                      .ci-profile-baseline/tests/performance-profile -> ../../../../rca-native-profile-baseline
+
+            - name: Build native task and fold profiling tools
+              id: native_profile
+              if: (matrix.target == 'aarch64-apple-darwin' || matrix.target == 'x86_64-unknown-linux-gnu') && vars.RCA_PROFILE_BASELINE != '' && vars.RCA_SKIP_PROFILE_BUILD != 'true'
+              timeout-minutes: 40
+              shell: bash
+              env:
+                  PROFILE_BASELINE: ${{ vars.RCA_PROFILE_BASELINE }}
+                  CARGO_BUILD_JOBS: 1
+                  CARGO_INCREMENTAL: 0
+                  RUSTUP_TOOLCHAIN: 1.100.0
+                  PROFILE_SOURCE_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+                  PROFILE_TARGET: ${{ matrix.target }}
+              run: |
+                  set -euo pipefail
+                  root="$PWD"
+                  baseline="$root/.ci-profile-baseline"
+                  build_parent="$(dirname "$root")"
+                  output="$RUNNER_TEMP/task-fold-tools"
+                  mkdir "$output"
+                  test "$(git -C "$baseline" rev-parse HEAD)" = "$PROFILE_BASELINE"
+                  git diff --exit-code HEAD
+                  git -C "$baseline" diff --exit-code HEAD
+                  fixture=tests/performance-profile
+                  core=crates/rca-core
+                  if [[ ! -f "$baseline/$core/Cargo.toml" ]]; then core=rca-core; fi
+                  test -f "$baseline/$core/Cargo.toml"
+                  archive="$RUNNER_TEMP/task-fold-fixture.tar"
+                  git archive --output="$archive" HEAD -- "$fixture"
+                  tar -xf "$archive" -C "$baseline"
+                  rm -- "$archive"
+                  inputs=("$fixture")
+                  exclusions=(":!$fixture")
+                  for file in src/allocation_test/child.rs tests/named_operation_allocations.rs tests/fold_costs.rs tests/fold/local_driver.rs; do
+                      inputs+=("crates/rca-core/$file")
+                      exclusions+=(":!$core/$file")
+                      mkdir -p "$(dirname "$baseline/$core/$file")"
+                      cp "crates/rca-core/$file" "$baseline/$core/$file"
+                  done
+                  git ls-files -z -- "${inputs[@]}" | xargs -0 shasum -a 256 > "$output/harness.sha256"
+                  (cd "$baseline" && sed "s|  crates/rca-core/|  $core/|" "$output/harness.sha256" | shasum -a 256 -c -) > "$output/baseline-harness-check.txt"
+                  # Older references use different relative paths to the same workload inputs.
+                  python3 scripts/stage_profile_layout.py "$baseline"
+                  production_check() {
+                      python3 "$root/scripts/stage_profile_layout.py" "$baseline" --check
+                      git -C "$baseline" diff --exit-code HEAD -- . "${exclusions[@]}"
+                  }
+                  production_check
+                  git rev-parse HEAD 'HEAD^{tree}' > "$output/candidate-git.txt"
+                  printf '%s\n' "$PROFILE_SOURCE_HEAD" > "$output/candidate-source-head.txt"
+                  git -C "$baseline" rev-parse HEAD 'HEAD^{tree}' > "$output/baseline-git.txt"
+                  {
+                      rustc --version --verbose
+                      cargo --version --verbose
+                      uname -a
+                      if [[ "$RUNNER_OS" == macOS ]]; then
+                          sw_vers
+                          xcrun --show-sdk-version
+                          xcrun clang --version
+                      else
+                          ldd --version
+                          cc --version
+                      fi
+                      printf 'PROFILE_TARGET=%s\n' "$PROFILE_TARGET"
+                      printf 'CARGO_BUILD_JOBS=%s\nCARGO_INCREMENTAL=%s\nRUSTFLAGS=%s\n' "$CARGO_BUILD_JOBS" "$CARGO_INCREMENTAL" "${RUSTFLAGS-}"
+                  } > "$output/tools.txt"
+                  run_logged() {
+                      local label="$1"
+                      shift
+                      printf '%q ' "$@" > "$output/$label.command"
+                      printf '\n' >> "$output/$label.command"
+                      "$@" > "$output/$label.stdout" 2> "$output/$label.stderr" || {
+                          cat "$output/$label.stdout" "$output/$label.stderr"
+                          return 1
+                      }
+                  }
+                  retain_binary() {
+                      cp "$1" "$output/$2"
+                      (
+                          cd "$output"
+                          shasum -a 256 "$2" >> binaries.sha256
+                          wc -c "$2" >> binary-sizes.txt
+                          file "$2" >> binary-formats.txt
+                      )
+                  }
+                  # Hosted runners have their own memory allocation and timeout.
+                  # Local compilation continues to require the local watchdog.
+                  for role in baseline candidate; do
+                      source="$root"
+                      if [[ "$role" == baseline ]]; then source="$baseline"; fi
+                      export CARGO_TARGET_DIR="$build_parent/rca-native-profile-$role"
+                      printf '%s\n' "$CARGO_TARGET_DIR" > "$output/$role-target.txt"
+                      cd "$source"
+                      run_logged "$role-owned-clean" cargo clean --manifest-path tests/performance-profile/Cargo.toml --package rca-performance-profile --package rca-core --package rca-tokio
+                      run_logged "$role-cli" cargo test --locked --release --manifest-path tests/performance-profile/Cargo.toml --target "$PROFILE_TARGET" --features task-fold --bin task_fold_cost --test task_fold_cost_cli -- --test-threads=1
+                      if [[ "$RUNNER_OS" == macOS ]]; then
+                          run_logged "$role-task-allocations" cargo test --locked --release -p rca-core --features allocation-measurement,local --test named_operation_allocations -- typed_task_zero_and_one_name_costs --nocapture
+                          run_logged "$role-fold-allocations" cargo test --locked --release -p rca-core --features allocation-measurement,local --test fold_costs -- --nocapture
+                      fi
+                      run_logged "$role-build" cargo build --locked --release --manifest-path tests/performance-profile/Cargo.toml --target "$PROFILE_TARGET" --features task-fold --bin task_fold_cost
+                      retain_binary "$CARGO_TARGET_DIR/$PROFILE_TARGET/release/task_fold_cost" "$role-task-fold"
+                      if [[ "$RUNNER_OS" == Linux ]]; then
+                          run_logged "$role-controlled-cli" cargo test --locked --release --manifest-path tests/performance-profile/Cargo.toml --target "$PROFILE_TARGET" --features task-fold-controlled --bin task_fold_cost --test task_fold_cost_cli -- --test-threads=1
+                          run_logged "$role-controlled-build" cargo build --locked --release --manifest-path tests/performance-profile/Cargo.toml --target "$PROFILE_TARGET" --features task-fold-controlled --bin task_fold_cost
+                          retain_binary "$CARGO_TARGET_DIR/$PROFILE_TARGET/release/task_fold_cost" "$role-task-fold-controlled"
+                      fi
+                  done
+                  cd "$root"
+                  export CARGO_TARGET_DIR="$build_parent/rca-native-profile-candidate"
+                  run_logged candidate-groups-cli cargo test --locked --release --manifest-path tests/performance-profile/Cargo.toml --target "$PROFILE_TARGET" --features task-fold-groups --bin task_fold_cost --test task_fold_cost_cli -- --test-threads=1
+                  if [[ "$RUNNER_OS" == macOS ]]; then
+                      run_logged candidate-nested-allocations cargo test --locked --release -p rca-core --features allocation-measurement,local --test nested_task_allocations -- --nocapture
+                  fi
+                  run_logged candidate-groups-build cargo build --locked --release --manifest-path tests/performance-profile/Cargo.toml --target "$PROFILE_TARGET" --features task-fold-groups --bin task_fold_cost
+                  retain_binary "$CARGO_TARGET_DIR/$PROFILE_TARGET/release/task_fold_cost" candidate-task-fold-groups
+                  if [[ "$RUNNER_OS" == Linux ]]; then
+                      run_logged candidate-controlled-groups-cli cargo test --locked --release --manifest-path tests/performance-profile/Cargo.toml --target "$PROFILE_TARGET" --features task-fold-controlled,task-fold-groups --bin task_fold_cost --test task_fold_cost_cli -- --test-threads=1
+                      run_logged candidate-controlled-groups-build cargo build --locked --release --manifest-path tests/performance-profile/Cargo.toml --target "$PROFILE_TARGET" --features task-fold-controlled,task-fold-groups --bin task_fold_cost
+                      retain_binary "$CARGO_TARGET_DIR/$PROFILE_TARGET/release/task_fold_cost" candidate-task-fold-controlled-groups
+                  else
+                      # Fault-injection tests run in the required stable quality job.
+                      # Exercise these exact optimized images without another full test image.
+                      for role in baseline candidate; do
+                          source="$root"
+                          if [[ "$role" == baseline ]]; then source="$baseline"; fi
+                          export CARGO_TARGET_DIR="$build_parent/rca-native-profile-$role"
+                          cd "$source"
+                          for suffix in '' '-allocations'; do
+                              features=deterministic,local
+                              build_label="$role-mixed-build"
+                              if [[ -n "$suffix" ]]; then
+                                  features+=,allocations
+                                  build_label="$role-mixed-allocation-build"
+                              fi
+                              run_logged "$build_label" cargo build --locked --release --manifest-path tests/performance-profile/Cargo.toml --target "$PROFILE_TARGET" --features "$features" --bin rca-performance-profile
+                              binary="$output/$role-mixed-profile$suffix"
+                              retain_binary "$CARGO_TARGET_DIR/$PROFILE_TARGET/release/rca-performance-profile" "$role-mixed-profile$suffix"
+                              for carrier in shared local; do
+                                  for removal in ordered swap; do
+                                      run_logged "$role-mixed$suffix-$carrier-$removal" "$binary" "mixed-pool-$carrier-$removal" 1000 64
+                                  done
+                                  run_logged "$role-mixed$suffix-$carrier-service" "$binary" "mixed-service-$carrier-coalesced" 1 64
+                              done
+                          done
+                      done
+                  fi
+                  cd "$root"
+                  production_check
+                  git diff --exit-code HEAD
+                  cd "$output"
+                  printf 'All selected checks passed; allocation assays run only on macOS. No statistical benchmark ran.\n' > complete.txt
+
+            - name: Retain native task and fold tools
+              if: always() && (matrix.target == 'aarch64-apple-darwin' || matrix.target == 'x86_64-unknown-linux-gnu') && vars.RCA_PROFILE_BASELINE != '' && vars.RCA_SKIP_PROFILE_BUILD != 'true' && steps.native_profile.outcome != 'skipped'
+              uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+              with:
+                  name: native-task-fold-${{ matrix.target }}-${{ github.run_id }}-${{ github.run_attempt }}
+                  path: ${{ runner.temp }}/task-fold-tools/
+                  if-no-files-found: error
+                  retention-days: 7
+
+            - name: Verify native compiler diagnostics
+              if: matrix.native != false
+              timeout-minutes: 10
+              run: cargo test --locked -p rca-core -p rca-test --all-features --test compiler_contracts -- --check
+
+    task-fold-instructions:
+        name: Optional Task and fold instruction diagnostic
+        needs: targets
+        if: vars.RCA_PROFILE_BASELINE != '' && vars.RCA_SKIP_PROFILE_BUILD != 'true'
+        runs-on: ubuntu-24.04
+        timeout-minutes: 35
+        permissions:
+            contents: read
+            actions: read
+        env:
+            PROFILE_RUN: ${{ github.run_id }}
+            PROFILE_ATTEMPT: ${{ github.run_attempt }}
+            PROFILE_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+            PROFILE_BASELINE: ${{ vars.RCA_PROFILE_BASELINE }}
+            GH_TOKEN: ${{ github.token }}
+            GH_REPO: ${{ github.repository }}
+            PYTHONDONTWRITEBYTECODE: 1
+        steps:
+            - name: Checkout collector
+              uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+            - name: Test fixed-work and repeatability checks
+              run: python3 -m unittest scripts.tests.test_task_fold_profile scripts.tests.test_controlled_cost
+
+            - name: Fetch exact existing Linux tools
+              shell: bash
+              run: |
+                  set -euo pipefail
+                  [[ "$PROFILE_RUN" =~ ^[0-9]+$ ]]
+                  [[ "$PROFILE_ATTEMPT" =~ ^[1-9][0-9]*$ ]]
+                  [[ "$PROFILE_HEAD" =~ ^[0-9a-f]{40}$ ]]
+                  [[ "$PROFILE_BASELINE" =~ ^[0-9a-f]{40}$ ]]
+                  mkdir -p "$RUNNER_TEMP/task-fold-instructions/build"
+                  cd "$RUNNER_TEMP/task-fold-instructions"
+                  gh api "repos/$GH_REPO/actions/runs/$PROFILE_RUN" > build-run.json
+                  jq -e --arg head "$PROFILE_HEAD" '.head_sha == $head and .path == ".github/workflows/ci.yml"' build-run.json
+                  gh api "repos/$GH_REPO/contents/.github/workflows/ci.yml?ref=$PROFILE_HEAD" --jq '{path,sha}' > workflow-source.json
+                  gh api --paginate --slurp "repos/$GH_REPO/actions/runs/$PROFILE_RUN/artifacts" \
+                      | jq '{artifacts: [.[].artifacts[]]}' > artifacts.json
+                  jq -e --arg prefix "native-task-fold-x86_64-unknown-linux-gnu-$PROFILE_RUN-" \
+                      --argjson attempt "$PROFILE_ATTEMPT" '
+                      .artifacts as $all
+                      | [$all[] | select(.expired == false and (.name | startswith($prefix)))
+                          | (.name | ltrimstr($prefix)) as $suffix
+                          | select($suffix | test("^[1-9][0-9]*$"))
+                          | select(($suffix | tonumber) <= $attempt)
+                          | {attempt: ($suffix | tonumber), artifact: .}]
+                      | sort_by(.attempt) | last.artifact
+                      | select(. != null) as $selected
+                      | select([$all[] | select(.name == $selected.name)] | length == 1)
+                      | select($selected.id | type == "number" and . > 0 and floor == .)
+                      | select([$all[] | select(.id == $selected.id)] | length == 1)
+                      | $selected' artifacts.json > selected-artifact.json
+                  artifact=$(jq -er '.name' selected-artifact.json)
+                  gh run download "$PROFILE_RUN" --repo "$GH_REPO" --name "$artifact" --dir build
+                  chmod u+x build/baseline-task-fold-controlled build/candidate-task-fold-controlled
+
+            - name: Install instruction profiler
+              run: |
+                  sudo apt-get update -qq
+                  sudo apt-get install -y --no-install-recommends valgrind
+
+            # These are exact instruction diagnostics on already-built binaries.
+            # Native wall time, CPU saturation and energy remain separate gates.
+            - name: Require repeatability before comparing four common Task workloads
+              run: python3 scripts/profile_task_fold_cost.py "$RUNNER_TEMP/task-fold-instructions/build" "$PROFILE_HEAD" "$PROFILE_BASELINE" "$RUNNER_TEMP/task-fold-instructions/capture" --tasks-only
+
+            - name: Retain complete or failed instruction evidence
+              if: always()
+              uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+              with:
+                  name: task-fold-instructions-${{ github.run_id }}-${{ github.run_attempt }}
+                  path: |
+                      ${{ runner.temp }}/task-fold-instructions/*.json
+                      ${{ runner.temp }}/task-fold-instructions/build/*.txt
+                      ${{ runner.temp }}/task-fold-instructions/build/*.sha256
+                      ${{ runner.temp }}/task-fold-instructions/capture/
+                  if-no-files-found: error
+                  retention-days: 7
+
+    concurrency-model:
+        needs: scope
+        if: needs.scope.outputs.mode == 'full'
+        name: Loom concurrency model
+        runs-on: ubuntu-24.04
+        steps:
+            - name: Checkout
+              uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+            - name: Install Rust 1.100.0
+              uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772
+              with:
+                  toolchain: 1.100.0
+                  components: clippy
+
+            - name: Restore Cargo cache
+              uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+
+            - name: Require Loom listener library documentation
+              env:
+                  RUSTFLAGS: --cfg loom
+              run: cargo clippy --locked -p rca-event-listener --features loom --lib -- -D warnings -D missing_docs -D clippy::missing_docs_in_private_items
+
+            - name: Run Loom models
+              env:
+                  RUSTFLAGS: --cfg loom
+              run: |
+                  cargo test -p rca-core --test loom --release
+                  cargo test -p rca-core --lib control_wake_tests --release
+                  cargo test -p rca-core --lib finish_loom_tests --release
+                  cargo test -p rca-core --lib cancel_guard_loom_tests --release
+                  cargo test -p rca-core --lib store::mailbox::tests --release
+                  cargo test -p rca-test --lib host_teardown_tests --release
+
+    miri-shards:
+        needs: scope
+        if: needs.scope.outputs.mode == 'full'
+        name: Miri (${{ matrix.suite }})
+        runs-on: ubuntu-24.04
+        strategy:
+            fail-fast: false
+            matrix:
+                suite: [library, integration, composition]
+        steps:
+            - name: Checkout
+              uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+            - name: Install pinned nightly
+              uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772
+              with:
+                  toolchain: nightly-2026-08-23
+                  components: miri
+
+            - name: Restore Cargo cache
+              uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+              with:
+                  key: ${{ matrix.suite }}
+
+            - name: Run library and documentation tests under Miri
+              if: matrix.suite == 'library'
+              run: |
+                  rustup run nightly-2026-08-23 cargo miri test --locked -p rca-core --lib
+                  rustup run nightly-2026-08-23 cargo miri test --locked -p rca-core --doc
+
+            - name: Run integration tests under Miri
+              if: matrix.suite != 'library'
+              env:
+                  MIRI_SUITE: ${{ matrix.suite }}
+              # Ask Cargo which targets the original default command selects.
+              # A wildcard would select disabled feature-gated tests as well.
+              run: |
+                  graph=$(rustup run nightly-2026-08-23 cargo test --locked -Z unstable-options --unit-graph -p rca-core)
+                  targets=$(jq -er --arg suite "$MIRI_SUITE" '
+                      . as $graph | [.roots[] | $graph.units[.]] |
+                      if all(.[];
+                          (.mode == "test" and (.target.kind == ["lib"] or .target.kind == ["test"])) or
+                          (.mode == "doctest" and .target.kind == ["lib"]))
+                      then [.[] | select(.target.kind == ["test"]) | .target.name]
+                      else error("Miri shards do not cover every default Cargo target") end
+                      | if ([.[] | select(. == "composition_fixtures")] | length) != 1
+                        then error("Expected one default composition fixture target")
+                        elif $suite == "composition" then .[] | select(. == "composition_fixtures")
+                        elif $suite == "integration" then .[] | select(. != "composition_fixtures")
+                        else error("Unknown Miri integration shard") end
+                  ' <<< "$graph")
+                  arguments=()
+                  while IFS= read -r target; do
+                      arguments+=(--test "$target")
+                  done <<< "$targets"
+                  rustup run nightly-2026-08-23 cargo miri test --locked -p rca-core "${arguments[@]}"
+
+            - name: Run feature-gated composition properties under Miri
+              if: matrix.suite == 'library'
+              run: rustup run nightly-2026-08-23 cargo miri test --locked -p rca-core --features test-util --test lifecycle_properties --test keyed_properties --test scoped_properties
+
+    miri:
+        name: Miri runtime-neutral core
+        runs-on: ubuntu-24.04
+        needs: [scope, miri-shards]
+        if: always() && needs.scope.outputs.mode == 'full'
+        steps:
+            - name: Require every Miri shard
+              env:
+                  MIRI_RESULT: ${{ needs.miri-shards.result }}
+              run: test "$MIRI_RESULT" = success
+
+    supply-chain:
+        name: Dependency and licence policy
+        runs-on: ubuntu-24.04
+        steps:
+            - name: Checkout
+              uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+            - name: Install Rust 1.100.0
+              uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772
+              with:
+                  toolchain: 1.100.0
+
+            - name: Install supply-chain tools
+              uses: taiki-e/install-action@6cd13508893c0e7eab5f273c2575d3859bd7229a # v2.86.6
+              with:
+                  tool: cargo-audit@0.22.2,cargo-deny@0.20.2
+
+            - name: Audit vulnerabilities
+              run: cargo audit
+
+            - name: Enforce dependency policy
+              run: |
+                  python3 -B -m unittest scripts.tests.test_check_dependency_wildcards
+                  cargo metadata --locked --all-features --format-version 1 | python3 -B scripts/check_dependency_wildcards.py
+                  cargo deny check
+
+    unused-dependencies:
+        needs: scope
+        if: needs.scope.outputs.mode == 'full'
+        name: Unused dependencies
+        runs-on: ubuntu-24.04
+        steps:
+            - name: Checkout
+              uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+            - name: Install pinned nightly
+              uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772
+              with:
+                  toolchain: nightly-2026-08-23
+
+            - name: Install cargo-udeps
+              uses: taiki-e/install-action@6cd13508893c0e7eab5f273c2575d3859bd7229a # v2.86.6
+              with:
+                  tool: cargo-udeps@0.1.61
+
+            - name: Restore Cargo cache
+              uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+
+            - name: Find unused dependencies
+              run: |
+                  nightly_bin=$(dirname "$(rustup which --toolchain nightly-2026-08-23 cargo)")
+                  PATH="${nightly_bin}:${PATH}" cargo udeps --workspace --all-targets --all-features
+
+    packaged-downstream:
+        needs: scope
+        if: needs.scope.outputs.mode == 'full' || needs.scope.outputs.mode == 'readme'
+        name: Packaged downstream consumer
+        runs-on: ubuntu-24.04
+        steps:
+            - name: Checkout
+              uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+            - name: Install Rust 1.100.0
+              uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772
+              with:
+                  toolchain: 1.100.0
+
+            - name: Restore Cargo cache
+              # Qualification creates isolated consumer targets. This cache covers
+              # the package builder's dependencies, not those disposable consumers.
+              uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+
+            - name: Check release tags, registry checksums and partial uploads
+              run: |
+                  python3 -B -m unittest scripts.tests.test_check_release_tag scripts.tests.test_check_registry_archives \
+                    scripts.tests.test_publish_missing_crates scripts.tests.test_cargo_release_credential
+
+            - name: Verify archives through local registry
+              run: scripts/verify-packaged-downstream.sh
+
+            - name: Rehearse Cargo's publish order without uploading
+              # The local registry step already builds and runs packaged consumers.
+              run: cargo publish --workspace --locked --dry-run --no-verify --registry crates-io
+
+    required:
+        name: CI passed
+        if: always()
+        needs: [scope, documentation, quality, coverage-evidence, runtime-contracts,
+                keyed-contracts, feature-powerset, targets, task-fold-instructions,
+                concurrency-model, miri-shards, miri, supply-chain, unused-dependencies, packaged-downstream]
+        runs-on: ubuntu-24.04
+        steps:
+            - name: Require every selected job to pass
+              env:
+                  RESULTS: ${{ toJSON(needs) }}
+                  PROFILE: ${{ vars.RCA_PROFILE_BASELINE != '' && vars.RCA_SKIP_PROFILE_BUILD != 'true' }}
+              run: |
+                  jq -e --arg profile "$PROFILE" '
+                      .scope.outputs.mode as $mode |
+                      (["docs", "readme", "full"] | index($mode) != null) and
+                      all(to_entries[];
+                          .key as $job |
+                          (if (["scope", "documentation", "supply-chain"] | index($job)) != null then true
+                           elif $job == "packaged-downstream" then $mode != "docs"
+                           elif $job == "task-fold-instructions" then $mode == "full" and $profile == "true"
+                           else $mode == "full" end) as $selected |
+                          .value.result == (if $selected then "success" else "skipped" end))
+                  ' <<< "$RESULTS"

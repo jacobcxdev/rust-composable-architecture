@@ -1,0 +1,5 @@
+error: DependencyKey can only be derived for a unit struct
+ --> tests/ui/union.rs:5:1
+  |
+5 | union UnionKey {
+  | ^^^^^

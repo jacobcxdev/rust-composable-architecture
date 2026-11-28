@@ -1,0 +1,29 @@
+[package]
+name = "rust-composable-architecture"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+readme = "README.md"
+keywords.workspace = true
+categories.workspace = true
+description = "Re-exports the Rust Composable Architecture library from rca"
+
+[package.metadata.docs.rs]
+all-features = true
+
+[features]
+default = []
+diagnostics = ["rca/diagnostics"]
+futures-stream = ["rca/futures-stream"]
+local = ["rca/local"]
+macros = ["rca/macros"]
+test-util = ["rca/test-util"]
+tokio = ["rca/tokio"]
+
+[dependencies]
+rca = { path = "../rca", version = "=0.1.0", default-features = false }
+
+[lints]
+workspace = true

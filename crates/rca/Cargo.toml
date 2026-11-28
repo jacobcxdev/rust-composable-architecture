@@ -1,0 +1,38 @@
+[package]
+name = "rca"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+readme = "README.md"
+keywords.workspace = true
+categories.workspace = true
+description = "Compose and test headless Rust applications with ordered state changes, effects and cancellation"
+
+[package.metadata.docs.rs]
+features = ["diagnostics", "futures-stream", "local", "macros", "test-util", "tokio"]
+
+[lib]
+name = "rca"
+
+[features]
+default = []
+diagnostics = ["rca-core/diagnostics"]
+futures-stream = ["rca-core/futures-stream"]
+local = ["rca-core/local"]
+macros = ["dep:rca-macros"]
+test-util = ["dep:rca-test", "rca-core/test-util"]
+tokio = ["dep:rca-tokio"]
+
+[dependencies]
+rca-core.workspace = true
+rca-macros = { path = "../rca-macros", version = "=0.1.0", optional = true }
+rca-test = { path = "../rca-test", version = "=0.1.0", optional = true }
+rca-tokio = { path = "../rca-tokio", version = "=0.1.0", optional = true }
+
+[dev-dependencies]
+futures-executor.workspace = true
+
+[lints]
+workspace = true

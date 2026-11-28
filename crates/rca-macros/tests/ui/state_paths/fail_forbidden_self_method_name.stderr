@@ -1,0 +1,5 @@
+error: RCA derives cannot generate identifier `self` because it is not a legal raw Rust identifier
+ --> tests/ui/state_paths/fail_forbidden_self_method_name.rs:7:5
+  |
+7 |     Self_(u8),
+  |     ^^^^^

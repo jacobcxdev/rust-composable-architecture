@@ -1,0 +1,31 @@
+name: Select checks
+
+on:
+    workflow_call:
+        inputs:
+            workflow:
+                required: true
+                type: string
+        outputs:
+            mode:
+                value: ${{ jobs.select.outputs.mode }}
+
+jobs:
+    select:
+        name: Check changed inputs
+        runs-on: ubuntu-24.04
+        permissions:
+            contents: read
+            actions: read
+        outputs:
+            mode: ${{ steps.scope.outputs.mode }}
+        steps:
+            - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+              with:
+                  fetch-depth: 0
+                  persist-credentials: false
+            - id: scope
+              env:
+                  GH_TOKEN: ${{ github.token }}
+                  WORKFLOW: ${{ inputs.workflow }}
+              run: python3 -B scripts/ci_scope.py "$WORKFLOW"

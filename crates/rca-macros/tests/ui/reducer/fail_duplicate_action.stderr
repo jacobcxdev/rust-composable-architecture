@@ -1,0 +1,5 @@
+error: duplicate `action` selection
+ --> tests/ui/reducer/fail_duplicate_action.rs:2:48
+  |
+2 |     state(supplied(())), action(supplied(())), action(supplied(usize)), body(generated),
+  |                                                ^^^^^^

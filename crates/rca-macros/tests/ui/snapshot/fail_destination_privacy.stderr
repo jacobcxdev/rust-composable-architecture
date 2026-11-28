@@ -1,0 +1,8 @@
+error[E0451]: field `hidden` of struct `Destination` is private
+  --> tests/ui/snapshot/fail_destination_privacy.rs:13:5
+   |
+11 | #[snapshot(into = private::Destination)]
+   |                   -------------------- in this type
+12 | struct Private {
+13 |     hidden: usize,
+   |     ^^^^^^ private field

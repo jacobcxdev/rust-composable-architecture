@@ -1,0 +1,11 @@
+error[E0599]: no associated function or constant named `absent` found for struct `StatePaths` in the current scope
+ --> tests/ui/reducer/fail_cfg_absent_projection.rs:7:25
+  |
+1 | / #[rca_macros::reducer(
+2 | |     state(generated(struct State { #[cfg(any())] absent: MissingType, present: usize })),
+3 | |     action(supplied(())), body(generated),
+4 | | )]
+  | |__- associated function or constant `absent` not found for this struct
+...
+7 |       let _ = StatePaths::absent();
+  |                           ^^^^^^ associated function or constant not found in `StatePaths`

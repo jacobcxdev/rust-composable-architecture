@@ -1,0 +1,70 @@
+[package]
+name = "d54-acceptance"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[workspace]
+
+[features]
+selected = []
+# Select these bins individually to verify the retained mapped-action lifetime boundary.
+compile-fail = []
+
+[dependencies]
+rca = { package = "rca-core", path = "../../../../rca-core" }
+rca-macros = { path = "../../.." }
+
+[[bin]]
+name = "cfg-action-alternatives"
+path = "../../ui/reducer/pass_cfg_action_alternatives.rs"
+
+[[bin]]
+name = "empty-mixed"
+path = "../../ui/reducer/pass_empty_mixed.rs"
+
+[[bin]]
+name = "ignored-shapes"
+path = "../../ui/reducer/pass_ignored_shapes.rs"
+
+[[bin]]
+name = "local-supplied"
+path = "../../ui/reducer/pass_local_supplied.rs"
+
+[[bin]]
+name = "local-child-state"
+path = "../../ui/reducer/pass_local_child_state.rs"
+
+[[bin]]
+name = "generics-hygiene"
+path = "../../ui/reducer/pass_generics_hygiene.rs"
+
+[[bin]]
+name = "const-binding-collisions"
+path = "../../ui/reducer/pass_const_binding_collisions.rs"
+
+[[bin]]
+name = "cfg-child"
+path = "../../ui/reducer/pass_cfg_child.rs"
+
+[[bin]]
+name = "local-child-action"
+path = "../../ui/reducer/pass_local_child_action.rs"
+required-features = ["compile-fail"]
+
+[[bin]]
+name = "generic-child"
+path = "../../ui/reducer/pass_generic_child.rs"
+
+[[bin]]
+name = "cfg-generic"
+path = "../../ui/reducer/pass_cfg_generic.rs"
+
+[[bin]]
+name = "effect-map-non-send"
+path = "../../ui/reducer/pass_effect_map_non_send.rs"
+
+[[bin]]
+name = "effect-map-borrowed"
+path = "../../ui/reducer/pass_effect_map_borrowed.rs"
+required-features = ["compile-fail"]

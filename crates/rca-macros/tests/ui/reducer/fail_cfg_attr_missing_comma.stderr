@@ -1,0 +1,5 @@
+error: expected `,`
+ --> tests/ui/reducer/fail_cfg_attr_missing_comma.rs:5:20
+  |
+5 |     #[cfg_attr(true)]
+  |                    ^

@@ -1,0 +1,4 @@
+# Cargo supplies the edition from each package manifest. Rustfmt uses that
+# edition for both parsing and style: RCA uses 2024, maintained forks use 2021.
+# Direct rustfmt commands must supply the owning package's --edition.
+newline_style = "Unix"

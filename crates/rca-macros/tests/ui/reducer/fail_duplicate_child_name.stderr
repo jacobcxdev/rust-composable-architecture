@@ -1,0 +1,5 @@
+error: duplicate child or case selection
+ --> tests/ui/reducer/fail_duplicate_child_name.rs:4:11
+  |
+4 |     child(child, reducer = usize, kind = required, state = missing, action = missing, bind(fn second(child: usize))),
+  |           ^^^^^

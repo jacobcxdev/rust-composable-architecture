@@ -1,0 +1,5 @@
+error[E0609]: no field `disabled` on type `Client`
+ --> tests/ui/dependency_client/fail_d39_cfg.rs:9:34
+  |
+9 |     let _ = Client::test_value().disabled;
+  |                                  ^^^^^^^^ unknown field

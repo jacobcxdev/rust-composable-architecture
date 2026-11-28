@@ -1,0 +1,4 @@
+# Resolver input only. The core alias is disabled unless a feature enables it.
+[dependencies]
+rca = "0.1"
+domain_core = { package = "rca-core", version = "0.1", optional = true }
