@@ -1079,19 +1079,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "rca-example-mcmd-server"
-version = "0.0.0"
-dependencies = [
- "futures-core",
- "futures-executor",
- "futures-util",
- "rca-async-channel",
- "rca-core",
- "rca-test",
- "tokio",
-]
-
-[[package]]
 name = "rca-example-persistent-counter"
 version = "0.0.0"
 dependencies = [

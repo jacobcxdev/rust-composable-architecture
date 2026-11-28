@@ -298,7 +298,9 @@ Mount sites do not keep those declarations alive. An expired site rejects
 acquisition without occupying mailbox capacity; an already-admitted acquisition
 still checks its original lifetime and cannot retarget a successor.
 The [receipt guide](receipt-lifetimes.md) separates commit, completion and
-destruction. Document sessions and managed servers have explicit cleanup joins.
+destruction. For an external resource, wait for the host to finish cleanup.
+The [document session tests](../rca-persistence/tests/shared_document_session_replacement.rs)
+show why replacing a child and closing its old backend are separate operations.
 
 The [timing guide](guides/debounce-throttle.md) covers debounce and throttle.
 [Predicate waits](../rca-core/tests/predicate_wait.rs) observe a State condition,

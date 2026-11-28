@@ -33,7 +33,13 @@ For this command, use the Cargo package name, not the Rust import alias.
   A successful `try_send` returns a receipt, not a committed result. Dependency values still require `Send + Sync`.
 
 Put domain facts in state. Put external capabilities behind a `DependencyKey`. Use `Shared` for intentional shared ownership, not as a second Store.
-Default Cargo features are empty. `tokio` adapts an existing runtime. `test-util` supplies test tools. Macros are optional.
+Default Cargo features are empty. `tokio` adapts an existing runtime. `test-util` supplies test tools.
+
+For a new dependency key with a live default, prefer `#[derive(DependencyKey)]` with the `macros` feature.
+For a client with named closure endpoints, prefer `#[derive(DependencyClient)]` to create its test configuration.
+The client derive does not register a key or build a live client. Read the client through `context.dependency::<Key>()`.
+For several child routes, prefer `StatePaths` and `ActionPaths` over repeated field and variant closures.
+If the app omits `macros` or needs custom behaviour, use the corresponding traits and explicit paths.
 
 Inside a reducer, capture the request before starting the effect. This example uses an injected search client:
 

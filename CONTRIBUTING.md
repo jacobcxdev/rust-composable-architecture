@@ -342,7 +342,7 @@ rustup run "$toolchain" cargo test --locked --workspace --all-features --doc
 export RUSTDOCFLAGS='-D warnings'
 rustup run "$toolchain" cargo doc --locked -p futures-core --no-deps
 rustup run "$toolchain" cargo doc --locked -p rca-event-listener --all-features --no-deps
-rustup run "$toolchain" cargo doc --locked --workspace --all-features --no-deps
+rustup run "$toolchain" cargo doc --locked --workspace --lib --exclude 'rca-example-*' --exclude rca-size-probe --all-features --no-deps
 python3 scripts/prepare_public_docs.py target/doc
 ```
 

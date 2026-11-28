@@ -63,26 +63,8 @@ The standalone names are `$rca` and `$rca-contribute`. Use either the plugin or 
 
 ## Examples
 
-| Example | What it shows |
-| --- | --- |
-| [Counter](../examples/counter/src/main.rs) | Send one action and read the result. |
-| [Search](../examples/search/src/main.rs) | Use an injected client for an asynchronous request. |
-| [Timer](../examples/timer/src/main.rs) | Observe ticks and cancel the timer. |
-| [Composition search](../examples/composition-search/src/main.rs) | Observe a child until its parent removes it. |
-| [Persistent counter](../examples/persistent-counter/README.md) | Save a value and read it on the next run. |
-| [Server lifecycle](../examples/mcmd-server/README.md) | Test how servers start, stop and use a proxy. This example is not a runnable daemon. |
-
-### Worked examples
-
-| Task | Example |
-| --- | --- |
-| Replace one search without cancelling another | [Named search tasks](../examples/composition-search/docs/named-operations.md) |
-| Send a reply to the child that made the request | [Child authorization](../examples/composition-search/docs/authorisation.md) |
-| Keep test history without keeping the session permit alive | [Importer history](../examples/composition-search/docs/owned-importer.md) |
-| Report upload progress and reject a result from a replaced worker | [Headless uploader](../examples/composition-search/docs/uploader.md) |
-| Try to refresh a fixed list of children | [Group refresh](../examples/composition-search/docs/refresh-all.md) |
-| Keep a captured client or read the current service | [Session changes](../examples/composition-search/docs/session-refresh.md) |
-| Restore a document and its selected page together | [Document restoration](../examples/composition-search/docs/staged-restoration.md) |
+Start with the [runnable examples](../examples/README.md). Each application teaches a different decision, from sending one action to restoring state from a file.
+For scoped work, owned values, or multiple children, use the [worked recipes](../examples/README.md#worked-recipes).
 
 ## API reference and support
 
@@ -92,6 +74,7 @@ The support policy lists [Cargo features](support.md#features) and [public impor
 | For this API | Read this crate |
 | --- | --- |
 | Application imports and optional features | [`rca`](../rca/src/lib.rs) |
+| Service dependencies and shared state | [`rca`](../rca/src/lib.rs) includes both. See [how to choose between them](guides/dependencies-and-shared-state.md). |
 | State changes, effects, runtime contracts and child identity | [`rca-core`](../rca-core/src/lib.rs) |
 | An existing Tokio runtime | [`rca-tokio`](../rca-tokio/src/lib.rs) |
 | A test Store, a clock you control and exhaustive assertions | [`rca-test`](../rca-test/src/lib.rs) |

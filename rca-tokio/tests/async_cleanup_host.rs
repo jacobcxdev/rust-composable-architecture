@@ -1,8 +1,16 @@
 //! Checks host-owned stop outcomes after caller cancellation or Store shutdown.
 //!
-//! These fixtures do not establish native resource release or durable cleanup.
+//! A loopback peer checks when a host-owned socket closes. It does not prove cleanup on another machine.
 
-use std::time::Duration;
+#[path = "support/loopback.rs"]
+mod loopback;
+
+use std::{
+    io::{Read, Write},
+    net::TcpStream,
+    sync::{Arc, Mutex},
+    time::Duration,
+};
 
 use rca_core::{Effect, ReduceContext, Reducer, Store};
 use rca_tokio::TokioRuntime;
@@ -97,7 +105,7 @@ struct Report {
 async fn run_host(
     mut commands: mpsc::Receiver<Request>,
     accepted: oneshot::Sender<()>,
-    completion: oneshot::Receiver<Outcome>,
+    completion: impl Future<Output = Result<Outcome, oneshot::error::RecvError>>,
 ) -> Report {
     let request = commands.recv().await.expect("one controlled stop request");
     let outcome = if request.session == 7 {
@@ -124,13 +132,44 @@ enum Caller {
     Shutdown,
 }
 
+/// A failed attempt leaves the only socket handle available for a host-owned retry.
+async fn close_socket(
+    owner: Arc<Mutex<Option<TcpStream>>>,
+    gate: oneshot::Receiver<Outcome>,
+) -> Result<Outcome, oneshot::error::RecvError> {
+    let outcome = gate.await?;
+    if outcome == Outcome::Stopped {
+        drop(owner.lock().unwrap().take().expect("a live socket"));
+    }
+    Ok(outcome)
+}
+
+/// Checks both directions of the same connection, without cloning its socket handle.
+fn assert_connected(owner: &Mutex<Option<TcpStream>>, peer: &mut TcpStream) {
+    let mut guard = owner.lock().unwrap();
+    let socket = guard.as_mut().expect("host still owns the socket");
+    peer.write_all(b"?").unwrap();
+    let mut byte = [0];
+    socket.read_exact(&mut byte).unwrap();
+    assert_eq!(&byte, b"?");
+    socket.write_all(b"!").unwrap();
+    peer.read_exact(&mut byte).unwrap();
+    assert_eq!(&byte, b"!");
+}
+
 /// Checks admission, caller termination, host completion and final control state.
 async fn qualify(caller: Caller, outcome: Outcome) {
     tokio::time::timeout(LIMIT, async {
         let (commands, receive) = mpsc::channel(1);
         let (accepted, admission) = oneshot::channel();
         let (complete, completion) = oneshot::channel();
-        let host = tokio::spawn(run_host(receive, accepted, completion));
+        let (socket, mut peer) = loopback::pair();
+        let owner = Arc::new(Mutex::new(Some(socket)));
+        let host = tokio::spawn(run_host(
+            receive,
+            accepted,
+            close_socket(Arc::clone(&owner), completion),
+        ));
         let store = Store::new(
             Phase::Running,
             Control {
@@ -170,6 +209,7 @@ async fn qualify(caller: Caller, outcome: Outcome) {
             !host.is_finished(),
             "caller lifetime must not finish cleanup"
         );
+        assert_connected(&owner, &mut peer);
         complete
             .send(outcome.clone())
             .expect("host still owns operation");
@@ -183,6 +223,12 @@ async fn qualify(caller: Caller, outcome: Outcome) {
             }
         );
         task.finish().await;
+        let stopped = outcome == Outcome::Stopped;
+        if stopped {
+            loopback::assert_eof(&mut peer);
+        } else {
+            assert_connected(&owner, &mut peer);
+        }
         let state = if let Some(store) = live_store {
             store.shutdown_into_state().await.unwrap()
         } else {
@@ -196,6 +242,15 @@ async fn qualify(caller: Caller, outcome: Outcome) {
             Caller::Cancelled | Caller::Shutdown => Phase::Stopping,
         };
         assert_eq!(state, expected);
+        if !stopped {
+            // The Store has shut down. The host can still retry the failed operation.
+            let (complete, completion) = oneshot::channel();
+            let retry = tokio::spawn(close_socket(Arc::clone(&owner), completion));
+            assert_connected(&owner, &mut peer);
+            complete.send(Outcome::Stopped).unwrap();
+            assert_eq!(retry.await.unwrap().unwrap(), Outcome::Stopped);
+            loopback::assert_eof(&mut peer);
+        }
     })
     .await
     .expect("cleanup ownership progress");
@@ -237,7 +292,13 @@ async fn stale_session_cannot_stop_current_session() {
         let (commands, receive) = mpsc::channel(1);
         let (accepted, admission) = oneshot::channel();
         let (complete, completion) = oneshot::channel();
-        let host = tokio::spawn(run_host(receive, accepted, completion));
+        let (socket, mut peer) = loopback::pair();
+        let owner = Arc::new(Mutex::new(Some(socket)));
+        let host = tokio::spawn(run_host(
+            receive,
+            accepted,
+            close_socket(Arc::clone(&owner), completion),
+        ));
         let store = Store::new(
             Phase::Running,
             Control {
@@ -264,6 +325,7 @@ async fn stale_session_cannot_stop_current_session() {
             "stale token must not enter cleanup"
         );
         assert!(complete.is_closed(), "stop result must not be consumed");
+        assert_connected(&owner, &mut peer);
     })
     .await
     .expect("stale session progress");

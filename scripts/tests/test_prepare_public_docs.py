@@ -29,8 +29,11 @@ class PublicDocsTests(unittest.TestCase):
             '<a href="#1" id="1">1</a><code>pub struct Example;</code>',
             encoding="utf-8",
         )
-        (self.docs / "rca").mkdir()
-        (self.docs / "rca/index.html").write_text("example", encoding="utf-8")
+        for name in ("rca", "rust_composable_architecture", "rca_core", "rca_macros", "rca_test",
+                     "rca_tokio", "rca_persistence", "async_channel", "event_listener",
+                     "event_listener_strategy", "futures_core"):
+            (self.docs / name).mkdir()
+            (self.docs / name / "index.html").write_text("example", encoding="utf-8")
 
     def prepare(self):
         return subprocess.run(
@@ -58,3 +61,17 @@ class PublicDocsTests(unittest.TestCase):
                 self.assertNotEqual(result.returncode, 0)
                 self.assertIn(b"search.js", result.stderr)
                 self.assertNotIn(os.fsencode(self.cargo), result.stderr)
+
+    def test_rejects_example_crates_left_by_a_workspace_build(self):
+        example = self.docs / "rca_example_search"
+        example.mkdir()
+        (example / "index.html").touch()
+        result = self.prepare()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn(b"rca_example_search", result.stderr)
+
+    def test_requires_the_optional_persistence_library(self):
+        (self.docs / "rca_persistence/index.html").unlink()
+        result = self.prepare()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn(b"rca_persistence", result.stderr)

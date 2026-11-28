@@ -195,7 +195,8 @@ The [persistent counter](examples/persistent-counter/README.md) shows how to sav
 | How do I split an application into features? | [Authoring guide](docs/guides/authoring.md), including [when to use a reducer or a feature](docs/guides/authoring.md#choose-an-authoring-form) |
 | How can a coding agent use RCA in my application? | [Install the optional RCA skill](docs/README.md#use-rca-with-a-coding-agent) |
 | How do I test a request without a real server or a timer? | [Testing guide](docs/guides/testing.md) and [controlled clients](docs/guides/external-clients.md) |
-| How do I stop a task or replace a child safely? | [Timer example](examples/timer/src/main.rs) and [server lifecycle example](examples/mcmd-server/README.md) |
+| How do I stop a task or replace a child safely? | [Cancel a timer](examples/timer/src/main.rs) or [replace an upload worker](examples/composition-search/docs/uploader.md) |
+| Which example fits my application? | [Runnable examples and tested recipes](examples/README.md) |
 | How do I connect a native UI or another service? | [Host integration guide](docs/integration-boundaries.md) |
 | How do I choose between runtime speed and binary size? | [Application build profiles](docs/guides/authoring.md#choose-a-release-profile) |
 | Where can I find a type or method? | [API reference and documentation index](docs/README.md#api-reference-and-support) |

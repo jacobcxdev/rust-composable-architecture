@@ -37,6 +37,14 @@ implementation. Its `Value` can be a concrete client, an owned function or an
 `Arc` handle. Both the key and value require `Send + Sync + 'static`, including
 in a Local Store.
 
+With the `macros` feature, prefer `#[derive(DependencyKey)]` on a unit struct with a live default.
+The [search example](../../examples/search/src/main.rs) declares its key this way.
+For clients with named `Arc<dyn Fn(...) + Send + Sync>` endpoints, `#[derive(DependencyClient)]` supplies `Client::test_value()`.
+An endpoint without a test implementation panics when called. The derive does not build a live client or register the key.
+To use those test defaults for the key, specify `test = Client::test_value()` in its `#[dependency(...)]` attribute.
+Without macros, implement the key trait and construct the client directly.
+Either way, read the value in the reducer with `context.dependency::<Key>()`.
+
 Use `Store::builder(...).with_dependency::<Key>(client)` to supply a production
 instance. Use the corresponding `TestStore` builder method to supply a controlled
 test instance. A test override takes precedence over action and feature overrides.

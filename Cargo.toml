@@ -12,7 +12,6 @@ members = [
     "rca-tokio",
     "rust-composable-architecture",
     "examples/composition-search",
-    "examples/mcmd-server",
     "examples/persistent-counter",
     "tests/size-probe",
 ]

@@ -98,6 +98,4 @@ The
 distinguish an obsolete actor update from waiting for the old backend session.
 The [SharedDocument tests](../../../rca-persistence/tests/shared_document.rs) cover
 dropped close waiters and errors that remain available to later waiters.
-The [managed-server tests](../../mcmd-server/tests/managed_servers.rs) preserve
-external cleanup errors for explicit retry.
 This restoration example acquires no durable external resource.

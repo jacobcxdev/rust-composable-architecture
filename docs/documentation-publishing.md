@@ -13,7 +13,8 @@ The index keeps both branch names in `branch-designations.json`, including on ta
 Publishing documentation does not publish crates. Crate releases have a [separate tag check and approval](releasing.md).
 
 The documentation workflow uses the same compiler as [rust-toolchain.toml](../rust-toolchain.toml).
-It builds the workspace with all features and treats warnings as errors.
+It builds every published library with all features and treats warnings as errors.
+Examples and test programs do not appear in the API reference.
 On macOS, use the [build memory safeguards](../CONTRIBUTING.md#build-memory-safety) for these builds.
 On an isolated runner, use rustup's Cargo from the RCA checkout:
 
@@ -21,14 +22,14 @@ On an isolated runner, use rustup's Cargo from the RCA checkout:
 export RUSTDOCFLAGS='-D warnings'
 cargo doc --locked -p futures-core --no-deps
 cargo doc --locked -p rca-event-listener --all-features --no-deps
-cargo doc --locked --workspace --all-features --no-deps
+cargo doc --locked --workspace --lib --exclude 'rca-example-*' --exclude rca-size-probe --all-features --no-deps
 python3 scripts/prepare_public_docs.py target/doc
 ```
 
 Keep the first two commands separate. They supply the metadata for links to
 inherited and re-exported APIs before rustdoc builds the workspace.
 
-The last command prepares the site root and copies both licences.
+The last command checks the list of crate pages, prepares the site root, and copies both licences.
 Each source page names the published file, not its location on the build machine.
 The command stops publication if it finds a build path in the output.
 

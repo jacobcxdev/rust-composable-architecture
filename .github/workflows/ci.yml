@@ -177,7 +177,7 @@ jobs:
               run: |
                   cargo doc --locked -p futures-core --no-deps
                   cargo doc --locked -p rca-event-listener --all-features --no-deps
-                  cargo doc --locked --workspace --all-features --no-deps
+                  cargo doc --locked --workspace --lib --exclude 'rca-example-*' --exclude rca-size-probe --all-features --no-deps
                   python3 scripts/prepare_public_docs.py target/doc
 
             - name: Link workspace binaries with all features
@@ -520,10 +520,10 @@ jobs:
               timeout-minutes: 10
               run: cargo test --locked -p rca-example-persistent-counter --target ${{ matrix.target }} -- --test-threads=1
 
-            - name: Run native proxy socket ownership
+            - name: Check native socket ownership
               if: matrix.tokio && matrix.native != false
               timeout-minutes: 10
-              run: cargo test --locked -p rca-example-mcmd-server --target ${{ matrix.target }} --test proxy_socket --test managed_proxy_socket -- --test-threads=1
+              run: cargo test --locked -p rca-tokio --target ${{ matrix.target }} --test socket_ownership -- --test-threads=1
 
             - name: Run native deterministic conformance
               if: matrix.tokio && matrix.native != false

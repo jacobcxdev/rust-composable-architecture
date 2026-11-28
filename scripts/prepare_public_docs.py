@@ -8,6 +8,7 @@ from pathlib import Path
 import re
 import shutil
 import tempfile
+import tomllib
 from urllib.parse import quote
 
 
@@ -48,6 +49,21 @@ def prepare(output):
     src = output / "src"
     if not (crate / "index.html").is_file() or not src.is_dir():
         raise ValueError("Missing RCA documentation or source pages.")
+
+    # rustdoc retains crate pages from earlier builds in the same target directory.
+    expected = {"futures_core"}  # Documents the Stream trait inherited by RCA APIs.
+    workspace = tomllib.loads((ROOT / "Cargo.toml").read_text())["workspace"]
+    for member in workspace["members"]:
+        manifest = tomllib.loads((ROOT / member / "Cargo.toml").read_text())
+        if manifest["package"].get("publish") is not False:
+            name = manifest.get("lib", {}).get("name", manifest["package"]["name"])
+            expected.add(name.replace("-", "_"))
+    actual = {page.parent.name for page in output.glob("*/index.html")}
+    if expected != actual:
+        raise ValueError(
+            f"Unexpected rustdoc inventory: missing {sorted(expected - actual)}; "
+            f"extra {sorted(actual - expected)}. Build in a fresh documentation directory."
+        )
 
     for page in src.rglob("*.rs.html"):
         source = page.relative_to(src).with_suffix("").as_posix()

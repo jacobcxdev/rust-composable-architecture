@@ -20,6 +20,17 @@
 //! A type implements one trait explicitly, not both. See [`Feature`] for the
 //! ownership and testing consequences.
 //!
+//! # Dependencies and shared state
+//!
+//! Use a dependency to replace a service, such as a clock or a network client.
+//! Define a [dependency key](trait@DependencyKey) and supply its value through
+//! [`StoreBuilder::with_dependency`]. [`DependencyValues`] holds the values for that Store.
+//!
+//! Keep data in feature state unless another owner needs access to the same value.
+//! [`Shared`] gives owners read and write access. [`SharedReader`] gives an owner read access.
+//! [`SharedKeyCache`] lets independent callers find the same value by key.
+//! Both dependencies and shared state are part of `rca`. Neither requires a Cargo feature.
+//!
 //! # Features
 //!
 //! Default features are empty. Each optional feature adds a separate capability.

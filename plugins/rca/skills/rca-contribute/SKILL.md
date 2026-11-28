@@ -35,6 +35,7 @@ For an optimization, compare the same completed work and include cleanup. An all
 ## Keep guidance with the contract
 
 If a public contract changes, update its rustdoc, guide or example, and the affected agent instructions together.
+For a new derive, show the caller which code it replaces and when to use the manual form.
 For a deprecation, state the replacement and any change in behavior. Record migration steps in the changelog.
 Use `docs/support.md` for compatibility policy and `docs/releasing.md` for the release review.
 A passing PR does not authorize a tag or publication.

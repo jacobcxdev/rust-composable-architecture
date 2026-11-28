@@ -67,7 +67,7 @@ jobs:
                   # Build each prerequisite before the workspace documentation.
                   cargo doc --locked -p futures-core --no-deps
                   cargo doc --locked -p rca-event-listener --all-features --no-deps
-                  cargo doc --locked --workspace --all-features --no-deps
+                  cargo doc --locked --workspace --lib --exclude 'rca-example-*' --exclude rca-size-probe --all-features --no-deps
 
             - name: Prepare Documentation Root
               run: python3 scripts/prepare_public_docs.py target/doc

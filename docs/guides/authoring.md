@@ -125,14 +125,21 @@ not fabricated response actions.
 
 ### Macros are optional
 
-Start with ordinary structs, enums, closures and explicit paths. The `macros`
-Cargo feature reduces repeated syntax for dependency clients, composition,
-paths and snapshots. It does not change ownership, runtime or testing contracts.
-The `Feature` trait is unrelated to a Cargo feature flag.
-Import a derive macro from the same crate as the trait. If the application renames that crate in Cargo, use its alias.
-See [package names and macro imports](../integration-boundaries.md#choose-imports-and-host-explicitly).
-See [manual composition](../composition.md) and
-[snapshot derives](../snapshot-derive.md) before choosing generated code.
+The `macros` Cargo feature is off by default. Enable it when a derive can replace repeated code:
+
+| Task | Usual choice | Alternative |
+| --- | --- | --- |
+| Name an injected service with a live default | Derive `DependencyKey` on a unit struct. | Implement `DependencyKey` directly. |
+| Supply test doubles for named closure endpoints | Derive `DependencyClient` on the client struct. | Supply a concrete client or implement a client trait. |
+| Route several child features | Derive `StatePaths` and `ActionPaths` for the fields and variants. | Write explicit paths for custom routes. |
+| Keep an independent record of selected fields | Derive `Snapshot` for field-by-field capture. | Supply a custom projection. |
+
+For one state change, a `Reduce::new` closure needs no macro.
+The optional macros do not change who owns state, when effects run, or how tests drive a Store.
+Import the macros from the [same facade](../integration-boundaries.md#choose-imports-and-host-explicitly) as the rest of the API.
+If Cargo renames the crate, use that alias.
+See [dependency keys and clients](dependencies-and-shared-state.md#which-dependency-value-does-the-feature-receive),
+[derived child paths](../composition.md#derived-paths-and-tuple-composition), and [snapshot derives](../snapshot-derive.md).
 
 ### Choose child identity and routing
 

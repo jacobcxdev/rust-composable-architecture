@@ -305,10 +305,10 @@ whose in-flight state may no longer receive its acknowledgement.
 
 ### Leading and latest action throttling
 
-Leading periodic work needs no separate timer primitive: merge an immediate
-action with `Effect::interval` under one cancellation ID. The [server polling](../examples/mcmd-server/README.md)
-example exercises this composition, including Stop/restart and descendant query
-cancellation.
+To start periodic work immediately, merge an immediate action with
+`Effect::interval` under one cancellation ID. For a first tick after the
+interval, use `Effect::interval` alone. The [timer example](../examples/timer/src/main.rs)
+shows how to cancel the interval and wait for it to finish.
 
 For value coalescing, start with explicit domain state: a window deadline and
 at most one pending latest value. In Leading mode, suppress in-window inputs;
