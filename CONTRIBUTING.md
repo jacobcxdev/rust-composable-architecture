@@ -310,9 +310,15 @@ CI can reuse a passing run for unchanged inputs. It compares both sides of renam
 
 | Change | Checks |
 | --- | --- |
-| Only recognized guides or agent skills | Check the documentation links and skills. Check dependencies against current security advisories. |
-| Root README, alone or with those documents | Also build the package archives and run the downstream consumers, including both README examples. |
-| Rust, CI, tooling, a benchmark protocol, an executable file or an unknown path | Run full CI. |
+| Markdown used only as documentation, anywhere in the repository | Check documentation links, agent skills, and dependencies against current security advisories. |
+| Markdown in a crate or transport fork, a Cargo README or licence, or the root README or licences | Also build the package archives and test them from separate applications. This includes both root README examples. |
+| Code, CI, tooling, executable files, or documents used as build or test inputs | Run full CI. |
+
+The file extension alone does not decide the checks. For example, a guide linked from rustdoc is documentation.
+If Rust includes the guide's bytes or Cargo uses it as a test target, CI treats it as code.
+If the selector cannot resolve a build input, it runs full CI.
+If a test or tool discovers a Markdown input at runtime, mark that path with `rca-ci-input` in `.gitattributes`.
+For example, `tests/cases/*.md rca-ci-input` requires full CI for those fixtures, even if no source file names them.
 
 Tags, manual runs and changes without an applicable passing base run require full CI.
 The `CI passed` job checks the outcome of every selected job. A skipped measurement is not a fresh performance result.

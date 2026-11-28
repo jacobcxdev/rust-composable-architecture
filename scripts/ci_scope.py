@@ -6,20 +6,89 @@ import os
 from pathlib import Path
 import re
 import subprocess
+import tomllib
+
+if __package__:
+    from . import ci_scope_inputs
+else:
+    import ci_scope_inputs
 
 
-ROOT_DOCS = {"README.md", "AGENTS.md", "CONTRIBUTING.md", "SECURITY.md", "CHANGELOG.md",
-             ".github/pull_request_template.md"}
 PLUGIN_MANIFESTS = {"plugins/rca/plugin.json", ".agents/plugins/marketplace.json"}
+ROOT_PACKAGE_DOCS = {"README.md", "LICENSE-APACHE.md", "LICENSE-MIT.md"}
 
 
 def git(*args):
     return subprocess.check_output(["git", *args])
 
 
-def matches(base, head, query, paths):
-    # Only git-grep's explicit "no matches" result can narrow CI.
-    return subprocess.run(["git", "grep", "-q", *query, base, head, "--", *paths]).returncode != 1
+# A rustdoc link made from the repository URL does not read its destination.
+# Only exempt link definitions. Other doc attributes can contain runnable tests.
+_URL_PART = rb'(?:"[\w./#%-]+"|env!\(\s*"(?:RCA_DOCS_REVISION|CARGO_PKG_VERSION)"\s*\))'
+_DOC_LINK = (rb'"\\n\[[\w -]+\]: "\s*,\s*env!\(\s*"CARGO_PKG_REPOSITORY"\s*\)'
+             rb'(?:\s*,\s*' + _URL_PART + rb')+')
+_DOC_TEXT = re.compile(rb'#!?\[\s*(?:cfg_attr\(\s*(?:\w+|not\(\w+\))\s*,\s*)?'
+                       rb'doc\s*=\s*concat!\(\s*' + _DOC_LINK + rb'(?:\s*,\s*' + _DOC_LINK
+                       + rb')*\s*,?\s*\)\s*\)?\s*\]')
+
+
+def rust_mentions(head, paths):
+    """Keep possible runtime file reads; a prose citation does not read bytes."""
+    names = {os.fsencode(Path(path).name).lower() for path in paths}
+    terms = [arg for name in sorted(names) for arg in ("-e", name)]
+    hits = subprocess.run(["git", "grep", "-a", "-i", "-l", "-z", "-F", *terms, head, "--", ":(glob)**/*.rs"],
+                          stdout=subprocess.PIPE)
+    if hits.returncode == 1:
+        return False
+    hits.check_returncode()
+    for _, source in ci_scope_inputs.read_blobs(hits.stdout.rstrip(b"\0").split(b"\0")):
+        example = False
+        for line in _DOC_TEXT.sub(b"", source).splitlines():
+            line = line.lstrip()
+            if line.startswith((b"///", b"//!")):
+                body = line[3:].removeprefix(b" ")
+                # Keep fenced and indented doctests. Once a block contains a
+                # potential example, inspect the rest; no Markdown parser needed.
+                example |= (b"```" in body or b"~~~" in body or body.startswith((b"    ", b"\t")))
+                if not example:
+                    continue
+            else:
+                example = False
+                if line.startswith(b"//"):
+                    continue
+            if any(name in line.lower() for name in names):
+                return True
+    return False
+
+
+def cargo_markdown_mode(head, paths, tree):
+    """Separate package metadata from possible compiler inputs in the unchanged manifests."""
+    changed = {path.casefold() for path in paths}
+    names = {Path(path).name for path in changed}
+    mode = "docs"
+    specs = [os.fsencode(head) + b":" + entry.partition(b"\t")[2] for entry in tree
+             if entry.endswith((b"\tCargo.toml", b"/Cargo.toml"))]
+    for spec, contents in ci_scope_inputs.read_blobs(specs):
+        file = Path(os.fsdecode(spec.partition(b":")[2]))
+        manifest = tomllib.loads(contents.decode())
+        for package in (manifest.get("package", {}), manifest.get("project", {}),
+                        manifest.get("workspace", {}).get("package", {})):
+            if package.get("build"):
+                return "full"
+            # Inherited paths start at the workspace manifest, not the member.
+            for field in ("readme", "license-file", "license_file"):
+                value = package.pop(field, None)
+                if isinstance(value, str):
+                    path = os.path.normpath(file.parent / value.replace("\\", "/")).casefold()
+                    if path in changed:
+                        mode = "readme"
+                    elif (os.path.isabs(path) or ":" in path or path.startswith("../")) and Path(path).name in names:
+                        return "full"
+        # A remaining mention can name a target source or a tool input, even README.md.
+        remaining = str(manifest).casefold()
+        if any(name in remaining for name in names):
+            return "full"
+    return mode
 
 
 def mode_between(base, head):
@@ -32,30 +101,35 @@ def mode_between(base, head):
         if {old, new} - {b"100644", b"000000"}:
             return "full"
         path = os.fsdecode(raw)
-        if (path not in ROOT_DOCS | PLUGIN_MANIFESTS and not
-                re.fullmatch(r"(?:docs|plugins/rca/skills)/(?:[\w-]+/)*[\w-]+\.md", path, re.ASCII)):
+        if not path.endswith(".md") and path not in PLUGIN_MANIFESTS:
             return "full"
         paths.add(path)
     if not paths:
         return "full"
+    return markdown_mode(head, paths)
+
+
+def markdown_mode(head, paths):
+    """Choose checks after the diff proves only regular documentation inputs changed."""
+    # Runtime tools can discover a fixture without naming it in source.
+    attrs = git("check-attr", "-z", "--source=" + head, "rca-ci-input", "--", *sorted(paths))
+    if any(value != b"unspecified" for value in attrs.split(b"\0")[2::3]):
+        return "full"
 
     # A Cargo build script can traverse a directory without naming a guide.
     # RCA has none. If one appears, qualify its inputs before narrowing CI.
-    tree = git("ls-tree", "-r", "--name-only", "-z", head)
-    custom_build = """(^|[,{[:space:]])["']?build["']?[[:space:]]*=[[:space:]]*["']"""
-    if (any(path.rsplit(b"/", 1)[-1] == b"build.rs" for path in tree.split(b"\0"))
-            or matches(base, head, ["-E", "-e", custom_build], [":(glob)**/Cargo.toml"])):
+    tree = git("ls-tree", "-r", "-z", head).split(b"\0")
+    if any(entry.startswith(b"120000 ") or entry.endswith((b"/build.rs", b"\tbuild.rs")) for entry in tree):
         return "full"
-    # A guide can become include_str! data without moving. Check both trees.
-    # Cargo's README metadata is covered separately by the actual package tests.
-    names = {Path(path).name for path in paths}
-    for inputs, search in [((":(glob)**/*.rs",), names),
-                           ((":(glob)**/Cargo.toml",), names - {"README.md"})]:
-        if search:
-            terms = [part for name in sorted(search) for part in ("-e", name)]
-            if matches(base, head, ["-F", *terms], inputs):
-                return "full"
-    return "readme" if "README.md" in paths else "docs"
+    # Only Markdown or skill metadata changed. Rust files and manifests match
+    # on both sides, so inspect the committed source tree once.
+    if ci_scope_inputs.has_markdown_include(head, paths) or rust_mentions(head, paths):
+        return "full"
+    cargo = cargo_markdown_mode(head, paths, tree)
+    if cargo == "full":
+        return cargo
+    packaged = any(path in ROOT_PACKAGE_DOCS or path.startswith(("crates/", "dependencies/")) for path in paths)
+    return "readme" if packaged else cargo
 
 
 def green(workflow, repo, commit, event, branch, title=None):

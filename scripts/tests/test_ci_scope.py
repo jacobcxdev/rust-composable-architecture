@@ -152,6 +152,59 @@ class ScopeTests(unittest.TestCase):
         Path("docs/link.md").symlink_to("example.md")
         self.assertEqual(scope.mode_between(rename, self.commit("link")), "full")
 
+    def test_markdown_anywhere_selects_docs_or_checks_the_shipped_package(self):
+        base = self.commit("linked guides", ("crates/rca/src/lib.rs",
+                           '//! See `docs/README.md`.\n'
+                           '#![doc = concat!("\\n[guides]: ", env!("CARGO_PKG_REPOSITORY"),\n'
+                           '    "/blob/", env!("CARGO_PKG_VERSION"), "/docs/README.md")]\n'))
+        for name, expected in [
+            ("examples/composition-search/docs/authorisation.md", "docs"),
+            ("new directory/Getting started.md", "docs"),
+            ("benches/compile/README.md", "docs"),
+            ("docs/README.md", "docs"),
+            ("crates/rust-composable-architecture/README.md", "readme"),
+            ("crates/rca-core/notes/cancellation.md", "readme"),
+            ("dependencies/rca-event-listener/tests/notes.md", "readme"),
+            ("LICENSE-MIT.md", "readme"),
+        ]:
+            with self.subTest(path=name):
+                previous, base = base, self.commit("documentation", (name, "new text"))
+                self.assertEqual(scope.mode_between(previous, base), expected)
+
+    def test_markdown_read_by_code_is_not_just_documentation(self):
+        for expression in ['include_str!(concat!("docs/spec", ".md"))',
+                           'include!(concat!("docs/spec", ".md"))',
+                           'include_bytes!("docs/spec.md")',
+                           'std::fs::read_to_string("docs/spec.md").unwrap()']:
+            with self.subTest(expression=expression):
+                base = self.commit("input", ("lib.rs", f'fn spec() {{ let _ = {expression}; }}'),
+                                   ("docs/spec.md", "old"))
+                head = self.commit("change input", ("docs/spec.md", "new"))
+                self.assertEqual(scope.mode_between(base, head), "full")
+
+    def test_documentation_examples_and_runtime_fixtures_can_read_markdown(self):
+        for code in ['//! ```rust\n//! std::fs::read("docs/case.md").unwrap();\n//! ```',
+                     '#![doc = concat!("```rust\\n", "std::fs::read(\\"docs/case.md\\")", "\\n```")]']:
+            with self.subTest(code=code):
+                base = self.commit("doctest", ("lib.rs", code), ("docs/case.md", "input"))
+                head = self.commit("updated input", ("docs/case.md", "changed"))
+                self.assertEqual(scope.mode_between(base, head), "full")
+        base = self.commit("runtime glob", (".gitattributes", "cases/*.md rca-ci-input\n"),
+                           ("lib.rs", "pub fn work() {}"))
+        head = self.commit("new fixture", ("cases/new.md", "input"))
+        self.assertEqual(scope.mode_between(base, head), "full")
+
+    def test_cargo_distinguishes_package_documents_from_a_compiler_target(self):
+        root = ("Cargo.toml", '[workspace.package]\nreadme = "manual/start.md"\n')
+        member = ("crate/Cargo.toml", '[package]\nreadme.workspace = true\n'
+                  'license-file = "../legal/terms.md"\n[lib]\npath = "../manual/README.md"\n')
+        base = self.commit("manifest roles", root, member)
+        for path, expected in [("manual/start.md", "readme"), ("legal/terms.md", "readme"),
+                               ("manual/README.md", "full"), ("other/start.md", "docs")]:
+            with self.subTest(path=path):
+                previous, base = base, self.commit("document", (path, "contents"))
+                self.assertEqual(scope.mode_between(previous, base), expected)
+
     def test_cargo_build_script_can_read_guides_without_naming_them(self):
         for path, value in [("crate/build.rs", "fn main() {}"),
                             ("crate/Cargo.toml", "[package]\nbuild = 'tools/generate.rs'")]:

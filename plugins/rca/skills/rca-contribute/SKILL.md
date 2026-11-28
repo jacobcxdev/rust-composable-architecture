@@ -29,6 +29,9 @@ Choose the smallest test that distinguishes the proposed behavior from the old b
 | A runtime adapter | Run its conformance suite. In `crates/rca-tokio/tests/async_cleanup_host.rs`, the peer checks that the local socket closed. This does not prove that a remote service released its resource. |
 | A guide or skill | Exercise its example or decision from the reader's position. Check the links in the distributed form, not just the source tree. |
 
+For a Markdown change, use the “How CI selects checks” section of `CONTRIBUTING.md`.
+A crate's package page needs a package check. If a tool reads Markdown as test data, mark the input with `rca-ci-input` in `.gitattributes`.
+
 On macOS, use the repository's Cargo memory watchdog before compiling. If it stops a build, inspect its receipt. Do not bypass it.
 After the focused check, test the affected integration boundaries.
 For a performance change, choose a public workload from `docs/development/benchmarking.md` that exercises the affected path. Compare the same completed work, including cleanup.
