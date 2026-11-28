@@ -509,7 +509,7 @@ an unmet requirement with a completion claim.
 CI and publication first build selected dependency documentation for inherited
 API links. See [documentation publication](docs/documentation-publishing.md) for the
 complete build order and its
-signing, secret-access and owner-approval requirements.
+signing and credential requirements.
 
 To publish the Rust packages, follow the [crate release guide](docs/releasing.md).
-Crates and documentation use separate workflows, credentials and approvals.
+Crates and documentation use separate workflows and credentials. Documentation publication is automatic.

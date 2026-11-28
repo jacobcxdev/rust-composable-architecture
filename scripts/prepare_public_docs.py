@@ -7,6 +7,8 @@ import os
 from pathlib import Path
 import re
 import shutil
+import subprocess
+import sys
 import tempfile
 import tomllib
 from urllib.parse import quote
@@ -21,9 +23,9 @@ LANDING = (
 )
 
 
-def private_paths(output):
+def private_paths(output, source_root):
     """Match literal and escaped build paths in published files, not in build logs."""
-    paths = {Path.home(), Path.cwd(), ROOT, output, Path(tempfile.gettempdir())}
+    paths = {Path.home(), Path.cwd(), ROOT, source_root, output, Path(tempfile.gettempdir())}
     for key in ("CARGO_HOME", "RUSTUP_HOME", "CARGO_TARGET_DIR", "GITHUB_WORKSPACE", "RUNNER_TEMP", "TMPDIR"):
         if os.environ.get(key):
             paths.add(Path(os.environ[key]))
@@ -43,7 +45,32 @@ def private_paths(output):
     return re.compile(rb"file:///|(?:" + roots + rb")" + boundary)
 
 
-def prepare(output):
+def package_names(source_root):
+    """Select published workspace libraries and the external trait documentation they need."""
+    published = {}
+    workspace = tomllib.loads((source_root / "Cargo.toml").read_text())["workspace"]
+    for member in workspace["members"]:
+        manifest = tomllib.loads((source_root / member / "Cargo.toml").read_text())
+        if manifest["package"].get("publish") is not False:
+            package = manifest["package"]["name"]
+            published[package] = manifest.get("lib", {}).get("name", package).replace("-", "_")
+    locked = tomllib.loads((source_root / "Cargo.lock").read_text())["package"]
+    external = ["futures-core"] if any(p["name"] == "futures-core" for p in locked) else []
+    return published, external
+
+
+def cargo_commands(source_root):
+    """Build inherited trait links first, then the public libraries from this checkout."""
+    published, external = package_names(source_root)
+    base = ["cargo", "doc", "--locked", "--no-deps"]
+    commands = [[*base, "-p", name] for name in external]
+    if "rca-event-listener" in published:
+        commands.append([*base, "--all-features", "-p", "rca-event-listener"])
+    commands.append([*base, "--all-features", "--lib", *(arg for name in published for arg in ("-p", name))])
+    return commands
+
+
+def prepare(output, source_root=ROOT):
     """Use published source names in descriptions; leave source text and links intact."""
     crate = output / "rca"
     src = output / "src"
@@ -51,13 +78,8 @@ def prepare(output):
         raise ValueError("Missing RCA documentation or source pages.")
 
     # rustdoc retains crate pages from earlier builds in the same target directory.
-    expected = {"futures_core"}  # Documents the Stream trait inherited by RCA APIs.
-    workspace = tomllib.loads((ROOT / "Cargo.toml").read_text())["workspace"]
-    for member in workspace["members"]:
-        manifest = tomllib.loads((ROOT / member / "Cargo.toml").read_text())
-        if manifest["package"].get("publish") is not False:
-            name = manifest.get("lib", {}).get("name", manifest["package"]["name"])
-            expected.add(name.replace("-", "_"))
+    published, external = package_names(source_root)
+    expected = set(published.values()) | {name.replace("-", "_") for name in external}
     actual = {page.parent.name for page in output.glob("*/index.html")}
     if expected != actual:
         raise ValueError(
@@ -78,10 +100,10 @@ def prepare(output):
             page.write_bytes(rendered)
 
     for licence in ("LICENSE-APACHE.md", "LICENSE-MIT.md"):
-        shutil.copyfile(ROOT / licence, crate / licence)
+        shutil.copyfile(source_root / licence, crate / licence)
     (output / "index.html").write_text(LANDING, encoding="utf-8")
 
-    forbidden = private_paths(output)
+    forbidden = private_paths(output, source_root)
     for path in output.rglob("*"):
         if path.is_file() and forbidden.search(path.read_bytes()):
             raise ValueError(f"Local build path in published file: {path.relative_to(output)}")
@@ -90,7 +112,16 @@ def prepare(output):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("output", type=Path, help="rustdoc output directory")
+    parser.add_argument("--source-root", type=Path, default=ROOT, help="checkout used to build the documentation")
+    parser.add_argument("--compile-only", action="store_true", help="compile the public libraries inside the isolated build container")
+    args = parser.parse_args()
     try:
-        prepare(parser.parse_args().output)
+        if args.compile_only:
+            if sys.platform != "linux" or os.environ.get("CARGO_TARGET_DIR") != "/rca-target":
+                parser.error("--compile-only runs inside the documentation build container")
+            for command in cargo_commands(args.source_root):
+                subprocess.run(command, cwd=args.source_root, check=True)
+        else:
+            prepare(args.output, args.source_root)
     except ValueError as error:
         parser.exit(1, f"{error}\n")

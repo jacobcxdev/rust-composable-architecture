@@ -9,6 +9,7 @@ import tempfile
 import unittest
 from urllib.parse import quote
 
+from scripts.prepare_public_docs import cargo_commands, package_names
 
 PREPARE = Path(__file__).resolve().parents[1] / "prepare_public_docs.py"
 
@@ -75,3 +76,20 @@ class PublicDocsTests(unittest.TestCase):
         result = self.prepare()
         self.assertNotEqual(result.returncode, 0)
         self.assertIn(b"rca_persistence", result.stderr)
+
+    def test_build_plan_uses_only_public_members_and_available_trait_documentation(self):
+        workspace = self.root / "minimal"
+        (workspace / "rca").mkdir(parents=True)
+        (workspace / "internal").mkdir()
+        (workspace / "Cargo.toml").write_text('[workspace]\nmembers=["rca","internal"]')
+        (workspace / "rca/Cargo.toml").write_text('[package]\nname="rca"')
+        (workspace / "internal/Cargo.toml").write_text('[package]\nname="internal"\npublish=false')
+        (workspace / "Cargo.lock").write_text('[[package]]\nname="rca"')
+        self.assertEqual(cargo_commands(workspace), [
+            ["cargo", "doc", "--locked", "--no-deps", "--all-features", "--lib", "-p", "rca"],
+        ])
+        full, external = package_names(PREPARE.parents[1])
+        self.assertEqual(external, ["futures-core"])
+        self.assertIn("rca-persistence", full)
+        self.assertFalse(any(name.startswith("rca-example-") for name in full))
+        self.assertNotIn("rca-size-probe", full)

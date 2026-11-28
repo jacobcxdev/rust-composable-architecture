@@ -1,20 +1,36 @@
 # Documentation publication
 
-The [documentation workflow](../.github/workflows/publish-docs.yml) sends the API reference to the documentation index after maintainer approval.
+The documentation site shows the API at each branch and tag. It updates automatically. Publishing documentation does not publish crates.
 
-| Push | Public documentation |
+| Ref | Documentation on the site |
 | --- | --- |
 | `main` | Stable API reference |
-| `dev/next` | Development API reference. These APIs can change before release. |
-| A tag that matches `v*` | A separate reference built from that tag. Later branch changes do not update it. |
+| `dev/next` | Development API reference |
+| Any other branch | Preview of that branch |
+| Any tag | Reference for that tag, separate from a branch of the same name |
 
-Pull requests, other branches, and branch or tag deletions do not publish documentation.
-The index keeps both branch names in `branch-designations.json`, including on tag pushes.
-Publishing documentation does not publish crates. Crate releases have a [separate tag check and approval](releasing.md).
+## What happens after a push
 
-The documentation workflow uses the same compiler as [rust-toolchain.toml](../rust-toolchain.toml).
-It builds every published library with all features and treats warnings as errors.
-Examples and test programs do not appear in the API reference.
+The [push workflow](../.github/workflows/docs-push.yml) notifies the [publisher](../.github/workflows/publish-docs.yml) on the default branch.
+The publisher checks the live Git ref and builds that exact commit. It ignores a notification for a commit that the ref no longer names.
+A separate job downloads the build from the same run, checks its digest, and signs the documentation update.
+
+A deletion removes only that branch or tag from the site. A delayed deletion does not remove a ref that someone recreated.
+A pull request from a fork does not publish to this site. Crate releases have a [separate workflow](releasing.md).
+
+Old branches can lack the push workflow. GitHub can also omit events for bulk tag changes.
+A daily check compares the live refs with the published refs and requests repairs for missing, old, or deleted references.
+If a commit cannot build the API reference, the run fails. The publisher does not label an older build as current.
+
+## Check a build
+
+In GitHub Actions, open the publication run for the commit. Download the `rca-api-reference-*` archive within seven days.
+Extract the archive. Open `index.html`.
+
+The [build tool](../scripts/build_doc_preview.py) uses a pinned Rust image and a fresh output directory.
+It builds the published libraries with all features and treats warnings as errors. It does not publish examples or test programs.
+The source build has no signing key, site token, or shared compiler cache.
+
 On macOS, use the [build memory safeguards](../CONTRIBUTING.md#build-memory-safety) for these builds.
 On an isolated runner, use rustup's Cargo from the RCA checkout:
 
@@ -33,53 +49,30 @@ The last command checks the list of crate pages, prepares the site root, and cop
 Each source page names the published file, not its location on the build machine.
 The command stops publication if it finds a build path in the output.
 
-## Signing identity
+## Configure automatic publication
 
-The workflow defines the documentation signing identity and pins its full OpenPGP fingerprint.
-Both the author and committer use this identity. The workflow checks a signature before publication.
+1. Protect the default branch. Require reviewed workflow changes and signed commits.
+2. Configure the `documentation` environment to accept only that branch. Do not allow tag deployments or administrator bypass.
+3. Register the dedicated public signing key. Check its fingerprint against the publisher.
+4. Set `DOCS_SIGNING_PRIVATE_KEY`, `DOCS_SIGNING_PASSPHRASE`, and `INDEX_REPO_TOKEN` in that environment.
+   Give the fine-grained token contents read and write access to the documentation index only.
+5. Keep required reviewers while testing the credentials. Run **Publish Documentation** from the default branch for the default branch with **Check credentials and sign a local commit without publishing** selected.
+   Approve that run. Confirm that it checks write access and signs a local commit without pushing.
+6. Remove any repository-level copies of the site credentials after the check passes. Confirm the environment still has its own credentials before removing the required reviewers.
+   Publication then runs without manual approval.
 
-Register the public key under the maintainer's GitHub account. Check that its
-fingerprint matches the workflow. A successful publication requires a valid
-commit signature and accessible hosted pages. A successful local build proves neither.
+The signing job runs on a fresh runner. It uses only trusted publication code from the default branch and the pinned site publisher.
+The private key enters only the import step. The GPG wrapper passes the passphrase through a separate file descriptor.
+The workflow checks the fingerprint before signing. It stops the GPG agent and removes the temporary keyring after publication.
 
-## Secret boundary
+The dedicated key supports separate revocation. It can sign commits outside RCA under its registered GitHub account.
+Keep recovery copies outside the checkout. If the key is compromised, revoke it and replace it before publication resumes.
 
-The `documentation` environment holds `DOCS_SIGNING_PRIVATE_KEY` and
-`DOCS_SIGNING_PASSPHRASE`. The `INDEX_REPO_TOKEN` grants access to the
-documentation index. No secret value belongs in this repository.
+## Repair one ref
 
-The private key enters only the import step. The passphrase enters only the
-signing and publication steps. A small GPG wrapper supplies the passphrase through
-a separate file descriptor. It does not expose the passphrase in command arguments
-or replace the commit payload on standard input.
+After a failed build or site deployment, open **Publish Documentation** in GitHub Actions.
+Select the default branch as the workflow source. Enter the exact branch or tag name and its kind.
+The repair checks the live ref again. It does not accept an archive or commit supplied by the caller.
 
-Each run uses a temporary GPG home. An unconditional cleanup step stops that
-home's agent and removes its files. It refuses paths outside the expected runner
-directory. Abrupt runner termination can prevent cleanup, so publication uses
-an ephemeral GitHub-hosted runner.
-
-A dedicated key supports separate revocation. It does not restrict signatures to
-RCA. A compromised key can sign other commits under the registered GitHub account.
-The environment requires maintainer approval, with administrator bypass
-disabled. Configure it to accept only the branches `main` and `dev/next` and tags that match `v*`. Self-review remains
-available so that the owner can approve runs from the owner's own pushes.
-
-## Publish documentation
-
-1. Check the public key fingerprint against the workflow.
-2. Check the protection and both signing secrets in the `documentation` environment.
-3. Check access to the publication action and the documentation index.
-4. Before you approve the run, check its source commit and the workflow at that commit.
-5. Check the signature on the new index commit and the result of the Pages deployment.
-6. Open the published API reference and its licence files. In the same publication directory, check that `docs-meta.json` records the source commit.
-
-Keep the same branch protection on `dev/next` and `main`.
-
-Approval for key registration or secret configuration does not authorise publication.
-Keep recovery copies of the private key and passphrase outside the checkout.
-Storing them together does not provide independent protection against access to that location.
-
-Before key expiry, prepare and approve a replacement identity. Update the pinned
-fingerprint and secrets together. Check a signed publication before revoking the
-old key. If compromise is suspected, revoke the old key immediately and stop
-publication until a replacement passes the required checks.
+Check that `docs-meta.json` on the published page names the source commit.
+A successful local build does not prove that the site deployed.

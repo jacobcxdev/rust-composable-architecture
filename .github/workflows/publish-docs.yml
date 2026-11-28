@@ -1,24 +1,109 @@
 name: Publish Documentation
 
 on:
-    push:
-        branches:
-            - main
-            - dev/next
-        tags:
-            - "v*"
+    workflow_run:
+        workflows: ["Documentation Push"]
+        types: [completed]
+    delete:
+    schedule:
+        - cron: "23 3 * * *"
+    workflow_dispatch:
+        inputs:
+            kind:
+                description: Ref to check
+                type: choice
+                required: true
+                options: [branch, tag]
+            name:
+                description: Exact branch or tag name
+                type: string
+                required: true
+            validate_only:
+                description: Check credentials and sign a local commit without publishing
+                type: boolean
+                default: false
 
 permissions:
     contents: read
 
-concurrency:
-    group: publish-docs-${{ github.ref }}
-    cancel-in-progress: false
-
 jobs:
-    publish-docs:
-        if: ${{ !github.event.deleted }}
+    reconcile:
+        if: github.event_name == 'schedule'
         runs-on: ubuntu-24.04
+        permissions:
+            contents: read
+            actions: write
+        steps:
+            - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+              with:
+                  persist-credentials: false
+            - name: Request repairs for missing, stale or deleted references
+              env:
+                  GH_TOKEN: ${{ github.token }}
+                  DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+              run: python3 scripts/reconcile_doc_refs.py --dispatch
+
+    resolve:
+        if: github.event_name != 'schedule' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+        runs-on: ubuntu-24.04
+        outputs:
+            active: ${{ steps.ref.outputs.active }}
+            operation: ${{ steps.ref.outputs.operation }}
+            name: ${{ steps.ref.outputs.name }}
+            kinds: ${{ steps.ref.outputs.kinds }}
+            commit: ${{ steps.ref.outputs.commit }}
+        steps:
+            - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+              with:
+                  persist-credentials: false
+            - name: Resolve current Git refs
+              id: ref
+              env:
+                  GH_TOKEN: ${{ github.token }}
+              run: python3 scripts/resolve_doc_refs.py
+
+    build-docs:
+        needs: resolve
+        if: needs.resolve.outputs.active == 'true' && needs.resolve.outputs.operation == 'upsert'
+        runs-on: ubuntu-24.04
+        timeout-minutes: 30
+        outputs:
+            artifact-id: ${{ steps.preview.outputs.artifact-id }}
+        steps:
+            - name: Checkout trusted build tools
+              uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+              with:
+                  path: controller
+                  persist-credentials: false
+            - name: Checkout source at the verified commit
+              uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+              with:
+                  ref: ${{ needs.resolve.outputs.commit }}
+                  path: source
+                  persist-credentials: false
+            - name: Build Documentation
+              run: python3 controller/scripts/build_doc_preview.py source "$RUNNER_TEMP/api-reference"
+            - name: Upload API reference
+              id: preview
+              uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+              with:
+                  name: rca-api-reference-${{ github.run_attempt }}
+                  path: ${{ runner.temp }}/api-reference
+                  if-no-files-found: error
+                  retention-days: 7
+
+    publish-docs:
+        needs: [resolve, build-docs]
+        if: >-
+            !cancelled() && needs.resolve.result == 'success' && needs.resolve.outputs.active == 'true'
+            && ((needs.resolve.outputs.operation == 'upsert' && needs.build-docs.result == 'success')
+            || (needs.resolve.outputs.operation == 'delete' && needs.build-docs.result == 'skipped'))
+        strategy:
+            fail-fast: false
+            matrix:
+                kind: ${{ fromJSON(needs.resolve.outputs.kinds || '[]') }}
+        runs-on: ubuntu-24.04
+        timeout-minutes: 10
         environment: documentation
         env:
             DOCS_SIGNING_FINGERPRINT: 7237B7C9DE669B33CF0B07A8F7E4F88469316E38
@@ -27,50 +112,44 @@ jobs:
             GIT_COMMITTER_NAME: RCA Documentation CI
             GIT_COMMITTER_EMAIL: me@jacobcx.dev
         steps:
-            - name: Validate Publication Ref
+            - name: Require the documentation environment token
               env:
-                  DOCS_REF_NAME: ${{ github.ref_name }}
+                  INDEX_REPO_TOKEN: ${{ secrets.INDEX_REPO_TOKEN }}
               run: |
-                  # The pinned publisher passes this value to shell commands.
-                  if [[ ! "${DOCS_REF_NAME}" =~ ^[A-Za-z0-9._/-]+$ ]] || ! git check-ref-format "refs/heads/${DOCS_REF_NAME}"; then
-                      echo '::error::This ref contains characters that the documentation publisher cannot handle safely.'
+                  if [[ "${INDEX_REPO_TOKEN}" != github_pat_* ]]; then
+                      echo '::error::The documentation environment requires a fine-grained index token.'
                       exit 1
                   fi
-
-            - name: Checkout
+            - name: Checkout trusted signing script
               uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
               with:
                   persist-credentials: false
-
-            - name: Install Rust 1.100.0
-              uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772
-              with:
-                  toolchain: 1.100.0
-
-            - name: Restore Cargo cache
-              uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
-
-            - name: Checkout Action Repository
+                  sparse-checkout: scripts/docs-sign.sh
+                  sparse-checkout-cone-mode: false
+            - name: Checkout pinned index publisher
               uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
               with:
                   repository: jacobcxdev/jacobcxdev.github.io
-                  ref: 2ddc31662cd1654a5e20ca02770fbe501e86fe41
+                  ref: 50b2b996a584e138cf0cfb364a2f242ce6b9ddae
                   token: ${{ secrets.INDEX_REPO_TOKEN }}
                   path: action-checkout
                   persist-credentials: false
-
-            - name: Build Documentation
+            - name: Check index write authentication without pushing
+              if: github.event_name == 'workflow_dispatch' && inputs.validate_only
               env:
-                  RUSTDOCFLAGS: -D warnings
+                  GH_TOKEN: ${{ secrets.INDEX_REPO_TOKEN }}
+                  GIT_TERMINAL_PROMPT: "0"
               run: |
-                  # Seed dependency docs so inherited and re-exported links resolve.
-                  # Build each prerequisite before the workspace documentation.
-                  cargo doc --locked -p futures-core --no-deps
-                  cargo doc --locked -p rca-event-listener --all-features --no-deps
-                  cargo doc --locked --workspace --lib --exclude 'rca-example-*' --exclude rca-size-probe --all-features --no-deps
-
-            - name: Prepare Documentation Root
-              run: python3 scripts/prepare_public_docs.py target/doc
+                  git -C action-checkout -c credential.helper= \
+                      -c 'credential.https://github.com.helper=!gh auth git-credential' \
+                      push --dry-run --no-verify --no-follow-tags origin HEAD:refs/heads/docs-credential-check
+            - name: Download API reference from this build
+              if: needs.resolve.outputs.operation == 'upsert'
+              uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+              with:
+                  artifact-ids: ${{ needs.build-docs.outputs.artifact-id }}
+                  path: target/doc
+                  digest-mismatch: error
 
             - name: Require Signed Publication
               id: signing
@@ -98,25 +177,24 @@ jobs:
             - name: Publish to Index
               uses: ./action-checkout/actions/publish-docs
               env:
-                  # Keep credentials out of clone URLs and persistent Git configuration.
-                  INDEX_REPO_URL: https://github.com/jacobcxdev/jacobcxdev.github.io.git
-                  GIT_TERMINAL_PROMPT: "0"
-                  GIT_CONFIG_COUNT: "6"
-                  GIT_CONFIG_KEY_0: credential.helper
-                  GIT_CONFIG_VALUE_0: ""
-                  GIT_CONFIG_KEY_1: credential.https://github.com.helper
-                  GIT_CONFIG_VALUE_1: '!f() { if [ "$1" = get ]; then printf "%s\n" "username=x-access-token" "password=$GH_TOKEN"; fi; }; f'
-                  GIT_CONFIG_KEY_2: commit.gpgsign
-                  GIT_CONFIG_VALUE_2: "true"
-                  GIT_CONFIG_KEY_3: user.signingkey
-                  GIT_CONFIG_VALUE_3: ${{ steps.signing.outputs.key }}
-                  GIT_CONFIG_KEY_4: gpg.format
-                  GIT_CONFIG_VALUE_4: openpgp
-                  GIT_CONFIG_KEY_5: gpg.program
-                  GIT_CONFIG_VALUE_5: ${{ steps.signing.outputs.program }}
+                  GIT_CONFIG_COUNT: "4"
+                  GIT_CONFIG_KEY_0: commit.gpgsign
+                  GIT_CONFIG_VALUE_0: "true"
+                  GIT_CONFIG_KEY_1: user.signingkey
+                  GIT_CONFIG_VALUE_1: ${{ steps.signing.outputs.key }}
+                  GIT_CONFIG_KEY_2: gpg.format
+                  GIT_CONFIG_VALUE_2: openpgp
+                  GIT_CONFIG_KEY_3: gpg.program
+                  GIT_CONFIG_VALUE_3: ${{ steps.signing.outputs.program }}
                   DOCS_SIGNING_PASSPHRASE: ${{ secrets.DOCS_SIGNING_PASSPHRASE }}
               with:
                   token: ${{ secrets.INDEX_REPO_TOKEN }}
+                  dry-run: ${{ github.event_name == 'workflow_dispatch' && inputs.validate_only }}
+                  operation: ${{ needs.resolve.outputs.operation }}
+                  source-repository: ${{ github.repository }}
+                  source-ref-type: ${{ matrix.kind }}
+                  source-ref-name: ${{ needs.resolve.outputs.name }}
+                  source-commit: ${{ needs.resolve.outputs.commit }}
                   # The qualified build and root preparation have already completed.
                   build-command: "true"
                   output-dir: target/doc

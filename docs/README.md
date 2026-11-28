@@ -92,4 +92,4 @@ The [support policy](support.md#targets) lists current targets. The [roadmap](ro
 1. [Build and review a change](../CONTRIBUTING.md).
 2. [Choose checks for the change](qualification.md). Use [compiler contracts](compiler-contract-testing.md) for compile-time behaviour and the [keyed fuzzer](../fuzz/README.md) for generated lifecycle tests.
    See [runtime measurements](performance/method.md), [composition measurements](performance/composition/README.md), and [compile and size fixtures](../benches/compile/README.md) for benchmarks.
-3. [Publish the crates](releasing.md) or [publish the API documentation](documentation-publishing.md). These use separate workflows and approvals.
+3. [Publish the crates](releasing.md) or [check automatic documentation publication](documentation-publishing.md). These use separate workflows.

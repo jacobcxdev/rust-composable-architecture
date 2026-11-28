@@ -43,6 +43,10 @@ jobs:
                   echo "$RUNNER_TEMP/lychee-x86_64-unknown-linux-musl" >> "$GITHUB_PATH"
             - run: ruby scripts/check_public_guidance.rb
             - run: python3 -B -m unittest scripts.tests.test_ci_scope scripts.tests.test_readme_quickstart scripts.tests.test_package_registry scripts.tests.test_check_release_tag
+            - name: Test documentation publication boundaries
+              run: |
+                  python3 -B -m unittest scripts.tests.test_documentation_workflow scripts.tests.test_prepare_public_docs \
+                      scripts.tests.test_build_doc_preview scripts.tests.test_resolve_doc_refs scripts.tests.test_reconcile_doc_refs
 
     quality:
         needs: scope
@@ -76,7 +80,7 @@ jobs:
             - name: Test documentation lint enforcement
               env:
                   PYTHONDONTWRITEBYTECODE: 1
-              run: python3 -m unittest scripts.tests.test_documentation_lints scripts.tests.test_prepare_public_docs
+              run: python3 -m unittest scripts.tests.test_documentation_lints
 
             - name: Test coverage capture boundaries
               env:
