@@ -35,7 +35,7 @@ super::api::test_store_api!(
     [],
     [],
     r#"
-Enable `local` on `rca`. Add `rca-test` with `local` as a dev-dependency for the owner-thread TestStore.
+Enable `local` on `rca`. Add `rca-test` with `local` as a dev-dependency for the owner-thread `TestStore`.
 
 ```
 # use rca_core as rca;
@@ -66,7 +66,7 @@ assert!(clock.get().is_some());
 ```
 "#,
     r#"
-Enable `local` on `rca`. Add `rca-test` with `local` as a dev-dependency for the owner-thread TestStore.
+Enable `local` on `rca`. Add `rca-test` with `local` as a dev-dependency for the owner-thread `TestStore`.
 
 ```
 # use rca_core as rca;
