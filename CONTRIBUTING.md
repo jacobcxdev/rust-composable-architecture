@@ -343,6 +343,7 @@ export RUSTDOCFLAGS='-D warnings'
 rustup run "$toolchain" cargo doc --locked -p futures-core --no-deps
 rustup run "$toolchain" cargo doc --locked -p rca-event-listener --all-features --no-deps
 rustup run "$toolchain" cargo doc --locked --workspace --all-features --no-deps
+python3 scripts/prepare_public_docs.py target/doc
 ```
 
 Start with [checks for the changed behaviour](docs/qualification.md#start-with-the-changed-behaviour) during development. Before completion, run checks for the

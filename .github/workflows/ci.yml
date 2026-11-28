@@ -76,7 +76,7 @@ jobs:
             - name: Test documentation lint enforcement
               env:
                   PYTHONDONTWRITEBYTECODE: 1
-              run: python3 -m unittest scripts.tests.test_documentation_lints
+              run: python3 -m unittest scripts.tests.test_documentation_lints scripts.tests.test_prepare_public_docs
 
             - name: Test coverage capture boundaries
               env:
@@ -178,6 +178,7 @@ jobs:
                   cargo doc --locked -p futures-core --no-deps
                   cargo doc --locked -p rca-event-listener --all-features --no-deps
                   cargo doc --locked --workspace --all-features --no-deps
+                  python3 scripts/prepare_public_docs.py target/doc
 
             - name: Link workspace binaries with all features
               # Normal builds do not use the test-only critical-section provider.

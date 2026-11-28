@@ -22,10 +22,15 @@ export RUSTDOCFLAGS='-D warnings'
 cargo doc --locked -p futures-core --no-deps
 cargo doc --locked -p rca-event-listener --all-features --no-deps
 cargo doc --locked --workspace --all-features --no-deps
+python3 scripts/prepare_public_docs.py target/doc
 ```
 
 Keep the first two commands separate. They supply the metadata for links to
 inherited and re-exported APIs before rustdoc builds the workspace.
+
+The last command prepares the site root and copies both licences.
+Each source page names the published file, not its location on the build machine.
+The command stops publication if it finds a build path in the output.
 
 ## Signing identity
 

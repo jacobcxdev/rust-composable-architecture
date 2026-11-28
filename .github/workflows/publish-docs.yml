@@ -70,10 +70,7 @@ jobs:
                   cargo doc --locked --workspace --all-features --no-deps
 
             - name: Prepare Documentation Root
-              run: |
-                  test -f target/doc/rca/index.html
-                  cp LICENSE-APACHE.md LICENSE-MIT.md target/doc/rca/
-                  printf '%s\n' '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta http-equiv="refresh" content="0; url=rca/index.html"><title>Rust Composable Architecture</title></head><body><a href="rca/index.html">Open the API documentation</a></body></html>' > target/doc/index.html
+              run: python3 scripts/prepare_public_docs.py target/doc
 
             - name: Require Signed Publication
               id: signing
