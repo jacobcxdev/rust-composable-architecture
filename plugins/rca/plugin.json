@@ -1,0 +1,11 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "rca",
+  "version": "0.1.0",
+  "description": "Build and test headless applications with Rust Composable Architecture, or contribute to RCA itself.",
+  "author": {
+    "name": "Jacob Clayden"
+  },
+  "repository": "https://github.com/jacobcxdev/rust-composable-architecture",
+  "license": "MIT OR Apache-2.0"
+}

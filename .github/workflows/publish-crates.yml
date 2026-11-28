@@ -1,0 +1,119 @@
+name: Publish Rust crates
+
+on:
+    push:
+        tags: ["v*"]
+
+permissions:
+    contents: read
+
+concurrency:
+    group: crates-io-release
+    cancel-in-progress: false
+
+defaults:
+    run:
+        shell: bash
+
+env:
+    PYTHONDONTWRITEBYTECODE: "1"
+
+jobs:
+    prepare:
+        if: github.repository == 'jacobcxdev/rust-composable-architecture' && github.event.created && !github.event.deleted
+        runs-on: ubuntu-24.04
+        timeout-minutes: 45
+        outputs:
+            archives: ${{ steps.hash.outputs.archives }}
+            version: ${{ steps.tag.outputs.version }}
+        steps:
+            - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+              with:
+                  fetch-depth: 0
+                  persist-credentials: false
+            - name: Check the signed tag and current main
+              id: tag
+              env:
+                  GH_TOKEN: ${{ github.token }}
+              run: |
+                  version=$(python3 scripts/check_release_tag.py --tag "$GITHUB_REF_NAME" --sha "$GITHUB_SHA")
+                  echo "version=$version" >> "$GITHUB_OUTPUT"
+            - uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772
+              with:
+                  toolchain: 1.100.0
+            - name: Build and check the release without uploading
+              run: cargo package --workspace --exclude 'rca-example-*' --exclude rca-size-probe --locked --registry crates-io
+            - name: Check the registry and record the tested archive hashes
+              id: hash
+              env:
+                  VERSION: ${{ steps.tag.outputs.version }}
+              run: |
+                  python3 scripts/check_registry_archives.py --version "$VERSION" --archives target/package
+                  digest=$(sha256sum target/package/*.crate | sha256sum | cut -d ' ' -f1)
+                  echo "archives=$digest" >> "$GITHUB_OUTPUT"
+            - name: Show the documentation and skill review for this release
+              run: |
+                  source_commit=$(git rev-parse HEAD)
+                  repo_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY"
+                  previous_tag=$(git tag --list 'v*' --sort=-version:refname | sed -n '2p')
+                  {
+                      echo "## Review before you approve $GITHUB_REF_NAME"
+                      echo
+                      if [[ -n "$previous_tag" ]]; then
+                          echo "[Compare with $previous_tag]($repo_url/compare/$previous_tag..$source_commit)."
+                      else
+                          echo "[Review the complete first release]($repo_url/tree/$source_commit)."
+                      fi
+                      echo "Use the [documentation and skill checklist]($repo_url/blob/$source_commit/docs/releasing.md#review-documentation-and-skills)."
+                      echo "Approve the crates-io deployment only if the guides, skills and migration notes match this commit."
+                  } >> "$GITHUB_STEP_SUMMARY"
+
+    publish:
+        name: Approve the documentation, skills and crate upload
+        needs: prepare
+        runs-on: ubuntu-24.04
+        timeout-minutes: 110
+        environment: crates-io
+        permissions:
+            contents: read
+            id-token: write
+        env:
+            VERSION: ${{ needs.prepare.outputs.version }}
+        steps:
+            - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+              with:
+                  fetch-depth: 0
+                  persist-credentials: false
+            - uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772
+              with:
+                  toolchain: 1.100.0
+            - name: Match the approved files before requesting credentials
+              id: plan
+              env:
+                  EXPECTED: ${{ needs.prepare.outputs.archives }}
+                  GH_TOKEN: ${{ github.token }}
+              run: |
+                  python3 scripts/check_release_tag.py --tag "$GITHUB_REF_NAME" --sha "$GITHUB_SHA"
+                  cargo package --workspace --exclude 'rca-example-*' --exclude rca-size-probe --locked --no-verify --registry crates-io
+                  actual=$(sha256sum target/package/*.crate | sha256sum | cut -d ' ' -f1)
+                  test "$EXPECTED" = "$actual"
+                  missing=$(python3 scripts/check_registry_archives.py --version "$VERSION" --archives target/package)
+                  if [[ -n "$missing" ]]; then echo 'upload=true' >> "$GITHUB_OUTPUT"; fi
+            - name: Get a short-lived token for existing crates
+              if: steps.plan.outputs.upload == 'true' && env.VERSION != '0.1.0'
+              id: auth
+              uses: rust-lang/crates-io-auth-action@3268eb413133e2960fa4ae0e963ca76380c54cd9 # v1.0.6
+            - name: Upload the first release
+              if: steps.plan.outputs.upload == 'true' && env.VERSION == '0.1.0'
+              env:
+                  CARGO_REGISTRY_TOKEN: ${{ secrets.CRATES_IO_BOOTSTRAP_TOKEN }}
+                  GH_TOKEN: ${{ github.token }}
+              run: bash scripts/publish_missing_crates.sh "$VERSION"
+            - name: Upload a later release
+              if: steps.plan.outputs.upload == 'true' && env.VERSION != '0.1.0'
+              env:
+                  CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
+                  GH_TOKEN: ${{ github.token }}
+              run: bash scripts/publish_missing_crates.sh "$VERSION"
+            - name: Check every published archive against the approved bytes
+              run: python3 scripts/check_registry_archives.py --version "$VERSION" --archives target/package --require-complete
