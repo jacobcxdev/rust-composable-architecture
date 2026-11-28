@@ -17,8 +17,8 @@ use std::task::{Context, Poll, Waker};
 
 use rca_core::{Effect, EffectSender, ReduceContext, Reducer, Store};
 
-#[global_allocator]
 /// Counts allocations in each isolated send-phase assay.
+#[global_allocator]
 static ALLOCATOR: dhat::Alloc = dhat::Alloc;
 
 /// A move-only, non-`Sync` action encodes committed values without cloning.

@@ -35,13 +35,16 @@ class BuildPreviewTests(unittest.TestCase):
                 (target / "doc/index.html").write_text("checked")
 
         log = io.StringIO()
+        revision = "3f" * 20
         with patch("scripts.build_doc_preview.subprocess.run", side_effect=run), redirect_stdout(log):
-            preview.build(self.source, self.output)
+            preview.build(self.source, self.output, revision)
         self.assertEqual((self.output / "index.html").read_text(), "checked")
         self.assertEqual(len(requests), 2)
         for argv in requests:
             self.assertIn(f"{self.source}:/rca-source:ro", argv)
             self.assertIn(preview.IMAGE, argv)
+            self.assertIn(f"RCA_DOCS_REVISION={revision}", argv)
+            self.assertIn("RUSTDOCFLAGS=-D warnings --cfg rca_docs_source", argv)
             self.assertNotIn("--privileged", argv)
             for index, arg in enumerate(argv):
                 if arg == "--env":
@@ -79,6 +82,13 @@ class BuildPreviewTests(unittest.TestCase):
             for output in (self.output, self.source / "new"):
                 with self.assertRaises(ValueError):
                     preview.build(self.source, output)
+            docker.assert_not_called()
+
+    def test_rejects_a_branch_or_abbreviated_revision_before_building(self):
+        with patch("scripts.build_doc_preview.subprocess.run") as docker:
+            for revision in ("main", "abcd1234", "0" * 39 + "/"):
+                with self.assertRaisesRegex(ValueError, "commit ID"):
+                    preview.build(self.source, self.output, revision)
             docker.assert_not_called()
 
 

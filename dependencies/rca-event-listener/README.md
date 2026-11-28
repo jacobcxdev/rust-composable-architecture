@@ -6,13 +6,28 @@ This credit does not imply that the upstream authors maintain or endorse the for
 [UPSTREAM.md](UPSTREAM.md) records the source and the changes in RCA.
 
 The fork requires Rust 1.100.0 or later and uses Rust edition 2021.
-To keep the upstream library name in your code, add the fork with an alias:
+After publication, install this package with the upstream import name:
 
 ```sh
 cargo add rca-event-listener --rename event-listener
 ```
 
-The original README follows. Its badges, package links and release instructions refer to upstream, not this fork.
+On a native target with the default `std` feature, import `Listener` to use `wait`.
+A notification does not wait for a future listener: register first.
+
+```rust
+use event_listener::{Event, Listener};
+
+fn main() {
+    let event = Event::new();
+    let listener = event.listen();
+    assert_eq!(event.notify(1), 1);
+    listener.wait();
+}
+```
+
+The historical upstream README follows, with the Eventcounts article link corrected.
+Its example, badges, package links, and release instructions refer to upstream, not this fork.
 
 ---
 
@@ -35,7 +50,7 @@ You can use this crate to turn non-blocking data structures into async or blocki
 structures. See a [simple mutex] implementation that exposes an async and a blocking interface
 for acquiring locks.
 
-[eventcounts]: https://www.1024cores.net/home/lock-free-algorithms/eventcounts
+[eventcounts]: https://sites.google.com/site/1024cores/home/lock-free-algorithms/eventcounts
 [simple mutex]: ./examples/mutex.rs
 
 ## Examples

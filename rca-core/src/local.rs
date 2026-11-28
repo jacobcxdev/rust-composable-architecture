@@ -14,12 +14,15 @@
 //!
 //! # Examples
 //!
+//! Enable the `local` feature on `rca`.
+//!
 //! ```
+//! # use rca_core as rca;
 //! use std::cell::Cell;
 //! use std::rc::Rc;
 //!
-//! use rca_core::local::{Effect, Reduce, Runtime, Store};
-//! use rca_core::ReduceContext;
+//! use rca::local::{Effect, Reduce, Runtime, Store};
+//! use rca::ReduceContext;
 //!
 //! // The caller supplies the runtime that owns this non-Send state.
 //! fn counter(runtime: Runtime) -> Store<Rc<Cell<usize>>, ()> {

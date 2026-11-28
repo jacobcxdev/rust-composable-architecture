@@ -341,12 +341,12 @@ where
     State: Send + 'static,
     Action: Send + 'static,
 {
+    /// Adapts legacy reducer fixtures to the production driver and ownership protocol.
     #[expect(
         clippy::too_many_arguments,
         reason = "the actor constructor makes every owned runtime component explicit"
     )]
     #[cfg(test)]
-    /// Adapts legacy reducer fixtures to the production driver and ownership protocol.
     fn new(
         state: State,
         reducer: Box<dyn ErasedReducer<State, Action>>,
@@ -3591,8 +3591,8 @@ ordinary_test_items! {
     }
 }
 
-#[cfg(test)]
 /// Routes legacy reducer fixtures through production work collection without eager polling.
+#[cfg(test)]
 struct LegacyDriver<S, A>(Box<dyn ErasedReducer<S, A>>);
 #[cfg(test)]
 impl<S, A> ReduceDriver<S, A> for LegacyDriver<S, A> {

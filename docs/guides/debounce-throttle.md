@@ -1,8 +1,8 @@
 # Debounce and first/latest throttle
 
 For a search request, wait for a pause in typing. For a stream of progress updates,
-publish at intervals even while updates continue. Both recipes use `rca-core`
-effects, reducer state and clocks. Neither needs a global scheduler.
+publish at intervals even while updates continue. The examples import effects and clock types
+from `rca` without extra features. Neither needs a global scheduler.
 See the [recipes and tests](../../rca-core/tests/debounce_throttle.rs).
 
 ## Choose an input policy first
@@ -37,7 +37,7 @@ Choose the rule your domain needs. The names alone do not define deadline order.
 Construct client work lazily and put cancellation outside the delay:
 
 ```rust
-use rca_core::Effect;
+use rca::Effect;
 use std::time::Duration;
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
@@ -65,7 +65,7 @@ requests.
 Use a typed mode, `First` or `Latest`, and feature-owned state:
 
 ```rust
-use rca_core::MonotonicInstant;
+use rca::MonotonicInstant;
 
 enum Mode { First, Latest }
 struct Window {
@@ -140,7 +140,8 @@ composition reducer.
 
 ## Controlled verification and limits
 
-Run the focused executable qualification with:
+Run the debounce and throttle tests from the repository root.
+On macOS, pass the Cargo arguments to the [build memory guard](../../CONTRIBUTING.md#build-memory-safety).
 
 ```sh
 rustup run 1.100.0 cargo test --locked -p rca-core --test debounce_throttle

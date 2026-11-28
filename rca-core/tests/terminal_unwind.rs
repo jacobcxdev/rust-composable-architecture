@@ -21,8 +21,8 @@ use std::task::{Context, Poll, Waker};
 #[cfg(feature = "test-util")]
 use support::ManualRuntime;
 
-#[cfg(feature = "test-util")]
 /// Exports a context from a pending task so later requests use real task ownership.
+#[cfg(feature = "test-util")]
 struct Root(Arc<Mutex<Option<TaskContext<usize, ()>>>>);
 
 #[cfg(feature = "test-util")]
@@ -39,8 +39,8 @@ impl Feature for Root {
     }
 }
 
-#[cfg(feature = "test-util")]
 /// Panics after reply publication to distinguish notification failure from operation failure.
+#[cfg(feature = "test-util")]
 struct PanicWake;
 #[cfg(feature = "test-util")]
 impl Wake for PanicWake {
@@ -49,8 +49,8 @@ impl Wake for PanicWake {
     }
 }
 
-#[cfg(feature = "test-util")]
 /// Faults mutation, publication or reply wake and compares caller and gate outcomes.
+#[cfg(feature = "test-util")]
 fn typed_update_unwind(publication: bool, wake: bool) {
     let runtime = ManualRuntime::new();
     let captured = Arc::new(Mutex::new(None));
@@ -161,8 +161,8 @@ fn successful_reply_then_panicking_wake_does_not_invent_terminal_error() {
     typed_update_unwind(false, true);
 }
 
-#[cfg(feature = "test-util")]
 /// Keeps terminal debt until acknowledgement while rejected queries release their captures.
+#[cfg(feature = "test-util")]
 fn legacy_action_unwind(publication: bool) {
     let runtime = ManualRuntime::new();
     let gate = TransactionGate::new();

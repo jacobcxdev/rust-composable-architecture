@@ -1059,8 +1059,8 @@ pub(crate) struct ReplyGuard<T> {
     sender: Option<oneshot::Sender<Result<T, TaskAccessError>>>,
     /// Records how far user execution or commit progressed before a failure.
     progress: TaskProgress,
-    #[cfg(feature = "test-util")]
     /// Observes terminal progress even when the response waiter has disappeared.
+    #[cfg(feature = "test-util")]
     terminal: Option<TerminalReceipt>,
 }
 impl<T> ReplyGuard<T> {
@@ -1297,8 +1297,8 @@ pub(crate) struct TypedSend<A> {
     /// Permits safe extraction from Drop. Only consuming methods take this payload,
     /// so an externally observable request always owns it.
     pending: Option<PendingSend<A>>,
-    #[cfg(feature = "test-util")]
     /// Records the selected boundary before response publication can wake a waiter.
+    #[cfg(feature = "test-util")]
     terminal: Option<TerminalReceipt>,
 }
 
@@ -1316,8 +1316,8 @@ pub(crate) struct EnteredSend<A> {
     reply: Option<oneshot::Sender<Result<ActionTask, TaskSendError<A>>>>,
     /// Distinguishes possible user execution from an irreversible commit stamp.
     progress: TaskProgress,
-    #[cfg(feature = "test-util")]
     /// Preserves first-terminal observation independently of response ownership.
+    #[cfg(feature = "test-util")]
     terminal: Option<TerminalReceipt>,
 }
 impl<A> TypedSend<A> {
@@ -1356,8 +1356,8 @@ impl<A> TypedSend<A> {
         drop(reply);
         action
     }
-    #[cfg(feature = "test-util")]
     /// Inspects the still-unentered action without consuming its recovery path.
+    #[cfg(feature = "test-util")]
     pub(crate) fn action(&self) -> &A {
         &self
             .pending

@@ -2,7 +2,7 @@
 
 This file records notable changes to RCA.
 
-## 0.1.0
+## 0.1.0 (unreleased)
 
 ### Application logic
 

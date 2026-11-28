@@ -54,8 +54,8 @@ fn shared_driver(
         },
     ))
 }
-#[cfg(feature = "local")]
 /// Adapts setup without adding Send requirements to Local.
+#[cfg(feature = "local")]
 fn local_driver(
     mut reduce: impl FnMut(&mut State, &(), &mut ReduceContext<'_>) + 'static,
 ) -> Box<<local::Local as Carriers<State, ()>>::Driver> {

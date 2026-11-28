@@ -35,10 +35,13 @@ super::api::test_store_api!(
     [],
     [],
     r#"
+Enable `local` on `rca`. Add `rca-test` with `local` as a dev-dependency for the owner-thread TestStore.
+
 ```
+# use rca_core as rca;
 use std::{cell::OnceCell, rc::Rc};
-use rca_core::{DependencyKey, ReduceContext};
-use rca_core::local::{Clock, Effect, Reducer};
+use rca::{DependencyKey, ReduceContext};
+use rca::local::{Clock, Effect, Reducer};
 use rca_test::local::TestStore;
 // Dependency values remain portable; the local factory may own Rc captures.
 struct Configured;
@@ -63,10 +66,13 @@ assert!(clock.get().is_some());
 ```
 "#,
     r#"
+Enable `local` on `rca`. Add `rca-test` with `local` as a dev-dependency for the owner-thread TestStore.
+
 ```
+# use rca_core as rca;
 use std::rc::Rc;
-use rca_core::ReduceContext;
-use rca_core::local::{Effect, Reducer};
+use rca::ReduceContext;
+use rca::local::{Effect, Reducer};
 use rca_test::local::TestStore;
 # struct Feature;
 # impl Reducer for Feature {

@@ -25,7 +25,7 @@ Choose the smallest test that distinguishes the proposed behavior from the old b
 | A borrow or trait bound | Pair a passing caller with a caller that fails at the intended operation. Use the owning suite in `docs/compiler-contract-testing.md`. |
 | A warning or deprecation | Keep the old caller compiling with the intended warning. Check that its replacement compiles without the warning. |
 | A public path, feature flag, or macro | Build an external consumer with the smallest affected feature set. For facade exports or macro paths, check each affected package with its default import and a Cargo alias. |
-| A runtime adapter | Run its conformance suite. For host-owned cleanup after Store shutdown, see `rca-tokio/tests/async_cleanup_host.rs`. That test does not prove external resource release. |
+| A runtime adapter | Run its conformance suite. In `rca-tokio/tests/async_cleanup_host.rs`, the peer checks that the local socket closed. This does not prove that a remote service released its resource. |
 | A guide or skill | Exercise its example or decision from the reader's position. Check the links in the distributed form, not just the source tree. |
 
 On macOS, use the repository's Cargo memory watchdog before compiling. If it stops a build, inspect its receipt. Do not bypass it.

@@ -1,14 +1,31 @@
 # Regression suite
 
-Run these commands from the RCA workspace root. On macOS, use the
-[build memory guard](../../../CONTRIBUTING.md#build-memory-safety).
+Run from the RCA workspace root. On macOS, run stable tests through the
+[build memory guard](../../../CONTRIBUTING.md#build-memory-safety). Give each run a new receipt:
 
 ```sh
-cargo test -p rca-event-listener --tests
-cargo test -p rca-event-listener --no-default-features --tests
-cargo test -p rca-event-listener --features critical-section,portable-atomic --tests
-RUSTFLAGS="--cfg loom" LOOM_MAX_PREEMPTIONS=2 LOOM_MAX_BRANCHES=10000 cargo test -p rca-event-listener --features loom --test loom --test racing_loom -- --test-threads=1
-MIRIFLAGS="-Zmiri-strict-provenance" cargo +nightly miri test -p rca-event-listener --tests -- --test-threads=1
+mkdir -p target
+run_dir=$(mktemp -d target/listener-tests.XXXXXXXX)
+python3 scripts/guard_cargo_memory.py --receipt "$run_dir/stable.json" -- test --locked -p rca-event-listener --tests
+```
+
+On an isolated Linux runner with an OS memory limit for the whole job, check
+each stable configuration separately:
+
+```sh
+rustup run 1.100.0 cargo test --locked -p rca-event-listener --tests
+rustup run 1.100.0 cargo test --locked -p rca-event-listener --no-default-features --tests
+rustup run 1.100.0 cargo test --locked -p rca-event-listener --features critical-section,portable-atomic --tests
+RUSTFLAGS="--cfg loom" LOOM_MAX_PREEMPTIONS=2 LOOM_MAX_BRANCHES=10000 rustup run 1.100.0 cargo test --locked -p rca-event-listener --features loom --test loom --test racing_loom -- --test-threads=1
+```
+
+For Miri, use a separate Linux job with the same memory limit and an external
+timeout. Install the `miri` component of `nightly-2026-08-23` there. The macOS
+guard does not support Miri. CI uses this nightly for `rca-core`; those tests
+do not run the listener fork's own suite.
+
+```sh
+MIRIFLAGS="-Zmiri-strict-provenance" rustup run nightly-2026-08-23 cargo miri test --locked -p rca-event-listener --tests -- --test-threads=1
 ```
 
 ## Where the tests run

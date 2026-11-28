@@ -251,8 +251,9 @@ impl<Value, Failure> ExternalObservation<Value, Failure> {
     /// # Examples
     ///
     /// ```
+    /// # use rca_core as rca;
     /// # async fn example() {
-    /// let mut values = rca_core::ExternalObservation::<_, std::convert::Infallible>::new(
+    /// let mut values = rca::ExternalObservation::<_, std::convert::Infallible>::new(
     ///     |producer| {
     ///         producer.publish(2).unwrap();
     ///         assert!(producer.finish());
@@ -388,11 +389,11 @@ impl<Value> Observation<Value> {
     /// the registration's policy. Every eligible commit still runs the selector,
     /// even when only fields excluded from its result changed.
     ///
-    /// Returns `true` after invocation, or `false` if authority closes first.
-    /// Admission atomically deactivates the registration before invocation;
-    /// a later closure cannot retract an already admitted callback. The owner
-    /// drops before invocation. RCA invokes the callback outside actor publication.
-    /// It holds no observation metadata lock or borrow during invocation.
+    /// If the registration closes before RCA admits the callback, this returns `false`.
+    /// To admit the callback, RCA atomically deactivates the registration. Closure after
+    /// admission cannot cancel the callback. RCA drops the observation handle before it
+    /// calls the callback, then returns `true`. The callback runs outside actor publication.
+    /// RCA holds no observation metadata lock or borrow during the call.
     /// Application-held locks and borrows remain the caller's responsibility.
     /// The callback can enqueue new ingress, but it cannot perform nested reduction.
     /// This is post-commit delivery,

@@ -11,7 +11,8 @@ use super::{Issue, IssueReportError, IssueReporter};
 /// or ingress authority. An empty selection is explicitly disabled.
 ///
 /// ```
-/// use rca_core::{Issue, IssueReporter, IssueReporters};
+/// # use rca_core as rca;
+/// use rca::{Issue, IssueReporter, IssueReporters};
 ///
 /// let inherited = IssueReporters::new([IssueReporter::new(|issue| {
 ///     assert_eq!(issue.code, "selected");

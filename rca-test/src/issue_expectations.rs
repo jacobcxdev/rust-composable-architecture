@@ -130,9 +130,12 @@ fn check(
 /// In `Disabled` mode only the known-issue allowance is disabled: the body still
 /// runs, predicates still execute, and every captured issue is unexpected.
 ///
+/// Enable the `test-util` feature on `rca`.
+///
 /// ```
-/// use rca_core::{Issue, IssueCollector};
-/// use rca_test::{IssueExpectationMode, expect_issues};
+/// # mod rca { pub use rca_core::{Issue, IssueCollector}; pub use rca_test::{IssueExpectationMode, expect_issues}; }
+/// use rca::{Issue, IssueCollector};
+/// use rca::{IssueExpectationMode, expect_issues};
 ///
 /// let outcome = expect_issues(
 ///     IssueCollector::new(),
@@ -200,11 +203,14 @@ impl Drop for PollCloseGuard<'_> {
 /// Escaped reporter handles reject reports after the scope closes. Accepted reports
 /// abandoned by drop are not converted into an expectation result.
 ///
+/// Enable the `test-util` feature on `rca`.
+///
 /// ```
+/// # mod rca { pub use rca_core::IssueCollector; pub use rca_test::{IssueExpectationMode, expect_issues_async}; }
 /// use std::task::{Context, Poll, Waker};
 ///
-/// use rca_core::IssueCollector;
-/// use rca_test::{IssueExpectationMode, expect_issues_async};
+/// use rca::IssueCollector;
+/// use rca::{IssueExpectationMode, expect_issues_async};
 ///
 /// let future = expect_issues_async(
 ///     IssueCollector::new(),

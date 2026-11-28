@@ -53,8 +53,8 @@ pub fn check_value(value: u8, expected: u8) -> Result<(), &'static str> {
     }
 }
 
-#[cfg(test)]
 /// Detects a stuck adapter; an outer process watchdog still bounds native joins.
+#[cfg(test)]
 pub fn bounded(
     exercise: fn(Mode) -> Result<(), &'static str>,
     mode: Mode,

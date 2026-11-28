@@ -283,8 +283,8 @@ fn umbrella_exports_case_lifecycle_composition() {
     let _ = CaseRootAction::Parent;
 }
 
-#[cfg(feature = "macros")]
 /// Checks that façade trait names and derive names coexist in their Rust namespaces.
+#[cfg(feature = "macros")]
 mod macros {
     use rca::{ActionPaths, DependencyClient, DependencyKey, StatePaths, reducers};
 

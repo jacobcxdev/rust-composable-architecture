@@ -25,7 +25,7 @@ not require Tokio, and state does not need to implement `Clone`.
 ## Quick start
 
 From the repository root, run the counter with the [pinned Rust toolchain](rust-toolchain.toml). It sends one
-action, checks that the count is one, then exits without printing anything.
+action, checks that the count is one, then exits without printing anything. It uses the checkout, not a published RCA package.
 
 **macOS** — use the repository's [build memory guard](CONTRIBUTING.md#build-memory-safety):
 
@@ -40,14 +40,22 @@ python3 scripts/guard_cargo_memory.py --receipt "$(mktemp -d)/counter.json" --me
 cargo run --manifest-path examples/counter/Cargo.toml
 ```
 
-To use a published RCA release with Tokio:
+To use this checkout in a separate application, run the following commands **in the application directory**.
+Replace the example path with the path to the checkout's `rca` directory:
+
+```sh
+cargo add --path ../rust-composable-architecture/rca --features tokio
+cargo add tokio@1 --features macros,rt,time
+```
+
+Once [crates.io](https://crates.io/crates/rca) lists a release that includes `tokio`, you can install it by name instead:
 
 ```sh
 cargo add rca --features tokio
 cargo add tokio@1 --features macros,rt,time
 ```
 
-Cargo adds a compatible version requirement to your manifest. The two manifest examples below show the compatible release series, not an exact release.
+The registry commands add a compatible version requirement. The manifests below show the release series, not an exact version.
 RCA uses your Tokio runtime. It does not start a second one.
 
 <details>
@@ -66,7 +74,7 @@ tokio = { version = "1", features = ["macros", "rt", "time"] }
 
 </details>
 
-`src/main.rs`:
+A reducer changes state for one action and returns any effects. In `src/main.rs`, `Reduce::new` constructs a counter that returns no effects:
 
 ```rust
 use rca::{Effect, Reduce, Store, TokioRuntime};
@@ -204,7 +212,7 @@ The [persistent counter](examples/persistent-counter/README.md) shows how to sav
 | Which example fits my application? | [Runnable examples and tested recipes](examples/README.md) |
 | How do I connect a native UI or another service? | [Host integration guide](docs/integration-boundaries.md) |
 | How do I choose between runtime speed and binary size? | [Application build profiles](docs/guides/authoring.md#choose-a-release-profile) |
-| Where can I find a type or method? | [API reference and documentation index](docs/README.md#api-reference-and-support) |
+| Where can I find a type or method? | [Choose the API reference for your version or checkout](docs/README.md#api-reference-and-support) |
 
 ## Requirements and compatibility
 

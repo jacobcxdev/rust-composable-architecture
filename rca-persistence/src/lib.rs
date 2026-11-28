@@ -11,7 +11,8 @@
 //! - [`Document`] owns a value and composes as a reducer with a [`Backend`].
 //! - [`SharedDocument`] coordinates a cached value through a [`DocumentKey`] and an owned backend session.
 //! - [`BackendKey`] connects a byte backend directly to [`rca_core::SharedKeyCache`], without document coordination.
-//! - [`RevisionBackend`] adds revision checks to saves and reports conflicts instead of overwriting newer data.
+//! - [`SharedDocument::revisioned`] uses a [`RevisionBackend`] to compare revisions before each write.
+//!   [`Document::new`] and [`SharedDocument::new`] do not request this comparison, even with the same backend.
 //!
 //! # Document execution
 //!
@@ -49,7 +50,8 @@
 //! Before restart, wait for the backend to stop all earlier writes.
 //! Then construct a new [`Document`] and [`State`], and load again.
 //! A replacement document must not race an earlier writer.
-//! If saved state is required, use [`Action::close`] before Store shutdown.
+//! If you need to save the document, submit the action from [`Action::close`].
+//! Wait for its persistence receipt to succeed before you shut down the Store.
 //! Shutdown aborts work instead of flushing it.
 //! RCA provides no in-place reset, hidden executor, detached task or cross-document transaction.
 //!
@@ -59,6 +61,9 @@
 //! If acknowledgement is cancelled, the receipt reports abandonment only after that action and all coordinator and effect senders are dropped.
 //!
 //! # Examples
+//!
+//! This example imports `rca-core` and `rca-persistence` directly. Neither needs an optional feature here.
+//! The hidden test driver uses `rca-test` and `futures-executor` as dev-dependencies. An application supplies its own RCA runtime.
 //!
 //! ```
 //! use std::convert::Infallible;
@@ -140,7 +145,7 @@
     doc = r"
 # File imports
 
-The file types use root imports, like the other persistence APIs:
+Enable the `file` feature on `rca-persistence`. Import the file types from the crate root:
 
 ```
 use rca_persistence::{FileBackend, FileError, FileOptions, FileStage, SyncMode};

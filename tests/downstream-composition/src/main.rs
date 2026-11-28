@@ -139,8 +139,8 @@ fn initial_state() -> AppState {
     }
 }
 
-#[cfg(test)]
 /// Builds the explicit-path control without depending on generated path helpers.
+#[cfg(test)]
 fn handwritten_reducer() -> impl Reducer<State = AppState, Action = AppAction> {
     let rows = for_each(
         ParentReducer,
@@ -192,7 +192,6 @@ fn generated_reducer() -> impl Reducer<State = AppState, Action = AppAction> {
     reducers![detail, AuditReducer]
 }
 
-#[tokio::main(flavor = "current_thread", start_paused = true)]
 /// Checks scoped reads, observation and cancellation through the packaged runtime adapter.
 ///
 /// # Errors
@@ -200,6 +199,7 @@ fn generated_reducer() -> impl Reducer<State = AppState, Action = AppAction> {
 ///
 /// # Panics
 /// Panics when the packaged APIs violate an asserted fixture contract.
+#[tokio::main(flavor = "current_thread", start_paused = true)]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let store = Store::new(
         initial_state(),

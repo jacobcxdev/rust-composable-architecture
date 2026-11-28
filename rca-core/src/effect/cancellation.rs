@@ -21,8 +21,8 @@ trait ErasedCancellationValue: Send + Sync {
     /// Compares keys only after their concrete types match.
     fn equals(&self, other: &dyn ErasedCancellationValue) -> bool;
 
-    #[cfg(feature = "test-util")]
     /// Names the concrete key type without formatting its stored value.
+    #[cfg(feature = "test-util")]
     fn type_name(&self) -> &'static str;
 }
 
@@ -93,14 +93,14 @@ pub(crate) struct CancellationIdentity {
 }
 
 impl CancellationIdentity {
-    #[cfg(feature = "test-util")]
     /// Reads the compiled scope's opaque diagnostic identifier.
+    #[cfg(feature = "test-util")]
     pub(crate) fn scope_id(&self) -> u64 {
         self.scope.diagnostic_id()
     }
 
-    #[cfg(feature = "test-util")]
     /// Names the concrete key type without exposing its value.
+    #[cfg(feature = "test-util")]
     pub(crate) fn type_name(&self) -> &'static str {
         self.key.value.type_name()
     }

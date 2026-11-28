@@ -23,9 +23,13 @@
 //! The clone must be independent and equality must include every relevant field.
 //! These are test-construction bounds, not production `Store` or `Reducer` bounds.
 //!
+//! Enable the `test-util` feature on `rca`.
+//! Add `futures-executor` as a dev-dependency for this example.
+//!
 //! ```
-//! use rca_core::{Effect, ReduceContext, Reducer};
-//! use rca_test::TestStore;
+//! # mod rca { pub use rca_core::{Effect, ReduceContext, Reducer}; pub use rca_test::TestStore; }
+//! use rca::{Effect, ReduceContext, Reducer};
+//! use rca::TestStore;
 //!
 //! struct Counter;
 //!
@@ -53,9 +57,12 @@
 //! value. `Snapshot` needs `Clone + Debug + PartialEq + Send + 'static`, not `Sync`.
 //! Actions need neither `Clone`, `Debug` nor `PartialEq` in either construction path.
 //!
+//! This example uses the `test-util` feature on `rca` and the `futures-executor` dev-dependency.
+//!
 //! ```
-//! use rca_core::{Effect, ReduceContext, Reducer};
-//! use rca_test::TestStore;
+//! # mod rca { pub use rca_core::{Effect, ReduceContext, Reducer}; pub use rca_test::TestStore; }
+//! use rca::{Effect, ReduceContext, Reducer};
+//! use rca::TestStore;
 //!
 //! struct State {
 //!     count: usize,

@@ -11,8 +11,8 @@ use rca_core::{RuntimeDriver, RuntimeFuture};
 use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll, Waker};
 
-#[derive(Clone, Default)]
 /// Shares pending tasks between a test and the runtimes it constructs.
+#[derive(Clone, Default)]
 pub(super) struct Driver(Arc<Mutex<Vec<RuntimeFuture>>>);
 impl std::fmt::Debug for Driver {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

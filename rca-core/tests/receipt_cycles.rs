@@ -142,8 +142,8 @@ fn genuine_pending_wait_resets_timer_free_budget() {
     assert!(poll(actor.as_mut()).is_ready());
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 /// Creates feedback whose ancestor receipt remains owned by its effect.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum CycleAction {
     Start,
     Feedback,

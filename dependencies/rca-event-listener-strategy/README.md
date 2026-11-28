@@ -6,13 +6,30 @@ This credit does not imply that the upstream authors maintain or endorse the for
 [UPSTREAM.md](UPSTREAM.md) records the source and the changes in RCA.
 
 The fork requires Rust 1.100.0 or later and uses Rust edition 2021.
-To keep the upstream library name in your code, add the fork with an alias:
+After publication, install this package with the upstream import name:
 
 ```sh
 cargo add rca-event-listener-strategy --rename event-listener-strategy
 ```
 
-The original README follows. Its badges, package links and release instructions refer to upstream, not this fork.
+Import the matching listener through this crate. On a native target with the default
+`std` feature, `Blocking::poll` waits for a notification and takes the listener out of its slot.
+
+```rust
+use event_listener_strategy::{event_listener::Event, Blocking, Strategy};
+use std::task::Poll;
+
+fn main() {
+    let event = Event::new();
+    let mut listener = Some(event.listen());
+    event.notify(1);
+    assert_eq!(Blocking::default().poll(&mut listener, &mut ()), Poll::Ready(()));
+    assert!(listener.is_none());
+}
+```
+
+The historical upstream README follows. Its example uses an older API.
+Its badges, package links, and release instructions refer to upstream, not this fork.
 
 ---
 

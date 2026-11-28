@@ -661,8 +661,8 @@ fn local_key_clone_lookup_and_hidden_path_stop_entry_installation() {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 /// Selects whether a later parent read succeeds, closes the lifecycle or hides state.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ParentLookup {
     Live,
     Close,

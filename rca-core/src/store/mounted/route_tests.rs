@@ -42,11 +42,11 @@ impl Feature for Child {
         state.set(state.get() + action.0);
     }
 }
-#[cfg(feature = "local")]
 /// Records Local reductions through genuinely non-Send ownership.
-struct LocalChild(Rc<Cell<usize>>);
 #[cfg(feature = "local")]
+struct LocalChild(Rc<Cell<usize>>);
 /// Prevents the Local action from accidentally satisfying Send.
+#[cfg(feature = "local")]
 struct LocalAction(Rc<usize>);
 #[cfg(feature = "local")]
 impl local::Feature for LocalChild {

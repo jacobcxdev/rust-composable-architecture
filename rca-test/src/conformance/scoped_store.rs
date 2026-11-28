@@ -12,8 +12,8 @@ use rca_core::{
 
 use super::RuntimeFactory;
 
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
 /// Gives each child an explicit identity and independently checked update count.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
 struct Child {
     /// Identifies replacements when a scope uses an identity projection.
     id: u64,
@@ -21,8 +21,8 @@ struct Child {
     count: usize,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
 /// Supplies present and absent variants for case-scoped handles.
+#[derive(Clone, Copy, Debug, PartialEq)]
 enum Case {
     /// Variant selected by the case path.
     Child(Child),

@@ -186,8 +186,8 @@ impl<Payload> TimerQueue<Payload> {
         self.records.len()
     }
 
-    #[cfg(feature = "test-util")]
     /// Copies ordered deadlines for deterministic inspection without exposing IDs.
+    #[cfg(feature = "test-util")]
     pub(crate) fn deadlines(&self) -> Vec<MonotonicInstant> {
         self.order
             .keys()

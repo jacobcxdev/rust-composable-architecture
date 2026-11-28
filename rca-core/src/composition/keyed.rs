@@ -186,7 +186,8 @@ impl<Id: fmt::Debug, State: fmt::Debug> std::error::Error for DuplicateId<Id, St
 /// # Examples
 ///
 /// ```
-/// use rca_core::KeyedAction;
+/// # use rca_core as rca;
+/// use rca::KeyedAction;
 ///
 /// let action = KeyedAction::new(7_u64, String::from("tap"));
 /// assert_eq!(*action.id(), 7);
@@ -1020,8 +1021,8 @@ pub(super) struct KeyedLifecycle<Id> {
     entry_slot: ScopeSlot,
     /// Tracks the key type without owning keys or imposing their auto-trait bounds.
     marker: PhantomData<fn() -> Id>,
-    #[cfg(test)]
     /// Counts full scans for deterministic warm-path tests, not runtime scheduling.
+    #[cfg(test)]
     full_reconciliations: u64,
 }
 
@@ -1070,20 +1071,20 @@ impl<Id> KeyedLifecycle<Id> {
         }
     }
 
-    #[cfg(test)]
     /// Reports scans across contexts so tests can distinguish cache hits from rebuilds.
+    #[cfg(test)]
     pub(super) const fn full_reconciliations(&self) -> u64 {
         self.full_reconciliations
     }
 
-    #[cfg(test)]
     /// Records a full scan after allocating its epoch, before visiting entries.
+    #[cfg(test)]
     fn record_full_reconciliation(&mut self) {
         self.full_reconciliations += 1;
     }
 
-    #[cfg(not(test))]
     /// Keeps production reconciliation free from test-only counters.
+    #[cfg(not(test))]
     const fn record_full_reconciliation(&mut self) {
         let _ = self;
     }
@@ -1439,6 +1440,14 @@ where
 }
 
 /// Composes a parent reducer with one keyed child reducer.
+///
+/// On a matching action, the selected child runs before the parent.
+/// All entries use the same child reducer instance. Keep each entry's data in
+/// its [`KeyedState`] value, not in fields of that reducer.
+/// Moving an entry preserves its lifetime. Removing it ends its lifetime,
+/// even if the parent later inserts an entry with the same ID.
+/// For a separate feature instance per entry, use [`crate::EntryMount`].
+/// See [`ForEach`] for missing-child handling and [`crate::scope()`] for a single required child.
 #[must_use]
 #[expect(
     clippy::type_complexity,
@@ -1487,8 +1496,8 @@ impl<ParentState, ParentAction, Parent, Child, State, Action, Id>
     }
 }
 
-#[cfg(all(test, feature = "allocation-measurement"))]
 /// Measures collection and reconciliation paths in isolated allocator processes.
+#[cfg(all(test, feature = "allocation-measurement"))]
 mod allocation_tests {
     use std::hint::black_box;
     use std::sync::Arc;

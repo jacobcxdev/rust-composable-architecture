@@ -1,6 +1,18 @@
 #![forbid(unsafe_code)]
 
-//! Re-exports the Rust Composable Architecture API from [`rca`].
+//! Re-exports the same types and optional features as the matching `rca` package.
+//!
+//! Start with [`Store`] to send an action and read its committed state.
+//! This package has no default features. To install a published release with the `rca` import, run
+//! `cargo add rust-composable-architecture --rename rca`.
+//!
+//! Once published, both packages share the [canonical API reference for this version].
+//!
+#![doc = concat!(
+    "[canonical API reference for this version]: https://docs.rs/rca/",
+    env!("CARGO_PKG_VERSION"),
+    "/rca/"
+)]
 
 #[cfg(feature = "macros")]
 extern crate self as rust_composable_architecture;

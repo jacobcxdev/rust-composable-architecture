@@ -62,27 +62,27 @@ pub(in crate::store) fn panic_message(payload: &(dyn std::any::Any + Send)) -> &
         .expect("the fixture must panic with its expected string diagnostic")
 }
 
-#[cfg(feature = "local")]
 /// Keeps non-Send state in the same actor as an independent child action domain.
+#[cfg(feature = "local")]
 struct LocalRoot {
     /// The selected state shared only within the owner thread.
     child: Option<Rc<Cell<usize>>>,
     /// Authority installed by the root reducer before child access.
     token: Option<ScopeToken>,
 }
-#[cfg(feature = "local")]
 /// Carries a non-Send input through root admission.
+#[cfg(feature = "local")]
 enum LocalRootAction {
     Install(Rc<()>),
 }
-#[cfg(feature = "local")]
 /// Distinguishes child work declaration from its later delivered action.
+#[cfg(feature = "local")]
 enum LocalChildAction {
     Start(Rc<usize>),
     Add(Rc<usize>),
 }
-#[cfg(feature = "local")]
 /// Retains mutable feature state across child reductions.
+#[cfg(feature = "local")]
 struct LocalChildFeature {
     /// Counts reductions independently of the selected state.
     cache: Rc<Cell<usize>>,

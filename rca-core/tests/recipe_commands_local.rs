@@ -155,8 +155,8 @@ struct Input(Rc<Cell<usize>>);
 /// Uses the same installed child while bypassing its ordinary input gate.
 struct Control(Rc<Cell<usize>>);
 
-#[cfg(feature = "test-util")]
 /// Separates the pending actor's two command identities from a foreign actor.
+#[cfg(feature = "test-util")]
 struct InspectionFixture {
     /// Keeps foreign authority live rather than testing earlier closure rejection.
     store: Store<State, Close>,
@@ -166,8 +166,8 @@ struct InspectionFixture {
     ports: [rca_core::local::CommandPort<Input>; 2],
 }
 
-#[cfg(feature = "test-util")]
 /// Installs two mapper declarations without invoking either mapper.
+#[cfg(feature = "test-util")]
 fn inspection_fixture(
     driver: &Driver,
     state: Rc<Cell<usize>>,

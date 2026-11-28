@@ -161,8 +161,8 @@ root_take!(
     local::ObservationRegistry
 );
 
-#[cfg(feature = "local")]
 /// Creates an owner-local take command without retaining Store authority.
+#[cfg(feature = "local")]
 pub(super) fn new_local_take_operation<State: 'static, Action: 'static, Value: 'static>(
     weak: std::sync::Weak<
         super::ingress::CommandIngress<super::Command<State, Action, super::Local>>,
@@ -397,8 +397,8 @@ impl<State, Entry: ?Sized + ErasedObservation<State>> ObservationRegistryCore<St
         }
     }
 
-    #[inline]
     /// Lets actor publication skip state access when no entries remain.
+    #[inline]
     pub(crate) fn is_empty(&self) -> bool {
         self.entries.is_empty()
     }
@@ -446,8 +446,8 @@ impl<State, Entry: ?Sized + ErasedObservation<State>> ObservationRegistryCore<St
         });
     }
 
-    #[cfg(feature = "test-util")]
     /// Counts actor-owned entries for deterministic test inspection.
+    #[cfg(feature = "test-util")]
     pub(crate) fn len(&self) -> usize {
         self.entries.len()
     }
@@ -544,8 +544,8 @@ impl<State, Entry: ?Sized + ErasedObservation<State>> ObservationRegistryCore<St
 impl<State: 'static> ObservationRegistry<State> {
     #[cfg(test)]
     ordinary_test_items! {
-    #[cfg(test)]
     /// Installs an ordinary Shared entry for direct registry fixtures.
+    #[cfg(test)]
     fn insert<Value>(
         &mut self,
         selector: Box<dyn Fn(&State) -> Value + Send + 'static>,

@@ -174,6 +174,7 @@ impl<R: Reducer + ?Sized> Feature for R {
         context.effect(effect);
     }
 
+    #[doc(hidden)]
     fn reduce_for_store<'deps>(
         &mut self,
         state: &mut R::State,

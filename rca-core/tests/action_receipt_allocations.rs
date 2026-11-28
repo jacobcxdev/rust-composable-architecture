@@ -14,8 +14,8 @@ use std::task::{Context, Poll, Waker};
 
 use rca_core::{Effect, ReduceContext, Reducer, Store};
 
-#[global_allocator]
 /// Counts allocations in the isolated receipt-conversion assay.
+#[global_allocator]
 static ALLOCATOR: dhat::Alloc = dhat::Alloc;
 
 /// Encodes committed action order in the final decimal state.

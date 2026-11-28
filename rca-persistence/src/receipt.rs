@@ -10,14 +10,18 @@ use rca_core::Effect;
 
 use crate::Failure;
 
-/// Reports the revision captured by a successful barrier.
+/// Identifies the local revision requested by a successful flush or close.
 ///
-/// This is the document's local revision, not a backend revision identity.
-/// Success follows actor publication and carries the backend's save guarantee.
-/// It does not acknowledge that all physical backend work has stopped.
+/// Success means the document acknowledged at least that revision.
+/// For example, a flush at revision 2 can succeed after saves of revisions 1 and 3.
+/// The receipt still reports 2. The backend need not write the bytes from revision 2.
+/// An accepted close prevents later edits, so its target is the final local revision.
+///
+/// Success follows actor publication and carries only the backend's save guarantee.
+/// It does not identify a backend revision or establish that all backend work stopped.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct FlushOutcome {
-    /// Revision captured when the flush or close action committed.
+    /// Local revision the action requested, not necessarily the revision the backend wrote.
     pub revision: u64,
     /// Whether this receipt belongs to a close request.
     pub closing: bool,

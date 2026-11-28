@@ -3,12 +3,14 @@ import hashlib
 import json
 import pathlib
 import os
+import re
 import subprocess
 import sys
 import tarfile
 import tempfile
 import tomllib
 import unittest
+from urllib.parse import unquote, urljoin, urlsplit
 
 from scripts import package_registry
 
@@ -74,6 +76,48 @@ EXPECTED_FEATURES = {
 
 
 class FixtureValidationTests(unittest.TestCase):
+    def test_registry_readme_links_reach_the_intended_repository_files(self) -> None:
+        root = pathlib.Path(__file__).resolve().parents[2]
+        workspace = tomllib.loads((root / "Cargo.toml").read_text())["workspace"]["package"]
+        libraries = package_registry.RCA_PACKAGES - package_registry.TRANSPORT_PACKAGES
+        for name in sorted(libraries):
+            with self.subTest(package=name):
+                member = root / name
+                package = tomllib.loads((member / "Cargo.toml").read_text())["package"]
+                readme = package.get("readme", "README.md")
+                if readme == {"workspace": True}:
+                    source = root / workspace["readme"]
+                else:
+                    source = member / readme
+                source = source.resolve()
+                # Cargo copies an external README to the archive root. crates.io
+                # resolves its links from the archived path inside the VCS member.
+                archived = (
+                    source.relative_to(member) if source.is_relative_to(member) else source.name
+                )
+                published_path = "/" + (member / archived).relative_to(root).as_posix()
+                source_path = "/" + source.relative_to(root).as_posix()
+                markdown = source.read_text(encoding="utf-8")
+                destinations = re.findall(r"\]\(\s*([^\s)]+)\)", markdown)
+                destinations += re.findall(r"^\[[^\]\n]+\]:\s*(\S+)", markdown, re.MULTILINE)
+                links = [urlsplit(value.strip("<>")) for value in destinations]
+                self.assertTrue(any(link.path or link.netloc for link in links), "no outbound links")
+                for link in links:
+                    if link.path and not link.scheme and not link.netloc:
+                        rendered = urljoin(published_path, link.path)
+                        self.assertEqual(rendered, urljoin(source_path, link.path), link.path)
+                        self.assertTrue((root / unquote(rendered.lstrip("/"))).exists(), rendered)
+
+    def test_both_facades_document_all_public_features_on_docs_rs(self) -> None:
+        root = pathlib.Path(__file__).resolve().parents[2]
+        for name in ("rca", "rust-composable-architecture"):
+            with self.subTest(package=name):
+                manifest = tomllib.loads((root / name / "Cargo.toml").read_text())
+                options = manifest["package"].get("metadata", {}).get("docs", {}).get("rs", {})
+                features = set(manifest["features"]) - {"default"}
+                documented = features if options.get("all-features") else set(options.get("features", []))
+                self.assertEqual(documented, features)
+
     def test_macro_tests_use_workspace_crates_without_published_back_edges(self) -> None:
         path = pathlib.Path(__file__).resolve().parents[2] / "rca-macros" / "Cargo.toml"
         dependencies = tomllib.loads(path.read_text(encoding="utf-8"))["dev-dependencies"]
@@ -736,6 +780,9 @@ else:
     if failure == "release" and sys.argv[1] == "run" and "--release" in sys.argv:
         print("release consumer failed", file=sys.stderr)
         sys.exit(77)
+    if failure == "facade" and sys.argv[1] == "test" and "--doc" in sys.argv:
+        print("facade doctest failed", file=sys.stderr)
+        sys.exit(78)
     if sys.argv[1] == "metadata" and os.environ["REGISTRY_COMPLETE_RUN"] != "1":
         sys.exit(74)
 ''')
@@ -746,6 +793,12 @@ set -euo pipefail
 if [[ $1 == */readme_quickstart.py ]]; then
     printf '%s\\0' "$@" >> "${REGISTRY_CAPTURE}/readme-argv"
     exec "${REGISTRY_REAL_PYTHON}" "$@"
+fi
+if [[ $1 == */facade_doc_examples.py ]]; then
+    printf '%s\\0' "$@" > "${REGISTRY_CAPTURE}/facade-argv"
+    "${REGISTRY_REAL_PYTHON}" "$@"
+    printf '%s\\0' "$2"/consumer-*/Cargo.toml > "${REGISTRY_CAPTURE}/facade-manifests"
+    exit 0
 fi
 case "$2" in
     validate-fixtures) exit 0 ;;
@@ -887,6 +940,20 @@ exit 53
                     str(self.repo_root / "README.md"), str(consumers / "readme-keyed"), "--keyed",
                 ])
                 commands = [json.loads(line) for line in (root / "cargo-argv").read_text().splitlines()]
+                facade = consumers / "facade-docs"
+                self.assertEqual((root / "facade-argv").read_bytes().decode().split("\0")[:-1], [
+                    str(self.repo_root / "scripts/facade_doc_examples.py"), str(facade), "--registry", "rca-local",
+                ])
+                members = (root / "facade-manifests").read_bytes().decode().split("\0")[:-1]
+                self.assertGreater(len(members), 1)
+                commands_for_facade = [args for args in commands if any(arg.startswith(str(facade) + "/") for arg in args)]
+                manifest = ["--manifest-path", str(facade / "Cargo.toml")]
+                self.assertEqual(commands_for_facade, [
+                    ["generate-lockfile", *manifest],
+                    ["fetch", "--locked", *manifest],
+                    ["metadata", "--format-version", "1", "--locked", "--offline", *manifest],
+                    *(["test", "--locked", "--offline", "--doc", "--manifest-path", member] for member in members),
+                ])
                 for fixture in fixtures:
                     manifest = str(consumers / fixture / "Cargo.toml")
                     for command, options in flags.items():
@@ -938,6 +1005,15 @@ exit 53
                     self.assertEqual(manifest.parent.name,
                                      "downstream-packaged" if step == "clippy" else "downstream-ecosystem")
                     self.assertFalse(manifest.parents[2].exists())
+
+    def test_failed_facade_doctest_stops_packaged_qualification(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="rca doctest failure ") as directory:
+            root = pathlib.Path(directory)
+            result = self.run_registry_commit(root, {"TMPDIR": str(root), "REGISTRY_FAIL_STEP": "facade"}, complete_run=True)
+            self.assertEqual(result.returncode, 78, result.stdout + result.stderr)
+            self.assertIn("facade doctest failed", result.stderr)
+            self.assertNotIn("qualification passed", result.stdout)
+            self.assertFalse(list(root.glob("rca-package-qualification.*")))
 
     def test_cleanup_preserves_failure_and_rejects_incomplete_success_under_bash(self) -> None:
         script = (self.repo_root / "scripts/verify-packaged-downstream.sh").read_text()
@@ -1089,7 +1165,7 @@ printf '%s\\n' "$qualification_root" > "$TEST_ROOT/allocated-root"
                 ],
                 ["`aarch64-apple-darwin`", "Required", "Required"],
                 ["`x86_64-pc-windows-msvc`", "Required", "Required"],
-                ["`wasm32-unknown-unknown`", "Required", "Not applicable"],
+                ["`wasm32-unknown-unknown`", "Required, compile-only", "Not applicable"],
             ],
         )
 

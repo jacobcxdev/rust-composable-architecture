@@ -65,7 +65,8 @@ impl<Action: 'static> Effect<Action> {
     /// # Examples
     ///
     /// ```
-    /// use rca_core::{Effect, EffectError};
+    /// # use rca_core as rca;
+    /// use rca::{Effect, EffectError};
     /// let effect: Effect<u8> = Effect::try_run(
     ///     |_| async { Err(EffectError::Failed(7u8)) },
     ///     |cause, sender| async move { let _ = sender.send(cause).await; },
@@ -126,7 +127,8 @@ impl<Action: 'static> Effect<Action> {
     /// # Examples
     ///
     /// ```
-    /// use rca_core::{Effect, EffectError, Issue, IssueReporter};
+    /// # use rca_core as rca;
+    /// use rca::{Effect, EffectError, Issue, IssueReporter};
     /// let effect: Effect<()> = Effect::try_run_reported(
     ///     |_| async { Err(EffectError::Failed(7u8)) },
     ///     IssueReporter::default(),

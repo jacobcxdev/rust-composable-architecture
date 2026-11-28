@@ -1,6 +1,7 @@
-# Resumable headless uploads
+# Report upload progress and reject stale results
 
-Run the [uploader example and its tests](../examples/uploader.rs):
+Run the [uploader example and its tests](../examples/uploader.rs) from the repository root.
+On macOS, use the [Cargo memory guard](../../../CONTRIBUTING.md#build-memory-safety).
 
 ```sh
 cargo run -p rca-example-composition-search --example uploader

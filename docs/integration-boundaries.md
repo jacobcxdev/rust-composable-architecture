@@ -52,7 +52,8 @@ unless an explicit provider saves it.
 For a single-writer saved document without shared-cache integration, start with
 `Document`. `BackendKey` is a smaller adapter, not a document
 coordinator: a save does not refresh existing cached values. Reload explicitly.
-`SharedDocument::new` is unversioned and does not detect external write conflicts.
+Both `Document::new` and `SharedDocument::new` write unconditionally, even if the backend also supports revision checks.
+To reject a conflicting write, choose `SharedDocument::revisioned` and supply a backend that can compare and save atomically.
 
 Document revision, backend revision and schema version are different identities.
 A document revision counts local edits. A backend revision identifies a storage

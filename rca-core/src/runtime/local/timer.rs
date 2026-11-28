@@ -27,8 +27,11 @@ use super::{Clock, MonotonicInstant, RuntimeFuture};
 ///
 /// # Examples
 ///
+/// Enable the `local` feature on `rca`.
+///
 /// ```
-/// use rca_core::local::{Clock, ClockTimer};
+/// # use rca_core as rca;
+/// use rca::local::{Clock, ClockTimer};
 /// use std::time::Duration;
 ///
 /// async fn consume(clock: Clock) {
@@ -42,19 +45,22 @@ use super::{Clock, MonotonicInstant, RuntimeFuture};
 /// A local timer and its pending demand cannot cross threads:
 ///
 /// ```compile_fail
-/// use rca_core::local::ClockTimer;
+/// # use rca_core as rca;
+/// use rca::local::ClockTimer;
 /// fn require_send<T: Send>() {}
 /// require_send::<ClockTimer>();
 /// ```
 ///
 /// ```compile_fail
-/// use rca_core::local::ClockTimer;
+/// # use rca_core as rca;
+/// use rca::local::ClockTimer;
 /// fn require_sync<T: Sync>() {}
 /// require_sync::<ClockTimer>();
 /// ```
 ///
 /// ```compile_fail
-/// use rca_core::local::ClockTimer;
+/// # use rca_core as rca;
+/// use rca::local::ClockTimer;
 /// fn require_send(_: impl Send) {}
 /// fn transfer_next(timer: &mut ClockTimer) {
 ///     require_send(timer.next());

@@ -22,8 +22,8 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 #[cfg(target_pointer_width = "64")]
 use std::task::{Context, Poll, Waker};
 
-#[global_allocator]
 /// Measures the selected child assay, including its explicitly driven actor work.
+#[global_allocator]
 static ALLOCATOR: dhat::Alloc = dhat::Alloc;
 
 /// Counts committed actions independently of allocation statistics.
@@ -188,8 +188,8 @@ impl Reducer for Noop {
     }
 }
 
-#[derive(Clone, Copy, Debug)]
 /// Selects the rejected command path that owns a panicking payload or capture.
+#[derive(Clone, Copy, Debug)]
 enum RejectedCommand {
     Send,
     Read,

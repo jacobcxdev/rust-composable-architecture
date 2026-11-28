@@ -86,8 +86,26 @@ Choose the receive method by what the work **did**, not by the final state.
 For example, a task that updates state directly does not send a response action.
 Use `receive_update` for that update, even if the new state equals the old state.
 If declared capture values also change, use the method's `*_with_captures` variant.
-For a rejected typed delivery, use its terminal assertion instead. See the
-[API source](../../rca-test/src/store/api.rs) for matching and failure rules.
+
+If a pending task update is cancelled before it runs, there is no state change to receive.
+The [cancellation tests](../../rca-test/tests/terminal_frontier.rs) check the reason instead.
+This extract starts after the task submits its update:
+
+```rust
+let boundary = store.pending_boundary().expect("the update is pending");
+task.cancel().await?;
+task.finish().await?;
+store
+    .receive_terminal(boundary, |error| {
+        error.reason() == rca::TaskAccessReason::Cancelled
+            && error.progress() == rca::TaskProgress::NotStarted
+    })
+    .await?;
+```
+
+`pending_boundary` identifies one pending operation in this TestStore. The token neither keeps the operation alive nor acknowledges it.
+`receive_terminal` checks the actual error for that operation. A token from another Store cannot match.
+For a rejected output, use `receive_output_terminal` to also match its declaration. See the [method contracts](../../rca-test/src/store/api.rs).
 
 Mount declarations do not construct children during `build`.
 `receive_structural` lets the startup transaction run, including its initial hooks.
@@ -131,9 +149,12 @@ The builder constructs the client after it creates the deterministic runtime.
 Advancing this clock does not advance an unrelated Tokio timer or wall clock.
 The [client-clock tests](../../rca-test/tests/client_clock.rs) include a wrong-clock control.
 
-Call `advance` for virtual deadlines, then receive the work they produce.
-Advancement stops at assertion boundaries rather than accepting pending work
-automatically. Receive existing work before requesting another advance.
+If an action already waits for an assertion, receive it before calling `advance`.
+Otherwise, `advance` can reach its target time while a newly due action still waits for `receive`.
+The assertion pauses the action, not the clock.
+In the [virtual-time test](../../rca-test/tests/test_store.rs), a response is due at one second.
+After a single ten-second advance, the clock reads ten seconds before the test receives the response.
+If an intermediate clock reading matters, advance to that deadline first.
 Release controlled request or stream endpoints explicitly before expecting
 their results. Do not use wall-clock sleeps to make a deterministic test pass.
 

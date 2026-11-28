@@ -2,13 +2,20 @@
 
 //! Notify async tasks or threads.
 //!
+//! RCA maintains the `rca-event-listener` package, a fork of `event-listener` 5.4.2.
+//! It is not a smol-rs release. See the [fork provenance] for its authors and changes.
+//! The Rust import is `event_listener`. After publication, use
+//! `cargo add rca-event-listener --rename event-listener` to select this package.
+//!
+//! [fork provenance]: https://github.com/jacobcxdev/rust-composable-architecture/blob/e704e8bc61e19036138dbb565f764866797a0036/dependencies/rca-event-listener/UPSTREAM.md
+//!
 //! This is a synchronization primitive similar to [eventcounts] invented by Dmitry Vyukov.
 //!
 //! You can use this crate to turn non-blocking data structures into async or blocking data
 //! structures. See a [simple mutex] implementation that exposes an async and a blocking interface
 //! for acquiring locks.
 //!
-//! [eventcounts]: https://www.1024cores.net/home/lock-free-algorithms/eventcounts
+//! [eventcounts]: https://sites.google.com/site/1024cores/home/lock-free-algorithms/eventcounts
 //! [simple mutex]: https://github.com/smol-rs/event-listener/blob/master/examples/mutex.rs
 //!
 //! # Examples
@@ -1357,8 +1364,8 @@ const NEVER_INSERTED_PANIC: &str = "\
 EventListener was not inserted into the linked list, make sure you're not polling \
 EventListener/listener! after it has finished";
 
-#[cfg(not(loom))]
 /// Synchronization primitive implementation.
+#[cfg(not(loom))]
 mod sync {
     #[cfg(not(feature = "portable-atomic"))]
     pub(super) use alloc::sync::Arc;
@@ -1416,12 +1423,12 @@ mod sync {
                 &*self.0
             }
 
-            #[cfg(not(any(feature = "std", feature = "critical-section")))]
             /// Mutably borrows the value while the caller holds its spinlock.
             ///
             /// # Safety
             /// The pointer must remain valid and exclusively accessible for the
             /// returned reference's lifetime.
+            #[cfg(not(any(feature = "std", feature = "critical-section")))]
             pub(crate) unsafe fn deref_mut(&mut self) -> &mut T {
                 &mut *self.0
             }
@@ -1447,8 +1454,8 @@ mod sync {
     }
 }
 
-#[cfg(loom)]
 /// Synchronization primitive implementation.
+#[cfg(loom)]
 mod sync {
     pub(super) use loom::sync::{atomic, Arc, Mutex, MutexGuard};
     pub(super) use loom::{cell, thread_local};

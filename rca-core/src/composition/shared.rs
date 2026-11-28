@@ -145,7 +145,8 @@ impl<ParentState, ParentAction, Child, Split, Action> fmt::Debug
 /// # Examples
 ///
 /// ```
-/// use rca_core::{ActionPath, Effect, ReduceContext, SharedReducer, scope_shared};
+/// # use rca_core as rca;
+/// use rca::{ActionPath, Effect, ReduceContext, SharedReducer, scope_shared};
 /// struct Child;
 /// impl SharedReducer for Child {
 ///     type State = u64;
@@ -376,7 +377,8 @@ where
 /// # Examples
 ///
 /// ```
-/// use rca_core::{Effect, KeyedAction, KeyedActionPath, KeyedState, ReduceContext,
+/// # use rca_core as rca;
+/// use rca::{Effect, KeyedAction, KeyedActionPath, KeyedState, ReduceContext,
 ///     Reducer, SharedReducer, for_each_shared};
 /// struct Child;
 /// impl SharedReducer for Child {

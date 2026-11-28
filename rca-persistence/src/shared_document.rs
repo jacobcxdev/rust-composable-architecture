@@ -295,6 +295,12 @@ impl<Value, Revision> fmt::Debug for SharedDocumentState<Value, Revision> {
 }
 
 /// Requests shared document operations without exposing completion constructors.
+///
+/// [`Self::set_and_flush`], [`Self::flush`], and [`Self::close`] each return an action and a [`Receipt`].
+/// A Store commit means the reducer processed the action. The receipt reports the persistence outcome.
+/// Before the first successful load, an open document rejects all three requests with [`NotLoaded`](crate::ReceiptError::NotLoaded).
+/// It keeps its value, writes nothing, and still accepts later edits after loading.
+/// An aborted document or a closed document session rejects these requests with [`Aborted`](crate::ReceiptError::Aborted).
 pub struct SharedDocumentAction<Value, Revision = NoBackendRevision>(
     /// Separates public commands from completions that only this module constructs.
     SharedKind<Value, Revision>,
@@ -941,6 +947,9 @@ impl fmt::Debug for DocumentSubscription {
 /// key, await the original save receipt through `SharedKey::save`, then close
 /// the owner before constructing a replacement session for the same storage.
 ///
+/// This example imports `rca-core` and `rca-persistence` directly, without optional features.
+/// The caller supplies the runtime, backend session, and codec.
+///
 /// ```
 /// use rca_core::{ActionPath, Runtime, SharedKey, SharedKeyIdentity, SharedKeyCache,
 ///     StatePath, Store};
@@ -1246,6 +1255,11 @@ impl<Value, Revision> fmt::Debug for SharedDocumentOwner<Value, Revision> {
 
 /// Routes key operations through a weak captured document owner, never a logical lookup.
 ///
+/// If the caller drops an unfinished [`SharedReaderKey::load`] future, that load immediately loses permission to publish its result.
+/// The key also tries to notify the actor. A full actor queue cannot restore that permission.
+/// Dropping the future does not undo a result the actor already published.
+/// Backend I/O can continue. [`SharedDocumentSession::close`] waits for that work.
+///
 /// Subscription setup admits an actor action; it does not acknowledge delivery.
 /// In that action's turn, the actor recaptures its current present value and
 /// installs the registration without an intervening actor action. This closes
@@ -1459,20 +1473,32 @@ impl<Value, Revision> SharedDocumentAction<Value, Revision> {
         Self(SharedKind::CancelLoad)
     }
 
-    /// Commits an edit and its persistence barrier in the same actor action.
+    /// Requests an edit and a flush together for a loaded document.
+    ///
+    /// After the document accepts close, it rejects the edit with [`Closing`](crate::ReceiptError::Closing).
+    /// Submit the action, then await its [`Receipt`] to learn whether persistence succeeded.
     #[must_use = "submit the action and await its captured-revision receipt"]
     pub fn set_and_flush(value: Value) -> (Self, Receipt) {
         let (reply, receipt) = channel();
         (Self(SharedKind::SetAndFlush { value, reply }), receipt)
     }
 
-    /// Captures a persistence barrier for the currently committed local revision.
+    /// Requests acknowledgement of the loaded document's current local revision.
+    ///
+    /// A later save can satisfy the receipt without writing every intermediate value.
+    /// After the document accepts close, the receipt returns [`Closing`](crate::ReceiptError::Closing).
     #[must_use = "submit the action and await its persistence receipt"]
     pub fn flush() -> (Self, Receipt) {
         Self::barrier(false)
     }
 
-    /// Fences edits and acknowledges the final local revision, not physical quiescence.
+    /// Requests a final save and stops later edits once the document accepts close.
+    ///
+    /// Before the first successful load, close does not prevent later edits.
+    /// Once the document accepts close, a failed save does not reopen it for edits.
+    /// To save before shutdown, submit this action and await its [`Receipt`].
+    /// A successful receipt acknowledges the final local revision. It does not close the backend session.
+    /// To also wait for backend work to stop, await [`SharedDocumentOwner::close`] separately.
     #[must_use = "submit the action and await its persistence receipt"]
     pub fn close() -> (Self, Receipt) {
         Self::barrier(true)
@@ -1898,9 +1924,11 @@ struct Binding<Value, Revision> {
 }
 
 impl<Value: Clone + Send + 'static> SharedDocument<Value> {
-    /// Creates an honest unversioned document using explicit backend/session capabilities.
+    /// Creates a shared document that writes without comparing backend revisions.
     ///
-    /// This mode has no CAS, external revision identity or echo guarantee.
+    /// This constructor uses [`Backend::save`](crate::Backend::save), including for backends that implement [`RevisionBackend`].
+    /// This mode exposes no backend revision and cannot identify a notification as its own write.
+    /// To prevent a stale write from replacing another writer's value, use [`Self::revisioned`].
     #[must_use]
     pub fn new<Storage: BackendSession, Encoding: Codec<Value>>(
         seed: Value,
@@ -1959,7 +1987,15 @@ impl<Value: Clone + Send + 'static> SharedDocument<Value> {
         Self::assembled(seed, load, save, decode, session_backend)
     }
 
-    /// Creates a document using genuine atomic compare-and-save plus separate session completion.
+    /// Creates a shared document that compares the backend revision before each write.
+    ///
+    /// If another writer changes the backend revision, the comparison rejects the write.
+    /// The document keeps its local value. [`SharedDocumentState::conflict`] exposes the external revision and the bytes, or their absence.
+    /// The application decides how to reconcile the values.
+    ///
+    /// For example, a flush and a subsequent close can both wait for the same save.
+    /// If that save finds a conflict, both receipts return [`ReceiptError::Persistence`](crate::ReceiptError::Persistence) with [`ConflictDetected`] as the cause.
+    /// The backend keeps the other writer's data. The document still rejects edits because it accepted close.
     #[must_use]
     pub fn revisioned<Storage, Encoding>(
         seed: Value,

@@ -15,8 +15,8 @@ use rca_core::{
     ReduceContext, Reducer, ReducerExt, Runtime, RuntimeDriver, RuntimeFuture, Store, for_each,
 };
 
-#[derive(Clone, Default)]
 /// Retains tasks for bounded explicit polling and counts constructed timer waits.
+#[derive(Clone, Default)]
 struct Host {
     /// Is drained before polling so callbacks never run under the queue lock.
     tasks: Arc<Mutex<Vec<RuntimeFuture>>>,

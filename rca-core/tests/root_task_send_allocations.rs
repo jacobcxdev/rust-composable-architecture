@@ -21,12 +21,12 @@ use std::task::{Context, Poll, Waker};
 
 use rca_core::{Feature, FeatureContext, Store, Task, TaskContext};
 
-#[global_allocator]
 /// Counts requested and retained allocations inside the active profiler session.
+#[global_allocator]
 static ALLOCATOR: dhat::Alloc = dhat::Alloc;
 
-#[derive(Debug)]
 /// Keeps each action non-cloneable and counts its destruction independently.
+#[derive(Debug)]
 struct Payload(Cell<u64>, Arc<AtomicUsize>);
 
 impl Drop for Payload {
@@ -35,15 +35,15 @@ impl Drop for Payload {
     }
 }
 
-#[derive(Debug)]
 /// Starts the captured origin or adds one owned value to state.
+#[derive(Debug)]
 enum Action {
     Start,
     Add(Payload),
 }
 
-#[derive(Debug)]
 /// Counts additions and proves state release despite the retained task context.
+#[derive(Debug)]
 struct State(Cell<u64>, Arc<AtomicUsize>);
 
 impl Drop for State {
@@ -78,8 +78,8 @@ impl Feature for Capture {
     }
 }
 
-#[derive(Clone, Copy, Debug, Default)]
 /// Separates requested allocations from signed changes in retained storage.
+#[derive(Clone, Copy, Debug, Default)]
 struct Cost {
     blocks: u64,
     bytes: u64,

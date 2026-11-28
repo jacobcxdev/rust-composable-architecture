@@ -360,9 +360,12 @@ type PendingEdges<Origin> = std::vec::IntoIter<(String, Origin)>;
 ///
 /// # Examples
 ///
+/// Enable the `diagnostics` feature on `rca`.
+///
 /// ```
+/// # use rca_core as rca;
 /// use std::cell::Cell;
-/// use rca_core::diagnostics::{capture_graph, CaptureLimits, NodeCapture};
+/// use rca::diagnostics::{capture_graph, CaptureLimits, NodeCapture};
 /// let private = Cell::new(3);
 /// let before = capture_graph("model", CaptureLimits::new(1, 0), |_| {
 ///     NodeCapture::new(private.get(), vec![])

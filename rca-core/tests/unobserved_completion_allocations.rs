@@ -15,8 +15,8 @@ use std::task::{Context, Poll, Waker};
 
 use rca_core::{Effect, ReduceContext, Reducer, Store};
 
-#[global_allocator]
 /// Measures unobserved harvest in one process without unrelated support tests.
+#[global_allocator]
 static ALLOCATOR: dhat::Alloc = dhat::Alloc;
 
 /// Commits one action and starts an already-ready owned effect.

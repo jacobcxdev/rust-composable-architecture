@@ -20,8 +20,8 @@ impl Drop for Payload {
     }
 }
 
-#[test]
 /// Rejects premature reports, lost unpolled captures and an enlarged future wrapper.
+#[test]
 fn held_futures_remain_unfinished_until_their_payloads_drop() {
     assert_eq!(
         size_of::<shutdown::TrackedFuture>(),

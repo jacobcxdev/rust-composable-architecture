@@ -59,7 +59,8 @@ pub struct Ephemeral<Parent, State, Action, Identity, Predicate, Id> {
 /// # Examples
 ///
 /// ```
-/// use rca_core::{
+/// # use rca_core as rca;
+/// use rca::{
 ///     ActionPath, Effect, PresentationAction, ReduceContext, Reducer, StatePath,
 ///     ephemeral,
 /// };

@@ -1491,11 +1491,11 @@ fn handles_and_errors_do_not_require_command_clone_debug_or_sync() {
     assert!(std::error::Error::source(&borrowed).is_none());
 }
 
-#[cfg(feature = "allocation-measurement")]
 /// Checks command phases in the dedicated allocation host.
 ///
 /// # Panics
 /// Panics if command behaviour or allocation counts change.
+#[cfg(feature = "allocation-measurement")]
 pub fn command_port_phase_costs() {
     /// Measures only the supplied operation; payload preparation stays outside the window.
     fn measure<T>(run: impl FnOnce() -> T) -> (T, (u64, u64)) {

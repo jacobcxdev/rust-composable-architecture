@@ -20,9 +20,9 @@ use rca_core::{
     OutputDelivery, OutputFlow, RootMount, Runtime, RuntimeDriver, RuntimeFuture, Task,
 };
 
+/// Measures allocations only inside the isolated child assay.
 #[cfg(all(feature = "allocation-measurement", feature = "test-util"))]
 #[global_allocator]
-/// Measures allocations only inside the isolated child assay.
 static ALLOCATOR: dhat::Alloc = dhat::Alloc;
 
 /// Polls retained tasks explicitly, with a clock that stays at zero.
@@ -647,8 +647,8 @@ fn actual_child_task_output_is_consumed_by_root_without_cloning_its_owner() {
     assert_eq!(drops.load(Ordering::SeqCst), 1);
 }
 
-#[cfg(feature = "test-util")]
 /// Holds a ready child, a one-slot mailbox and two distinct output declarations.
+#[cfg(feature = "test-util")]
 struct Gated {
     driver: Driver,
     gate: rca_core::testing::TransactionGate<RootState, RootAction>,
@@ -665,8 +665,8 @@ struct Gated {
     constructions: Arc<AtomicUsize>,
 }
 
-#[cfg(feature = "test-util")]
 /// Starts a gated store whose root consumes the original output.
+#[cfg(feature = "test-util")]
 fn gated() -> Gated {
     gated_with_handler(|state, value| {
         state.outcome = Some(value);
@@ -674,8 +674,8 @@ fn gated() -> Gated {
     })
 }
 
-#[cfg(feature = "test-util")]
 /// Acknowledges startup before exposing a gate with no pending transaction.
+#[cfg(feature = "test-util")]
 fn gated_with_handler(
     mut handler: impl FnMut(&mut RootState, Outcome) -> OutputFlow<Outcome> + Send + 'static,
 ) -> Gated {
@@ -1032,11 +1032,11 @@ fn weak_output_handle_traits_do_not_inherit_payload_bounds() {
     error::<rca_core::OutputError<std::rc::Rc<()>>>();
 }
 
-#[cfg(all(feature = "allocation-measurement", feature = "test-util"))]
 /// Checks output phases in the dedicated allocation host.
 ///
 /// # Panics
 /// Panics if output ownership or allocation counts change.
+#[cfg(all(feature = "allocation-measurement", feature = "test-util"))]
 pub fn output_phase_costs() {
     /// Counts requested allocations, including fixture work inside the supplied phase.
     fn measure<T>(run: impl FnOnce() -> T) -> (T, (u64, u64)) {

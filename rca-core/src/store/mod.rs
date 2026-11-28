@@ -117,6 +117,10 @@ use crate::{
 /// reads and observations borrow actor-owned state without requiring `State: Clone`.
 /// The [`Self::ready`] future waits for structural installation.
 ///
+/// Reducers, read queries, and observation selectors run on the actor.
+/// If one panics, the panic propagates on the actor task, not through the request's reply.
+/// Unwinding closes the Store for all handles. Later requests cannot run.
+///
 /// Creating a scope-registration future prepares its projection and embedding
 /// synchronously, dropping unused mutable projections and action extractors.
 /// Only polling the future admits registration to the actor's mailbox.
@@ -359,6 +363,10 @@ impl<State, Action> Store<State, Action> {
     /// is installed. Structural installation starts on the first actor poll.
     /// [`Self::ready`] waits for installation. [`Self::builder`] configures dependencies,
     /// capacity and child declarations. Every [`crate::Reducer`] is also a [`Feature`].
+    ///
+    /// # Panics
+    ///
+    /// If the caller's runtime driver panics while accepting the actor, this call propagates the panic.
     #[must_use]
     pub fn new<F>(state: State, feature: F, runtime: Runtime) -> Self
     where
@@ -686,6 +694,7 @@ impl<State, Action> Store<State, Action> {
     /// # Errors
     ///
     /// Returns [`StoreStopped`] if admission fails or the reply channel closes empty.
+    /// If `query` panics on the actor, the Store closes and this read returns [`StoreStopped`].
     pub async fn read<F, Output>(&self, query: F) -> Result<Output, StoreStopped>
     where
         Action: Send + 'static,
@@ -702,6 +711,8 @@ impl<State, Action> Store<State, Action> {
     /// The first value from [`Observation::next`] is that initial selection.
     /// If several commits arrive before the reader requests another value,
     /// it receives only the latest selection.
+    /// If the selector panics, it closes the Store, not just this observation.
+    /// The panic propagates on the actor task.
     ///
     /// # Errors
     ///
@@ -735,6 +746,7 @@ impl<State, Action> Store<State, Action> {
     /// The actor compares later selections with its last published value,
     /// not the last value the reader received.
     /// A slow reader can miss intermediate changes.
+    /// A selector panic closes the Store as in [`Self::observe`].
     ///
     /// # Errors
     ///
@@ -776,6 +788,7 @@ impl<State, Action> Store<State, Action> {
     /// If one transaction removes and reinserts a row but preserves the full ID order, it publishes no new list.
     /// A snapshot owns cloned IDs, not child handles. Cloning an ID does not require a deep copy of its contents.
     /// If the projection also needs child values, use [`Self::observe_distinct`].
+    /// A projection panic closes the Store as in [`Self::observe`].
     ///
     /// # Errors
     ///
@@ -784,7 +797,8 @@ impl<State, Action> Store<State, Action> {
     /// # Examples
     ///
     /// ```no_run
-    /// use rca_core::{KeyedState, Store, StoreStopped};
+    /// # use rca_core as rca;
+    /// use rca::{KeyedState, Store, StoreStopped};
     ///
     /// struct State { jobs: KeyedState<u64, String> }
     ///
@@ -867,16 +881,13 @@ impl<State, Action> Store<State, Action> {
     ///
     /// # Examples
     ///
-    /// A finite job returns its non-Clone product without replacing actor state.
-    /// The caller awaits the root causal task before requesting extraction.
+    /// Pass the application's runtime. This example needs only `rca`, with no optional features.
+    /// The caller waits for the root causal task, then takes the non-Clone product
+    /// without replacing it in the Store.
     ///
     /// ```
-    /// use rca_core::{Effect, ReduceContext, Reducer, Store};
-    /// # mod support {
-    /// #     include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/support/mod.rs"));
-    /// # }
-    /// # let host = support::ManualRuntime::new();
-    /// # let runtime = host.runtime();
+    /// # use rca_core as rca;
+    /// use rca::{Effect, ReduceContext, Reducer, Runtime, Store};
     /// struct Product(Box<[u8]>);
     /// struct Build;
     /// impl Reducer for Build {
@@ -892,18 +903,28 @@ impl<State, Action> Store<State, Action> {
     ///         Effect::none()
     ///     }
     /// }
-    /// let product = Product(vec![1, 2, 3].into_boxed_slice());
-    /// let allocation = product.0.as_ptr();
-    /// let store = Store::new(product, Build, runtime);
-    /// # host.start_all();
-    /// # futures_executor::block_on(async {
-    /// store.send(()).await?.finish().await;
-    /// let product = store.shutdown_into_state().await?;
-    /// assert_eq!(&*product.0, &[2, 4, 6]);
-    /// assert_eq!(product.0.as_ptr(), allocation);
-    /// # Ok::<(), rca_core::StoreStopped>(())
-    /// # }).unwrap();
-    /// # for result in host.join_all() { result.unwrap(); }
+    /// async fn take_product(runtime: Runtime) -> Result<(), rca::StoreStopped> {
+    ///     let product = Product(vec![1, 2, 3].into_boxed_slice());
+    ///     let address = product.0.as_ptr().addr();
+    ///     let store = Store::new(product, Build, runtime);
+    ///     store.send(()).await?.finish().await;
+    ///     let product = store.shutdown_into_state().await?;
+    ///     assert_eq!(&*product.0, &[2, 4, 6]);
+    ///     assert_eq!(product.0.as_ptr().addr(), address);
+    ///     Ok(())
+    /// }
+    /// # fn main() {
+    /// #     mod support {
+    /// #         include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/support/mod.rs"));
+    /// #     }
+    /// #     let host = support::ManualRuntime::new();
+    /// #     let mut work = std::pin::pin!(take_product(host.runtime()));
+    /// #     let mut cx = std::task::Context::from_waker(std::task::Waker::noop());
+    /// #     assert!(std::future::Future::poll(work.as_mut(), &mut cx).is_pending());
+    /// #     host.start_all();
+    /// #     futures_executor::block_on(work).unwrap();
+    /// #     for result in host.join_all() { result.unwrap(); }
+    /// # }
     /// ```
     ///
     /// # Errors

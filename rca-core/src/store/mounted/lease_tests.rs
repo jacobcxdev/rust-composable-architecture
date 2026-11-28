@@ -18,8 +18,8 @@ thread_local! {
     // None means the node guard is held; Some records whether the Feature is restored.
     static AVAILABLE: RefCell<Option<AvailabilityProbe>> = RefCell::new(None);
 }
-#[derive(Clone, Copy, PartialEq, Debug)]
 /// Selects the one deliberate failure point in an otherwise identical schedule.
+#[derive(Clone, Copy, PartialEq, Debug)]
 enum Phase {
     Success,
     Missing,
@@ -28,8 +28,8 @@ enum Phase {
     HandlerPanic,
     InputDropPanic,
 }
-#[derive(Default)]
 /// Observes callback order without keeping the installed node alive.
+#[derive(Default)]
 struct Events {
     /// Selector, reducer, issue handler, Feature drop, capture drop, wake, input drop.
     counts: [AtomicUsize; 7],
@@ -172,8 +172,8 @@ impl Feature for Child {
             .unwrap();
     }
 }
-#[cfg(feature = "local")]
 /// Forces the Local witness to retain genuinely non-Send feature state.
+#[cfg(feature = "local")]
 struct LocalChild {
     /// Shares the same observation and reduction schedule as Shared.
     child: Child,
@@ -359,8 +359,8 @@ fn shared_driver(
         },
     ))
 }
-#[cfg(feature = "local")]
 /// Adapts root setup without imposing Send on the Local closure.
+#[cfg(feature = "local")]
 fn local_driver(
     mut reduce: impl FnMut(&mut State, &(), &mut ReduceContext<'_>) + 'static,
 ) -> Box<<local::Local as Carriers<State, ()>>::Driver> {

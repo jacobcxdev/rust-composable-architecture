@@ -29,9 +29,12 @@ use std::time::Duration;
 ///
 /// # Examples
 ///
+/// Enable the `test-util` feature on `rca`.
+///
 /// ```
-/// use rca_core::{Clock, MonotonicInstant};
-/// use rca_core::ImmediateClock;
+/// # use rca_core as rca;
+/// use rca::{Clock, MonotonicInstant};
+/// use rca::ImmediateClock;
 /// use std::time::Duration;
 /// let fixture = ImmediateClock::new(MonotonicInstant::ZERO);
 /// let clock = Clock::new(fixture.clone());
@@ -158,9 +161,12 @@ ordinary_test_items! {
 ///
 /// # Examples
 ///
+/// Enable the `test-util` feature on `rca`.
+///
 /// ```
-/// use rca_core::{Clock, IssueReporter, MonotonicInstant};
-/// use rca_core::ForbiddenClock;
+/// # use rca_core as rca;
+/// use rca::{Clock, IssueReporter, MonotonicInstant};
+/// use rca::ForbiddenClock;
 /// let fixture = ForbiddenClock::new("client", MonotonicInstant::ZERO, IssueReporter::default());
 /// fixture.assert_unused().unwrap();
 /// let clock = Clock::new(fixture.clone());

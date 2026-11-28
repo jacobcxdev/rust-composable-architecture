@@ -42,8 +42,8 @@ fn default_facade_defers_work_and_releases_unlaunched_owned_capture() {
     assert_eq!(drops.load(Ordering::SeqCst), 1);
 }
 
-#[cfg(feature = "test-util")]
 /// Runs the effect through `TestStore` without imposing transport bounds on its cause.
+#[cfg(feature = "test-util")]
 mod launched {
     use super::{Effect, EffectError, OpaqueCause, Rc};
     use rca::{ReduceContext, Reducer, TestStore};

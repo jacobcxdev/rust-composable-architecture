@@ -257,8 +257,8 @@ proptest! {
     }
 }
 
-#[cfg(not(miri))]
 /// Shares executor capacity while keeping a separate virtual clock for each case.
+#[cfg(not(miri))]
 #[derive(Clone)]
 struct PoolDriver {
     pool: ThreadPool,
@@ -325,8 +325,8 @@ fn pool_driver_completes_elapsed_waits_and_parks_maximum_deadlines() {
     assert_eq!(driver.now(), deadline);
 }
 
-#[cfg(not(miri))]
 /// Reuses worker threads but gives every generated case its own clock origin.
+#[cfg(not(miri))]
 fn property_runtime() -> Runtime {
     // This process-wide pool shares only executor capacity; every case keeps
     // its Store, model, virtual clock, channels, and assertions isolated.

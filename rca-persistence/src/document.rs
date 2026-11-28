@@ -436,20 +436,25 @@ impl<V> Action<V> {
         Self(Kind::Set(value))
     }
 
-    /// Captures a persistence barrier for the revision at action commit.
+    /// Requests acknowledgement of the local revision at action commit.
     ///
-    /// The receipt returns `NotLoaded`, `Closing` or `Aborted` when not accepted,
-    /// and `Persistence` on a failed save. A failure is retried explicitly using
-    /// the latest value. A clean materialised revision requires no backend I/O.
+    /// A later save can satisfy this receipt without writing the intermediate value.
+    /// The [`FlushOutcome`](crate::FlushOutcome) still identifies the requested revision.
+    /// A clean revision that already exists in storage needs no write.
+    ///
+    /// The receipt reports rejection or a failed save through [`ReceiptError`](crate::ReceiptError).
+    /// After a save failure, another flush retries the latest value.
     #[must_use = "submit the action and await its receipt to confirm persistence"]
     pub fn flush() -> (Self, Receipt) {
         Self::barrier(false)
     }
 
-    /// Permanently fences edits and acknowledges the final revision on success.
+    /// Requests a final save and stops later edits once the document accepts close.
     ///
-    /// Repeated close joins a pending save or retries after failure. Requests
-    /// before successful loading return `NotLoaded` without fencing or writing.
+    /// Before the first successful load, the receipt returns [`NotLoaded`](crate::ReceiptError::NotLoaded) without a write or a fence.
+    /// Once the document accepts close, a failed save does not reopen it for edits.
+    /// Another close waits for a pending save or retries a failed one.
+    /// A successful receipt acknowledges the final local revision, not the end of all backend work.
     #[must_use = "submit the action and await its receipt before shutdown"]
     pub fn close() -> (Self, Receipt) {
         Self::barrier(true)
@@ -489,13 +494,17 @@ impl<V> fmt::Debug for Action<V> {
     }
 }
 
-/// Coordinates one paired State's document lifetime with owned backend/codec captures.
+/// Coordinates loads and saves for one document.
 ///
-/// Values need only `Clone + Send + 'static`, not `Sync`, `Debug` or `Serialize`.
-/// Use exactly the state returned by `new`; do not reuse this reducer for a new
-/// document lifetime. Attempts and revisions use checked arithmetic and panic
-/// on exhaustion instead of admitting stale completions through wraparound.
-/// A panic in user code ends this reducer's lifetime; its state is not recoverable.
+/// Values need only `Clone + Send + 'static`, not `Sync`, `Debug`, or `Serialize`.
+/// The reducer clones the value for a save. Its effect encodes that clone later.
+/// The clone must keep its contents independent of later edits, or share only immutable data.
+/// For example, a clone of an `Arc<Mutex<Vec<u8>>>` still refers to the same mutable bytes.
+/// A change through another handle can alter the saved bytes without advancing the document revision.
+///
+/// Use the state from [`Self::new`] for this document only.
+/// If an attempt or revision counter reaches its limit, the next increment panics instead of reusing an identity.
+/// A panic in user code ends this reducer's lifetime. Its state is not recoverable.
 pub struct Document<V, B, C> {
     /// Backend retained by the reducer and every effect that can perform I/O.
     backend: Arc<B>,

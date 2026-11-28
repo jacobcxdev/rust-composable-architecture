@@ -44,8 +44,8 @@ impl Feature for Child {
         }
     }
 }
-#[cfg(feature = "local")]
 /// Exercises the Local representation with non-Send feature ownership.
+#[cfg(feature = "local")]
 struct LocalChild(std::rc::Rc<Cell<usize>>);
 #[cfg(feature = "local")]
 impl local::Feature for LocalChild {

@@ -12,8 +12,12 @@
 //!
 //! # Examples
 //!
+//! Enable the `test-util` feature on `rca`.
+//! Add `futures-executor` as a dev-dependency for this example.
+//!
 //! ```
-//! use rca_test::conformance::{DeterministicFactory, run_all};
+//! # use rca_test as rca;
+//! use rca::conformance::{DeterministicFactory, run_all};
 //!
 //! let factory = DeterministicFactory::new();
 //! let scheduler = factory.scheduler();
@@ -264,9 +268,9 @@ impl RuntimeFactory for DeterministicFactory {
 
 /// Runs runtime and Store contracts for one adapter.
 ///
-/// Composition and `TestStore` scenarios have separate entry points. The caller
-/// drives this future and supplies an independent timeout, as described in the
-/// [module documentation](self).
+/// This suite excludes RCA's internal composition tests. For deterministic
+/// `TestStore` scenarios, use [`run_test_store`]. The caller drives this future
+/// and supplies an independent timeout, as described in the [module documentation](self).
 ///
 /// # Panics
 ///

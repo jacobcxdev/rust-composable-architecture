@@ -50,11 +50,11 @@ struct RuntimeShared {
     origin: Instant,
 }
 
-#[derive(Clone)]
 /// Runs each accepted task on a dedicated thread, not a production thread pool.
 ///
 /// These workloads need no timer effects. Elapsed waits complete immediately,
 /// and the maximum deadline stays pending. Finite future waits panic at construction.
+#[derive(Clone)]
 struct ThreadDriver {
     /// Shares task ownership without creating another worker pool.
     shared: Arc<RuntimeShared>,

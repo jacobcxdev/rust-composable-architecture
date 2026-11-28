@@ -71,10 +71,11 @@ pub type IssueCallback<'a, Error, DeliveryError> =
 /// # Examples
 ///
 /// ```
+/// # use rca_core as rca;
 /// use std::cell::Cell;
 /// use std::convert::Infallible;
-/// use rca_core::{IssueContext, IssueDelivery, IssueDeliveryFailure};
-/// use rca_core::Issue;
+/// use rca::{IssueContext, IssueDelivery, IssueDeliveryFailure};
+/// use rca::Issue;
 ///
 /// let reports = Cell::new(0);
 /// let callback = |issue: &Issue, cause: &u8| {
@@ -100,9 +101,10 @@ pub type IssueCallback<'a, Error, DeliveryError> =
 /// policy. Rejection is returned separately; the context retains the diagnostic.
 ///
 /// ```
+/// # use rca_core as rca;
 /// use std::convert::Infallible;
-/// use rca_core::{IssueContext, IssueDelivery, IssueDeliveryFailure};
-/// use rca_core::{Issue, IssueReporter};
+/// use rca::{IssueContext, IssueDelivery, IssueDeliveryFailure};
+/// use rca::{Issue, IssueReporter};
 ///
 /// let endpoint = IssueReporter::default();
 /// let callback = |issue: &Issue, _: &u8| {

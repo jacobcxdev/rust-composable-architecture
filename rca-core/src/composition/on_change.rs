@@ -64,7 +64,8 @@ impl<R, Capture, MakeReaction> fmt::Debug for OnChange<R, Capture, MakeReaction>
 /// # Examples
 ///
 /// ```
-/// use rca_core::{Effect, ReduceContext, Reducer, on_change};
+/// # use rca_core as rca;
+/// use rca::{Effect, ReduceContext, Reducer, on_change};
 ///
 /// struct State {
 ///     name: String,
@@ -120,7 +121,8 @@ impl<R, Capture, MakeReaction> fmt::Debug for OnChange<R, Capture, MakeReaction>
 /// A reaction must share the base reducer's complete state and action types:
 ///
 /// ```compile_fail
-/// use rca_core::{Effect, ReduceContext, Reducer, on_change};
+/// # use rca_core as rca;
+/// use rca::{Effect, ReduceContext, Reducer, on_change};
 ///
 /// struct Base;
 ///
@@ -160,7 +162,8 @@ impl<R, Capture, MakeReaction> fmt::Debug for OnChange<R, Capture, MakeReaction>
 /// A reaction cannot retain borrowed mutable state in an asynchronous effect:
 ///
 /// ```compile_fail
-/// use rca_core::{Effect, ReduceContext, Reducer, on_change};
+/// # use rca_core as rca;
+/// use rca::{Effect, ReduceContext, Reducer, on_change};
 ///
 /// struct Edit;
 ///

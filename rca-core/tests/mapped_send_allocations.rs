@@ -20,8 +20,8 @@ use std::task::{Context, Poll, Waker};
 
 use rca_core::{Effect, EffectSender, ReduceContext, Reducer, Store};
 
-#[global_allocator]
 /// Measures only the warmed send's first poll in an isolated child.
+#[global_allocator]
 static ALLOCATOR: dhat::Alloc = dhat::Alloc;
 
 /// Supplies a move-only, non-thread-safe value to the inner mapping.

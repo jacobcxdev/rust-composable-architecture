@@ -10,6 +10,9 @@ keywords.workspace = true
 categories.workspace = true
 description = "Re-exports the Rust Composable Architecture library from rca"
 
+[package.metadata.docs.rs]
+all-features = true
+
 [features]
 default = []
 diagnostics = ["rca/diagnostics"]

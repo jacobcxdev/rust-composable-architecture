@@ -82,8 +82,8 @@ where
     (Box::new(command), receive)
 }
 
-#[cfg(feature = "local")]
 /// Prepares an owner-local command without imposing `Send` on captures or results.
+#[cfg(feature = "local")]
 pub(crate) fn new_local_read<State, F, Output>(
     query: F,
 ) -> (Box<dyn ReadCommand<State>>, oneshot::Receiver<Output>)

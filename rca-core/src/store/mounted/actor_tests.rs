@@ -755,8 +755,8 @@ fn mounted_frontier_retirement_destructor_reenters_gate_outside_all_guards() {
     }
 }
 
-#[derive(Clone)]
 /// Records callback lock state without panicking during destructor or wake cleanup.
+#[derive(Clone)]
 struct GuardProbe {
     /// Borrows actual guard state without retaining the installed Feature.
     available: Arc<dyn Fn() -> bool + Send + Sync>,

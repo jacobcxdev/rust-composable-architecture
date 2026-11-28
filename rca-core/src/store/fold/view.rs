@@ -40,8 +40,8 @@ impl<K: FoldKey> fmt::Debug for FoldView<K> {
 }
 
 impl<K: FoldKey> FoldView<K> {
-    #[cfg(feature = "test-util")]
     /// Checks the requested root and reads through the captured diagnostic gate.
+    #[cfg(feature = "test-util")]
     pub(in crate::store) fn read_for_test(
         &self,
         root: Arc<()>,
@@ -72,8 +72,8 @@ trait Endpoint<K: FoldKey> {
     /// Prepares a lazy read of this captured subtree.
     fn read(&self) -> Pin<Box<dyn Future<Output = Result<K::Value, TaskAccessError>> + Send>>;
 
-    #[cfg(feature = "test-util")]
     /// Rejects a foreign root before using the captured test-driver gate.
+    #[cfg(feature = "test-util")]
     fn read_for_test(
         &self,
         root: Arc<()>,
@@ -125,8 +125,8 @@ struct TypedEndpoint<R, A, K: FoldKey> {
     ingress: Weak<super::super::ingress::CommandIngress<Command<R, A>>>,
     /// Checks owner loss without keeping the Store alive.
     lifecycle: Weak<Lifecycle>,
-    #[cfg(feature = "test-util")]
     /// Present only when acquisition uses an explicit test-driver gate.
+    #[cfg(feature = "test-util")]
     gate: Option<crate::testing::TransactionGateCore<R, A>>,
 }
 
@@ -199,8 +199,8 @@ struct Acquire<R, A, S, X, K: FoldKey> {
     lifecycle: Weak<Lifecycle>,
     /// Publishes absence, a frozen view or terminal authority failure.
     reply: ReplyGuard<Option<FoldView<K>>>,
-    #[cfg(feature = "test-util")]
     /// Passed to the view only for diagnostic acquisition.
+    #[cfg(feature = "test-util")]
     gate: Option<crate::testing::TransactionGateCore<R, A>>,
 }
 
@@ -307,8 +307,8 @@ impl<R: Send + 'static, A: Send + 'static> super::super::Store<R, A> {
         )
     }
 
-    #[cfg(feature = "test-util")]
     /// Acquires through this test driver's gate and retains it for diagnostic reads.
+    #[cfg(feature = "test-util")]
     pub(crate) fn acquire_fold_for_test<K: FoldKey, S: 'static, X: 'static>(
         &self,
         fold: &Fold<R, K>,
@@ -342,8 +342,8 @@ impl<R: Send + 'static, A: Send + 'static> super::super::Store<R, A> {
         )
     }
 
-    #[cfg(feature = "test-util")]
     /// Reads a captured diagnostic view with this Store's root identity.
+    #[cfg(feature = "test-util")]
     pub(crate) fn fold_view_for_test<K: FoldKey>(
         &self,
         view: &FoldView<K>,

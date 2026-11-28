@@ -21,9 +21,12 @@ use super::Issue;
 ///
 /// # Examples
 ///
+/// Enable the `test-util` feature on `rca`.
+///
 /// ```
-/// use rca_core::{EndpointStub, IssueCollector};
-/// use rca_core::Issue;
+/// # use rca_core as rca;
+/// use rca::{EndpointStub, IssueCollector};
+/// use rca::Issue;
 ///
 /// let collector = IssueCollector::new();
 /// let reporter = collector.reporter();
@@ -40,9 +43,10 @@ use super::Issue;
 /// Borrowed local callbacks cannot outlive their captured context:
 ///
 /// ```compile_fail
+/// # use rca_core as rca;
 /// use std::cell::Cell;
-/// use rca_core::EndpointStub;
-/// use rca_core::Issue;
+/// use rca::EndpointStub;
+/// use rca::Issue;
 /// let stub;
 /// {
 ///     let calls = Cell::new(0);
@@ -54,9 +58,10 @@ use super::Issue;
 /// Local captures do not become owned client transport merely by using a stub:
 ///
 /// ```compile_fail
+/// # use rca_core as rca;
 /// use std::{cell::Cell, rc::Rc, sync::Arc};
-/// use rca_core::EndpointStub;
-/// use rca_core::Issue;
+/// use rca::EndpointStub;
+/// use rca::Issue;
 /// let calls = Rc::new(Cell::new(0));
 /// let stub = EndpointStub::new("Client.load", move |_: Issue| calls.set(calls.get() + 1));
 /// let endpoint: Arc<dyn Fn() -> u8 + Send + Sync> = Arc::new(move || {

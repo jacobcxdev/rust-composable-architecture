@@ -27,8 +27,8 @@ impl Drop for State {
     }
 }
 
-#[derive(Clone, Copy)]
 /// Selects a finite state update or work that needs external cancellation.
+#[derive(Clone, Copy)]
 enum Action {
     /// Adds a known value before shutdown or extraction.
     Add(usize),
@@ -266,8 +266,8 @@ pub(super) async fn non_owning_resources_close(factory: impl RuntimeFactory) {
     assert_eq!(dropped.count(), 1);
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 /// Summarises observable optional-child commits without using runtime bookkeeping.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 struct ScopedTrace {
     /// Counts every accepted root action, including child output actions.
     parent_calls: usize,

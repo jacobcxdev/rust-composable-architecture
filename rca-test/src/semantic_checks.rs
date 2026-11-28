@@ -125,8 +125,11 @@ impl std::error::Error for ComparisonFailure {}
 /// bounded, but caller rendering work and string allocation are not bounded.
 ///
 /// # Examples
+/// Enable the `test-util` feature on `rca`.
+///
 /// ```
-/// rca_test::check_equal(|| 3, || 3, i32::to_string, || None).unwrap();
+/// # use rca_test as rca;
+/// rca::check_equal(|| 3, || 3, i32::to_string, || None).unwrap();
 /// ```
 ///
 /// # Errors
@@ -159,8 +162,11 @@ pub fn check_equal<S: PartialEq>(
 /// can pass. Diagnostic order and laziness match [`check_equal`].
 ///
 /// # Examples
+/// Enable the `test-util` feature on `rca`.
+///
 /// ```
-/// rca_test::check_expected_changes(
+/// # use rca_test as rca;
+/// rca::check_expected_changes(
 ///     || 1,
 ///     || 2,
 ///     |n| *n += 1,
@@ -208,9 +214,12 @@ pub fn check_expected_changes<S: PartialEq>(
 /// limits. The operation result is retained even when comparison fails.
 ///
 /// # Examples
+/// Enable the `test-util` feature on `rca`.
+///
 /// ```
+/// # use rca_test as rca;
 /// let mut count = 0;
-/// let checked = rca_test::check_change(
+/// let checked = rca::check_change(
 ///     &mut count,
 ///     |n| *n,
 ///     |n| {
@@ -268,10 +277,14 @@ pub fn check_change<C: ?Sized, S: PartialEq, R, E>(
 /// borrowing futures need no `Send` or `'static` bound.
 ///
 /// # Examples
+/// Enable the `test-util` feature on `rca`.
+/// Run the example inside an async test. The standalone doctest uses `futures-executor`.
+///
 /// ```
+/// # use rca_test as rca;
 /// # futures_executor::block_on(async {
 ///     let mut count = 0;
-///     let checked = rca_test::check_change_async(
+///     let checked = rca::check_change_async(
 ///         &mut count,
 ///         |n| *n,
 ///         async |n| {

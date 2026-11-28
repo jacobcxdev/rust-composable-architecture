@@ -71,7 +71,8 @@ impl fmt::Debug for ActionReceiptFuture {
 /// # Examples
 ///
 /// ```
-/// # async fn wait(receipt: rca_core::ActionReceipt) -> Result<(), rca_core::StoreStopped> {
+/// # use rca_core as rca;
+/// # async fn wait(receipt: rca::ActionReceipt) -> Result<(), rca::StoreStopped> {
 /// let task = receipt.await?;
 /// task.finish().await;
 /// # Ok(())
@@ -200,7 +201,8 @@ impl ActionTask {
     /// # Examples
     ///
     /// ```
-    /// # async fn wait(task: rca_core::ActionTask) {
+    /// # use rca_core as rca;
+    /// # async fn wait(task: rca::ActionTask) {
     /// task.finish_cancelling_on_drop().await;
     /// # }
     /// ```
@@ -278,8 +280,8 @@ mod cancel_guard_loom_tests {
         }
     }
 
-    #[test]
     /// Both race outcomes must wake the waiter and leave unrelated work alone.
+    #[test]
     fn completion_racing_guard_drop_cannot_strand_waiter_or_cancel_sibling() {
         for poll_guard in [false, true] {
             loom::model(move || {

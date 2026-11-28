@@ -131,9 +131,12 @@ impl<F: local::Feature> RootMount<F> {
     ///
     /// # Examples
     ///
+    /// Enable the `local` feature on `rca`.
+    ///
     /// ```
-    /// use rca_core::InitialPolicy;
-    /// use rca_core::local::{Feature, FeatureContext, RootMount, Task};
+    /// # use rca_core as rca;
+    /// use rca::InitialPolicy;
+    /// use rca::local::{Feature, FeatureContext, RootMount, Task};
     /// use std::{cell::Cell, rc::Rc};
     /// # struct Counter;
     /// # impl Feature for Counter {

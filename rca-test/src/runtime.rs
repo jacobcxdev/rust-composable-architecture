@@ -194,9 +194,13 @@ impl DeterministicRuntime {
     ///
     /// # Examples
     ///
+    /// Enable the `test-util` feature on `rca`.
+    /// Run the example inside an async test. The standalone doctest uses `futures-executor`.
+    ///
     /// ```
+    /// # use rca_test as rca;
     /// # futures_executor::block_on(async {
-    /// use rca_test::DeterministicRuntime;
+    /// use rca::DeterministicRuntime;
     /// let host = DeterministicRuntime::new();
     /// let report = host.drain_deadlines(4).await.unwrap();
     /// assert_eq!(report.deadline_batches(), 0);
@@ -207,10 +211,15 @@ impl DeterministicRuntime {
     /// # Errors
     ///
     /// Returns [`DriveError`] for task-poll or deadline-batch exhaustion, blocked
-    /// tasks, host closure, or an existing partial virtual-time advance. Failures
-    /// report progress. While the host remains live, failure retains unfinished
-    /// work rather than cancelling or finishing it. Host closure instead tears
-    /// down scheduler tasks.
+    /// tasks, host closure, or an existing partial virtual-time advance.
+    /// The error reports progress. If the host is still open, a returned error leaves unfinished work in place.
+    /// Closing the host drops its tasks.
+    ///
+    /// # Panics
+    ///
+    /// If a task panics during a poll, this drive propagates the panic instead of returning [`DriveError`].
+    /// Unwinding drops the other tasks reserved for this batch that the scheduler has not yet polled.
+    /// Their IDs can remain in diagnostics even though the scheduler cannot retry them.
     pub fn drain_deadlines(
         &self,
         max_deadline_batches: usize,
@@ -312,6 +321,11 @@ impl DeterministicRuntime {
     /// # Errors
     ///
     /// Returns [`DriveError`] after exact configured poll budget is exhausted.
+    ///
+    /// # Panics
+    ///
+    /// A panic from polling the client or a scheduled task propagates to the caller.
+    /// If the completed client's destructor panics, this call drops its output instead of returning it.
     pub async fn run<F>(&self, future: F) -> Result<F::Output, DriveError>
     where
         F: Future + Send,

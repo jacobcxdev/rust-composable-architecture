@@ -162,8 +162,8 @@ struct Input(Box<Cell<usize>>);
 /// A distinct owned input: bypass applies to this port, not to work it creates.
 struct Control(Box<Cell<usize>>);
 
-#[cfg(feature = "test-util")]
 /// Keeps two separately declared command routes under one refreshable root.
+#[cfg(feature = "test-util")]
 struct InspectionFixture {
     /// Keeps the endpoint live until the rejection and successful release are checked.
     store: Store<State, ()>,
@@ -175,8 +175,8 @@ struct InspectionFixture {
     ports: [rca_core::CommandPort<Input>; 2],
 }
 
-#[cfg(feature = "test-util")]
 /// Builds either the inspected actor or its independent, live foreign counterpart.
+#[cfg(feature = "test-util")]
 fn inspection_fixture(
     driver: &Driver,
     maps: &Arc<std::sync::atomic::AtomicUsize>,

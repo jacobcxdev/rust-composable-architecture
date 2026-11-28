@@ -1,10 +1,8 @@
 # Compiler-contract testing
 
-Compiler tests protect RCA's ownership boundaries and developer-facing diagnostics.
-Use behavioural tests for runtime semantics, rustdoc for usage examples, and
-compiler fixtures for acceptance, rejection at an intended operation, or successful
-compilation with useful warning guidance. Compilation cannot prove cancellation,
-ordering, stale authority, performance or production coverage.
+Use a behavioural test to check what happens at runtime. Use rustdoc for API examples.
+Use a compiler fixture to check what compiles, which operation fails, or which warning the compiler gives.
+Compilation cannot prove cancellation, ordering, rejection of stale work, performance, or production coverage.
 
 ## Existing suites
 
@@ -34,11 +32,28 @@ Some `trybuild` snapshots include standard-library source excerpts.
 Without `rust-src`, those excerpts disappear and the snapshot checks fail.
 Nightly Rust is not required.
 
+Run the examples below from the repository root in the same POSIX shell.
+On macOS, define `compiler_test` to use the [memory watchdog](../CONTRIBUTING.md#build-memory-safety) with a new receipt for each command:
+
 ```sh
-rustup run 1.100.0 cargo test --locked -p rca-core -p rca-test --all-features --test compiler_contracts -- --check
-rustup run 1.100.0 cargo test --locked -p rca-core -p rca-test --no-default-features --test compiler_contracts -- --check
-rustup run 1.100.0 cargo test --locked -p rca-core --no-default-features --test compile --test typed_compile --test removal_compile
-rustup run 1.100.0 cargo test --locked -p rca-macros --test snapshot_compile
+compiler_test() {
+  python3 scripts/guard_cargo_memory.py --receipt "$(mktemp -d)/compiler-test.json" -- test "$@"
+}
+```
+
+On an isolated runner with an OS memory limit, use this definition instead:
+
+```sh
+compiler_test() { rustup run 1.100.0 cargo test "$@"; }
+```
+
+Select the suites that own the changed contract:
+
+```sh
+compiler_test --locked -p rca-core -p rca-test --all-features --test compiler_contracts -- --check
+compiler_test --locked -p rca-core -p rca-test --no-default-features --test compiler_contracts -- --check
+compiler_test --locked -p rca-core --no-default-features --test compile --test typed_compile --test removal_compile
+compiler_test --locked -p rca-macros --test snapshot_compile
 ```
 
 Append a filename substring after `--check` to select fixtures, for example
@@ -49,9 +64,9 @@ snapshots depend on which APIs are available.
 For an intentional diagnostic change, inspect the failure before recording:
 
 ```sh
-rustup run 1.100.0 cargo test --locked -p rca-core --all-features --test compiler_contracts -- --bless task_warning
+compiler_test --locked -p rca-core --all-features --test compiler_contracts -- --bless task_warning
 git diff -- rca-core/tests/compiler
-rustup run 1.100.0 cargo test --locked -p rca-core --all-features --test compiler_contracts -- --check task_warning
+compiler_test --locked -p rca-core --all-features --test compiler_contracts -- --check task_warning
 ```
 
 Review new files too: ordinary `git diff` omits untracked snapshots.
@@ -130,8 +145,8 @@ Copy its small [harness](../tests/downstream-composition/tests/compiler_contract
 and adapt fixtures to your own public feature or wrapper. Keep compiler tooling in
 development dependencies; do not re-export it from runtime libraries.
 
-This repository fixture uses a disposable `rca-local` registry. Direct invocation
-requires that registry. From the repository root, run the packaged-consumer check:
+This repository fixture uses a disposable `rca-local` registry. The packaging script creates it and starts several Cargo builds.
+The local macOS watchdog does not support this script. On an isolated Linux runner with an OS memory limit, run it from the repository root:
 
 ```sh
 rustup run 1.100.0 bash scripts/verify-packaged-downstream.sh

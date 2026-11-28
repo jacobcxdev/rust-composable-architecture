@@ -55,7 +55,8 @@ impl std::error::Error for InvalidTimerInterval {}
 /// # Examples
 ///
 /// ```
-/// use rca_core::{Clock, ClockTimer};
+/// # use rca_core as rca;
+/// use rca::{Clock, ClockTimer};
 /// use std::time::Duration;
 ///
 /// async fn consume(clock: Clock) {

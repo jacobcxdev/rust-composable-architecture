@@ -6,6 +6,9 @@ page.
 The example uses `Backend`, `Codec` and `Feature` with test controls that own their
 responses.
 
+Run the test from the repository root. On macOS, use the [Cargo memory guard](../../../CONTRIBUTING.md#build-memory-safety).
+If the locked dependencies are not cached, leave out `--offline` on the first run.
+
 ```console
 cargo test --locked --offline -p rca-persistence --test staged_restoration
 ```
@@ -19,18 +22,19 @@ Absent storage produces `Missing`. The example does not save or display a defaul
 document.
 A load or decode failure leaves the visible document and selection unchanged.
 
-A valid checkpoint starts the document fetch. The returned ID must match the saved ID,
-and the document must contain the selected page.
+The task uses a valid checkpoint to request a document fetch.
+The returned ID must match the saved ID, and the document must contain the selected page.
 Only then does one `TaskContext` update replace both visible fields.
 No state borrow crosses either wait. The tests use the same code for immediate and
 pending responses, without sending substitute completion actions.
 
 ## Check the request after each wait
 
-The root tracks `(restoration_epoch, request_id)`. Accepting a new request makes it
-current.
-An old checkpoint reply cannot start a document fetch. An old document reply cannot
-publish, clear a pending stage or erase a newer failure.
+The root tracks the current `(restoration_epoch, request_id)`.
+After the checkpoint arrives, the actor checks that pair. If it no longer matches, the task skips the fetch.
+If it matches, the actor authorises the fetch. A newer request can arrive before the task starts or finishes that external call.
+Before it publishes the document and selected page, the actor checks the pair again in the same update.
+A stale reply cannot change either field, clear a pending stage, or erase a newer failure.
 Even a stale update that changes nothing counts as an actor commit. The tests expect
 that update before calling `finish`.
 
@@ -90,11 +94,13 @@ wait for an external storage operation.
 Completion of a superseded helper does not prove that the backend stopped, rolled back
 or deleted its data.
 
-For editing, saving and observing persistent documents, use the document coordinators.
-Their `BackendSession::close` rejects new work and waits for physical operations to
-finish.
-The
-[session replacement tests](../../../rca-persistence/tests/shared_document_session_replacement.rs)
+To save a plain `Document` before shutdown, submit the action from `Action::close`.
+Wait for its persistence receipt to succeed. The receipt does not mean that all backend work has stopped.
+Plain `Document` does not require a `BackendSession`.
+If the backend supplies this capability, await `BackendSession::close` separately.
+Its first poll stops new operations. Success means that all operations the session accepted have ended.
+On error, only the backend's own error contract can establish that work stopped.
+The [session replacement tests](../../../rca-persistence/tests/shared_document_session_replacement.rs)
 distinguish an obsolete actor update from waiting for the old backend session.
 The [SharedDocument tests](../../../rca-persistence/tests/shared_document.rs) cover
 dropped close waiters and errors that remain available to later waiters.

@@ -14,9 +14,9 @@ use std::sync::{
 mod support;
 use support::Driver;
 
+/// Records requested and retained allocations in the single active allocation assay.
 #[cfg(feature = "allocation-measurement")]
 #[global_allocator]
-/// Records requested and retained allocations in the single active allocation assay.
 static ALLOCATOR: dhat::Alloc = dhat::Alloc;
 
 /// Keeps native runs large enough to expose work proportional to sibling count.
@@ -24,11 +24,11 @@ static ALLOCATOR: dhat::Alloc = dhat::Alloc;
 const WIDTH: usize = 10_000;
 // Miri checks the same ownership and reaction phases with enough siblings to
 // distinguish no, one and all hooks; native runs retain the full scale witness.
-#[cfg(miri)]
 /// Preserves the same no/one/all-hook ownership cases at interpreter scale.
+#[cfg(miri)]
 const WIDTH: usize = 16;
-#[cfg(not(feature = "allocation-measurement"))]
 /// Defines the explicit repeated-input witness, separate from phase measurement.
+#[cfg(not(feature = "allocation-measurement"))]
 const INPUTS: usize = 10_000;
 
 /// Selects no reactions, one reaction at key zero, or reactions on every row.
@@ -55,8 +55,8 @@ impl Hooks {
     }
 }
 
-#[derive(Default)]
 /// Counts public callbacks and child destruction in a fixed reporting order.
+#[derive(Default)]
 struct Counts {
     reads: AtomicUsize,
     writes: AtomicUsize,
@@ -329,8 +329,8 @@ pub fn children_have_exact_reaction_work() {
     }
 }
 
-#[cfg(not(feature = "allocation-measurement"))]
 /// Checks each completed input without a profiler or elapsed-time comparison.
+#[cfg(not(feature = "allocation-measurement"))]
 fn inputs(hooks: Hooks) {
     let driver = Driver::default();
     let counts = Arc::new(Counts::default());

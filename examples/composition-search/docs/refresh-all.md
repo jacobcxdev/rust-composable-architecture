@@ -5,6 +5,13 @@ sends one document version to a fixed list of recipients.
 Each recipient exposes a `CommandPort<Refresh>`. One full mailbox must not prevent
 delivery to another recipient.
 
+Run the test from the repository root. On macOS, use the [Cargo memory guard](../../../CONTRIBUTING.md#build-memory-safety).
+If the locked dependencies are not cached, leave out `--offline` on the first run.
+
+```sh
+cargo test --locked --offline -p rca-test --test refresh_all
+```
+
 ## Capture once, then send without waiting
 
 The parent Feature owns the current document. It accepts notifications with a positive
@@ -76,5 +83,3 @@ Later tasks, replacements and unrelated work stay outside that wait. Acknowledge
 of cancellation does not mean the runtime has destroyed the owned work.
 That separate test does not change this recipe's completion rule or establish Local
 fan-out coverage.
-
-Run `cargo test --locked --offline -p rca-test --test refresh_all`.

@@ -230,7 +230,7 @@ fn copied_attributes(attributes: &[Attribute]) -> Vec<&Attribute> {
         .collect()
 }
 
-/// Expands a snapshot from the standalone macro crate.
+/// Selects the RCA path for a derive imported directly from `rca_macros`.
 pub(crate) fn expand(input: &DeriveInput) -> syn::Result<TokenStream> {
     expand_from(input, MacroRoot::Standalone)
 }

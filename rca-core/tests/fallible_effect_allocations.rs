@@ -19,8 +19,8 @@ use rca_core::{
 };
 use rca_core::{IssueDelivery, OperationReport};
 
-#[global_allocator]
 /// Counts diagnostic delivery allocations in an isolated test process.
+#[global_allocator]
 static ALLOCATOR: dhat::Alloc = dhat::Alloc;
 
 /// Launches one prepared effect without constructing it during reduction.

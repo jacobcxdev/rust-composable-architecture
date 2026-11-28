@@ -164,6 +164,9 @@ impl<T> Drop for ControlledFuture<T> {
 ///
 /// # Examples
 ///
+/// Add `rca-test` as a dev-dependency for this example.
+/// Add `futures-executor` as a dev-dependency for this example.
+///
 /// ```
 /// let (completion, response) = rca_test::controlled_future();
 /// completion.complete(17).unwrap();
@@ -356,6 +359,8 @@ impl<T> Drop for ControlledStream<T> {
 ///
 /// # Examples
 ///
+/// Add `rca-test` as a dev-dependency for this example.
+///
 /// ```
 /// use std::num::NonZeroUsize;
 /// let (control, _stream) = rca_test::controlled_stream(NonZeroUsize::new(1).unwrap());
@@ -477,6 +482,9 @@ impl Future for ControlledGate {
 /// Creates an owned gate and a sticky first-pending-poll observation endpoint.
 ///
 /// # Examples
+///
+/// Add `rca-test` as a dev-dependency for this example.
+/// Add `futures-executor` as a dev-dependency for this example.
 ///
 /// ```
 /// let (control, gate) = rca_test::controlled_gate();

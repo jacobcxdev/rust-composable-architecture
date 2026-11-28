@@ -12,8 +12,8 @@ use std::task::{Context, Poll, Waker};
 
 use rca_core::{Effect, ReduceContext, Reducer, Store};
 
-#[global_allocator]
 /// Measures one warmed direct-send schedule in an isolated child.
+#[global_allocator]
 static ALLOCATOR: dhat::Alloc = dhat::Alloc;
 
 /// Emits one follow-up action, which alone increments the final state.

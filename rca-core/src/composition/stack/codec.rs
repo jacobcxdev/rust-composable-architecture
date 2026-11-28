@@ -164,7 +164,8 @@ impl<State> StackState<State> {
     /// # Examples
     ///
     /// ```
-    /// use rca_core::{EncodedStackRoute, StackEncoding, StackState};
+    /// # use rca_core as rca;
+    /// use rca::{EncodedStackRoute, StackEncoding, StackState};
     ///
     /// let encoded = StackEncoding {
     ///     version: 1,

@@ -41,8 +41,8 @@ pub(in crate::store) fn record_ring(count: usize) {
     record(2, count);
 }
 
-#[derive(Default)]
 /// Records key clones, parent construction, recipe calls, leaf construction and destruction.
+#[derive(Default)]
 struct Counts(
     /// Slots: key clone, parent make, recipe call, leaf make, parent/recipe/leaf drop.
     [AtomicUsize; 7],
@@ -123,8 +123,8 @@ impl Drop for Leaf {
         self.0.add(6);
     }
 }
-#[derive(Clone, Copy, Debug, PartialEq)]
 /// Selects no child, one optional child or two keyed children per row.
+#[derive(Clone, Copy, Debug, PartialEq)]
 enum Profile {
     /// Keeps each parent feature without a child recipe.
     NoChildren,

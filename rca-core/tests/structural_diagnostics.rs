@@ -1226,11 +1226,11 @@ fn selected_reference_chain_depth_is_independent_of_captured_edge_depth() {
     assert_eq!(projections.get(), 6);
 }
 
-#[cfg(feature = "allocation-measurement")]
 /// Checks scratch reuse in the dedicated allocation host.
 ///
 /// # Panics
 /// Panics if structural validation or allocation counts change.
+#[cfg(feature = "allocation-measurement")]
 pub fn structural_validation_reuses_scratch_across_captured_nodes() {
     struct CountOutput(usize);
 
@@ -1379,11 +1379,11 @@ fn invalid_wide_view_drops_all_projected_values_without_redaction() {
     assert_eq!(*drops.borrow(), (0..34).collect::<Vec<_>>());
 }
 
-#[cfg(feature = "allocation-measurement")]
 /// Checks allocation cleanup when a structural report destructor panics.
 ///
 /// # Panics
 /// Panics if report cleanup leaves tracked allocations alive.
+#[cfg(feature = "allocation-measurement")]
 pub fn structural_diff_cleanup_panic_releases_the_completed_report() {
     struct Probe<'a> {
         tag: u8,

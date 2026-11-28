@@ -59,10 +59,9 @@ jobs:
                   {
                       echo "## Review before you approve $GITHUB_REF_NAME"
                       echo
+                      echo "[Review the complete source tree]($repo_url/tree/$source_commit)."
                       if [[ -n "$previous_tag" ]]; then
                           echo "[Compare with $previous_tag]($repo_url/compare/$previous_tag..$source_commit)."
-                      else
-                          echo "[Review the complete first release]($repo_url/tree/$source_commit)."
                       fi
                       echo "Use the [documentation and skill checklist]($repo_url/blob/$source_commit/docs/releasing.md#review-documentation-and-skills)."
                       echo "Approve the crates-io deployment only if the guides, skills and migration notes match this commit."

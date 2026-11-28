@@ -6,14 +6,13 @@
 
 use crate::{KeyedState, MonotonicInstant};
 
-/// Captures values independent of later source and expected-history mutations.
+/// Captures a historical value that can change independently of its source.
 ///
-/// Implementations must preserve independence in both directions: later writes to
-/// the source or its shared aliases must not alter captured history, and editing
-/// history must not mutate the source, other aliases, subscriptions or lifetime
-/// authority. Capturing reads values; it must not retain an operation handle.
-/// Rust cannot prove this semantic contract for arbitrary custom implementations.
-/// Consumers that clone history also require those clones to remain independent.
+/// Later writes to the source or a shared alias must not change the snapshot.
+/// Changes to the snapshot must not change the source, its aliases, its subscriptions,
+/// or who can still access it. A snapshot must not keep an operation handle alive.
+/// Rust cannot enforce these rules for custom implementations. If a consumer clones
+/// a snapshot, it also needs changes to one copy to leave the other unchanged.
 ///
 /// The trait imposes no consumer-specific `Clone`, `Debug`, equality, `Send`,
 /// `Sync` or `'static` bounds. A manual implementation may capture a borrowed or
@@ -34,7 +33,8 @@ use crate::{KeyedState, MonotonicInstant};
 /// # Examples
 ///
 /// ```
-/// use rca_core::Snapshot;
+/// # use rca_core as rca;
+/// use rca::Snapshot;
 ///
 /// struct Progress<'a>(&'a str);
 /// impl Snapshot for Progress<'_> {
@@ -51,7 +51,7 @@ use crate::{KeyedState, MonotonicInstant};
 /// assert_eq!(history, "imported");
 /// ```
 pub trait Snapshot {
-    /// Stores the explicitly selected historical values.
+    /// The type returned by [`snapshot`](Self::snapshot). It can differ from the source type.
     type Value;
 
     /// Captures an independent value without retaining mutation or lifetime authority.

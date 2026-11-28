@@ -80,8 +80,8 @@ struct Installed<F> {
 struct SharedInstalled<F: Feature> {
     /// Guards extraction and restoration, not selectors, reduction or destruction.
     node: Mutex<Installed<F>>,
-    #[cfg(feature = "test-util")]
     /// Weakly publishes only the currently held diagnostic input.
+    #[cfg(feature = "test-util")]
     pending: Mutex<Option<(usize, PendingChildSlot<F::Action>)>>,
 }
 
@@ -92,20 +92,20 @@ impl<F: Feature> SharedInstalled<F> {
     }
 }
 
-#[cfg(feature = "test-util")]
 /// Lets diagnostic inspection temporarily borrow the whole pending request.
+#[cfg(feature = "test-util")]
 pub(in crate::store) struct InputSlot<I>(
     /// Empty only while the diagnostic gate holds its inspection guard.
     Mutex<Option<I>>,
 );
-#[cfg(feature = "test-util")]
 /// Preserves an unentered typed action and its recovery reply during inspection.
+#[cfg(feature = "test-util")]
 pub(in crate::store) type SendSlot<X> = InputSlot<TypedSend<X>>;
-#[cfg(feature = "test-util")]
 /// Exposes effect input through the same temporary inspection protocol.
-type EffectSlot<X> = InputSlot<EffectInput<X>>;
 #[cfg(feature = "test-util")]
+type EffectSlot<X> = InputSlot<EffectInput<X>>;
 /// Keeps an effect's action and commit acknowledgement under one inspection owner.
+#[cfg(feature = "test-util")]
 struct EffectInput<X> {
     /// Remains owned until reduction or rejection consumes the request.
     action: X,
@@ -182,16 +182,16 @@ impl<I> Drop for SlotInspection<I> {
         );
     }
 }
-#[cfg(feature = "test-util")]
 /// Preserves the different reply owners behind the common action inspection API.
+#[cfg(feature = "test-util")]
 enum InspectionKind<X> {
     /// A typed request can still return its original action before entry.
     Typed(SlotInspection<TypedSend<X>>),
     /// An effect request owns a commit acknowledgement rather than typed recovery.
     Effect(SlotInspection<EffectInput<X>>),
 }
-#[cfg(feature = "test-util")]
 /// Borrows an action and restores its complete request when inspection ends.
+#[cfg(feature = "test-util")]
 pub(crate) struct SendInspection<X>(
     /// Owns the restoring guard for the selected request kind.
     InspectionKind<X>,
@@ -226,8 +226,8 @@ impl<X> SendInspection<X> {
         }
     }
 }
-#[cfg(feature = "test-util")]
 /// Publishes inspection access without extending the pending command's lifetime.
+#[cfg(feature = "test-util")]
 enum PendingChildSlot<X> {
     /// Weak ownership of a typed request's inspection slot.
     Typed(Weak<SendSlot<X>>),
@@ -253,17 +253,17 @@ impl<X> PendingChildSlot<X> {
         }
     }
 }
+/// Matches a diagnostic capability to one actor-held input publication.
 #[cfg(feature = "test-util")]
 #[derive(Clone, Copy)]
-/// Matches a diagnostic capability to one actor-held input publication.
 pub(crate) struct MountedInputIdentity {
     /// Identifies the installed node or mapper, not a state address.
     pub(in crate::store) node: usize,
     /// Identifies the particular request slot while its command remains owned.
     pub(in crate::store) request: usize,
 }
-#[cfg(feature = "test-util")]
 /// Validates frozen capability authority before exposing a held action.
+#[cfg(feature = "test-util")]
 pub(crate) trait MountedInputInspection<X> {
     /// Returns no match for another node and rejects stale or foreign authority.
     fn inspect_input(
@@ -519,8 +519,8 @@ pub(crate) trait MountedCall<R, A, C: Carriers<R, A>> {
         None
     }
 
-    #[cfg(feature = "test-util")]
     /// Publishes weak input access after the diagnostic gate has selected this call.
+    #[cfg(feature = "test-util")]
     fn publish_input(&self) {}
     /// Enters the child and returns deferred work without registering it yet.
     fn apply(
@@ -837,8 +837,8 @@ impl<X> ChildInput<X> {
         }
     }
 
-    #[cfg(all(test, feature = "test-util", feature = "allocation-measurement"))]
     /// Exposes the typed inspection slot to the existing allocation assay.
+    #[cfg(all(test, feature = "test-util", feature = "allocation-measurement"))]
     fn slot(&self) -> Option<&Arc<SendSlot<X>>> {
         match self {
             Self::Typed(slot) => Some(slot),
@@ -846,8 +846,8 @@ impl<X> ChildInput<X> {
         }
     }
 
-    #[cfg(feature = "test-util")]
     /// Identifies this request while its owning command keeps the slot alive.
+    #[cfg(feature = "test-util")]
     fn identity(&self) -> usize {
         match self {
             Self::Typed(slot) => Arc::as_ptr(slot) as usize,
@@ -855,8 +855,8 @@ impl<X> ChildInput<X> {
         }
     }
 
-    #[cfg(feature = "test-util")]
     /// Produces weak publication metadata without retaining the pending request.
+    #[cfg(feature = "test-util")]
     fn pending_slot(&self) -> (usize, PendingChildSlot<X>) {
         match self {
             Self::Typed(slot) => (
@@ -1068,12 +1068,12 @@ struct SharedCall<R, A, F: Feature, P = OptionalPath<R, <F as Feature>::State>> 
     route: SharedRoute<R, A, F, P>,
     /// Owns the original action and terminal reply, including diagnostic inspection.
     input: ChildInput<F::Action>,
-    #[cfg(feature = "test-util")]
     /// Removes only this request's weak publication when the call leaves the gate.
+    #[cfg(feature = "test-util")]
     publication: SharedPublication<F>,
 }
-#[cfg(feature = "test-util")]
 /// Clears stale diagnostic metadata without owning its installed node or request.
+#[cfg(feature = "test-util")]
 struct SharedPublication<F: Feature> {
     /// Allows cleanup while actor ownership still retains the node.
     node: Weak<SharedInstalled<F>>,
@@ -1124,8 +1124,8 @@ struct MappedCall<R, A, F: Feature, C, P = OptionalPath<R, <F as Feature>::State
     mapper: Weak<dyn CommandMapper<C, F::Action>>,
     /// Preserves the originating port's ordinary or control input policy.
     class: InputClass,
-    #[cfg(feature = "test-util")]
     /// Identifies only this call's diagnostic publication for later cleanup.
+    #[cfg(feature = "test-util")]
     request: usize,
 }
 impl<R, A, F: Feature, C, P> MappedCall<R, A, F, C, P> {
@@ -1156,8 +1156,8 @@ impl<R, A, F: Feature, C, P> Drop for MappedCall<R, A, F, C, P> {
     }
 }
 
-#[derive(Clone, Copy)]
 /// Selects input-closure policy independently of route liveness and causal work.
+#[derive(Clone, Copy)]
 pub(super) enum InputClass {
     /// Rejects new input when the mounted child closes its ordinary input gate.
     Ordinary,
@@ -2211,13 +2211,13 @@ where
     }
 }
 
-#[cfg(feature = "local")]
 /// Keeps owner-thread child state behind short, non-reentrant metadata borrows.
+#[cfg(feature = "local")]
 struct LocalInstalled<F: local::Feature> {
     /// Guards extraction/restoration only; user code runs after the borrow ends.
     node: std::cell::RefCell<Installed<F>>,
-    #[cfg(feature = "test-util")]
     /// Weakly publishes the current diagnostic request without retaining its input.
+    #[cfg(feature = "test-util")]
     pending: std::cell::RefCell<Option<(usize, PendingChildSlot<F::Action>)>>,
 }
 #[cfg(feature = "local")]
@@ -2242,14 +2242,14 @@ impl<F: local::Feature> NodeCell<F> for LocalInstalled<F> {
         self.node.borrow_mut()
     }
 }
-#[cfg(feature = "local")]
 /// Retains one Local Feature until owner-thread actor retirement or teardown.
+#[cfg(feature = "local")]
 pub(super) struct LocalNode<F: local::Feature> {
     /// Keeps installed metadata local without requiring atomic ownership or Send.
     owned: std::rc::Rc<LocalInstalled<F>>,
 }
-#[cfg(feature = "local")]
 /// Refers to Local installation metadata without extending its Feature lifetime.
+#[cfg(feature = "local")]
 pub(super) struct LocalWeakNode<F: local::Feature>(
     /// Upgraded only at actor boundaries or checked owner-thread inspection.
     std::rc::Weak<LocalInstalled<F>>,
@@ -2304,8 +2304,8 @@ impl<F: local::Feature> LocalNode<F> {
         }
     }
 }
-#[cfg(feature = "local")]
 /// Retains owner-thread routing metadata without retaining Store or Feature ownership.
+#[cfg(feature = "local")]
 struct LocalRoute<R, A, F: local::Feature, P = OptionalPath<R, <F as local::Feature>::State>> {
     /// Lets admitted actor calls temporarily access the local installed metadata.
     node: std::rc::Weak<LocalInstalled<F>>,
@@ -2408,27 +2408,27 @@ where
     }
 }
 
-#[cfg(feature = "local")]
 /// Provides owner-local task access under one captured route and causal origin.
+#[cfg(feature = "local")]
 struct LocalEndpoint<R, A, F: local::Feature, P = OptionalPath<R, <F as local::Feature>::State>> {
     /// Resolves state and input only after transaction admission.
     route: LocalRoute<R, A, F, P>,
     /// Carries external origin or the task's cancellation and named-work ancestry.
     provenance: Provenance,
 }
-#[cfg(feature = "local")]
 /// Owns a local child action until rejection or synchronous actor reduction.
+#[cfg(feature = "local")]
 struct LocalCall<R, A, F: local::Feature, P = OptionalPath<R, <F as local::Feature>::State>> {
     /// Retains frozen metadata through application and deferred work construction.
     route: LocalRoute<R, A, F, P>,
     /// Owns action and reply without imposing Shared transport bounds.
     input: ChildInput<F::Action>,
-    #[cfg(feature = "test-util")]
     /// Clears this request's diagnostic publication when its gate ownership ends.
+    #[cfg(feature = "test-util")]
     publication: LocalPublication<F>,
 }
-#[cfg(all(feature = "local", feature = "test-util"))]
 /// Clears one owner-thread diagnostic publication without retaining its node.
+#[cfg(all(feature = "local", feature = "test-util"))]
 struct LocalPublication<F: local::Feature> {
     /// Permits cleanup only while the actor still owns installed metadata.
     node: std::rc::Weak<LocalInstalled<F>>,
@@ -2461,8 +2461,8 @@ impl<R, A, F: local::Feature, P> LocalCall<R, A, F, P> {
         }
     }
 }
-#[cfg(feature = "local")]
 /// Retains typed Local work until the enclosing transaction registers it.
+#[cfg(feature = "local")]
 struct LocalWork<R, A, F: local::Feature, P = OptionalPath<R, <F as local::Feature>::State>> {
     /// Routes returned actions to the same captured child installation.
     route: LocalRoute<R, A, F, P>,
@@ -2473,8 +2473,8 @@ struct LocalWork<R, A, F: local::Feature, P = OptionalPath<R, <F as local::Featu
     )]
     work: Work<local::Effect<F::Action>, local::Task<F::State, F::Action>>,
 }
-#[cfg(feature = "local")]
 /// Freezes a local handler destination before output ownership can be consumed.
+#[cfg(feature = "local")]
 struct LocalHandlerRoute<R, A, F: local::Feature, P> {
     /// Selects handler state and routes its declared Local work.
     route: LocalRoute<R, A, F, P>,
@@ -2522,8 +2522,8 @@ where
     F::State: 'static,
     F::Action: 'static,
 {
-    #[cfg(test)]
     /// Builds a direct local context for production-kernel fixtures without acquisition.
+    #[cfg(test)]
     pub(super) fn context<R: 'static, A: 'static>(
         &self,
         path: impl BorrowPath<R, State = F::State> + 'static,

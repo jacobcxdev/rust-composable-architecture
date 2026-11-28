@@ -331,8 +331,8 @@ struct Read<R, K: FoldKey> {
     fold: Fold<R, K>,
     /// Absent for a whole-root read, frozen for a captured subtree.
     target: Option<view::Target>,
-    #[cfg(feature = "test-util")]
     /// Rejects a diagnostic command submitted through another Store's gate.
+    #[cfg(feature = "test-util")]
     expected_root: Option<Arc<()>>,
     /// Publishes completion or a conservative failure if execution unwinds.
     reply: ReplyGuard<K::Value>,
@@ -427,14 +427,14 @@ impl<R: Send + 'static, A: Send + 'static> super::Store<R, A> {
         )
     }
 
-    #[cfg(feature = "test-util")]
     /// Checks lifecycle authority before a test driver chooses its fold boundary.
+    #[cfg(feature = "test-util")]
     pub(crate) fn validate_fold_for_test(&self) -> Result<(), TaskAccessError> {
         self.lifecycle.access()
     }
 
-    #[cfg(feature = "test-util")]
     /// Captures this root's identity and submits through its explicit test gate.
+    #[cfg(feature = "test-util")]
     pub(crate) fn fold_for_test<K: FoldKey>(
         &self,
         fold: &Fold<R, K>,

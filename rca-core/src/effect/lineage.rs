@@ -78,8 +78,8 @@ impl ControlWake {
         &self.changed
     }
 
-    #[cfg(feature = "test-util")]
     /// Registers an owned listener for tests that inspect actor wake behaviour.
+    #[cfg(feature = "test-util")]
     pub(crate) fn listen(&self) -> EventListener {
         self.changed.listen()
     }

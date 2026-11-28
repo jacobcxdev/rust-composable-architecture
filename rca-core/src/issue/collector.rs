@@ -13,8 +13,11 @@ use super::{Issue, IssueRecorder, IssueReporter};
 /// Its abandoned queue and owned issues are released outside the admission lock,
 /// even when reporting handles remain alive.
 ///
+/// Enable the `test-util` feature on `rca`.
+///
 /// ```
-/// use rca_core::{Issue, IssueCollector};
+/// # use rca_core as rca;
+/// use rca::{Issue, IssueCollector};
 /// let collector = IssueCollector::new();
 /// let reporter = collector.reporter();
 /// reporter.report(Issue::new("known", "captured")).unwrap();

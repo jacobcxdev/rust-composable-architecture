@@ -62,7 +62,8 @@ recursive reducer support. Iterative runtime scope traversal would not establish
 those properties either. The example has no provider codec, relational query,
 pagination, native frontend, distributed replication or performance claim.
 
-From the repository root, run the executable tests:
+Run the stack tests from the repository root.
+On macOS, pass the Cargo arguments to the [build memory guard](../CONTRIBUTING.md#build-memory-safety).
 
 ```sh
 rustup run 1.100.0 cargo test --locked -p rca-test --test stack_scopes

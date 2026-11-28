@@ -41,7 +41,8 @@ pub struct Combine<Reducers> {
 /// # Examples
 ///
 /// ```
-/// use rca_core::{Effect, ReduceContext, Reducer, combine};
+/// # use rca_core as rca;
+/// use rca::{Effect, ReduceContext, Reducer, combine};
 ///
 /// struct State;
 /// enum Action {

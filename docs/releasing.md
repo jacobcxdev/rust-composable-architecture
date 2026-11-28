@@ -112,5 +112,7 @@ the first-release token and remove its environment secret.
 Later releases use the [official crates.io sign-in action](https://github.com/rust-lang/crates-io-auth-action)
 to obtain a temporary token after approval. Keep the workflow's pinned
 action revision in the repository's Actions allowlist.
-[Documentation publication](documentation-publishing.md) uses a separate
-workflow and approval. Check the hosted pages separately.
+Crate uploads require approval in the `crates-io` environment.
+[Documentation publication](documentation-publishing.md#configure-automatic-publication) uses a separate workflow and environment.
+The maintainer approves the initial credential check. After configuration, documentation updates need approval only if that environment retains required reviewers.
+Check the hosted pages separately.

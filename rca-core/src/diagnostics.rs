@@ -35,8 +35,11 @@
 //!
 //! Count lifecycle facts without formatting or requiring a `Sync` callback:
 //!
+//! Enable the `diagnostics` feature on `rca`.
+//!
 //! ```
-//! use rca_core::{Effect, Reduce, Runtime, Store, StoreBuildError};
+//! # use rca_core as rca;
+//! use rca::{Effect, Reduce, Runtime, Store, StoreBuildError};
 //! use std::cell::Cell;
 //!
 //! fn instrument(runtime: Runtime) -> Result<Store<usize, ()>, StoreBuildError> {
@@ -50,7 +53,8 @@
 //! Convenient Debug output can be sent to a caller-selected destination:
 //!
 //! ```
-//! # use rca_core::{Effect, ReduceContext, Reducer, ReducerExt};
+//! # use rca_core as rca;
+//! # use rca::{Effect, ReduceContext, Reducer, ReducerExt};
 //! # struct Counter;
 //! # impl Reducer for Counter {
 //! #     type State = usize;
@@ -73,7 +77,8 @@
 //! Custom rendering controls every displayed domain value, without Debug fallback:
 //!
 //! ```
-//! # use rca_core::{Effect, ReduceContext, Reducer, ReducerExt};
+//! # use rca_core as rca;
+//! # use rca::{Effect, ReduceContext, Reducer, ReducerExt};
 //! # struct Feature;
 //! # impl Reducer for Feature {
 //! #     type State = String;
@@ -166,8 +171,11 @@ pub use structural::{
 ///
 /// Retaining a metadata copy does not retain the observer's event borrow:
 ///
+/// Enable the `diagnostics` feature on `rca`.
+///
 /// ```
-/// use rca_core::diagnostics::LifecycleEvent;
+/// # use rca_core as rca;
+/// use rca::diagnostics::LifecycleEvent;
 ///
 /// fn retain_metadata(event: &LifecycleEvent) -> LifecycleEvent {
 ///     *event

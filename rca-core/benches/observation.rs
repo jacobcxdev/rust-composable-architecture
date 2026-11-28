@@ -223,8 +223,8 @@ where
     }
 }
 
-#[derive(Default)]
 /// Counts selector work and concurrently retained projection values.
+#[derive(Default)]
 struct RetentionStats {
     /// Counts actual selector invocations, including initial selection.
     calls: AtomicUsize,

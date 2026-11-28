@@ -5,8 +5,8 @@
 #[global_allocator]
 static ALLOCATOR: dhat::Alloc = dhat::Alloc;
 
-#[cfg(feature = "allocation-measurement")]
 /// Checks that eager effect mapping requires no allocations.
+#[cfg(feature = "allocation-measurement")]
 fn eager_effect_mapping_does_not_allocate() {
     use std::hint::black_box;
     use std::time::Duration;
@@ -42,8 +42,8 @@ fn eager_effect_mapping_does_not_allocate() {
     local_eager_mapping_does_not_allocate();
 }
 
-#[cfg(all(feature = "allocation-measurement", feature = "local"))]
 /// Repeats the cost assay with a local mapper and checks its call and owner counts.
+#[cfg(all(feature = "allocation-measurement", feature = "local"))]
 fn local_eager_mapping_does_not_allocate() {
     use std::cell::Cell;
     use std::hint::black_box;

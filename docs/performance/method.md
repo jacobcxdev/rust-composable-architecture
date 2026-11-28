@@ -60,7 +60,7 @@ scripts/compare-performance.sh --replay-release "$tag" "$referenceJson" "$candid
 ```
 
 This writes a separate `*-historical-comparison.json` report. It checks the measured release and its immediate published predecessor, not today's baseline.
-The first release used independent builds of the same source. No earlier released runtime existed.
+For the first full release, replay checks two independent builds of the same source. There is no earlier runtime to compare.
 Historical replay cannot qualify a new release or turn an unpublished PR capture into release evidence.
 
 The fixed-count macOS capture uses ten normal and six allocation repetitions per product and workload. It alternates run order.
@@ -70,15 +70,22 @@ A parser test, changed file, failed guard, or partial capture cannot establish a
 ## Windows-native capture
 
 Run all 54 scenarios in the [workload list](../../benches/performance/scenarios.txt). Windows does not produce macOS measurements.
+Only the measurement host operator runs these builds and captures.
+Use the [specified Windows host](composition/README.md#windows-paired-measurements) and its operator-provided memory guard.
+The guard limits the controller and its children to two GiB of committed memory. Closing the Job Object stops its processes.
+Keep four GiB each of available physical memory and unused commit capacity for the host.
+Check free space for outputs and temporary builds before capture.
+The [Windows comparison instructions](../qualification.md#native-review-and-release) require more than 20 GiB free for cancellation and at least 24 GiB for cold builds.
+Without the guarded host, request the build and capture receipts from its operator.
+
 Pin the candidate, reference, controller, Rust tools, dependencies, effective source, and executable hashes before measurement.
-Build the normal and allocation executables for both runtime configurations of each product:
+Inside the guarded job, build the normal and allocation executables for both runtime configurations of each product:
 
 - The native configuration measures the production runtime without test-only features.
 - The deterministic configuration measures the test runtime with the features its harness requires.
 
 Preserve the exact source and feature records for each build. Checked reference binaries can come from a local cache.
 Check the enrolment hash from an independent record. Never reuse a candidate build for a measured cold build or cache a pass decision.
-Use the Windows memory guard. Do not start an unguarded build on a shared host.
 
 For each product and runtime, build the normal benchmark and its `qualification-dhat` version separately.
 The native build excludes the `rca-test` development dependency from its measurement copy. The deterministic build keeps the original graph.
@@ -99,7 +106,7 @@ The capture checks the installed files before import. LIEF is a measurement tool
 ### Early-stop numerical checks
 
 Supply the eight executables and their build receipt to the [Windows collector](../../scripts/capture-windows-performance.py).
-Use fresh output and the reviewed controller. In a Bash shell on the measurement host, set the variables to the recorded paths:
+Use fresh output and the reviewed controller. Inside the guarded job, set the Bash variables to the recorded paths:
 
 ```bash
 python -B scripts/capture-windows-performance.py --experimental-rank \
@@ -108,13 +115,18 @@ python -B scripts/capture-windows-performance.py --experimental-rank \
   --candidate-deterministic-normal "$candidateDeterministic" --candidate-deterministic-allocation "$candidateDeterministicAllocation" \
   --reference-deterministic-normal "$referenceDeterministic" --reference-deterministic-allocation "$referenceDeterministicAllocation" \
   --metadata "$buildReceipt" --jq "$jqPath" --output "$native"
-python -B scripts/capture-windows-performance.py --verify-experimental-rank "$native" --release-reference --jq "$jqPath"
 ```
 
 The collector stops each measurement only when the remaining valid observations cannot change the numerical result.
 It retains both run orders. The maximum is 42 normal pairs, ten for the scheduler-budget workload, and six for allocations.
+From the matching controller checkout, the coordinator can replay the saved data without another measurement:
+
+```bash
+python -B scripts/capture-windows-performance.py --verify-experimental-rank "$native" --release-reference --jq "$jqPath"
+```
+
 A valid replay can exit successfully for a failing measurement. Require `numerical_decision: pass`.
-Run the replay on the coordinator with the matching controller checkout. The `--release-reference` option also checks the source against the release policy.
+The `--release-reference` option also checks the source against the release policy.
 For offline replay alone, omit that option. Offline replay does not establish that the reference qualifies for a new release.
 
 For a past **published** Windows release, use its recorded controller and the retained runtime capture:
@@ -147,14 +159,15 @@ If an input differs or a measurement is incomplete, keep that result open. Do no
 The [downstream profiling program](../../tests/performance-profile/README.md#controlled-store-costs) also runs nine fixed Store schedules.
 It uses a manual runtime and checks action order, state, completed work, and owner destruction. It does not measure native contention.
 
-On an OS-limited x86-64 Linux host with Callgrind, build each product in its own target directory:
+Use an OS-limited x86-64 Linux host with Callgrind. Keep at least 20 GiB free on the output volume.
+Build each product in its own target directory:
 
 ```sh
 rustup run 1.100.0 cargo build --locked --release \
   --manifest-path tests/performance-profile/Cargo.toml --bin controlled_cost
 ```
 
-Pin both executables, compiler, workload, and dependencies. Set `output` to a new directory. Allow twenty GiB of free disk reserve.
+Pin both executables, compiler, workload, and dependencies. Set `output` to a new directory.
 
 ```sh
 python3 scripts/profile_controlled_cost.py \

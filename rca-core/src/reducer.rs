@@ -61,7 +61,8 @@ pub trait Reducer {
 /// # Examples
 ///
 /// ```
-/// use rca_core::{Effect, Reduce, Reducer};
+/// # use rca_core as rca;
+/// use rca::{Effect, Reduce, Reducer};
 ///
 /// let mut calls = 0;
 /// let reducer = Reduce::new(move |state: &mut usize, action: &usize, _context| {
@@ -75,7 +76,8 @@ pub trait Reducer {
 /// Local captures cannot cross an actor boundary without `Send`:
 ///
 /// ```compile_fail
-/// use rca_core::{Effect, Reduce, Runtime, Store};
+/// # use rca_core as rca;
+/// use rca::{Effect, Reduce, Runtime, Store};
 /// use std::rc::Rc;
 ///
 /// fn actor(runtime: Runtime) {
@@ -91,7 +93,8 @@ pub trait Reducer {
 /// Borrowed captures also retain the actor's `'static` requirement:
 ///
 /// ```compile_fail
-/// use rca_core::{Effect, Reduce, Runtime, Store};
+/// # use rca_core as rca;
+/// use rca::{Effect, Reduce, Runtime, Store};
 ///
 /// fn actor(runtime: Runtime) {
 ///     let value = 1;
@@ -147,8 +150,8 @@ impl<State, Action, F> fmt::Debug for Reduce<State, Action, F> {
     }
 }
 
-#[cfg(test)]
 /// Lets actor fixtures store different reducer types behind the same interface.
+#[cfg(test)]
 pub(crate) trait ErasedReducer<State, Action>: Send {
     /// Calls the original reducer with the fixture's borrowed state and action.
     fn reduce(

@@ -74,8 +74,8 @@ struct Cell<R, A, C, X> {
     mapper: Mutex<Option<Box<dyn FnMut(C) -> X + Send>>>,
     /// Allows declared control input to bypass only the ordinary input gate.
     class: InputClass,
-    #[cfg(feature = "test-util")]
     /// Publishes a weak request slot only while the actor holds that frontier.
+    #[cfg(feature = "test-util")]
     pending: Mutex<Option<(usize, Weak<crate::store::mounted::SendSlot<C>>)>>,
 }
 

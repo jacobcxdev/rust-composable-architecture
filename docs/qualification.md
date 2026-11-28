@@ -67,22 +67,33 @@ Before measuring, select the useful work, controls, stopping rule and permitted 
 An inconclusive result does not pass. Extend only the affected measurement under its stated rule, or use the established qualification method.
 Do not retry until a favourable result appears.
 
-For a Windows cancellation change, use the two-GiB outer guard and both four-GiB host reserves.
+Only the measurement host operator runs the Windows cancellation and compile comparisons below.
+The operator supplies a launcher that runs the controller and its children in a Windows Job Object.
+The job must cap total committed memory at two GiB and terminate its children on close.
+Keep at least four GiB of available physical memory and four GiB of unused commit capacity on the host.
+Keep the launcher's receipt for the complete process tree. The Python commands do not start the launcher.
+Without that launcher and the specified host, request a capture from the operator.
+
+For a cancellation capture, choose a new output directory on a volume with more than 20 GiB free.
 Pin the build records for the candidate and two independent builds of the reference.
-Before capture, verify the source revisions, image hashes, compiler, workload and build configuration.
-The build bindings name these inputs. A hash of an unchecked bindings file does not verify the builds.
+Check the source revisions, image hashes, compiler, workload, and build configuration against the bindings.
+Run this command inside the guarded job:
 
 ```powershell
 python -B scripts/composition_cancellation_exposure.py capture $output --builds $bindings --builds-sha256 $trustedDigest
+```
+
+Keep the capture digest outside the evidence directory. To replay the saved data without another measurement, run:
+
+```powershell
 python -B scripts/composition_cancellation_exposure.py replay $output --builds $bindings --builds-sha256 $trustedDigest --capture-sha256 $captureDigest
 ```
 
-Keep the capture digest outside the evidence directory. Replay needs that independent pin.
 The screen checks median removal cost over 1,024 complete operations per process. It does not prove p99 latency.
 Use `--witnessed-candidate` only for the deliberate delayed fault, on capture and replay.
 
-For a compiler-facing change, use the same guard and a new output directory outside the checkout.
-Choose the fixture that compiles the affected consumer. For generated child paths, use:
+For a compile comparison, keep at least 24 GiB free on the output volume throughout collection.
+Choose a new output directory outside the checkout. For generated child paths, run the following inside the guarded job:
 
 ```powershell
 python -B scripts/composition_compile_portfolio.py --base $base --candidate $head --fixture composed-macro --output $output
@@ -105,13 +116,14 @@ switch ($screen.decision) {
 Both screens use two run orders. A split decision or unstable control needs further evidence.
 
 If the cold-build screen is inconclusive, keep its original result and its SHA-256 digest.
-For the same fixture and revisions, run the bounded comparison once with the same Windows memory guard:
+For the same fixture and revisions, run the comparison once inside the same guarded job configuration.
+Use a new directory with the same 24 GiB disk reserve:
 
 ```powershell
 python -B scripts/composition_compile_portfolio.py --base $base --candidate $head --fixture composed-macro --output $newOutput --collect-only --confirm $firstScreen --confirm-sha256 $firstDigest
 ```
 
-Use a new output directory. The comparison starts fresh. It does not reuse the eight measurements from the first screen.
+The comparison starts fresh. It does not reuse the eight measurements from the first screen.
 It uses the original order and limit for up to 20 blocks. It can stop early when the candidate can no longer pass.
 An early rejection does not establish the cause while the unchanged control remains uncertain.
 Read the saved decision after the guard finishes. An incomplete or inconclusive result does not pass.
@@ -231,12 +243,13 @@ measure() {
 }
 ```
 
-**New feature.** For example, measure 64 completed dispatches with the Cargo feature `diagnostics` absent and present.
-The workload does not install a diagnostic observer. This isolates the cost that existing dispatch callers pay:
+**New feature.** Compare 64 completed dispatches with and without the Core `diagnostics` feature.
+Use the native runtime. The `deterministic` feature pulls in `rca-test`, which already enables Core diagnostics.
+Check both builds' resolved Core features. The workload installs no diagnostic observer:
 
 ```bash
-common=deterministic,allocations
-dispatch=(topology-deterministic 1 0 64)
+common=allocations
+dispatch=(topology-native 1 0 64)
 measure parent-off "$parent_src" 1.100.0 release "$common" "${dispatch[@]}"
 measure candidate-off "$candidate_src" 1.100.0 release "$common" "${dispatch[@]}"
 measure candidate-on "$candidate_src" 1.100.0 release "$common,diagnostics" "${dispatch[@]}"

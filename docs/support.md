@@ -22,17 +22,17 @@ Passing checks do not publish packages or establish support beyond the tested co
 RCA requires the Rust standard library (`std`), even with default features disabled.
 It does not support bare-metal firmware. The [roadmap](roadmap.md) describes the planned embedded core.
 
-| Target | Core and umbrella gate | Tokio adapter gate |
+| Target | Checks for `rca-core` and `rca` | Checks for `rca-tokio` and `rca` with `tokio` |
 | --- | --- | --- |
 | `x86_64-unknown-linux-gnu` | Required | Required |
 | `aarch64-unknown-linux-gnu` | Required | Required |
 | `x86_64-apple-darwin` | Required, compile-only | Required, compile-only |
 | `aarch64-apple-darwin` | Required | Required |
 | `x86_64-pc-windows-msvc` | Required | Required |
-| `wasm32-unknown-unknown` | Required | Not applicable |
+| `wasm32-unknown-unknown` | Required, compile-only | Not applicable |
 
-The WebAssembly row checks compilation of the runtime-neutral Core and umbrella
-APIs. It does not run a WebAssembly program. Support remains experimental until
+The WebAssembly row compiles `rca-core` and `rca` without default features.
+It does not run a WebAssembly program. Support remains experimental until
 RCA ships and qualifies a WebAssembly-compatible `Send` runtime adapter.
 
 The table defines required checks, not the result of any particular run.

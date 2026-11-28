@@ -713,8 +713,8 @@ mod endpoint_validation {
         }
     }
 
-    #[derive(Clone, Copy, Debug)]
     /// Independent ways a live caller can supply an invalid removal relationship.
+    #[derive(Clone, Copy, Debug)]
     enum Mismatch {
         DirectParent,
         LiveEndpointParent,

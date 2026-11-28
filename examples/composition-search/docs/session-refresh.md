@@ -9,6 +9,12 @@ Feature inputs and task updates.
 It is an integration test, not a standalone binary or an API that replaces
 dependencies.
 
+Run the test from the repository root. On macOS, use the [Cargo memory guard](../../../CONTRIBUTING.md#build-memory-safety).
+
+```sh
+cargo test --locked -p rca-test --test session_client_refresh
+```
+
 ## One explicit handover
 
 The example constructs State and Feature with client A.

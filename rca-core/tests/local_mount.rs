@@ -16,8 +16,8 @@ use std::rc::Rc;
 use std::task::{Context, Poll, Waker};
 use std::time::Duration;
 
-#[derive(Clone, Default)]
 /// Drives owner-local tasks and timers through bounded, explicit turns.
+#[derive(Clone, Default)]
 struct Driver {
     /// Retains pending work without holding a borrow during its next poll.
     tasks: Rc<RefCell<Vec<RuntimeFuture>>>,
@@ -666,8 +666,8 @@ fn local_identity_clone_closure_is_rechecked_before_child_path() {
         /// Lets identity cloning close the actual Store on this test thread.
         static OWNER: RefCell<Option<Store<RootState, RootAction>>> = const { RefCell::new(None) };
     }
-    #[derive(PartialEq, Eq, Hash)]
     /// Cloning the identity deliberately closes the Store before selection.
+    #[derive(PartialEq, Eq, Hash)]
     struct Key;
     impl Clone for Key {
         fn clone(&self) -> Self {
@@ -1261,8 +1261,8 @@ struct SequenceChild {
     history: Rc<RefCell<Vec<usize>>>,
 }
 
-#[derive(Clone, Copy, Debug)]
 /// Varies inherited cancellation and the position of an explicit local key.
+#[derive(Clone, Copy, Debug)]
 enum HandoffMode {
     Inherit,
     Transfer,
@@ -1339,8 +1339,8 @@ impl Feature for HandoffFeature {
     }
 }
 
-#[derive(Clone, Copy, Debug)]
 /// Selects one cancellation boundary independently from the effect's modifiers.
+#[derive(Clone, Copy, Debug)]
 enum HandoffEnd {
     Source,
     Local,
@@ -2438,12 +2438,12 @@ fn local_closed_and_ancestor_stale_contexts_preserve_live_mounted_frontier() {
     assert_eq!(Rc::strong_count(&state), 1);
 }
 
-#[cfg(feature = "test-util")]
 /// Distinct declarations can project the same state without sharing node identity.
+#[cfg(feature = "test-util")]
 type InspectionSites = [MountSite<RootState, Rc<Cell<usize>>, ChildAction, RootAction>; 2];
 
-#[cfg(feature = "test-util")]
 /// Installs two live nodes for inspection without entering either child reducer.
+#[cfg(feature = "test-util")]
 fn inspection_mounts(
     driver: &Driver,
     gate: &rca_core::testing::local::TransactionGate<RootState, RootAction>,

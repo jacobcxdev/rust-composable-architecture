@@ -16,8 +16,8 @@ use rca_persistence::{
 };
 use rca_test::{ControlledFuture, DeterministicRuntime, controlled_future};
 
-#[derive(Default)]
 /// Counts actual backend polls independently of document state and receipts.
+#[derive(Default)]
 struct Calls {
     /// Counts load polls, including forbidden loads caused by snapshot delivery.
     loads: AtomicUsize,
@@ -90,8 +90,8 @@ enum Action {
     Replace,
 }
 
-#[derive(Clone, Copy)]
 /// Selects the already-admitted producer event sent after state replacement.
+#[derive(Clone, Copy)]
 enum Delivery {
     /// Offers a new snapshot from the original producer.
     Update,

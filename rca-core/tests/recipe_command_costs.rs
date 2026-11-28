@@ -16,8 +16,8 @@ mod local_driver;
 mod support;
 use support::{Driver, poll};
 
-#[global_allocator]
 /// Counts allocations across the sequential phases of this single-test host.
+#[global_allocator]
 static ALLOCATOR: dhat::Alloc = dhat::Alloc;
 
 /// Measures requested allocation counts and bytes for the supplied phase.
@@ -208,8 +208,8 @@ mod collection_retention {
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::{Arc, Mutex};
 
-    #[derive(Default)]
     /// Tracks child, configuration and recipe captures separately.
+    #[derive(Default)]
     struct Counts {
         created: [AtomicUsize; 3],
         dropped: [AtomicUsize; 3],
@@ -277,8 +277,8 @@ mod collection_retention {
         }
     }
 
-    #[derive(Clone, Copy, Debug)]
     /// Selects which public operation exercises steady-state retained storage.
+    #[derive(Clone, Copy, Debug)]
     enum Input {
         Parent,
         Child,
@@ -419,8 +419,8 @@ mod collection_retention {
     }
 }
 
-#[cfg(feature = "local")]
 /// Runs the same command phases with owner-thread state and callback captures.
+#[cfg(feature = "local")]
 mod local {
     use super::local_driver::Driver;
     use super::measure;

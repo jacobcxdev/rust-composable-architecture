@@ -70,8 +70,53 @@ def cargo_commands(source_root):
     return commands
 
 
+def link_tokio_pin_methods(output, source_root):
+    """Resolve Tokio links inherited by the facades' Pin aliases under --no-deps."""
+    script = output / "type.impl/core/pin/struct.Pin.js"
+    if not script.is_file():
+        return
+    methods = (("AsyncRead", "poll_read", "tymethod"), ("AsyncWrite", "poll_write", "tymethod"),
+               ("AsyncWrite", "poll_write_vectored", "method"))
+    original = script.read_bytes()
+    links = {
+        f'<a href=\\"{trait}::{method}\\">'.encode(): f'io/trait.{trait}.html#{kind}.{method}\\">'.encode()
+        for trait, method, kind in methods
+    }
+    if not any(link in original for link in links):
+        return  # Another rustdoc version or documentation of the dependency resolved the links.
+    # Keep the byte boundaries rustdoc uses to replace individual crates on a later build.
+    body, _, footer = original.rpartition(b"\n//")
+    try:
+        metadata = json.loads(footer)
+        offset = metadata["start"]
+        if not body[:offset].endswith(b"Object.fromEntries(["):
+            raise ValueError("Unrecognised header")
+        rewritten = bytearray(body[:offset])
+        for i, length in enumerate(metadata["fragment_lengths"]):
+            fragment = body[offset:offset + length]
+            name, _ = json.loads(fragment.removeprefix(b","))
+            offset += length
+            if name in {"rca", "rust_composable_architecture"} and any(link in fragment for link in links):
+                packages = tomllib.loads((source_root / "Cargo.lock").read_text())["package"]
+                versions = {p["version"] for p in packages if p["name"] == "tokio"}
+                if len(versions) != 1 or any(fragment.count(link) > 1 for link in links):
+                    raise ValueError("Ambiguous inherited Tokio method")
+                url = rb'<a href=\"https://docs.rs/tokio/' + quote(versions.pop(), safe="").encode() + b"/tokio/"
+                for link, target in links.items():
+                    fragment = fragment.replace(link, url + target)
+            metadata["fragment_lengths"][i] = len(fragment)
+            rewritten.extend(fragment)
+        if not body[offset:].startswith(b"]);"):
+            raise ValueError("Unrecognised footer")
+    except (KeyError, TypeError, ValueError) as error:
+        raise ValueError("Unexpected rustdoc Pin implementation index.") from error
+    rewritten.extend(body[offset:])
+    if rewritten != body:
+        script.write_bytes(rewritten + b"\n//" + json.dumps(metadata, separators=(",", ":")).encode())
+
+
 def prepare(output, source_root=ROOT):
-    """Use published source names in descriptions; leave source text and links intact."""
+    """Prepare the site without changing rendered Rust source or supported API paths."""
     crate = output / "rca"
     src = output / "src"
     if not (crate / "index.html").is_file() or not src.is_dir():
@@ -99,6 +144,7 @@ def prepare(output, source_root=ROOT):
         if original != rendered:
             page.write_bytes(rendered)
 
+    link_tokio_pin_methods(output, source_root)
     for licence in ("LICENSE-APACHE.md", "LICENSE-MIT.md"):
         shutil.copyfile(source_root / licence, crate / licence)
     (output / "index.html").write_text(LANDING, encoding="utf-8")

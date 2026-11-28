@@ -11,8 +11,8 @@ use async_channel::{bounded, unbounded, TryRecvError};
 use futures_core::stream::{FusedStream, Stream};
 use futures_lite::future;
 
-#[derive(Default)]
 /// Counts actual notifications before the test polls a future again.
+#[derive(Default)]
 struct WakeCount(AtomicUsize);
 
 impl Wake for WakeCount {

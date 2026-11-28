@@ -99,7 +99,8 @@ impl<Id, Child> KeyedStatePayload for KeyedState<Id, Child> {
 /// # Examples
 ///
 /// ```
-/// use rca_core::StatePath;
+/// # use rca_core as rca;
+/// use rca::StatePath;
 ///
 /// struct Parent {
 ///     child: String,
@@ -129,7 +130,8 @@ pub struct StatePath<Parent, Child, Get, GetMut> {
 ///
 /// # Examples
 /// ```
-/// let path = rca_core::identity_state_path::<String>();
+/// # use rca_core as rca;
+/// let path = rca::identity_state_path::<String>();
 /// let mut state = String::from("root");
 /// path.get_mut(&mut state).push('!');
 /// assert_eq!(path.get(&state), "root!");
@@ -152,7 +154,8 @@ pub fn identity_state_path<T>() -> StatePath<
 ///
 /// # Examples
 /// ```
-/// let path = rca_core::identity_action_path::<String>();
+/// # use rca_core as rca;
+/// let path = rca::identity_action_path::<String>();
 /// let action = path.embed(String::from("tap"));
 /// assert!(std::ptr::eq(path.extract(&action).unwrap(), &action));
 /// ```
@@ -169,8 +172,9 @@ pub fn identity_action_path<T>()
 ///
 /// # Examples
 /// ```
-/// let path = rca_core::identity_keyed_state_path::<u8, String>();
-/// let mut rows = rca_core::KeyedState::new();
+/// # use rca_core as rca;
+/// let path = rca::identity_keyed_state_path::<u8, String>();
+/// let mut rows = rca::KeyedState::new();
 /// path.get_mut(&mut rows).insert(7, String::from("row"));
 /// assert_eq!(path.get(&rows).get(&7).unwrap(), "row");
 /// ```
@@ -197,7 +201,8 @@ pub fn identity_keyed_state_path<Id, T>() -> KeyedStatePath<
 ///
 /// # Examples
 /// ```
-/// let path = rca_core::identity_keyed_action_path::<u8, String>();
+/// # use rca_core as rca;
+/// let path = rca::identity_keyed_action_path::<u8, String>();
 /// let action = path.embed(7, String::from("tap"));
 /// assert_eq!(path.extract(&action).unwrap(), (&7, &String::from("tap")));
 /// ```
@@ -314,7 +319,8 @@ impl<Parent, Child, Get, GetMut> fmt::Debug for StatePath<Parent, Child, Get, Ge
 /// # Examples
 ///
 /// ```
-/// use rca_core::OptionalStatePath;
+/// # use rca_core as rca;
+/// use rca::OptionalStatePath;
 ///
 /// struct Parent {
 ///     child: Option<String>,
@@ -436,7 +442,8 @@ impl<Parent, Child, Get, GetMut> fmt::Debug for OptionalStatePath<Parent, Child,
 /// # Examples
 ///
 /// ```
-/// use rca_core::CaseStatePath;
+/// # use rca_core as rca;
+/// use rca::CaseStatePath;
 ///
 /// enum State {
 ///     Child(String),
@@ -566,7 +573,8 @@ impl<Parent, Child, Get, GetMut> fmt::Debug for CaseStatePath<Parent, Child, Get
 /// # Examples
 ///
 /// ```
-/// use rca_core::ActionPath;
+/// # use rca_core as rca;
+/// use rca::ActionPath;
 ///
 /// enum Action {
 ///     Child(Vec<u8>),
@@ -635,7 +643,8 @@ where
     /// # Examples
     ///
     /// ```
-    /// use rca_core::{some_path, ok_path};
+    /// # use rca_core as rca;
+    /// use rca::{some_path, ok_path};
     /// let path = some_path::<Result<String, ()>>().then(ok_path());
     /// let root = path.embed(String::from("value"));
     /// assert_eq!(path.extract(&root).map(String::as_str), Some("value"));
@@ -646,7 +655,8 @@ where
     /// Intermediate domains must agree statically:
     ///
     /// ```compile_fail
-    /// use rca_core::{some_path, ok_path};
+    /// # use rca_core as rca;
+    /// use rca::{some_path, ok_path};
     /// let _ = some_path::<String>().then(ok_path::<u32, ()>());
     /// ```
     #[must_use]
@@ -835,7 +845,8 @@ where
 /// # Examples
 ///
 /// ```
-/// use rca_core::{some_path, ok_path};
+/// # use rca_core as rca;
+/// use rca::{some_path, ok_path};
 /// let route = some_path::<Result<Option<String>, ()>>()
 ///     .then(ok_path())
 ///     .then(some_path())
@@ -862,7 +873,8 @@ pub struct ComposedActionPath<Outer: StoredActionPath, Inner> {
 /// # Examples
 ///
 /// ```
-/// use rca_core::some_path;
+/// # use rca_core as rca;
+/// use rca::some_path;
 /// let route = some_path::<Option<String>>().lift_optional();
 /// assert!(route.extract(&None).is_none());
 /// let root = route.embed(None);
@@ -875,7 +887,8 @@ pub struct ComposedActionPath<Outer: StoredActionPath, Inner> {
 /// Owned conversion does not make borrowed local payloads static:
 ///
 /// ```compile_fail
-/// use rca_core::some_path;
+/// # use rca_core as rca;
+/// use rca::some_path;
 /// let text = String::from("local");
 /// let owned = some_path::<&str>().lift_optional().into_action_path();
 /// let _root = owned.embed(text.as_str());
@@ -1220,7 +1233,8 @@ pub fn unit_path()
 /// Text may normalise on embedding, while invalid text retains its parse error:
 ///
 /// ```
-/// use rca_core::ComputedPath;
+/// # use rca_core as rca;
+/// use rca::ComputedPath;
 /// let decimal = ComputedPath::new(
 ///     |text: &String| text.parse::<u32>(),
 ///     |value: u32| value.to_string(),
@@ -1232,7 +1246,8 @@ pub fn unit_path()
 /// Computed values cannot lend mutable storage that does not exist:
 ///
 /// ```compile_fail
-/// use rca_core::constant_path;
+/// # use rca_core as rca;
+/// use rca::constant_path;
 /// let path = constant_path(|| String::from("fresh"));
 /// path.get_mut(&mut ());
 /// ```
@@ -1331,7 +1346,8 @@ impl<Root, Value, Error, Extract, Embed> fmt::Debug
 /// # Examples
 ///
 /// ```
-/// use rca_core::constant_path;
+/// # use rca_core as rca;
+/// use rca::constant_path;
 /// use std::cell::Cell;
 /// let calls = Cell::new(0);
 /// let path = constant_path(|| {
@@ -1429,7 +1445,8 @@ impl<Parent, Child, Extract, Embed> fmt::Debug for ActionPath<Parent, Child, Ext
 /// # Examples
 ///
 /// ```
-/// use rca_core::{KeyedState, KeyedStatePath};
+/// # use rca_core as rca;
+/// use rca::{KeyedState, KeyedStatePath};
 ///
 /// struct Parent {
 ///     rows: KeyedState<u64, String>,
@@ -1525,7 +1542,8 @@ impl<Parent, Id, Child, Get, GetMut> fmt::Debug for KeyedStatePath<Parent, Id, C
 /// # Examples
 ///
 /// ```
-/// use rca_core::{KeyedAction, KeyedActionPath};
+/// # use rca_core as rca;
+/// use rca::{KeyedAction, KeyedActionPath};
 ///
 /// enum Action {
 ///     Row(KeyedAction<u64, String>),

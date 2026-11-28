@@ -69,7 +69,8 @@ impl DismissTarget {
 /// # Examples
 ///
 /// ```
-/// use rca_core::{Effect, ReduceContext};
+/// # use rca_core as rca;
+/// use rca::{Effect, ReduceContext};
 /// fn close(context: &mut ReduceContext<'_>) -> Effect<()> {
 ///     let dismiss = context.dismiss();
 ///     dismiss.effect()

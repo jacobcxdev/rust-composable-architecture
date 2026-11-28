@@ -3,6 +3,9 @@
 
 //! Runs features and effects on a runtime supplied by the application.
 //!
+//! The examples import these types from the application crate, `rca`.
+//! If you depend on `rca-core` directly, add `use rca_core as rca;` before the example.
+//!
 //! Shared APIs use root imports such as [`Store`], [`Feature`] and [`Runtime`].
 //! [`Reducer`] handles synchronous state changes and returns [`Effect`] values.
 //! Every reducer is a [`Feature`] automatically. A direct `Feature` implementation

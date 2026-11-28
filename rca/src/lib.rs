@@ -1,5 +1,6 @@
 #![deny(rustdoc::broken_intra_doc_links)]
 #![forbid(unsafe_code)]
+#![cfg_attr(docsrs, feature(doc_cfg))]
 
 //! Builds headless applications from composable state, actions and effects.
 //!
@@ -10,12 +11,17 @@
 //! A direct `Feature` implementation can also declare typed [`Task`] values.
 //! The caller supplies the runtime. RCA installs no executor or UI framework.
 //!
+//! Start with the [task guides][guides] or run the counter in the
+//! [example applications][examples]. In an unreleased local checkout, open
+//! `docs/README.md` or `examples/README.md` from that checkout.
+//!
 //! # Choosing an authoring form
 //!
 //! Start with [`Reduce::new`] or [`Reducer`] when inputs and asynchronous results
 //! pass through actions. Use [`Feature`] directly when tasks need typed reads
-//! or updates of current State between awaits. Both callbacks are synchronous.
-//! Both use the same [`Store::new`] and [`Store::builder`] constructors.
+//! or updates of current State between awaits. [`Reducer::reduce`] and
+//! [`Feature::update`] run synchronously. You can pass either kind of feature
+//! to [`Store::new`] or [`Store::builder`].
 //! Reducer-only combinators require `Reducer`; installed children accept either form.
 //! A type implements one trait explicitly, not both. See [`Feature`] for the
 //! ownership and testing consequences.
@@ -47,7 +53,7 @@
 //! Reducer tracing runs only in debug builds. Lifecycle callbacks remain available
 //! in release builds. Clocks and issue reporters do not require a particular runtime.
 //!
-//! With `test-util`, `TestStore` compares state after every send and receive.
+//! With `test-util`, `TestStore` compares state after each strict send or receive.
 //! Move-only state can use independent projected snapshots. Unchanged steps use
 //! `send` or `receive`. Changed steps use `send_with` or `receive_with`.
 //! Explicit `finish` and normal teardown both reject unfinished test obligations.
@@ -55,30 +61,48 @@
 //! Controlled futures, streams and gates come directly from `rca-test`.
 //! Persistence comes from `rca-persistence`, with explicit codec and backend selection.
 //! Its receipts acknowledge published persistence results. If saved state is
-//! required, close the document before Store shutdown. Before restart, wait for
+//! required, wait for the document to load, send its close action, and check
+//! the persistence receipt before Store shutdown. Before restart, wait for
 //! the backend to stop all earlier writes.
 //!
 //! # Examples
 //!
+//! Give this function your application's runtime. It sends one action and reads
+//! its committed result. It needs only `rca`, with no optional features.
+//!
 //! ```
 //! use rca::{Effect, Reduce, Runtime, Store};
 //!
-//! // Runtime selection belongs to the application, not the feature.
-//! fn counter(runtime: Runtime) -> Store<usize, ()> {
+//! async fn count_once(runtime: Runtime) -> Result<(), Box<dyn std::error::Error>> {
 //!     let reducer = Reduce::new(|count: &mut usize, _: &(), _| {
 //!         *count += 1;
 //!         Effect::none()
 //!     });
 //!
-//!     Store::new(0, reducer, runtime)
+//!     let store = Store::new(0, reducer, runtime);
+//!     let task = store.send(()).await?;
+//!     task.finish().await;
+//!     assert_eq!(store.read(|count| *count).await?, 1);
+//!     store.shutdown().await?;
+//!     Ok(())
 //! }
 //! ```
+#![cfg_attr(rca_docs_source, doc = concat!(
+    "\n[guides]: ", env!("CARGO_PKG_REPOSITORY"), "/blob/", env!("RCA_DOCS_REVISION"), "/docs/README.md",
+    "\n[examples]: ", env!("CARGO_PKG_REPOSITORY"), "/blob/", env!("RCA_DOCS_REVISION"), "/examples/README.md"
+))]
+#![cfg_attr(not(rca_docs_source), doc = concat!(
+    "\n[guides]: ", env!("CARGO_PKG_REPOSITORY"), "/blob/v", env!("CARGO_PKG_VERSION"), "/docs/README.md",
+    "\n[examples]: ", env!("CARGO_PKG_REPOSITORY"), "/blob/v", env!("CARGO_PKG_VERSION"), "/examples/README.md"
+))]
 
 #[cfg(feature = "local")]
+#[cfg_attr(docsrs, doc(cfg(feature = "local")))]
 #[doc(inline)]
 pub use rca_core::local;
 
 #[cfg(feature = "diagnostics")]
+#[cfg_attr(docsrs, doc(cfg(feature = "diagnostics")))]
 #[doc(inline)]
 pub use rca_core::diagnostics;
 
@@ -137,6 +161,7 @@ pub use rca_core::{
 pub use rca_core::{Ephemeral, WeakScopedStore, ephemeral};
 
 #[cfg(feature = "test-util")]
+#[cfg_attr(docsrs, doc(cfg(feature = "test-util")))]
 #[doc(inline)]
 pub use rca_core::{
     EndpointStub, ForbiddenClock, ForbiddenClockUsed, ImmediateClock, IssueCollector,
@@ -150,6 +175,7 @@ pub use rca_core::{
 };
 
 #[cfg(feature = "macros")]
+#[cfg_attr(docsrs, doc(cfg(feature = "macros")))]
 #[doc(inline)]
 pub use rca_macros::{
     __RcaShortActionPaths as ActionPaths, __RcaShortDependencyKey as DependencyKey,
@@ -170,6 +196,7 @@ pub mod __long_facade_macros {
 }
 
 #[cfg(feature = "test-util")]
+#[cfg_attr(docsrs, doc(cfg(feature = "test-util")))]
 #[doc(inline)]
 pub use rca_test::{
     CancellationIdentityDiagnostic, CaptureExpectations, CaptureKey, CaseAssertionFailure,
@@ -182,5 +209,6 @@ pub use rca_test::{
 };
 
 #[cfg(feature = "tokio")]
+#[cfg_attr(docsrs, doc(cfg(feature = "tokio")))]
 #[doc(inline)]
 pub use rca_tokio::{TokioRuntime, TokioRuntimeError};

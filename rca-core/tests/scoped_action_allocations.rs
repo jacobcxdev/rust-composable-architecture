@@ -23,8 +23,8 @@ use rca_core::{
     RuntimeFuture, ScopedStore, StatePath, Store,
 };
 
-#[global_allocator]
 /// Tracks the single scoped assay in a process isolated from imported controls.
+#[global_allocator]
 static ALLOCATOR: dhat::Alloc = dhat::Alloc;
 
 /// Separates stable child identity from its accumulated action total.
@@ -39,8 +39,8 @@ struct RootState {
     optional: Option<ChildState>,
 }
 
-#[derive(Debug)]
 /// Carries a move-only value without requiring `Sync` from child inputs.
+#[derive(Debug)]
 struct ChildAction(Cell<u64>);
 
 /// Routes each child input to its corresponding stored state.

@@ -3,7 +3,8 @@
 
 //! Macros for RCA reducers, typed paths, dependencies and test snapshots.
 //!
-//! Enable the `macros` feature on `rca` to import these macros from the facade.
+//! The examples use `rca` with its `macros` feature. For example, `use rca::Snapshot;`
+//! imports both the derive and the trait that provides the `snapshot` method.
 //! Import a macro from the facade whose types it should use. This also works when Cargo
 //! renames that dependency. Direct `rca-macros` imports target a declared `rca-core`
 //! dependency; if there is no core dependency, they can use a single facade.
@@ -45,9 +46,11 @@ mod state_paths;
 ///
 /// # Examples
 ///
+/// Enable the `macros` feature on `rca`.
+///
 /// ```
+/// # mod rca { pub use ::rca::*; pub use rca_macros::Snapshot; }
 /// use rca::Snapshot;
-/// use rca_macros::Snapshot;
 /// #[derive(Snapshot)]
 /// struct Progress { completed: usize, history: Vec<String> }
 /// let state = Progress { completed: 1, history: vec!["done".into()] };
@@ -74,21 +77,51 @@ pub fn derive_snapshot(input: TokenStream) -> TokenStream {
 ///
 /// # Examples
 ///
+/// This counter has one required child. The macro generates the parent's state
+/// field and action variant from the child's types. Without the macro, write
+/// those types by hand and call `rca::scope` with their state and action paths.
+/// In an application with the `macros` feature, import `reducer` from `rca`.
+/// To run the example with RCA's test host, also enable `test-util` and add `futures-executor` as a dev-dependency.
+///
 /// ```
-/// use rca::{Effect, ReduceContext, Reducer};
-/// use rca_macros::reducer;
-/// struct Body;
-/// impl Reducer for Body {
-///     type State = ();
+/// # mod rca { pub use ::rca::*; pub use rca_macros::reducer; pub use rca_test::DeterministicRuntime; }
+/// use rca::{Effect, ReduceContext, Reducer, Runtime, Store, reducer};
+///
+/// struct Counter;
+/// impl Reducer for Counter {
+///     type State = usize;
 ///     type Action = ();
-///     fn reduce(&mut self, _: &mut (), _: &(), _: &mut ReduceContext<'_>) -> Effect<()> {
+///     fn reduce(&mut self, count: &mut usize, _: &(), _: &mut ReduceContext<'_>) -> Effect<()> {
+///         *count += 1;
 ///         Effect::none()
 ///     }
 /// }
-/// #[reducer(state(supplied(())), action(supplied(())), body(supplied(body)))]
-/// struct Feature { body: Body }
-/// let feature = Feature { body: Body };
-/// let _: &dyn Reducer<State = (), Action = ()> = &feature;
+///
+/// #[reducer(
+///     state(generated(struct State { #[reducer(child = counter)] count: _ })),
+///     action(generated(enum Action { #[reducer(child = counter)] Increment(_) })),
+///     body(generated),
+///     child(counter, reducer = Counter, kind = required,
+///         state = StatePaths::count(), action = ActionPaths::increment(),
+///         bind(fn bind_counter(child: Counter)),
+///     ),
+/// )]
+/// struct App<C> {
+///     #[reducer(child = counter)]
+///     counter: C,
+/// }
+///
+/// async fn increment(runtime: Runtime) -> Result<usize, Box<dyn std::error::Error>> {
+///     let app = App { counter: bind_counter(Counter) };
+///     let store = Store::new(State { count: 0 }, app, runtime);
+///     store.send(Action::Increment(())).await?.finish().await;
+///     Ok(store.shutdown_into_state().await?.count)
+/// }
+/// # fn main() {
+/// # let host = rca::DeterministicRuntime::new();
+/// # let result = futures_executor::block_on(host.run(increment(host.runtime()))).unwrap();
+/// # assert_eq!(result.unwrap(), 1);
+/// # }
 /// ```
 #[proc_macro_attribute]
 pub fn reducer(attribute: TokenStream, input: TokenStream) -> TokenStream {
@@ -110,8 +143,11 @@ pub fn reducer(attribute: TokenStream, input: TokenStream) -> TokenStream {
 /// a private alias beside the enum. Avoid sibling type names that start with `__RcaCaseDescriptors`.
 ///
 /// # Examples
+/// Enable the `macros` feature on `rca`.
+///
 /// ```
-/// use rca_macros::CaseDescriptors;
+/// # mod rca { pub use ::rca::*; pub use rca_macros::CaseDescriptors; }
+/// use rca::CaseDescriptors;
 /// #[derive(CaseDescriptors)]
 /// enum Event { Idle, Value(String) }
 /// let event = Event::Value(String::from("local"));
@@ -592,9 +628,11 @@ mod identifier_tests {
 ///
 /// # Examples
 ///
+/// Enable the `macros` feature on `rca`.
+///
 /// ```
-/// use rca::DependencyKey as _;
-/// use rca_macros::DependencyKey;
+/// # mod rca { pub use ::rca::*; pub use rca_macros::DependencyKey; }
+/// use rca::DependencyKey;
 ///
 /// #[derive(DependencyKey)]
 /// #[dependency(value = u32, live = 7, test = 3)]
@@ -632,7 +670,7 @@ pub fn derive_dependency_key(input: TokenStream) -> TokenStream {
 /// Closure captures must meet the endpoint's `Send + Sync` bounds.
 /// The derive adds no `'static`, `Clone`, `Debug` or `Send` bounds to arguments or results.
 ///
-/// With `test-util`, explicit defaults can use `rca_core::EndpointStub`. The derive
+/// With `test-util`, explicit defaults can use `rca::EndpointStub`. The derive
 /// supplies no issue reporter, fallback, production value, setter or trait implementation
 /// for `Default`, `Debug` or `Clone`. It does not forward traits or change dependency lookup order.
 /// Concrete clients, static clients and client traits do not require this derive.
@@ -643,10 +681,12 @@ pub fn derive_dependency_key(input: TokenStream) -> TokenStream {
 /// through an existing dependency key's test expression, then override only the
 /// endpoints a test uses. Implement `Debug` manually to redact captured resources.
 ///
+/// Enable the `macros` feature on `rca`.
+///
 /// ```
+/// # mod rca { pub use ::rca::*; pub use rca_macros::{DependencyClient, DependencyKey}; }
+/// use rca::{DependencyKey, DependencyClient};
 /// use std::{fmt, sync::Arc};
-/// use rca::DependencyKey as _;
-/// use rca_macros::{DependencyClient, DependencyKey};
 ///
 /// #[derive(Clone, DependencyClient)]
 /// struct Client {
@@ -724,8 +764,11 @@ pub fn derive_dependency_client(input: TokenStream) -> TokenStream {
 ///
 /// # Examples
 ///
+/// Enable the `macros` feature on `rca`.
+///
 /// ```
-/// use rca_macros::StatePaths;
+/// # mod rca { pub use ::rca::*; pub use rca_macros::StatePaths; }
+/// use rca::StatePaths;
 ///
 /// #[derive(StatePaths)]
 /// enum State<'a> {
@@ -769,8 +812,11 @@ pub fn derive_state_paths(input: TokenStream) -> TokenStream {
 ///
 /// # Examples
 ///
+/// Enable the `macros` feature on `rca`.
+///
 /// ```
-/// use rca_macros::ActionPaths;
+/// # mod rca { pub use ::rca::*; pub use rca_macros::ActionPaths; }
+/// use rca::ActionPaths;
 ///
 /// #[derive(ActionPaths)]
 /// enum Action { Save(String, usize), Idle }
@@ -798,9 +844,11 @@ pub fn derive_action_paths(input: TokenStream) -> TokenStream {
 ///
 /// # Examples
 ///
+/// Enable the `macros` feature on `rca`.
+///
 /// ```
-/// use rca::{Effect, Reduce, Reducer};
-/// use rca_macros::reducers;
+/// # mod rca { pub use ::rca::*; pub use rca_macros::reducers; }
+/// use rca::{Effect, Reduce, Reducer, reducers};
 ///
 /// let first = Reduce::new(|state: &mut usize, action: &usize, _| {
 ///     *state += action;
@@ -828,7 +876,7 @@ macro_rules! facade_derive {
     ($canonical:ident($helper:ident), $expand:path; $($root:ident $entry:ident($name:ident)),+) => {
         $(
             #[doc(hidden)]
-            #[doc = concat!("Uses the importing facade's types. See [`", stringify!($canonical), "`](macro@", stringify!($canonical), ") for syntax and examples.")]
+            #[doc = concat!("Uses the importing facade's types.\n\nEnable the `macros` feature on the facade. See [`", stringify!($canonical), "`](macro@", stringify!($canonical), ") for syntax and examples.")]
             #[proc_macro_derive($name, attributes($helper))]
             pub fn $entry(input: TokenStream) -> TokenStream {
                 let input = parse_macro_input!(input as DeriveInput);
@@ -852,8 +900,10 @@ facade_derive!(ActionPaths(rca), action_paths::expand_from;
 /// Exposes the reducer attribute and composition macro through the same facade.
 macro_rules! facade_reducers {
     ($root:ident, $attribute:ident, $function:ident) => {
-        #[doc(hidden)]
         /// Declares reducer composition. See [`#[reducer]`](macro@reducer) for syntax and examples.
+        ///
+        /// Enable the `macros` feature on your RCA dependency.
+        #[doc(hidden)]
         #[proc_macro_attribute]
         pub fn $attribute(attribute: TokenStream, input: TokenStream) -> TokenStream {
             reducer::expand_from(attribute.into(), input.into(), MacroRoot::$root)
@@ -861,8 +911,10 @@ macro_rules! facade_reducers {
                 .into()
         }
 
-        #[doc(hidden)]
         /// Combines reducers in order. See [`reducers!`] for syntax and examples.
+        ///
+        /// Enable the `macros` feature on your RCA dependency.
+        #[doc(hidden)]
         #[proc_macro]
         pub fn $function(input: TokenStream) -> TokenStream {
             let input = parse_macro_input!(input as reducers::ReducersInput);
@@ -959,8 +1011,8 @@ impl MacroRoot {
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 /// Selects whether a generated Rust name needs keyword escaping.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum IdentifierClass {
     /// Ordinary identifiers, including contextual keywords valid in this position.
     Plain,

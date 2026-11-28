@@ -4,8 +4,8 @@ use renamed_core::DependencyKey as _;
 use renamed_macros::{DependencyClient, DependencyKey};
 use std::sync::Arc;
 
-#[derive(DependencyClient)]
 /// Combines an ordinary member with explicit and unimplemented callbacks.
+#[derive(DependencyClient)]
 pub struct Client {
     /// Distinguishes this direct-core consumer from the facade consumer.
     #[dependency(member = String::from("renamed core"))]
@@ -17,9 +17,9 @@ pub struct Client {
     pub call: Arc<dyn Fn() + Send + Sync>,
 }
 
+/// Uses generated client defaults for both dependency contexts.
 #[derive(DependencyKey)]
 #[dependency(value = Client, live = Client::test_value(), test = Client::test_value())]
-/// Uses generated client defaults for both dependency contexts.
 pub struct Key;
 
 /// Replaces the unimplemented callback with an empty callback.

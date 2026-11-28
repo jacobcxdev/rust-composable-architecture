@@ -38,8 +38,8 @@ const PHASES: [&str; 9] = [
     "last_owner_stop",
 ];
 
-#[derive(Default)]
 /// Retains final state and child disposal after the Store is gone.
+#[derive(Default)]
 struct Counts {
     roots_dropped: AtomicUsize,
     children_built: AtomicUsize,
@@ -132,8 +132,8 @@ impl Drop for Child {
     }
 }
 
-#[derive(Default)]
 /// Stores callback events in fixed space outside the allocator comparison.
+#[derive(Default)]
 struct Events {
     #[cfg(feature = "diagnostics")]
     values: [Option<LifecycleEvent>; 32],
@@ -149,8 +149,8 @@ impl Events {
     }
 }
 
-#[derive(Clone, Copy)]
 /// Counts allocations and delivered events for one named phase.
+#[derive(Clone, Copy)]
 struct Cost {
     blocks: u64,
     bytes: u64,

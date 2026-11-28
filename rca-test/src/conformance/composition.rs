@@ -4,8 +4,8 @@ use rca_core::{ActionPath, Effect, ReduceContext, Reducer, StatePath, Store, com
 
 use super::RuntimeFactory;
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 /// Records committed input and effect actions independently of reducer calls.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum ActionCommit {
     /// The caller's owned input reached the parent.
     Start,
@@ -13,8 +13,8 @@ enum ActionCommit {
     Loaded,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 /// Records the expected child-before-parent order for both actions.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum ReducerCall {
     /// The child receives the caller's input.
     ChildStart,
@@ -26,8 +26,8 @@ enum ReducerCall {
     ParentLoaded,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 /// Captures the child state visible to the parent at each commit.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 struct StateCommit {
     /// Child reductions completed before this parent call.
     child_reductions: usize,

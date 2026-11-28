@@ -5,6 +5,8 @@ sends its parent a typed authorisation request.
 The parent replies to that request through a one-shot sender. It does not look up a
 detail by business ID.
 
+Run these commands from the repository root. On macOS, use the [Cargo memory guard](../../../CONTRIBUTING.md#build-memory-safety).
+
 ```console
 cargo run -p rca-example-composition-search --example authorisation
 cargo test -p rca-example-composition-search --example authorisation

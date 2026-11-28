@@ -7,8 +7,8 @@
 #[path = "../tests/support/mod.rs"]
 mod support;
 
-#[cfg(all(feature = "std", not(target_family = "wasm")))]
 /// Runs the native example where blocking listener waits are supported.
+#[cfg(all(feature = "std", not(target_family = "wasm")))]
 mod example {
     use std::ops::{Deref, DerefMut};
     use std::sync::{mpsc, Arc};
@@ -302,8 +302,8 @@ mod example {
     }
 }
 
-#[cfg(any(target_family = "wasm", not(feature = "std")))]
 /// Keeps the example buildable when blocking listener waits are unavailable.
+#[cfg(any(target_family = "wasm", not(feature = "std")))]
 mod example {
     /// Explains why this feature and platform combination does not run the demo.
     pub(super) fn entry() {

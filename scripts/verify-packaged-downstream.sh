@@ -132,6 +132,7 @@ registry_git() {
 registry_index="${qualification_root}/index"
 registry_downloads="${qualification_root}/downloads"
 consumers_root="${qualification_root}/consumers"
+facade_docs="${consumers_root}/facade-docs"
 qualification_cargo_home="${qualification_root}/cargo-home"
 qualification_target="${CARGO_TARGET_DIR:-${qualification_root}/target}"
 package_target="${CARGO_TARGET_DIR:-${repo_root}/target}"
@@ -231,6 +232,10 @@ cargo check \
     "${registry_patch[@]}"
 
 unset CARGO_NET_OFFLINE
+python3 "${repo_root}/scripts/facade_doc_examples.py" "${facade_docs}" --registry rca-local
+facade_manifests=("${facade_docs}"/consumer-*/Cargo.toml)
+cargo generate-lockfile --manifest-path "${facade_docs}/Cargo.toml"
+cargo fetch --locked --manifest-path "${facade_docs}/Cargo.toml"
 select_consumer() {
     consumer_manifest="${consumers_root}/${fixture_name}/Cargo.toml"
     consumer_registry_patch=()
@@ -249,6 +254,14 @@ for fixture_name in "${fixture_names[@]}"; do
 done
 
 export CARGO_NET_OFFLINE=true
+facade_metadata="${qualification_root}/facade-metadata.json"
+cargo metadata --format-version 1 --locked --offline --manifest-path "${facade_docs}/Cargo.toml" > "${facade_metadata}"
+python3 "${registry_helper}" validate-consumer-source --metadata "${facade_metadata}" \
+    --version "${package_version}" --registry-index "file://${registry_index}"
+# Test each facade and feature set separately. A workspace-wide test unifies their features.
+for facade_manifest in "${facade_manifests[@]}"; do
+    cargo test --locked --offline --doc --manifest-path "${facade_manifest}"
+done
 for fixture_name in "${fixture_names[@]}"; do
     echo "verifying registry consumer: ${fixture_name}"
     select_consumer
@@ -281,5 +294,5 @@ for fixture_name in "${fixture_names[@]}"; do
     fi
 done
 
-echo "packaged downstream qualification passed: ${#package_names[@]} archives, ${#fixture_names[@]} consumers"
+echo "packaged downstream qualification passed: ${#package_names[@]} archives, ${#fixture_names[@]} consumers, ${#facade_manifests[@]} facade doctest packages"
 qualification_completed=true

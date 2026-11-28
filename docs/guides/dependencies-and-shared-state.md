@@ -192,5 +192,8 @@ Both forms must return the same result for the same input.
 
 A `Document` can give its codec the bytes from a load or the snapshot for a save.
 A shared document borrows the bytes when it needs to keep the original alongside the decoded value for a conflict.
-Reusing a codec buffer does not remove the snapshot that isolates a save from later edits.
+Reusing a codec buffer does not remove the need for an independent value to save.
+`Document` clones the value before it starts the save. An immutable shared value works.
+A clone of an `Arc<Mutex<Vec<u8>>>` still shares mutable bytes.
+Another owner can change those bytes before encoding without creating a document revision.
 See the [byte-buffer codec example](../../rca-persistence/src/lib.rs) and its [ownership tests](../../rca-persistence/tests/document.rs).

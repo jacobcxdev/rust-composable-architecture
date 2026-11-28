@@ -10,12 +10,16 @@ macro_rules! test_store_api {
                 $(+ $send)?,
         >;
 
-        /// Tests one feature using production Store kernel and deterministic scheduling.
+        /// Tests one feature with the production Store and a deterministic runtime.
         ///
-        /// Every send and receive compares an independent snapshot. Existing constructors
-        /// compare full State using its `Clone` and `PartialEq` implementations; projected
-        /// constructors compare only the selected snapshot. Clones must not share mutable
-        /// data that would change historical expectations.
+        /// For `rca::TestStore`, enable the `test-util` feature on `rca`.
+        /// For the owner-thread version, add `rca-test` with `local` and use `rca_test::local::TestStore`.
+        ///
+        /// Strict send and receive steps compare an independent snapshot with the expected state.
+        /// By default, the test uses `Clone` and `PartialEq` to compare the full state.
+        /// A projected snapshot covers only the selected values.
+        /// Later changes to the state must not change earlier snapshots.
+        /// Focused steps such as [`Self::receive_until`] can run earlier transactions without checking their state changes.
         ///
         /// Normal Drop checks unfinished assertions and RCA-owned work within the poll
         /// budget, without advancing time or waiting for external progress. It releases
@@ -970,14 +974,47 @@ macro_rules! test_store_api {
                 )
             }
 
-            /// Matches and acknowledges the terminal component of one exact boundary.
+            /// Checks the error that ended one selected transaction and acknowledges it.
             ///
-            /// Cancellation does not acknowledge a selected transaction. This operation
-            /// accepts its actual production error without inventing a state expectation.
-            /// Wrong-root, stale and non-terminal tokens invoke no matcher. A false or
-            /// panicking matcher, or an earlier failed typed matcher, remains sticky debt.
-            /// An already-admitted failed snapshot or capture expectation prevents this
-            /// step from acknowledging the terminal component or releasing later work.
+            /// Use the token from [`Self::pending_boundary`] on this Store. Cancellation alone does not acknowledge the error.
+            /// If the token belongs to another Store, identifies an older transaction, or identifies a live transaction,
+            /// this method does not call the matcher.
+            ///
+            /// The matcher checks the production error, not a state change.
+            /// If a matcher fails or panics, the assertion remains incomplete.
+            /// An earlier failed snapshot or capture expectation also prevents acknowledgement and blocks later work.
+            ///
+            /// # Examples
+            ///
+            /// This example uses the portable test Store. The owner-thread test Store uses the same cancellation steps.
+            /// The feature sends a reply to its own request. The test cancels the task before the Store reduces the reply.
+            ///
+            /// Enable the `test-util` feature on `rca`.
+            /// Run the example inside an async test. The standalone doctest uses `futures-executor`.
+            ///
+            /// ```
+            /// # mod rca { pub use rca_core::{Effect, Reduce, TaskAccessReason, TaskProgress}; pub use rca_test::TestStore; }
+            /// use rca::{Effect, Reduce, TaskAccessReason, TaskProgress, TestStore};
+            /// # futures_executor::block_on(async {
+            /// enum Action { Request, Reply }
+            /// let feature = Reduce::new(|_: &mut (), action: &Action, _| match action {
+            ///     Action::Request => Effect::send(Action::Reply),
+            ///     Action::Reply => Effect::none(),
+            /// });
+            /// let mut store = TestStore::builder((), feature).build();
+            /// let task = store.send(Action::Request).await.unwrap();
+            /// let pending = store.finish().await.expect_err("the reply still needs an assertion");
+            /// assert!(pending.finish_diagnostics().unwrap().has_pending_action());
+            /// let reply = store.pending_boundary().expect("reply awaiting reduction");
+            ///
+            /// task.cancel().await.unwrap();
+            /// task.finish().await.unwrap();
+            /// store.receive_terminal(reply, |error| {
+            ///     error.reason() == TaskAccessReason::Cancelled && error.progress() == TaskProgress::NotStarted
+            /// }).await.unwrap();
+            /// store.finish().await.unwrap();
+            /// # });
+            /// ```
             ///
             /// # Errors
             ///
@@ -1333,7 +1370,12 @@ macro_rules! test_store_api {
                 }
             }
 
-            /// Advances virtual time without auto-releasing effect actions.
+            /// Advances virtual time without reducing an effect action that awaits an assertion.
+            ///
+            /// If an action already awaits an assertion, this method returns an error without advancing the clock.
+            /// If an action arrives during the advance, the Store holds it for a receive assertion such as [`Self::receive`].
+            /// The clock can still reach the target time.
+            /// To inspect the clock at an intermediate deadline, advance in separate intervals.
             ///
             /// # Errors
             ///
@@ -1659,7 +1701,12 @@ macro_rules! test_store_api {
         }
 
         impl<State: $($send +)? 'static, Action: $($send +)? 'static, Snapshot> TestStore<State, Action, Snapshot> {
-            /// Captures the selected live or terminal boundary without driving or acknowledging it.
+            /// Returns a token for the selected transaction, whether it is live or terminal.
+            ///
+            /// If no transaction is selected, this returns `None`.
+            /// The token does not keep the Store or its work alive. It cannot identify a later transaction.
+            /// After cancellation, use [`Self::receive_terminal`] to check the error for that transaction.
+            /// Taking the token does not run work or acknowledge the error.
             #[must_use]
             pub fn pending_boundary(&self) -> Option<rca_core::testing::TransactionBoundary> {
                 self.gate.pending_boundary()

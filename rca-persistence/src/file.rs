@@ -356,11 +356,16 @@ type FileFuture<T> = Pin<Box<dyn Future<Output = Result<T, FileError>> + Send>>;
 
 /// Offloads file operations onto an explicitly selected Tokio host.
 ///
+/// This type requires the `file` feature of `rca-persistence`.
+///
 /// Clones share admission and quiescence; separately constructed backends do not.
 /// Callers retain the single-writer rule. The backend never stops its shared host.
 /// Load and save futures own their session and can outlive every backend value.
 ///
 /// # Examples
+///
+/// Enable `file` on `rca-persistence`. To build this host, add `tokio` with the `rt` feature.
+/// The example also uses `tempfile` for its temporary directory. An application can supply an existing directory instead.
 ///
 /// ```
 /// use rca_persistence::{FileBackend, FileOptions, SyncMode};
@@ -488,7 +493,8 @@ impl FileBackend {
     /// for the same jobs, including jobs the host cancels while queued.
     ///
     /// Completion does not prove that a write succeeded or recover its result.
-    /// If the outcome of a write is unknown, reload the file before starting a new session.
+    /// If the write result is unknown, wait for this backend to close.
+    /// Open a new backend for the same path. Read the file before you write again.
     /// Other backends for the same path remain independent. A blocked filesystem call can prevent closure from finishing.
     ///
     /// # Panics

@@ -35,8 +35,9 @@ type DefaultValue<K> = Arc<dyn Fn() -> <K as DependencyKey>::Value + Send + Sync
 /// # Examples
 ///
 /// ```
-/// use rca_core::{DependencyKey, DependencyValues};
-/// use rca_core::{DependencyDefaultPolicy, DependencyDefaults};
+/// # use rca_core as rca;
+/// use rca::{DependencyKey, DependencyValues};
+/// use rca::{DependencyDefaultPolicy, DependencyDefaults};
 /// struct Name;
 /// impl DependencyKey for Name { type Value = String; }
 /// let mut values = DependencyValues::for_policy(DependencyDefaultPolicy::Test);
@@ -48,8 +49,9 @@ type DefaultValue<K> = Arc<dyn Fn() -> <K as DependencyKey>::Value + Send + Sync
 /// A provider cannot register a constructor with an incompatible result type:
 ///
 /// ```compile_fail,E0308
-/// use rca_core::DependencyKey;
-/// use rca_core::DependencyDefaults;
+/// # use rca_core as rca;
+/// use rca::DependencyKey;
+/// use rca::DependencyDefaults;
 /// struct Count;
 /// impl DependencyKey for Count { type Value = usize; }
 /// let _ = DependencyDefaults::<Count>::new().with_test(|| "wrong type");

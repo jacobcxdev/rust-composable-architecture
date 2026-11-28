@@ -11,8 +11,8 @@ use crate::store::transaction::tests::Host;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::task::{Context, Poll, Waker};
 
-#[derive(Default)]
 /// Separates metadata sharing from installed Feature lifetime.
+#[derive(Default)]
 struct Counts {
     /// Detects cloning the underlying path instead of its shared owner.
     clones: AtomicUsize,
@@ -64,8 +64,8 @@ impl Feature for Child {
     type Action = u8;
     fn update(&mut self, _: &mut usize, _: &u8, _: &mut FeatureContext<'_, usize, u8>) {}
 }
-#[cfg(feature = "local")]
 /// Prevents the Local fixture from passing through accidental Send compatibility.
+#[cfg(feature = "local")]
 struct LocalChild {
     /// Reuses the same independent Feature-destruction observation.
     child: Child,

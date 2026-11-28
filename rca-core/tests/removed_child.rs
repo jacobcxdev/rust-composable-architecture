@@ -11,9 +11,9 @@ use rca_core::{
     OutputDelivery, OutputFlow, RemovalSite, RootMount, Runtime, RuntimeDriver, RuntimeFuture,
 };
 
+/// Counts allocations inside the isolated removal-cost test.
 #[cfg(feature = "allocation-measurement")]
 #[global_allocator]
-/// Counts allocations inside the isolated removal-cost test.
 static ALLOCATOR: dhat::Alloc = dhat::Alloc;
 
 /// Runs the existing allocation assay in its own process.

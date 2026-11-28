@@ -8,11 +8,41 @@ See the [qualification guide](../../docs/qualification.md) for release checks.
 | Program | Use it to measure |
 | --- | --- |
 | `rca-performance-profile` | Workloads for individual APIs, including counters, effects, observation and persistence |
-| `task_fold_cost` | The cost of running tasks or reading contributions from a feature tree |
-| `controlled_cost` | Store instructions under a fixed schedule, without relying on wall-clock time |
+| [`task_fold_cost`](#native-task-and-fold-costs) | The cost of running tasks or reading contributions from a feature tree |
+| [`controlled_cost`](#controlled-store-costs) | Store instructions under a fixed schedule, without relying on wall-clock time |
 
-For additional workloads, see the [list of workload prefixes and required features](src/profile_items.rs).
-On macOS, run Cargo through the [build memory guard](../../CONTRIBUTING.md#build-memory-safety).
+## Run one workload
+
+From the repository root, start with `effects-native 16 100`. Each of 100 root actions sends 16 responses.
+The program checks the committed work and writes [one JSON record](#read-a-counter-or-effect-result). A successful result does not measure a speedup.
+
+On macOS, use the [build memory guard](../../CONTRIBUTING.md#build-memory-safety):
+
+```sh
+python3 scripts/guard_cargo_memory.py --receipt "$(mktemp -d)/profile.json" -- \
+  run --locked --release --manifest-path tests/performance-profile/Cargo.toml -- effects-native 16 100
+```
+
+On an isolated Linux runner with an OS memory limit, use:
+
+```sh
+rustup run 1.100.0 cargo run --locked --release --manifest-path tests/performance-profile/Cargo.toml -- effects-native 16 100
+```
+
+## Choose a workload and its features
+
+The table gives the Cargo features for the default executable. Add `--features FEATURES` before the `--` separator.
+For allocation counts, add `allocations` to a workload that supports DHAT. Use a separate build for normal timings.
+
+| What to measure | Required features |
+| --- | --- |
+| [Store and effects](#existing-workload-families), [keyed routing](#concrete-keyed-traces), or [Store observation](#store-observation) | None for `-native`. Use `deterministic` for `-deterministic`. |
+| [Shared caches](#direct-shared-cache-traces) or [dependency lookup](#direct-dependency-services) | None |
+| [TestStore](#exhaustive-owned-teststore-pairs) or [snapshots](#direct-snapshots) | `deterministic` |
+| [Document saves](#controlled-document-traces) | `persistence` for native. Add `deterministic` for the test runtime, joint saves, or keyed replacement. |
+| [Diagnostic checkpoints](#structural-diagnostics) | `diagnostics`. Use a debug build to observe checkpoint callbacks. |
+
+For other workload names, see the [dispatcher](src/profile_items.rs). For build options, see the [manifest](Cargo.toml).
 
 ## Native Task and fold costs
 
@@ -554,13 +584,7 @@ deadlocks. For concurrent publication, use the native `shared-race-cold` workloa
 above. The four serial traces do not test overlapping reloads, poisoned locks,
 panics during updates, Store bridges, partial projections or other services.
 
-```sh
-cargo build --offline --locked --release --manifest-path tests/performance-profile/Cargo.toml
-cargo run --offline --locked --release --manifest-path tests/performance-profile/Cargo.toml -- effects-native 16 100
-cargo run --offline --locked --release --manifest-path tests/performance-profile/Cargo.toml --features allocations -- effects-native 16 100
-cargo run --offline --locked --release --manifest-path tests/performance-profile/Cargo.toml --features deterministic -- effects-deterministic 16 100
-cargo run --offline --locked --release --manifest-path tests/performance-profile/Cargo.toml --features deterministic,allocations -- effects-deterministic 16 100
-```
+## Test allocation measurements
 
 With `allocations` enabled, measured test controls run in the
 `allocation_controls` target. It runs each selected control on the main thread,
@@ -568,9 +592,11 @@ without libtest's concurrent receiver thread. The existing child processes still
 isolate each measurement. Ordinary semantic tests and CLI tests keep their normal
 test harness.
 
+On an isolated runner with an OS memory limit, run both configurations:
+
 ```sh
-cargo test --locked --manifest-path tests/performance-profile/Cargo.toml --all-features --test allocation_controls
-cargo test --locked --manifest-path tests/performance-profile/Cargo.toml --no-default-features --features allocations --test allocation_controls
+rustup run 1.100.0 cargo test --locked --manifest-path tests/performance-profile/Cargo.toml --all-features --test allocation_controls
+rustup run 1.100.0 cargo test --locked --manifest-path tests/performance-profile/Cargo.toml --no-default-features --features allocations --test allocation_controls
 ```
 
 An unfiltered `cargo test` includes this target when `allocations` is enabled.
@@ -578,22 +604,22 @@ An unfiltered `cargo test` includes this target when `allocations` is enabled.
 Without `allocations`, the controls that also check ordinary behaviour remain
 unit tests.
 
-The single JSON line has schema `rca-performance-profile-v2`, identity/inputs,
-committed roots/responses, reducer calls, causal completions, final counter and
-checksum, and separate extraction/drop/host-stop facts. Version 2 adds
-`features` with the actual compile-time `deterministic` and `allocations`
-booleans, plus `feature_profile`: `minimal-production` when `deterministic` is
-off, otherwise `deterministic-enabled`. This is the dependency feature profile,
-not Cargo's optimisation profile or the selected workload. In particular a
-`store-native` record from a deterministic-enabled binary is **not** a minimal
-production measurement. Compare records only with matching feature identity;
-all existing fields retain their version-1 meanings. Additive `work_facts`
-contains the seven exact counters above;
-it does not redefine committed responses or reducer calls. `allocations` is null
-for normal builds. Allocation builds include cumulative/live snapshots at
-baseline, construction end, useful-work end, validation end and teardown end;
-phase request deltas and live endpoints; and whole-session peak bytes plus
-blocks live at that byte peak. JSON formatting happens after profiler shutdown.
+## Read a counter or effect result
+
+The JSON schema is `rca-performance-profile-v2`. It records committed root actions, responses, reducer calls, causal completions, the final counter, and its checksum.
+It reports state extraction, value destruction, and host shutdown separately.
+The `work_facts` field adds seven counters without changing the earlier fields.
+
+The `features` field records only the `deterministic` and `allocations` flags.
+When `deterministic` is off, `feature_profile` reads `minimal-production`. Otherwise it reads `deterministic-enabled`, even for a native workload.
+Neither label identifies all dependency features or the Cargo build profile.
+A build with only `diagnostics` enabled still reports `minimal-production`.
+Keep each build command and its resolved dependency features with the results.
+Do not treat a build with diagnostics as equivalent to one without diagnostics because their labels match.
+
+Normal builds report `allocations` as null. Allocation builds report cumulative and live counts before construction and after each phase.
+The phases are construction, useful work, validation, and teardown. The report separates new requests during each phase from allocations still live afterwards.
+It records the peak bytes and the blocks live at that peak across the session. The program formats JSON after profiler shutdown.
 An owned guard finalises DHAT into memory on success, early errors and unwinds,
 never a heap file, and releases the session exactly once. Current-session live
 allocation records are parsed and attributed after profiler shutdown, outside

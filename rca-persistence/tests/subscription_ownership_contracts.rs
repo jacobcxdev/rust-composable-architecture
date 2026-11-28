@@ -11,8 +11,8 @@ use std::task::{Context, Poll, Waker};
 use futures_executor::block_on;
 use rca_persistence::{SharedUpdate, SharedUpdates};
 
-#[derive(Debug)]
 /// Tracks one move-only allocation without exposing it to framework cloning.
+#[derive(Debug)]
 struct DropProbe {
     /// Gives the payload a stable address while its enclosing value moves.
     value: Box<u32>,

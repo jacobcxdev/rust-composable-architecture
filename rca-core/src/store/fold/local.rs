@@ -306,8 +306,8 @@ struct Read<R, K: FoldKey> {
     target: Option<Target>,
     /// Publishes a conservative terminal error if execution unwinds.
     reply: ReplyGuard<K::Value>,
-    #[cfg(feature = "test-util")]
     /// Rejects commands submitted through a different Store's test gate.
+    #[cfg(feature = "test-util")]
     expected_root: Option<Arc<()>>,
 }
 
@@ -383,8 +383,8 @@ pub(in crate::store) fn read<R: 'static, A: 'static, K: FoldKey>(
     )
 }
 
-#[cfg(feature = "test-util")]
 /// Prepares a gated diagnostic read tied to the supplied root identity.
+#[cfg(feature = "test-util")]
 pub(in crate::store) fn read_for_test<R: 'static, A: 'static, K: FoldKey>(
     fold: Fold<R, K>,
     ingress: SharedWeak<Ingress<R, A>>,
@@ -459,8 +459,8 @@ impl<K: FoldKey> fmt::Debug for FoldView<K> {
 }
 
 impl<K: FoldKey> FoldView<K> {
-    #[cfg(feature = "test-util")]
     /// Reads through the captured diagnostic gate after checking its root identity.
+    #[cfg(feature = "test-util")]
     pub(in crate::store) fn read_for_test(
         &self,
         root: Arc<()>,
@@ -488,8 +488,8 @@ trait Endpoint<K: FoldKey> {
     /// Prepares a lazy read of the frozen subtree.
     fn read(&self) -> Pin<Box<dyn Future<Output = Result<K::Value, TaskAccessError>>>>;
 
-    #[cfg(feature = "test-util")]
     /// Checks the requested root and uses the endpoint's captured test gate.
+    #[cfg(feature = "test-util")]
     fn read_for_test(
         &self,
         root: Arc<()>,
@@ -544,8 +544,8 @@ struct TypedEndpoint<R, A, K: FoldKey> {
     ingress: SharedWeak<Ingress<R, A>>,
     /// Rejects owner loss before admission without keeping the Store alive.
     lifecycle: SharedWeak<Lifecycle>,
-    #[cfg(feature = "test-util")]
     /// The owning test driver's gate, if acquisition occurred through that driver.
+    #[cfg(feature = "test-util")]
     gate: Option<crate::testing::TransactionGateCore<R, A, Local>>,
 }
 
@@ -640,8 +640,8 @@ struct Acquire<R, A, S, X, K: FoldKey> {
     lifecycle: SharedWeak<Lifecycle>,
     /// Returns absence, a frozen view, or a terminal authority failure.
     reply: ReplyGuard<Option<FoldView<K>>>,
-    #[cfg(feature = "test-util")]
     /// Passed to the view only for a diagnostic acquisition.
+    #[cfg(feature = "test-util")]
     gate: Option<crate::testing::TransactionGateCore<R, A, Local>>,
 }
 
@@ -729,8 +729,8 @@ pub(in crate::store) fn acquire<R: 'static, A: 'static, S: 'static, X: 'static, 
     )
 }
 
-#[cfg(feature = "test-util")]
 /// Prepares an acquisition through the explicit diagnostic gate.
+#[cfg(feature = "test-util")]
 pub(in crate::store) fn acquire_for_test<
     R: 'static,
     A: 'static,

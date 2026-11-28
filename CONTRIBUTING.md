@@ -50,22 +50,17 @@ Use `dev/next` for changes to the next version. Promote reviewed changes to `mai
 Crate publication requires a signed tag on the reviewed tip of `main`.
 Both branches use the same [CI selection rules](#how-ci-selects-checks). Their [documentation channels](docs/documentation-publishing.md) are separate.
 
-The default branch requires a pull request, verified commit signatures, resolved
-review discussions and every required CI check from GitHub Actions.
-The branch must include the current base revision. Administrators cannot bypass
-these rules. Force pushes and deletion of the default branch are blocked.
-Other published branches also reject force pushes.
-Published tags cannot be changed or deleted.
+Before release, check these settings in GitHub:
 
-Merge commits preserve the signed review commits. Squash, rebase and automatic
-merge are disabled. The sole maintainer cannot approve their own pull request,
-so GitHub does not require a numerical approval count.
-The source-review requirements below still apply.
-
-Actions defaults to read-only tokens and cannot approve pull requests.
-External contributors require workflow approval. Remote actions must come from
-the approved sources and use full commit SHAs. Documentation signing retains
-its separate protected environment.
+- On the default branch, require pull requests, verified commit signatures, resolved discussions, and all required GitHub Actions checks.
+  Require the current base revision. Block administrator bypass, force pushes, and deletion.
+- Block force pushes to other published branches. Prevent changes to published tags, including deletion.
+- Use merge commits to preserve signed review commits. Disable squash, rebase, and automatic merging.
+  A sole maintainer cannot approve their own pull request. Do not require a numerical approval count in that configuration.
+  The [source-review requirements](#reviewing-a-change) still apply.
+- Use read-only workflow tokens by default. Prevent Actions from approving pull requests.
+  Require workflow approval for external contributors. Pin remote actions from approved sources to full commit SHAs.
+- Use the separate [documentation environment](docs/documentation-publishing.md#configure-automatic-publication) for signing.
 
 ## Toolchain and formatting
 
@@ -265,7 +260,8 @@ and private documentation.
 Documentation presence needs both `missing_docs` and
 `clippy::missing_docs_in_private_items`. Include a normal library build, not only
 tests, so documentation checks cover the production library.
-For a focused all-features check, run:
+On macOS, pass `clippy` and its arguments to the [memory watchdog](#build-memory-safety).
+On an isolated runner with a memory limit, run:
 
 ```sh
 rustup run "$toolchain" cargo clippy --locked --workspace --all-features --lib -- -D warnings -D missing_docs -D clippy::missing_docs_in_private_items
@@ -276,10 +272,10 @@ It excludes only the binary-only size probe from this library command.
 The existing whole-workspace feature check still covers that binary.
 Test-only bodies retain their separate source review.
 
-The command below checks each library package separately. RCA uses Cargo
-resolver 3, so a normal `--lib` build does not enable features supplied only by
-development dependencies. Keep `--locked`; do not add `--no-dev-deps`, which
-rewrites manifests and requires a different lockfile.
+On an isolated runner with a memory limit, use the command below to check each library package separately.
+The macOS memory watchdog does not support `cargo hack`. If you have only a local Mac, use CI for this check.
+RCA uses Cargo resolver 3. A normal `--lib` build does not enable features supplied only by development dependencies.
+Keep `--locked`. Do not add `--no-dev-deps`: it rewrites manifests and requires a different lockfile.
 
 ```sh
 rustup run "$toolchain" cargo hack clippy --locked --workspace --exclude rca-size-probe --feature-powerset --lib -- -D warnings -D missing_docs -D clippy::missing_docs_in_private_items
@@ -326,25 +322,29 @@ calls. Keep decision guidance reachable from the README and the
 [authoring index](docs/guides/authoring.md#find-a-decision). Keep detailed contracts
 beside the API, with links instead of repeated descriptions that can diverge.
 
-Run affected doctests and build documentation with warnings denied. Resolve
-local Markdown links and section links. Reviewers must also compare the claims
-with current source and tests. A formatter, documentation lint or successful
-build cannot prove that a recommendation is correct or understandable.
+For a guide or agent skill, start with the offline link and package check. It needs Git, Ruby, and Lychee 0.24.2 on your `PATH`.
+
+```sh
+ruby scripts/check_public_guidance.rb
+```
+
+This checks local links, section links, and references in standalone copies of both skills.
+It does not install the Codex plugin. For changed examples or API docs, run the affected doctests and build rustdoc with warnings denied.
+Compare the advice with current source and tests. A successful build or link check cannot show whether a reader can follow the advice.
 
 The independent consumer fixtures run Cargo offline with their own lockfiles.
-Before the workspace tests, download those dependencies:
+On an isolated runner with a memory limit, download their dependencies before the workspace tests.
+On macOS, run each compilation through the [memory watchdog](#build-memory-safety), not the block below.
 
 ```sh
 rustup run "$toolchain" cargo fetch --locked --manifest-path rca-core/tests/fixtures/modular-dependencies/Cargo.toml
 rustup run "$toolchain" cargo fetch --locked --manifest-path rca-core/tests/fixtures/rc07-owned-snapshot/Cargo.toml
 rustup run "$toolchain" cargo test --locked --workspace --all-features
 rustup run "$toolchain" cargo test --locked --workspace --all-features --doc
-export RUSTDOCFLAGS='-D warnings'
-rustup run "$toolchain" cargo doc --locked -p futures-core --no-deps
-rustup run "$toolchain" cargo doc --locked -p rca-event-listener --all-features --no-deps
-rustup run "$toolchain" cargo doc --locked --workspace --lib --exclude 'rca-example-*' --exclude rca-size-probe --all-features --no-deps
-python3 scripts/prepare_public_docs.py target/doc
 ```
+
+Then [build the API reference for this checkout](docs/documentation-publishing.md#build-a-local-preview).
+That recipe treats rustdoc warnings as errors and links the guides to the checkout's commit.
 
 Start with [checks for the changed behaviour](docs/qualification.md#start-with-the-changed-behaviour) during development. Before completion, run checks for the
 affected integration boundaries. CI adds feature, platform, compiler-contract and
@@ -479,23 +479,15 @@ unrelated allocations to the measured interval. Keep workload worker allocations
 inside the measurement. Do not replace process-wide counts with thread-only counts.
 Packaged crates must include their runner support without paths to sibling checkouts.
 
-The full Python tooling suite includes a real performance-tool preflight.
-It requires `cargo-bloat` 0.12.1 in the checkout's local tool directory.
-From the repository root on macOS, install the tool through the [memory watchdog](#build-memory-safety):
-
-```sh
-mkdir -p target
-python3 scripts/guard_cargo_memory.py --receipt target/cargo-bloat-install.json -- \
-  install cargo-bloat --version 0.12.1 --locked --root target/performance-tools
-```
-
-On an isolated runner or in a job with an OS memory limit, use Cargo directly:
+The full Python tooling suite checks for `cargo-bloat` 0.12.1 in the checkout's local tool directory.
+On an isolated runner with an OS memory limit, install the tool from the repository root:
 
 ```sh
 rustup run "$toolchain" cargo install cargo-bloat --version 0.12.1 --locked --root target/performance-tools
 ```
 
-Then run the tooling tests:
+Run the tooling tests on that runner. The macOS watchdog does not support `cargo install`.
+If you have only a shared Mac, use a remote job with an OS memory limit for the full suite.
 
 ```sh
 PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s scripts/tests
@@ -506,10 +498,8 @@ The prerequisite check does not run a performance capture or establish a timing 
 If a check cannot run, report the missing evidence and its cause. Do not replace
 an unmet requirement with a completion claim.
 
-CI and publication first build selected dependency documentation for inherited
-API links. See [documentation publication](docs/documentation-publishing.md) for the
-complete build order and its
-signing and credential requirements.
+CI and publication first build selected dependency documentation for inherited API links.
+See [documentation publication](docs/documentation-publishing.md) for the build order and signing requirements.
 
 To publish the Rust packages, follow the [crate release guide](docs/releasing.md).
-Crates and documentation use separate workflows and credentials. Documentation publication is automatic.
+Crates and documentation use separate workflows and credentials. After configuration, the documentation workflow publishes successful builds automatically.

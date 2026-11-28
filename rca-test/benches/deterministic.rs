@@ -19,14 +19,14 @@ fn main() {
     divan::main();
 }
 
-#[divan::bench(sample_count = 20, max_time = 0.5)]
 /// Measures construction; the returned host is dropped after the sample.
+#[divan::bench(sample_count = 20, max_time = 0.5)]
 fn scheduler_host_construction(bencher: divan::Bencher) {
     bencher.bench_local(|| divan::black_box(DeterministicRuntime::new()));
 }
 
-#[divan::bench(args = [1_usize, 16, 256], sample_count = 20, max_time = 0.5, skip_ext_time = true)]
 /// Measures admission of preallocated tasks, without polling or teardown.
+#[divan::bench(args = [1_usize, 16, 256], sample_count = 20, max_time = 0.5, skip_ext_time = true)]
 fn scheduler_enqueue_only(bencher: divan::Bencher, count: usize) {
     bencher
         .with_inputs(|| {
@@ -44,8 +44,8 @@ fn scheduler_enqueue_only(bencher: divan::Bencher, count: usize) {
         });
 }
 
-#[divan::bench(sample_count = 20, max_time = 0.5, skip_ext_time = true)]
 /// Measures 256 task polls after registration and initial wake outside timing.
+#[divan::bench(sample_count = 20, max_time = 0.5, skip_ext_time = true)]
 fn scheduler_steady_polls(bencher: divan::Bencher) {
     bencher
         .with_inputs(|| {
@@ -59,8 +59,8 @@ fn scheduler_steady_polls(bencher: divan::Bencher) {
         });
 }
 
-#[divan::bench(sample_count = 20, max_time = 0.5, skip_ext_time = true)]
 /// Measures one wake of a registered task that is not already ready.
+#[divan::bench(sample_count = 20, max_time = 0.5, skip_ext_time = true)]
 fn scheduler_ready_notification(bencher: divan::Bencher) {
     bencher
         .with_inputs(scheduler_paused_probe)
@@ -70,8 +70,8 @@ fn scheduler_ready_notification(bencher: divan::Bencher) {
         });
 }
 
-#[divan::bench(sample_count = 20, max_time = 0.5, skip_ext_time = true)]
 /// Measures 256 duplicate wakes after the first wake outside timing.
+#[divan::bench(sample_count = 20, max_time = 0.5, skip_ext_time = true)]
 fn scheduler_ready_deduplication(bencher: divan::Bencher) {
     bencher
         .with_inputs(|| {
@@ -113,8 +113,8 @@ fn scheduler_paused_probe() -> (DeterministicRuntime, Waker) {
     (host, wake)
 }
 
-#[divan::bench(args = [1_usize, 16, 256], sample_count = 20)]
 /// Measures host construction, ready-task admission, polling and cleanup.
+#[divan::bench(args = [1_usize, 16, 256], sample_count = 20)]
 fn ready_tasks(bencher: divan::Bencher, count: usize) {
     bencher.bench_local(|| {
         let runtime = DeterministicRuntime::new();
@@ -130,8 +130,8 @@ fn ready_tasks(bencher: divan::Bencher, count: usize) {
     });
 }
 
-#[divan::bench(args = [1_usize, 16, 256], sample_count = 20)]
 /// Measures a complete host lifecycle with exactly the requested task polls.
+#[divan::bench(args = [1_usize, 16, 256], sample_count = 20)]
 fn self_wake_accounting(bencher: divan::Bencher, polls: usize) {
     bencher.bench_local(|| {
         let runtime = DeterministicRuntime::new();
@@ -145,8 +145,8 @@ fn self_wake_accounting(bencher: divan::Bencher, polls: usize) {
     });
 }
 
-#[divan::bench(args = [1_usize, 1_000, 100_000], sample_count = 10)]
 /// Measures registration, one deadline cohort, completion and host cleanup.
+#[divan::bench(args = [1_usize, 1_000, 100_000], sample_count = 10)]
 fn virtual_timers(bencher: divan::Bencher, count: usize) {
     bencher.bench_local(|| {
         // Each drive needs count polls. This keeps both finite phases below the
@@ -170,8 +170,8 @@ fn virtual_timers(bencher: divan::Bencher, count: usize) {
     });
 }
 
-#[divan::bench(sample_count = 20)]
 /// Measures one gated effect, checked final state and explicit Store shutdown.
+#[divan::bench(sample_count = 20)]
 fn assertion_gate_pause_release(bencher: divan::Bencher) {
     bencher.bench_local(|| {
         let runtime = DeterministicRuntime::new();
@@ -197,8 +197,8 @@ fn assertion_gate_pause_release(bencher: divan::Bencher) {
     });
 }
 
-#[divan::bench(sample_count = 20)]
 /// Measures one send, asserted effect response and exhaustive finish.
+#[divan::bench(sample_count = 20)]
 fn test_store_send_receive(bencher: divan::Bencher) {
     bencher.bench_local(|| {
         let mut store = TestStore::new(0, Feature);
@@ -216,8 +216,8 @@ fn test_store_send_receive(bencher: divan::Bencher) {
     });
 }
 
-#[divan::bench(sample_count = 10)]
 /// Measures exact default-budget exhaustion, diagnostic creation and cleanup.
+#[divan::bench(sample_count = 10)]
 fn default_budget_exhaustion(bencher: divan::Bencher) {
     bencher.bench_local(|| {
         let runtime = DeterministicRuntime::new();
@@ -262,8 +262,8 @@ impl Future for InfiniteSelfWake {
     }
 }
 
-#[derive(Clone, Copy)]
 /// One causal effect and its response, shared by both Store workflows.
+#[derive(Clone, Copy)]
 enum Action {
     /// Emits one response without changing state.
     Start,

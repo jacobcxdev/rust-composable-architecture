@@ -254,8 +254,8 @@ type AcquireFuture = std::pin::Pin<
             > + Send,
     >,
 >;
-#[cfg(feature = "test-util")]
 /// Names the diagnostic gate argument that the acquisition sentinel rejects.
+#[cfg(feature = "test-util")]
 type Gate = crate::testing::TransactionGateCore<usize, ()>;
 
 /// Keeps one registration owner until the projection explicitly releases it.

@@ -156,10 +156,13 @@ impl<R: 'static, A: 'static, S: 'static, X: 'static> MountChildren<'_, R, A, S, 
     ///
     /// The returned recipe may own an ID and local `Rc` data from the row.
     ///
+    /// Enable the `local` feature on `rca`.
+    ///
     /// ```
-    /// use rca_core::{KeyedState, local::{EntryMount, MountChildren}};
+    /// # use rca_core as rca;
+    /// use rca::{KeyedState, local::{EntryMount, MountChildren}};
     /// use std::{cell::Cell, rc::Rc};
-    /// # use rca_core::local::{Feature, FeatureContext};
+    /// # use rca::local::{Feature, FeatureContext};
     /// # struct RowFeature(Rc<Cell<usize>>);
     /// # impl Feature for RowFeature {
     /// #     type State = Rc<Cell<usize>>;

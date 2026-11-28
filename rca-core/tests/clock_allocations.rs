@@ -14,8 +14,8 @@ use rca_core::{ClockDriver, local};
 #[global_allocator]
 static ALLOCATOR: dhat::Alloc = dhat::Alloc;
 
-#[derive(Debug)]
 /// Rejects provider waits because both measured deadlines have elapsed.
+#[derive(Debug)]
 struct SharedClock;
 
 impl ClockDriver for SharedClock {
@@ -35,8 +35,8 @@ impl ClockDriver for SharedClock {
     }
 }
 
-#[derive(Debug)]
 /// Enforces owner-thread access for the Local clock lane.
+#[derive(Debug)]
 struct LocalClock(ThreadId);
 
 impl local::ClockDriver for LocalClock {
@@ -68,8 +68,8 @@ fn complete_or_drop<F: Future<Output = ()> + ?Sized>(mut future: Pin<Box<F>>, po
     drop(black_box(future));
 }
 
-#[cfg(feature = "test-util")]
 /// Warms diagnostic reporting before the per-wait windows.
+#[cfg(feature = "test-util")]
 fn warmed_forbidden_clock(
     baseline: MonotonicInstant,
     reports: &std::sync::Arc<std::sync::atomic::AtomicUsize>,
@@ -93,8 +93,8 @@ fn warmed_forbidden_clock(
     forbidden
 }
 
-#[cfg(feature = "test-util")]
 /// Measures elapsed and pending forbidden waits with identical report counts.
+#[cfg(feature = "test-util")]
 fn forbidden_wait_costs(
     forbidden: &rca_core::ForbiddenClock,
     deadlines: [MonotonicInstant; 2],

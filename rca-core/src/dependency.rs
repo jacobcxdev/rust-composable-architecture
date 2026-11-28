@@ -127,9 +127,14 @@ pub trait DependencyKey: Send + Sync + 'static {
 
 /// Stores typed dependencies for one store.
 ///
-/// Clones own independent maps and lookup history. Existing values and registered
-/// constructors remain shared through reference counting. A clone made before a
-/// default is first requested invokes the selected constructor for its own cache.
+/// Each clone keeps its own override map, cache, and lookup history.
+/// The clones share existing values and registered constructors.
+/// If a key has no cached default at the time of the clone, each copy calls its
+/// factory separately when it needs that default.
+/// [`Self::reset_cache`] does not revoke a client that a running effect already owns.
+///
+/// This cache stores dependency defaults for one environment. To share a stored
+/// value by resource key across independent callers, use [`crate::SharedKeyCache`].
 ///
 /// Values must be thread-safe even when the environment belongs to a local store.
 /// No global or thread-local environment participates in lookup.
@@ -137,7 +142,8 @@ pub trait DependencyKey: Send + Sync + 'static {
 /// # Examples
 ///
 /// ```
-/// use rca_core::{DependencyKey, DependencyValues};
+/// # use rca_core as rca;
+/// use rca::{DependencyKey, DependencyValues};
 ///
 /// struct RetryLimit;
 /// impl DependencyKey for RetryLimit {
@@ -211,13 +217,11 @@ impl DependencyValues {
 
     /// Clears only this environment's cached defaults.
     ///
-    /// Registrations, explicit overrides, policy and use/registration history remain.
-    /// The next unoverridden lookup invokes its selected factory again. Clones own
-    /// independent cache maps but share already-created Arc values and constructors;
-    /// cloning before first lookup can therefore invoke a factory once per clone.
-    /// Reset does not revoke existing handles, clear external storage, guarantee a
-    /// fresh endpoint or wait for backend work to stop. Dropping the final cached
-    /// owner may run the value's destructor.
+    /// Registrations, explicit overrides, policy, and lookup history stay in place.
+    /// The next lookup without an override calls the selected factory again.
+    /// Other copies of this environment keep their cached values.
+    /// Reset does not revoke existing handles, clear external storage, or wait for backend work to stop.
+    /// A factory can return the same endpoint again. Dropping the last owner runs the value's destructor.
     ///
     /// # Panics
     /// Propagates cached value destructor panics.

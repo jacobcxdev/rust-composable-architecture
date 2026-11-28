@@ -1,6 +1,7 @@
 # Import rows and keep an independent history
 
-Run the [headless importer](../examples/owned_importer.rs):
+Run the [headless importer](../examples/owned_importer.rs) from the repository root.
+On macOS, use the [Cargo memory guard](../../../CONTRIBUTING.md#build-memory-safety).
 
 ```sh
 cargo run -p rca-example-composition-search --example owned_importer

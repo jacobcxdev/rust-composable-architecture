@@ -151,6 +151,10 @@ trait ScopedDriver<State, Action>: Send + Sync {
 /// Strong handles retain root authority. Registered handles additionally capture
 /// one child lifetime, as defined by their scope constructor. Once that lifetime
 /// ends, the route cannot be renewed.
+///
+/// Child reads and observation selectors run on the root actor.
+/// If one panics, the root actor unwinds and closes the Store for every scope.
+/// The panic propagates on the actor task. A request awaiting its reply can instead receive [`ScopedStoreEnded`].
 pub struct ScopedStore<State, Action> {
     /// Shares the captured route without requiring child values to be `Sync`.
     driver: Arc<dyn ScopedDriver<State, Action>>,
@@ -261,6 +265,8 @@ impl<State, Action> ScopedStore<State, Action> {
 
     /// Runs one child-state query at its ordered mailbox position.
     ///
+    /// A panic in `query` closes the root Store, not just the child scope.
+    ///
     /// # Errors
     ///
     /// Returns [`ScopedStoreEnded`] if the registered child lifetime ends or
@@ -286,6 +292,8 @@ impl<State, Action> ScopedStore<State, Action> {
     }
 
     /// Registers a clone-free child projection at its mailbox position.
+    ///
+    /// If `selector` panics, the panic propagates on the root actor and closes the Store for every scope.
     ///
     /// # Errors
     ///
@@ -318,6 +326,7 @@ impl<State, Action> ScopedStore<State, Action> {
     /// The first value from [`Observation::next`] is the selection at registration.
     /// The actor retains a copy of the last published value for comparison.
     /// It does not clone an unchanged selection. A slow reader can miss intermediate changes.
+    /// A selector panic closes the root Store as in [`Self::observe`].
     ///
     /// # Errors
     ///

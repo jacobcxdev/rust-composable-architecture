@@ -3,6 +3,7 @@
 import argparse
 import os
 from pathlib import Path
+import re
 import secrets
 import stat
 import subprocess
@@ -28,7 +29,7 @@ def regular_tree(root):
                 raise ValueError("The documentation contains a link or a special file.")
 
 
-def build(source, output):
+def build(source, output, revision=None):
     """Export a fresh, checked documentation directory, or leave no publication."""
     source = source.resolve(strict=True)
     output = output.parent.resolve(strict=True) / output.name
@@ -36,6 +37,8 @@ def build(source, output):
         raise ValueError("Use a new output directory outside the source checkout.")
     if any(":" in str(path) for path in (source, output.parent, CHECKER)):
         raise ValueError("Docker mount paths cannot contain a colon.")
+    if revision is not None and re.fullmatch("[0-9a-f]{40}", revision) is None:
+        raise ValueError("Use the full lowercase Git commit ID for source links.")
 
     with tempfile.TemporaryDirectory(prefix="rca-rustdoc-", dir=output.parent) as scratch:
         checker = "/rca-control/scripts/prepare_public_docs.py"
@@ -48,8 +51,13 @@ def build(source, output):
             "--volume", f"{CHECKER}:{checker}:ro",
             "--workdir", "/rca-source", "--env", "HOME=/tmp/rca-home",
             "--env", "CARGO_HOME=/tmp/rca-cargo", "--env", "CARGO_TARGET_DIR=/rca-target",
-            "--env", "CARGO_BUILD_JOBS=2", "--env", "RUSTUP_TOOLCHAIN=1.100.0", "--env", "RUSTDOCFLAGS=-D warnings",
+            "--env", "CARGO_BUILD_JOBS=2", "--env", "RUSTUP_TOOLCHAIN=1.100.0",
         ]
+        flags = "-D warnings"
+        if revision is not None:
+            runner.extend(("--env", f"RCA_DOCS_REVISION={revision}"))
+            flags += " --cfg rca_docs_source"
+        runner.extend(("--env", f"RUSTDOCFLAGS={flags}"))
         # Source code and filenames can write to the log. Never interpret their output as runner commands.
         token = secrets.token_hex(32)
         print(f"::stop-commands::{token}", flush=True)
@@ -70,7 +78,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("source", type=Path)
     parser.add_argument("output", type=Path)
+    parser.add_argument("--revision", help="Full source commit for links to guides and examples.")
     args = parser.parse_args()
     if sys.platform != "linux":
         parser.error("This build requires a Linux runner. On macOS, use the Cargo memory watchdog.")
-    build(args.source, args.output)
+    build(args.source, args.output, args.revision)

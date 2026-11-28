@@ -2,6 +2,9 @@
 #![forbid(unsafe_code)]
 
 //! Adapts an active Tokio executor to RCA's runtime-neutral scheduler.
+//!
+//! Applications import [`TokioRuntime`] from `rca` with its `tokio` feature.
+//! If you depend on this adapter directly, use `rca_tokio::TokioRuntime`.
 
 use std::any::Any;
 use std::backtrace::Backtrace;
@@ -15,6 +18,8 @@ use rca_core::{MonotonicInstant, Runtime, RuntimeDriver, RuntimeFuture};
 const MAX_SLEEP_CHUNK: Duration = Duration::from_hours(8_760);
 
 /// Constructs RCA runtimes backed by the active Tokio runtime.
+///
+/// Enable the `tokio` feature on `rca` to import `rca::TokioRuntime`.
 #[derive(Debug)]
 pub struct TokioRuntime;
 
@@ -37,12 +42,16 @@ impl TokioRuntime {
     ///
     /// # Examples
     ///
+    /// Enable the `tokio` feature on `rca`.
+    /// This example also uses `tokio` with the `rt` and `time` features.
+    ///
     /// ```
+    /// # use rca_tokio as rca;
     /// let host = tokio::runtime::Builder::new_current_thread()
     ///     .enable_time()
     ///     .build()?;
     /// let _entered = host.enter();
-    /// let runtime = rca_tokio::TokioRuntime::current()?;
+    /// let runtime = rca::TokioRuntime::current()?;
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     pub fn current() -> Result<Runtime, TokioRuntimeError> {

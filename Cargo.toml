@@ -22,7 +22,6 @@ edition = "2024"
 rust-version = "1.100.0"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/jacobcxdev/rust-composable-architecture"
-readme = "README.md"
 keywords = ["architecture", "state-management", "unidirectional", "async"]
 categories = ["asynchronous", "rust-patterns"]
 
@@ -54,7 +53,7 @@ loom = "0.7"
 insta = "1.48.0"
 
 [workspace.lints.rust]
-unexpected_cfgs = { level = "warn", check-cfg = ['cfg(loom)'] }
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(loom)', 'cfg(rca_docs_source)'] }
 ambiguous_negative_literals = "warn"
 missing_debug_implementations = "warn"
 redundant_imports = "warn"

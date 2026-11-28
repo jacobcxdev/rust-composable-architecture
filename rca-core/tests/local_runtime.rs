@@ -452,8 +452,8 @@ fn erased_local_default_tolerant_waits_release_owner_captures_on_cancellation() 
     }
 }
 
-#[derive(Default)]
 /// Lets another thread signal readiness without owning any local payload.
+#[derive(Default)]
 struct Notification(AtomicBool);
 
 impl Wake for Notification {

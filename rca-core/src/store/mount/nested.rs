@@ -485,8 +485,8 @@ where
     }
 }
 
-#[cfg(test)]
 /// Supplies the private single-entry fixture with real descendant attachment.
+#[cfg(test)]
 pub(super) struct ChildMounts<'a, R, A, P> {
     /// Root-to-parent path used to compose each test child route.
     path: P,

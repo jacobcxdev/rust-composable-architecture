@@ -8,8 +8,8 @@ use rca_core::{MonotonicInstant, MountIdentity, ReduceContext};
 /// Together with the mounted timer, this fills a 4,096-entry timer queue.
 const ROOT_TIMERS: usize = 4_095;
 
-#[derive(Default)]
 /// The root records each delivered timer. The optional child counts its own deliveries.
+#[derive(Default)]
 struct State {
     /// Changes presence only through an ordinary root action.
     child: Option<usize>,

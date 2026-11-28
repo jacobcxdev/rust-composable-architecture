@@ -221,7 +221,8 @@ impl<F: Feature> RootMount<F> {
     /// # Examples
     ///
     /// ```
-    /// use rca_core::{Feature, FeatureContext, InitialPolicy, RootMount, Task};
+    /// # use rca_core as rca;
+    /// use rca::{Feature, FeatureContext, InitialPolicy, RootMount, Task};
     /// # struct Counter;
     /// # impl Feature for Counter {
     /// #     type State = i32;
@@ -595,7 +596,8 @@ pub struct MountIdentity<K> {
 /// installation is deferred until a later structural transaction can select it.
 ///
 /// ```no_run
-/// use rca_core::{Feature, FeatureContext, MountIdentity, OptionalMount,
+/// # use rca_core as rca;
+/// use rca::{Feature, FeatureContext, MountIdentity, OptionalMount,
 ///     RootMount, Runtime, Task, TaskAccessReason};
 ///
 /// struct State { child: Option<usize>, configuration: u64 }

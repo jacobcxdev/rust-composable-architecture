@@ -47,8 +47,11 @@ impl DependencyValues {
     ///
     /// # Examples
     ///
+    /// Add `futures-executor` as a dev-dependency for this example.
+    ///
     /// ```
-    /// use rca_core::{DependencyKey, DependencyValues};
+    /// # use rca_core as rca;
+    /// use rca::{DependencyKey, DependencyValues};
     /// struct Number;
     /// impl DependencyKey for Number { type Value = usize; }
     /// let work = {
@@ -152,7 +155,8 @@ impl std::error::Error for DependencyMockMismatch {}
 /// # Examples
 ///
 /// ```
-/// use rca_core::try_dependency_mock;
+/// # use rca_core as rca;
+/// use rca::try_dependency_mock;
 /// trait Service: std::any::Any {}
 /// struct Mock;
 /// impl Service for Mock {}

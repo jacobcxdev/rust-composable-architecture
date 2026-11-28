@@ -1,43 +1,33 @@
 // SPDX-Licenser-Identifier: MIT OR Apache-2.0
 // Modified for Rust Composable Architecture; see UPSTREAM.md for provenance and changes.
-//! A strategy for using the [`event-listener`](crate::event_listener) crate in both blocking and non-blocking contexts.
+//! Shares one listener implementation between asynchronous and blocking callers.
 //!
-//! One of the stand-out features of the [`event-listener`](crate::event_listener) crate is the ability to use it in both
-//! asynchronous and synchronous contexts. However, sometimes using it like this causes a lot of
-//! boilerplate to be duplicated. This crate aims to reduce that boilerplate by providing an
-//! [`EventListenerFuture`] trait that implements both blocking and non-blocking functionality.
+//! RCA maintains the `rca-event-listener-strategy` package, a fork of `event-listener-strategy` 0.5.4.
+//! It is not a smol-rs release. See the [fork provenance] for its author and changes.
+//! The Rust import is `event_listener_strategy`. After publication, use
+//! `cargo add rca-event-listener-strategy --rename event-listener-strategy` to select this package.
+//!
+//! [fork provenance]: https://github.com/jacobcxdev/rust-composable-architecture/blob/e704e8bc61e19036138dbb565f764866797a0036/dependencies/rca-event-listener-strategy/UPSTREAM.md
+//!
+//! Implement [`EventListenerFuture`] with the re-exported [`event_listener`] types.
+//! Wrap the listener in [`FutureWrapper`] to await it. On non-Wasm targets with the
+//! default `std` feature, call `EventListenerFuture::wait` on the listener to block a thread instead.
 //!
 //! # Examples
 //!
+//! Register a listener before notifying it, then let the caller choose how to wait.
+//! The asynchronous path needs no blocking support.
+//!
 //! ```
 //! use event_listener_strategy::{
-//!    event_listener::{Event, EventListener},
-//!    EventListenerFuture, FutureWrapper, Strategy
+//!     event_listener::{Event, EventListener}, EventListenerFuture, FutureWrapper, Strategy,
 //! };
-//!
 //! use std::pin::Pin;
 //! use std::task::Poll;
-//! use std::thread;
-//! use std::sync::Arc;
 //!
-//! // A future that waits three seconds for an event to be fired.
-//! fn wait_three_seconds() -> WaitThreeSeconds {
-//!     let event = Event::new();
-//!     let listener = event.listen();
+//! struct Next(Option<EventListener>);
 //!
-//!     thread::spawn(move || {
-//!         thread::sleep(std::time::Duration::from_secs(3));
-//!         event.notify(1);
-//!     });
-//!
-//!     WaitThreeSeconds { listener: Some(listener) }
-//! }
-//!
-//! struct WaitThreeSeconds {
-//!     listener: Option<EventListener>,
-//! }
-//!
-//! impl EventListenerFuture for WaitThreeSeconds {
+//! impl EventListenerFuture for Next {
 //!     type Output = ();
 //!
 //!     fn poll_with_strategy<'a, S: Strategy<'a>>(
@@ -45,23 +35,21 @@
 //!         strategy: &mut S,
 //!         context: &mut S::Context,
 //!     ) -> Poll<Self::Output> {
-//!         strategy.poll(&mut self.listener, context)
+//!         strategy.poll(&mut self.0, context)
 //!     }
 //! }
 //!
-//! // Use the future in a blocking context.
-//! # #[cfg(all(feature = "std", not(target_family = "wasm")))]
-//! # {
-//! let future = wait_three_seconds();
-//! future.wait();
-//! # }
-//!
-//! // Use the future in a non-blocking context.
-//! futures_lite::future::block_on(async {
-//!     let future = FutureWrapper::new(wait_three_seconds());
-//!     future.await;
-//! });
+//! async fn notified() {
+//!     let event = Event::new();
+//!     let listener = Next(Some(event.listen()));
+//!     event.notify(1);
+//!     FutureWrapper::new(listener).await;
+//! }
+//! # futures_lite::future::block_on(notified());
 //! ```
+//!
+//! On a native thread with `std` enabled, call `listener.wait()` instead of
+//! awaiting the wrapper. Do not block an executor thread that must deliver the notification.
 
 #![cfg_attr(not(feature = "std"), no_std)]
 #![cfg_attr(docsrs, feature(doc_cfg))]
@@ -86,14 +74,23 @@ pub use pin_project_lite::pin_project;
 #[doc(no_inline)]
 pub use event_listener;
 
-/// A wrapper around an [`EventListenerFuture`] that can be easily exported for use.
+/// Defines a named [`Future`] around an [`EventListenerFuture`].
 ///
-/// This type implements [`Future`], has a `_new()` constructor, and a `wait()` method
-/// that uses the [`Blocking`] strategy to poll the future until it is ready.
+/// Use the generated private `_new` constructor inside the wrapper's module.
+/// The generated `wait` method requires this crate's `std` feature and a non-Wasm target.
+/// In a portable library, gate the method and each blocking call with the same
+/// conditions. A feature named in the macro input belongs to the calling crate:
+/// declare it there and forward it to this dependency's `std` feature.
 ///
 /// # Examples
 ///
-/// ```
+/// This native example uses the default features. It needs no runtime.
+///
+#[cfg_attr(all(feature = "std", not(target_family = "wasm")), doc = "```")]
+#[cfg_attr(
+    not(all(feature = "std", not(target_family = "wasm"))),
+    doc = "```ignore"
+)]
 /// mod my_future {
 ///     use event_listener_strategy::{easy_wrapper, EventListenerFuture, Strategy};
 ///     use std::pin::Pin;
@@ -106,19 +103,17 @@ pub use event_listener;
 ///
 ///         fn poll_with_strategy<'a, S: Strategy<'a>>(
 ///             self: Pin<&mut Self>,
-///             strategy: &mut S,
-///             context: &mut S::Context,
+///             _strategy: &mut S,
+///             _context: &mut S::Context,
 ///         ) -> Poll<Self::Output> {
-///             /* ... */
-/// #           Poll::Ready(())
+///             Poll::Ready(())
 ///         }
 ///     }
 ///
 ///     easy_wrapper! {
-///         /// A future that does something.
+///         /// A future that completes on its first poll.
 ///         pub struct MyFutureWrapper(MyFuture => ());
 ///         /// Wait for it.
-///         #[cfg(all(feature = "std", not(target_family = "wasm")))]
 ///         pub wait();
 ///     }
 ///
@@ -132,18 +127,14 @@ pub use event_listener;
 ///
 /// use my_future::MyFutureWrapper;
 ///
-/// // Use the future in a blocking context.
-/// # #[cfg(all(feature = "std", not(target_family = "wasm")))]
-/// # {
-/// let future = MyFutureWrapper::new();
-/// future.wait();
-/// # }
+/// fn main() {
+///     MyFutureWrapper::new().wait();
+/// }
 ///
 /// // Use the future in a non-blocking context.
-/// futures_lite::future::block_on(async {
-///     let future = MyFutureWrapper::new();
-///     future.await;
-/// });
+/// async fn run() {
+///     MyFutureWrapper::new().await;
+/// }
 /// ```
 #[macro_export]
 macro_rules! easy_wrapper {
@@ -285,8 +276,7 @@ macro_rules! easy_wrapper {
 ///
 /// From here, there are two additional things one can do with this trait:
 ///
-/// - The `wait` method, which uses the [`Blocking`] strategy to poll the future until it is
-///   ready, blocking the current thread until it is.
+/// - With `std` on non-Wasm targets, `wait` blocks the current thread until the future is ready.
 /// - The [`FutureWrapper`] type, which implements [`Future`] and uses the [`NonBlocking`]
 ///   strategy to poll the future.
 pub trait EventListenerFuture {
@@ -305,13 +295,13 @@ pub trait EventListenerFuture {
 
     /// Wait for the future to complete, blocking the current thread.
     ///
-    /// This function uses the [`Blocking`] strategy to poll the future until it is ready.
+    /// This method requires the `std` feature and a non-Wasm target.
     ///
     /// The blocking strategy waits inside `Strategy::poll` and returns `Ready`.
     /// An implementation that returns `Pending` itself is polled again immediately,
     /// so it can cause a hot loop instead of waiting for a notification.
     #[cfg(all(feature = "std", not(target_family = "wasm")))]
-    #[cfg_attr(docsrs, doc(all(feature = "std", not(target_family = "wasm"))))]
+    #[cfg_attr(docsrs, doc(cfg(all(feature = "std", not(target_family = "wasm")))))]
     fn wait(self) -> Self::Output
     where
         Self: Sized,

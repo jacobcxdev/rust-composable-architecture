@@ -17,8 +17,8 @@ use std::task::{Context, Poll, Waker};
 
 use rca_core::{Effect, ReduceContext, Reducer, Store};
 
-#[global_allocator]
 /// Counts allocations in the isolated registration assay.
+#[global_allocator]
 static ALLOCATOR: dhat::Alloc = dhat::Alloc;
 
 /// Separates the committed action count from deferred factory calls.

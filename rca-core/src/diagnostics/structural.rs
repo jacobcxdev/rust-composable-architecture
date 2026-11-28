@@ -459,8 +459,11 @@ fn validate<'a, K: Eq, V>(
 /// The writer can be concrete or a borrowed `dyn fmt::Write` trait object.
 ///
 /// # Examples
+/// Enable the `diagnostics` feature on `rca`.
+///
 /// ```
-/// use rca_core::diagnostics::{capture_graph, CaptureLimits, NodeCapture,
+/// # use rca_core as rca;
+/// use rca::diagnostics::{capture_graph, CaptureLimits, NodeCapture,
 ///     DiagnosticLimits, StructuralView, write_graph_view};
 /// let graph = capture_graph(0, CaptureLimits::new(1, 0), |_| NodeCapture::new(7, vec![]))?;
 /// let mut text = String::new();
@@ -656,8 +659,11 @@ fn semantic_diff<O: Eq, L: PartialEq>(
 /// Output limits are unused because this function emits no text.
 ///
 /// # Examples
+/// Enable the `diagnostics` feature on `rca`.
+///
 /// ```
-/// use rca_core::diagnostics::{capture_graph, CaptureLimits, NodeCapture,
+/// # use rca_core as rca;
+/// use rca::diagnostics::{capture_graph, CaptureLimits, NodeCapture,
 ///     DiagnosticLimits, StructuralView, diff_graph_views};
 /// let before = capture_graph(0, CaptureLimits::new(1, 0), |_| NodeCapture::new(7, vec![]))?;
 /// let after = capture_graph(0, CaptureLimits::new(1, 0), |_| NodeCapture::new(8, vec![]))?;

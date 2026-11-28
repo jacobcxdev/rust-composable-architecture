@@ -5,17 +5,17 @@ times. Choose the wait that matches the result you need.
 
 - **Admission** means that an action entered the bounded input queue.
 - **Commit** means that the actor processed the action and registered its follow-up work.
-- **Causal completion** means that this action's tracked work and descendants ended, including work that ended through cancellation.
+- An action's **lineage** is all the work RCA tracks for that action and its descendants. **Causal completion** means that none of that work remains.
 
 Even completed work can have failed or ended through cancellation. If success
 means a saved document or a closed connection, check the result from that service.
 
 | Handle or operation | What it establishes | What dropping it does |
 | --- | --- | --- |
-| `Store::try_send` returns `ActionReceipt` | The action entered the mailbox, not that it committed | Does not retract the admitted action |
-| `ActionReceipt::finish` or `Store::send` returns `ActionTask` | The actor committed the action and registered its causal work | Dropping the task does not cancel that work |
-| `EffectSender::send(...).await` | That feedback action committed | Does not await the whole ancestor lineage |
-| `ActionTask::finish().await` | All work in that action's causal lineage finished | Dropping this ordinary wait does not cancel work |
+| `Store::try_send` returns `ActionReceipt` | The action entered the input queue. It need not have committed. | Does not retract the admitted action |
+| `receipt.finish().await` or `store.send(action).await` returns `Ok(task)` | The Store committed the action and registered its follow-up work. | Dropping the task does not cancel that work. |
+| `EffectSender::send(...).await` returns `Ok(())` | The feedback action committed. Other work that the original action started can still be pending. | After admission, dropping the wait does not retract the feedback. |
+| `ActionTask::finish().await` returns | All work that RCA tracks for this action and its descendants ended. | Dropping this ordinary wait does not cancel work. |
 | `ActionTask::cancel()` | Cancellation was requested for the lineage | Does not synchronously destroy futures or undo commits |
 | `ActionTask::finish_cancelling_on_drop()` | Installs an owning wait that requests cancellation when dropped | Requests cancellation even if the wait was never polled |
 
@@ -23,7 +23,7 @@ means a saved document or a closed connection, check the result from that servic
 
 | Question | Operation | What it does not establish |
 | --- | --- | --- |
-| Did this admitted action commit? | Await its `ActionReceipt`, or call `ActionReceipt::finish` | Follow-up work can still be pending. |
+| Did this admitted action commit? | Await its `ActionReceipt` and check for success. | Follow-up work can still be pending. |
 | Did all work caused by this action end? | `ActionTask::finish` | Cancelled or failed domain work also ends. Unrelated actions are not included. |
 | Is the feature structurally installed? | `Store::ready` | Business work and initial asynchronous tasks need not be complete. |
 | Has a selected state condition become false? | `Store::wait_while` | Transient states can coalesce. This is not task completion. |

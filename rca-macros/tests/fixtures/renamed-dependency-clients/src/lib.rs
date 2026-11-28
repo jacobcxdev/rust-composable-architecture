@@ -3,8 +3,8 @@
 use r#gen::{DependencyClient, DependencyKey};
 use std::sync::Arc;
 
-#[derive(DependencyClient)]
 /// Preserves member values, explicit callback types and raw field names.
+#[derive(DependencyClient)]
 pub struct Client {
     /// Distinguishes this facade consumer from the direct-core consumer.
     #[dependency(member = String::from("renamed"))]
@@ -27,9 +27,9 @@ pub struct Client {
     pub count: Arc<dyn Fn() -> usize + Send + Sync>,
 }
 
+/// Uses generated client defaults for both dependency contexts.
 #[derive(DependencyKey)]
 #[dependency(value = Client, live = Client::test_value(), test = Client::test_value())]
-/// Uses generated client defaults for both dependency contexts.
 pub struct Key;
 
 /// Replaces the unimplemented raw-name callback with an identity callback.

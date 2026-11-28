@@ -22,8 +22,8 @@ use futures_executor::block_on;
 use rca_core::{Effect, ReduceContext, Reducer};
 use rca_test::{CaptureKey, TestStore};
 
-#[derive(Clone, Copy, Debug, Default)]
 /// Request totals and successful storage changes within one measurement window.
+#[derive(Clone, Copy, Debug, Default)]
 struct Allocations {
     /// Allocation, zeroed-allocation and reallocation attempts, including failures.
     calls: usize,
@@ -708,8 +708,8 @@ mod public_error_cleanup {
         );
     }
 
-    #[derive(Debug, Default)]
     /// Arms one exact historical clone, leaving capture and baseline teardown inert.
+    #[derive(Debug, Default)]
     struct CloneControl {
         calls: AtomicUsize,
         panic_at: AtomicUsize,
@@ -1192,8 +1192,8 @@ fn successful_issue_expectation_adds_no_allocations_beyond_collection() {
     assert_eq!(outcome.expectation.unwrap().len(), 3);
 }
 
-#[derive(Default)]
 /// Independent semantic counters; allocation totals alone cannot prove callback counts.
+#[derive(Default)]
 struct Calls {
     clones: AtomicUsize,
     equalities: AtomicUsize,
@@ -1331,8 +1331,8 @@ fn boundaries_report_allocations_and_keep_one_clone_capture_and_equality() {
     }
 }
 
-#[cfg(feature = "local")]
 /// Mirrors the real public boundary and typed-cause checks with non-Send Rc values.
+#[cfg(feature = "local")]
 mod local_boundaries {
     use super::{Calls, measured};
     use futures_executor::block_on;

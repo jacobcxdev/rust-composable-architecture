@@ -4,6 +4,8 @@ The [runnable example](../examples/named_operations.rs) starts two independent
 searches with `Task::run_named`.
 The test runs the same searches.
 
+Run these commands from the repository root. On macOS, use the [Cargo memory guard](../../../CONTRIBUTING.md#build-memory-safety).
+
 ```sh
 cargo run -p rca-example-composition-search --example named_operations
 cargo test -p rca-example-composition-search --example named_operations

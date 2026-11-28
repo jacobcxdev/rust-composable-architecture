@@ -104,11 +104,11 @@ pub trait ClockDriver: fmt::Debug + Send + Sync + 'static {
 
     /// Returns a wait permitting advisory coalescing slack after `deadline`.
     ///
-    /// Tolerance never permits an early completion and is not a host latency
-    /// bound. Providers may ignore slack and wait exactly until the deadline;
-    /// this default does so when support is declared. Elapsed deadlines remain
-    /// ready on first poll. Callers must use this origin and respect the declared
-    /// minimum tolerance; [`Clock`] applies that floor before forwarding.
+    /// If the provider supports tolerance, the default calls [`Self::sleep_until`]
+    /// with the original deadline. Tolerance never permits early completion.
+    /// The host can wake the task late, even beyond the tolerance.
+    /// Elapsed deadlines remain ready on first poll. Callers must use this clock's
+    /// origin and respect its minimum tolerance. [`Clock`] applies that minimum.
     ///
     /// # Errors
     ///
@@ -166,10 +166,11 @@ pub trait RuntimeDriver: fmt::Debug + Send + Sync + 'static {
 
     /// Returns a wait permitting advisory coalescing slack after `deadline`.
     ///
-    /// The same-origin, elapsed-readiness and cancellation contract of
-    /// [`Self::sleep_until`] still applies. Slack never permits early completion
-    /// or guarantees a host latency bound. The default ignores slack when support
-    /// is declared, preserving exact waits. [`Clock`] applies the declared floor.
+    /// If the driver supports tolerance, the default calls [`Self::sleep_until`]
+    /// with the original deadline. Its clock origin, cancellation, and first-poll
+    /// rules still apply. The wait cannot finish early, but the host can wake
+    /// the task late, even beyond the tolerance. [`Clock`] applies the driver's
+    /// declared minimum tolerance.
     ///
     /// # Errors
     ///
@@ -304,8 +305,9 @@ impl Clock {
     /// # Examples
     ///
     /// ```
-    /// use rca_core::{Clock, MonotonicInstant, RuntimeFuture};
-    /// use rca_core::ClockDriver;
+    /// # use rca_core as rca;
+    /// use rca::{Clock, MonotonicInstant, RuntimeFuture};
+    /// use rca::ClockDriver;
     /// use std::time::Duration;
     /// #[derive(Debug)]
     /// struct FixedClock;

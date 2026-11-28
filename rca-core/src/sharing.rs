@@ -1,10 +1,10 @@
-//! Owns shared values, attenuated readers, and reference-capturing projections.
+//! Supports shared values, readers, and projections onto parts of a value.
 //!
-//! [`Shared`] clones belong to one rebindable cohort. A reader or projection
-//! captures the cohort's current value reference, not its future binding.
-//! Independently created cohorts can share a reference after [`Shared::rebind`]
-//! without sharing subsequent rebindings. These handles own data, not Store
-//! membership or output authority. Retaining them cannot revive a retired scope.
+//! [`Shared`] and its clones share one binding. Readers and projections keep
+//! the value that the binding selected at the time of capture.
+//! Independent bindings can refer to the same value after [`Shared::rebind`].
+//! Later changes to either binding do not affect the other. These handles own
+//! data, not Store membership or output authority. Retaining them cannot revive a retired scope.
 //!
 //! Access is synchronous and non-blocking. No mutex guard or borrowed value can
 //! escape an access callback. Overlapping access (including synchronous reentry)
@@ -46,19 +46,6 @@
 //! under the value lock: keep them short and synchronous. Publication runs with
 //! no library lock held. Auto-traits follow stored ownership, without unsafe
 //! promotion or blanket value `Clone`, `Debug`, `Send`, or `Sync` requirements.
-//!
-//! # Examples
-//!
-//! ```
-//! use rca_core::Shared;
-//! let value = Shared::new(Some(1));
-//! let reader = value.reader().unwrap();
-//! let child = value.project(Option::as_ref, Option::as_mut).unwrap();
-//! child.update(|value| *value += 1, || {}).unwrap();
-//! value.rebind(&Shared::new(Some(10))).unwrap();
-//! assert_eq!(reader.read(|value| *value).unwrap(), Some(2));
-//! assert_eq!(value.read(|value| *value).unwrap(), Some(10));
-//! ```
 
 pub mod cache;
 
@@ -85,8 +72,8 @@ impl<Value> SharedReference<Value> {
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 /// Distinguishes failed admission from a missing projected payload.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum AccessKind {
     /// Another access currently owns the required mutex.
     Busy,
@@ -217,14 +204,40 @@ impl<Failure: std::error::Error + 'static> std::error::Error for SharedMutationE
     }
 }
 
-/// Owns a writable shared value through a rebindable alias cohort.
+/// Gives multiple owners read and write access to the same value.
+///
+/// A clone shares this handle's binding: [`rebind`](Self::rebind) switches both handles to the new value.
+/// A [reader](Self::reader) or [projection](Self::project) keeps the original value alive.
+/// It sees later changes to that value, not the replacement.
+///
+/// Access never waits for another reader or writer. Overlapping access returns a
+/// [busy error](SharedAccessError::is_busy), even inside a callback on the same thread.
+/// [`update`](Self::update) changes the value in place, unlocks it, then calls the supplied publication callback.
+/// The handle itself does not notify a Store or save the value.
+///
+/// # Examples
+///
+/// ```
+/// # use rca_core as rca;
+/// use rca::Shared;
+///
+/// let value = Shared::new(Some(1));
+/// let alias = value.clone();
+/// let reader = value.reader().unwrap();
+/// let child = value.project(Option::as_ref, Option::as_mut).unwrap();
+///
+/// value.rebind(&Shared::new(Some(10))).unwrap();
+/// child.update(|value| *value += 1, || {}).unwrap();
+/// assert_eq!(reader.read(|value| *value).unwrap(), Some(2));
+/// assert_eq!(alias.read(|value| *value).unwrap(), Some(10));
+/// ```
 pub struct Shared<Value> {
     /// Shared rebinding slot; ordinary clones follow every successful pointer swap.
     cohort: Arc<Mutex<SharedReader<Value>>>,
 }
 
 impl<Value> Shared<Value> {
-    /// Creates a new value reference and an independent cohort.
+    /// Stores the value in a new handle with its own binding.
     #[must_use]
     pub fn new(value: Value) -> Self {
         Self {
@@ -238,7 +251,7 @@ impl<Value> Shared<Value> {
     ///
     /// # Errors
     ///
-    /// Returns Busy or Poisoned if the cohort cannot be accessed.
+    /// Returns Busy or Poisoned if the binding is unavailable.
     pub fn reader(&self) -> Result<SharedReader<Value>, SharedAccessError> {
         Ok(try_lock(&self.cohort)?.clone())
     }
@@ -247,13 +260,13 @@ impl<Value> Shared<Value> {
     ///
     /// # Errors
     ///
-    /// Returns Busy or Poisoned, checking the cohort before the value reference.
+    /// Returns Busy or Poisoned. This method checks the binding before the value.
     ///
     /// # Panics
     ///
-    /// Propagates a read callback panic, poisoning the value reference. If the
-    /// callback rebinds the cohort, releasing the captured reference may also
-    /// run a panicking value or resource destructor before this method returns.
+    /// If the read callback panics, the panic propagates and poisons the value.
+    /// If the callback rebinds this handle, the method releases its old reference before it returns.
+    /// A value or resource destructor can panic at that point.
     pub fn read<ResultValue>(
         &self,
         read: impl FnOnce(&Value) -> ResultValue,
@@ -264,15 +277,17 @@ impl<Value> Shared<Value> {
         result
     }
 
-    /// Mutates the captured value and explicitly publishes after releasing its lock.
+    /// Updates the value, releases its lock, then calls `publish`.
     ///
-    /// The owned result cannot borrow the value. Publication runs exactly once
-    /// after a normally returning mutation, even when the value is unchanged.
+    /// If `update` returns normally, `publish` runs once, even for an unchanged value.
+    /// Another writer can change the value before `publish` reads it.
+    /// To keep the exact result of this update, return an owned value from `update`.
     ///
     /// # Examples
     ///
     /// ```
-    /// use rca_core::Shared;
+    /// # use rca_core as rca;
+    /// use rca::Shared;
     /// let value = Shared::new(1);
     /// let previous = value.update(|value| std::mem::replace(value, 2), || {}).unwrap();
     /// assert_eq!(previous, 1);
@@ -298,9 +313,10 @@ impl<Value> Shared<Value> {
         result
     }
 
-    /// Mutates the captured value and explicitly publishes after releasing its lock.
+    /// Updates the value and calls `publish` even if `update` returns an error.
     ///
-    /// Returning `Err` retains and publishes earlier writes; this is not rollback.
+    /// If `update` returns `Err`, its writes remain.
+    /// As with [`Self::update`], this method releases the lock before it calls `publish`.
     /// The returned result and typed cause are owned and cannot borrow the value.
     ///
     /// # Errors
@@ -328,20 +344,19 @@ impl<Value> Shared<Value> {
         result
     }
 
-    /// Rebinds this cohort to the target's currently captured value reference.
+    /// Switches this handle and its clones to the target's current value.
     ///
-    /// All ordinary clones follow the swap; captured readers/projections do not.
-    /// The target keeps its independent cohort. Displaced references are dropped
-    /// after unlocking, so their destructors may reenter the receiving cohort.
+    /// Existing readers and projections keep the original value. If the target has an independent
+    /// binding, later changes to its binding do not affect this handle.
+    /// The method releases the old reference outside the lock, so its destructor can access this handle.
     ///
     /// # Errors
     ///
-    /// Checks target cohort access first, then receiver access for Busy/Poisoned.
-    /// On failure the receiving binding is unchanged.
+    /// Checks the target binding first, then this binding. A Busy or Poisoned error leaves this binding unchanged.
     ///
     /// # Panics
     ///
-    /// A displaced value's destructor may panic after the completed swap.
+    /// The old value's destructor can panic after the binding changes.
     pub fn rebind(&self, target: &Self) -> Result<(), SharedAccessError> {
         let replacement = target.reader()?;
         let previous = {
@@ -359,7 +374,7 @@ impl<Value> Shared<Value> {
     ///
     /// # Errors
     ///
-    /// Returns Busy or Poisoned when capturing the cohort's reference fails.
+    /// Returns Busy or Poisoned if the binding is unavailable.
     pub fn project<Child, Get, GetMut>(
         &self,
         get: Get,
@@ -390,7 +405,10 @@ impl<Value> fmt::Debug for Shared<Value> {
     }
 }
 
-/// Reads an owned captured reference without mutation or rebinding authority.
+/// Gives read-only access to one shared value.
+///
+/// The reader sees writes to that value even after the original [`Shared`] handle switches to another value.
+/// Its callback receives `&Value`, never `&mut Value`. Interior mutability still works through that reference.
 pub struct SharedReader<Value> {
     /// Keeps this exact value and any cache subscription alive across rebinding.
     reference: Arc<SharedReference<Value>>,
@@ -527,7 +545,7 @@ where
         self.reader.read(read)
     }
 
-    /// Attenuates this projection without retargeting its captured reference.
+    /// Returns a read-only projection onto the same value.
     #[must_use]
     pub fn reader(&self) -> SharedReadProjection<Root, Value, Get>
     where

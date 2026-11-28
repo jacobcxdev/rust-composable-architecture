@@ -89,11 +89,11 @@ only while that reducer executes. Nested wrappers shadow their parent for the
 same key. Sibling and parent reducers retain their own view, including when a
 child panics: the borrowed context restores its previous layer during unwind.
 
-`ReduceContext::with_dependency_override` provides the action-specific explicit
-layer. Resolution order is deterministic: a TestStore test value wins, then an
-explicit action override, the nearest feature wrapper, the Store-owned value,
-and finally the key's live default. Store and TestStore builders therefore
-remain the authority for whole-store and test-wide values.
+`ReduceContext::with_dependency_override` sets an override for one action.
+An explicit TestStore override wins over the action override, which wins over the nearest feature override.
+If none applies, the Store uses its explicit value or the default for its environment.
+TestStore selects a test default, not the live default.
+See [dependency precedence](guides/dependencies-and-shared-state.md#which-dependency-value-does-the-feature-receive) for missing defaults and preview environments.
 
 An effect cannot retain or query `ReduceContext` after reduction. Clone the
 specific service handle needed by the future while reducing, then move that
@@ -278,7 +278,7 @@ This required counter runs child logic before parent accounting. The paths use
 ordinary closures and pattern matching.
 
 ```rust
-use rca_core::{ActionPath, Effect, ReduceContext, Reducer, StatePath, combine, scope};
+use rca::{ActionPath, Effect, ReduceContext, Reducer, StatePath, combine, scope};
 
 struct CounterState {
     count: usize,
@@ -350,14 +350,14 @@ let reducer = combine((scope(counter_state, counter_action, Counter), App));
 let _: &dyn Reducer<State = AppState, Action = AppAction> = &reducer;
 ```
 
-The equivalent example in the core composition source is compiled as a doctest.
+The [required-child doctest](../rca-core/src/composition/scope.rs) shows the parent reading state after the child updates it.
 The shared deterministic, Tokio current-thread, and Tokio multi-thread
 conformance scenario additionally proves a non-Clone input is borrowed by both
 reducers and a child-owned effect output is mapped back into the parent.
 
 ## Derived paths and tuple composition
 
-The public `StatePaths` and `ActionPaths` derives generate the same static
+With the `macros` feature, the `StatePaths` and `ActionPaths` derives generate the same static
 field/action path constructors as the handwritten closures above. Annotate
 optional and keyed members with `#[rca(optional)]` and `#[rca(keyed)]`.
 `reducers![first, second]` is the macro spelling of ordered `combine`.
@@ -365,9 +365,15 @@ optional and keyed members with `#[rca(optional)]` and `#[rca(keyed)]`.
 Generated action-path embedders expose `Clone` because a mapped effect may
 emit more than one parent action. That bound applies to the small noncapturing
 embedder closure, not to the action enum. Derived and handwritten paths compose
-through `scope`, `if_some`, and `for_each` without `Action: Clone`. See
-`examples/composition-search` for one trace exercised against both forms,
-including Store-scoped keyed read/send/distinct-observe/closure flow.
+through `scope`, `if_some`, and `for_each` without `Action: Clone`.
+The [search application](../examples/composition-search/src/lib.rs) shows both forms.
+Its [tests](../examples/composition-search/tests/app.rs) use the same inputs to compare their child lifetimes.
+
+To generate the parent domains and their routing, use `#[rca::reducer(...)]` with `body(generated)`.
+In the generated state, `#[reducer(child = child)] child: _` selects the child's state type.
+In the generated action, `#[reducer(child = child)] Child(_)` selects its action type.
+The [complete required-child example](../tests/downstream-packaged/tests/reducer_synthesis.rs) declares the child reducer, binds it once, and sends two inputs.
+Compare its generated routing with the [handwritten required counter](#example).
 
 Constructible path namespaces implement `Debug` without bounds on domain types.
 Namespaces with type parameters are aliases to isolated, uninhabited marker types.
@@ -386,10 +392,11 @@ borrowed actions and one-shot payload slots.
 
 ## Keyed example
 
-This shape routes one row action while retaining explicit handwritten paths:
+This extract routes one row action with handwritten paths. It omits the row types and both reducers.
+See the [complete search reducer](../examples/composition-search/src/lib.rs) and its [application manifest](../examples/composition-search/Cargo.toml).
 
 ```rust
-use rca_core::{
+use rca::{
     KeyedAction, KeyedActionPath, KeyedState, KeyedStatePath, ReducerExt,
 };
 

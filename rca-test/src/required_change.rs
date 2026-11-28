@@ -15,6 +15,8 @@
 /// history. Equality must lawfully compare that history. The adapter does not detect aliasing.
 ///
 /// # Examples
+/// Add `rca-test` as a dev-dependency for this example.
+///
 /// ```
 /// use rca_test::requiring_change;
 ///

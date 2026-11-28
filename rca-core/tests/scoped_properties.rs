@@ -24,8 +24,8 @@ use rca_core::{
     with_dependency,
 };
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 /// Drives both the public handle and a separate state-machine model.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum Operation {
     Register,
     Send(i8),
@@ -40,15 +40,15 @@ enum Operation {
     Shutdown,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 /// Separates stable child identity from the value changed by actions.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 struct Child {
     id: u8,
     value: i16,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
 /// Records routed reductions independently from handle and observation lifetimes.
+#[derive(Clone, Debug, Eq, PartialEq)]
 struct AppState {
     child: Option<Child>,
     reducer_calls: Vec<usize>,
@@ -69,9 +69,9 @@ enum AppAction {
     Start(RaceTransition),
 }
 
+/// Changes the child while previously admitted actions remain queued.
 #[cfg(feature = "test-util")]
 #[derive(Clone, Copy, Debug)]
-/// Changes the child while previously admitted actions remain queued.
 enum RaceTransition {
     Remove,
     Replace(u8),
@@ -163,8 +163,8 @@ fn child_action_path() -> ActionPath<
     )
 }
 
-#[derive(Clone)]
 /// Runs properties on a shared pool without providing a finite timer scheduler.
+#[derive(Clone)]
 struct PoolDriver {
     /// Keeps accepted tasks alive independently from individual Store handles.
     pool: ThreadPool,
@@ -229,8 +229,8 @@ fn property_runtime() -> Runtime {
     })
 }
 
-#[cfg(miri)]
 /// Allows asynchronous pool shutdown after the final per-case Miri handle drops.
+#[cfg(miri)]
 fn wait_for_runtime_threads() {
     // ThreadPool closes workers asynchronously after its final handle drops.
     std::thread::sleep(std::time::Duration::from_millis(500));
@@ -284,15 +284,15 @@ fn pool_driver_rejects_unsupported_finite_future_deadlines() {
     assert!(message.contains("property runtime does not support finite future deadlines"));
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 /// Keeps child invalidation distinct from shutdown of an otherwise valid handle.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum ExpectedError {
     ScopeEnded,
     StoreStopped,
 }
 
-#[derive(Clone, Copy, Debug)]
 /// Records registration ownership separately from the selected child's lifetime.
+#[derive(Clone, Copy, Debug)]
 struct ModelHandle {
     /// Changes whenever the caller acquires a new handle, even for the same child.
     registration_generation: u64,
@@ -300,8 +300,8 @@ struct ModelHandle {
     child_generation: u64,
 }
 
-#[derive(Clone, Copy, Debug)]
 /// Models a retained initial value followed by one replaceable publication slot.
+#[derive(Clone, Copy, Debug)]
 struct ModelObservation {
     /// Identifies the handle that owns this stream.
     registration_generation: u64,
@@ -314,8 +314,8 @@ struct ModelObservation {
     closed: bool,
 }
 
-#[derive(Debug)]
 /// Predicts outcomes without calling RCA's routing or observation implementation.
+#[derive(Debug)]
 struct ReferenceModel {
     child: Option<Child>,
     /// Advances on identity transitions, not ordinary child value changes.
@@ -474,14 +474,14 @@ impl ReferenceModel {
         ModelTake::Pending
     }
 
-    #[cfg(feature = "test-util")]
     /// Counts only the actor's live registration, not retained expired handles.
+    #[cfg(feature = "test-util")]
     fn active_handle_count(&self) -> usize {
         usize::from(!self.stopped && self.current_handle().is_some())
     }
 
-    #[cfg(feature = "test-util")]
     /// Excludes closed streams even if the caller still retains their value.
+    #[cfg(feature = "test-util")]
     fn active_observation_count(&self) -> usize {
         usize::from(
             !self.stopped
@@ -492,8 +492,8 @@ impl ReferenceModel {
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 /// Distinguishes no stream, a value, a pending stream and an ended stream.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum ModelTake {
     Absent,
     Value(i16),
@@ -817,8 +817,8 @@ proptest! {
     }
 }
 
-#[cfg(feature = "test-util")]
 /// Includes identity-preserving replacement as well as removal and reinsertion.
+#[cfg(feature = "test-util")]
 fn race_transition_strategy() -> impl Strategy<Value = RaceTransition> {
     prop_oneof![
         Just(RaceTransition::Remove),
@@ -980,8 +980,8 @@ proptest! {
     }
 }
 
-#[derive(Clone)]
 /// Counts use of the selected service rather than only comparing copied IDs.
+#[derive(Clone)]
 struct ServiceHandle {
     /// Eleven wrapping consecutive IDs remain distinct within each generated case.
     id: u8,
@@ -1003,8 +1003,8 @@ impl DependencyKey for ServiceKey {
     }
 }
 
-#[derive(Default)]
 /// Records sibling, nested, captured and completed dependency selections separately.
+#[derive(Default)]
 struct DependencyState {
     sibling: Vec<u8>,
     nested: Vec<u8>,
@@ -1019,8 +1019,8 @@ enum DependencyAction {
     Completed(ServiceHandle),
 }
 
-#[derive(Clone, Copy)]
 /// Selects either the unaffected sibling or the overridden nested reducer.
+#[derive(Clone, Copy)]
 enum ProbeRole {
     Sibling,
     Nested,

@@ -19,9 +19,9 @@ use rca_core::local::{
 };
 use rca_core::{MonotonicInstant, MountIdentity, OutputDelivery, OutputFlow};
 
+/// Measures allocations only inside the isolated child assay.
 #[cfg(all(feature = "allocation-measurement", feature = "test-util"))]
 #[global_allocator]
-/// Measures allocations only inside the isolated child assay.
 static ALLOCATOR: dhat::Alloc = dhat::Alloc;
 
 /// Polls owner-thread tasks explicitly, with a clock that stays at zero.
@@ -472,12 +472,12 @@ fn public_local_child_output_keeps_rc_identity_and_owner_local_captures() {
     drop(output);
 }
 
-#[cfg(feature = "test-util")]
 /// Pauses transactions over the shared local fixture state.
+#[cfg(feature = "test-util")]
 type Gate = rca_core::testing::local::TransactionGate<RootState, RootAction>;
 
-#[cfg(feature = "test-util")]
 /// Holds a ready child, a one-slot mailbox and two distinct output declarations.
+#[cfg(feature = "test-util")]
 struct Gated {
     driver: Driver,
     gate: Gate,
@@ -489,8 +489,8 @@ struct Gated {
     calls: Rc<Cell<usize>>,
 }
 
-#[cfg(feature = "test-util")]
 /// Starts a gated store whose root consumes the original output.
+#[cfg(feature = "test-util")]
 fn gated() -> Gated {
     gated_with_handler(|state, value| {
         state.outcome = Some(value);
@@ -498,8 +498,8 @@ fn gated() -> Gated {
     })
 }
 
-#[cfg(feature = "test-util")]
 /// Acknowledges startup before exposing a gate with no pending transaction.
+#[cfg(feature = "test-util")]
 fn gated_with_handler(
     mut handler: impl FnMut(&mut RootState, Outcome) -> OutputFlow<Outcome> + 'static,
 ) -> Gated {
@@ -1607,24 +1607,24 @@ fn local_reaction_unwind_returns_continued_output_with_original_allocation() {
     assert_eq!((handlers.get(), reactions.get()), (1, 1));
 }
 
-#[cfg(feature = "test-util")]
 /// Separates parent replacement from child retirement and retained root output.
+#[cfg(feature = "test-util")]
 struct NestedRoot {
     parent: Option<NestedParent>,
     epoch: u64,
     outcome: Option<Outcome>,
 }
 
-#[cfg(feature = "test-util")]
 /// Holds the optional child whose lifetime can end without replacing its parent.
+#[cfg(feature = "test-util")]
 struct NestedParent(Option<Rc<Cell<usize>>>);
 
-#[cfg(feature = "test-util")]
 /// Replaces the parent and advances its identity on each root action.
+#[cfg(feature = "test-util")]
 struct NestedRootFeature;
 
-#[cfg(feature = "test-util")]
 /// Preserves nested state while output handlers control the test schedule.
+#[cfg(feature = "test-util")]
 struct NestedParentFeature;
 
 #[cfg(feature = "test-util")]
@@ -1655,8 +1655,8 @@ impl Feature for NestedParentFeature {
     }
 }
 
-#[cfg(feature = "test-util")]
 /// Retires the child while keeping its ancestor context valid.
+#[cfg(feature = "test-util")]
 struct RetireNestedChild;
 
 #[cfg(feature = "test-util")]
@@ -2134,11 +2134,11 @@ fn local_parent_replacement_drains_captures_before_successor_with_weak_outputs_r
     drop(output);
 }
 
-#[cfg(all(feature = "allocation-measurement", feature = "test-util"))]
 /// Checks Local output phases in the dedicated allocation host.
 ///
 /// # Panics
 /// Panics if output ownership or allocation counts change.
+#[cfg(all(feature = "allocation-measurement", feature = "test-util"))]
 pub fn local_output_phase_costs() {
     /// Counts requested allocations, including fixture work inside the supplied phase.
     fn measure<T>(run: impl FnOnce() -> T) -> (T, (u64, u64)) {

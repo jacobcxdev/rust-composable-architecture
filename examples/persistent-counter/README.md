@@ -16,9 +16,10 @@ A malformed file causes an error. The CLI does not replace it with zero.
 
 ## Choose the document type
 
-Use `Document` when a Store owns the value and the caller needs a receipt for each save request.
-If several parts of the application share the value through a cache, use `SharedDocument`.
-Neither option detects conflicting writes from other processes.
+If a Store owns the value and needs save receipts, use `Document::new`.
+If several parts of the application share the value through a cache, use `SharedDocument::new`.
+Neither constructor checks for competing writes. The example's file backend does not detect them either.
+For conflict detection, use `SharedDocument::revisioned` with a backend that can compare revisions and save atomically.
 The [integration guide](../../docs/integration-boundaries.md#choose-shared-state-or-persistence) compares both options with raw backend keys and storage that tracks revisions.
 
 The codec accepts exactly 16 bytes: the eight bytes `RCACTR01`, then a little-endian unsigned 64-bit value.
@@ -43,11 +44,13 @@ The CLI uses this order:
 
 | Operation | What success means | What it does not mean |
 | --- | --- | --- |
-| `Action::flush()` receipt | The backend acknowledged the requested revision under its save contract. | The document refuses later edits. |
+| `Action::flush()` receipt | The backend acknowledged the requested revision or a later one. | The backend wrote a separate copy of that revision, or the document refuses later edits. |
 | `Action::close()` receipt | The backend acknowledged the final revision. The document is closed. | All external file operations stopped. |
 | `FileBackend::close()` | All file operations that this backend accepted have ended. | The document saved its final state. |
 | Store shutdown | RCA stopped the work it owns. | The file backend flushed, rolled back a write or stopped all external writers. |
 
+The flush receipt names the revision at the time the Store processed the flush action.
+One later save can cover several flush requests without writing each intermediate value.
 Waiting for an action task to finish is not the same as waiting for a save receipt.
 Dropping that task handle does not cancel persistence.
 Use flush to save a document that must remain editable.
@@ -90,11 +93,13 @@ If an operation blocks indefinitely, so does close.
 
 Backend close does not flush document state or recover an abandoned write's result.
 After explicit cancellation, submit `Action::abort()`. Wait for backend close.
-Then create a **new** document and load it before making another edit.
+Open a new backend for the same path. Load a new document from it before making another edit.
 An independently constructed backend can still write the same path. The caller must prevent this.
 Store shutdown neither flushes the document nor waits for all external writes.
 
 ## Tests
+
+On macOS, run these commands through the [Cargo memory guard](../../CONTRIBUTING.md#build-memory-safety).
 
 ```sh
 cargo test -p rca-persistence --features file

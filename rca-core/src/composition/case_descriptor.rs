@@ -19,7 +19,8 @@ type Embed = dyn Fn(Box<dyn Any>) -> Result<Box<dyn Any>, Box<dyn Any>>;
 ///
 /// # Examples
 /// ```
-/// use rca_core::OwnedCasePath;
+/// # use rca_core as rca;
+/// use rca::OwnedCasePath;
 /// enum Event { Value(Option<String>) }
 /// let path = OwnedCasePath::optional(Event::Value);
 /// let event = path.try_embed::<Event>(Box::new(String::from("value"))).unwrap();

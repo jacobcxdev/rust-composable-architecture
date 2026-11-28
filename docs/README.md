@@ -18,7 +18,8 @@ The optional Codex plugin contains two skills. It adds no dependency to a Rust a
 | Build an application **with** RCA | [`$rca:rca`](../plugins/rca/skills/rca/SKILL.md) | Test that a removed worker cannot update its replacement, even when both use the same ID. |
 | Change **RCA itself** | [`$rca:rca-contribute`](../plugins/rca/skills/rca-contribute/SKILL.md) | Review a cancellation change. Which contracts and tests distinguish the old behavior from the new one? |
 
-For a published crate, find its resolved version in the application's `Cargo.lock`.
+The [`v0.0.1` preview](https://github.com/jacobcxdev/rust-composable-architecture/tree/v0.0.1) has no plugin or standalone skills. Use the source at that tag.
+For a published crate whose tag includes the plugin, find the resolved version in your application's `Cargo.lock`.
 Set `RCA_TAG` to the matching [release tag](https://github.com/jacobcxdev/rust-composable-architecture/tags), including the leading `v`. Then install:
 
 ```sh
@@ -26,9 +27,9 @@ codex plugin marketplace add jacobcxdev/rust-composable-architecture --ref "$RCA
 codex plugin add rca@rca-tools
 ```
 
-For an RCA checkout, use `codex plugin marketplace add .` from its root instead of the first command.
+If your checkout contains `.agents/plugins/marketplace.json`, run `codex plugin marketplace add .` from its root instead of the first command.
 This selects guidance for that checkout, including changes that do not yet have a tag.
-The plugin and both skills ship with RCA. When you upgrade RCA, select guidance from the same revision.
+When you upgrade RCA, select guidance from the same revision.
 See the [changelog](../CHANGELOG.md) for deprecations and migration steps.
 
 To switch from one pinned release to another, remove the old plugin and its catalog first:
@@ -68,22 +69,29 @@ For scoped work, owned values, or multiple children, use the [worked recipes](..
 
 ## API reference and support
 
-Use the [`rca` package](../rca/Cargo.toml) for the [main library](../rca/src/lib.rs).
+If you followed a link here from the API reference, return to that page to search the same revision.
+The **Source** links below stay in the revision of this guide.
+
+For hosted HTML, look for RCA and your branch or tag in the [documentation catalogue](https://docs.jacobcx.dev/).
+A branch can move before its next build. To check a snapshot, compare its `docs-meta.json` field `commitSha` with your commit.
+If the catalogue has no matching build, [build a local preview](documentation-publishing.md#build-a-local-preview).
+Open `index.html` in the output directory from that recipe.
+
+For a published crate, the **Released API** column opens docs.rs. Select the version from your application's
+`Cargo.lock`. The reference becomes available after docs.rs builds the package. A Git tag alone is not a crate release.
+
+| What you need | Source in this revision | Released API on docs.rs |
+| --- | --- | --- |
+| Application imports, including service dependencies and shared state | [`rca`](../rca/src/lib.rs) | [`rca`](https://docs.rs/rca) |
+| The same application API under the long package name | [`rust-composable-architecture`](../rust-composable-architecture/src/lib.rs) | [`rust-composable-architecture`](https://docs.rs/rust-composable-architecture) |
+| State changes, effects, runtime contracts, and child identity | [`rca-core`](../rca-core/src/lib.rs) | [`rca-core`](https://docs.rs/rca-core) |
+| An existing Tokio runtime | [`rca-tokio`](../rca-tokio/src/lib.rs) | [`rca-tokio`](https://docs.rs/rca-tokio) |
+| A test Store, a clock you control, and exhaustive assertions | [`rca-test`](../rca-test/src/lib.rs) | [`rca-test`](https://docs.rs/rca-test) |
+| Documents, storage backends, and recovery | [`rca-persistence`](../rca-persistence/src/lib.rs) | [`rca-persistence`](https://docs.rs/rca-persistence) |
+| Macros for dependencies, paths, snapshots, and reducer composition | [`rca-macros`](../rca-macros/src/lib.rs) | [`rca-macros`](https://docs.rs/rca-macros) |
+
 The support policy lists [Cargo features](support.md#features) and [public import paths](support.md#public-api-paths).
-
-| For this API | Read this crate |
-| --- | --- |
-| Application imports and optional features | [`rca`](../rca/src/lib.rs) |
-| Service dependencies and shared state | [`rca`](../rca/src/lib.rs) includes both. See [how to choose between them](guides/dependencies-and-shared-state.md). |
-| State changes, effects, runtime contracts and child identity | [`rca-core`](../rca-core/src/lib.rs) |
-| An existing Tokio runtime | [`rca-tokio`](../rca-tokio/src/lib.rs) |
-| A test Store, a clock you control and exhaustive assertions | [`rca-test`](../rca-test/src/lib.rs) |
-| Documents, storage backends and recovery | [`rca-persistence`](../rca-persistence/src/lib.rs) |
-| Macros for dependencies, paths, snapshots and reducer composition | [`rca-macros`](../rca-macros/src/lib.rs) |
-
-For searchable HTML in a local checkout, use the [documentation build instructions](documentation-publishing.md).
-On macOS, use the [build memory guard](../CONTRIBUTING.md#build-memory-safety) for each Cargo command.
-After the build, open `target/doc/rca/index.html`.
+Service dependencies and shared state need no feature. See [how to choose between them](guides/dependencies-and-shared-state.md).
 
 The [support policy](support.md#targets) lists current targets. The [roadmap](roadmap.md) describes plans for embedded devices.
 
@@ -92,4 +100,4 @@ The [support policy](support.md#targets) lists current targets. The [roadmap](ro
 1. [Build and review a change](../CONTRIBUTING.md).
 2. [Choose checks for the change](qualification.md). Use [compiler contracts](compiler-contract-testing.md) for compile-time behaviour and the [keyed fuzzer](../fuzz/README.md) for generated lifecycle tests.
    See [runtime measurements](performance/method.md), [composition measurements](performance/composition/README.md), and [compile and size fixtures](../benches/compile/README.md) for benchmarks.
-3. [Publish the crates](releasing.md) or [check automatic documentation publication](documentation-publishing.md). These use separate workflows.
+3. [Publish the crates](releasing.md) or [check a documentation build](documentation-publishing.md#check-a-build). These use separate workflows.

@@ -388,20 +388,20 @@ fn root_batch(bencher: divan::Bencher, tasks: usize, effects: usize) {
     );
 }
 
-#[divan::bench(args = [1, 16], sample_count = 50, max_time = 0.5)]
 /// Measures full batches containing typed tasks only.
+#[divan::bench(args = [1, 16], sample_count = 50, max_time = 0.5)]
 fn root_task_batch(bencher: divan::Bencher, width: usize) {
     root_batch(bencher, width, 0);
 }
 
-#[divan::bench(args = [2, 16], sample_count = 50, max_time = 0.5)]
 /// Measures the added batch dispatch when no task context is needed.
+#[divan::bench(args = [2, 16], sample_count = 50, max_time = 0.5)]
 fn root_effect_batch(bencher: divan::Bencher, width: usize) {
     root_batch(bencher, 0, width);
 }
 
-#[divan::bench(args = [1, 8], sample_count = 50, max_time = 0.5)]
 /// Measures batches that register ordinary effects before typed tasks.
+#[divan::bench(args = [1, 8], sample_count = 50, max_time = 0.5)]
 fn root_mixed_batch(bencher: divan::Bencher, width: usize) {
     root_batch(bencher, width, width);
 }

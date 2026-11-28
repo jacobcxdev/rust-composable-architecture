@@ -37,8 +37,8 @@ pub trait CaptureKey: 'static {
     type Error: Send + 'static;
 }
 
-#[cfg(feature = "local")]
 /// Exposes the same expectation policy with owner-local values and callbacks.
+#[cfg(feature = "local")]
 pub(crate) mod local {
     use super::{CaptureFamily, ExpectationEntries, Local, update_expectation};
     use crate::error::LocalCause;
@@ -139,8 +139,8 @@ impl CaptureFamily for Shared {
     }
 }
 
-#[cfg(feature = "local")]
 /// Keeps values and capture callbacks on their owner without transfer bounds.
+#[cfg(feature = "local")]
 pub(super) struct Local;
 #[cfg(feature = "local")]
 impl CaptureFamily for Local {

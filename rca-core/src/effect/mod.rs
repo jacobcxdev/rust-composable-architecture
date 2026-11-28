@@ -292,7 +292,10 @@ impl<Action> Effect<Action> {
         }
     }
 
-    /// Merges non-empty effects in source order for concurrent execution.
+    /// Combines effects without waiting for one to finish before starting the next.
+    ///
+    /// The Store registers non-empty effects in input order. The runtime decides
+    /// when each task runs. For sequential work, use [`Self::concatenate`].
     ///
     /// Consumes the iterator synchronously without capturing its borrows.
     /// Returns [`Effect::none`] without allocating when every effect is empty.
@@ -347,6 +350,12 @@ impl<Action> Effect<Action> {
     /// Drops the completed future before delivering its result. `Some(action)`
     /// waits for the action's commit; `None` completes without sending. Like
     /// [`Effect::run`], cancellation cannot pre-empt a non-yielding poll.
+    ///
+    /// # Panics
+    ///
+    /// A panic while polling the future propagates on the runtime task, not from
+    /// this constructor. If the task unwinds, the Store actor fails when it
+    /// processes the failure. The action that launched the effect committed before the future ran.
     pub fn future<Fut>(future: Fut) -> Self
     where
         Fut: Future<Output = Option<Action>> + Send + 'static,
@@ -366,6 +375,12 @@ impl<Action> Effect<Action> {
     /// Runtime cancellation cannot pre-empt a future that spins forever in one
     /// poll. Long-running work must await or yield so cancellation and Store
     /// shutdown can make progress.
+    ///
+    /// # Panics
+    ///
+    /// The factory runs on the runtime task's first poll. A panic from that
+    /// call or its future propagates on the task. If the task unwinds, the Store
+    /// actor fails when it processes the failure. This is not an ordinary effect error.
     pub fn run<F, Fut>(operation: F) -> Self
     where
         F: FnOnce(EffectSender<Action>) -> Fut + Send + 'static,
@@ -433,7 +448,8 @@ impl<Action> Effect<Action> {
     /// # Examples
     ///
     /// ```
-    /// use rca_core::{Effect, Runtime};
+    /// # use rca_core as rca;
+    /// use rca::{Effect, Runtime};
     /// use std::time::Duration;
     /// fn deadline_effect(runtime: &Runtime) -> Effect<u8> {
     ///     Effect::send_at(runtime.now().saturating_add(Duration::from_secs(1)), 42)
@@ -468,7 +484,8 @@ impl<Action> Effect<Action> {
     /// # Examples
     ///
     /// ```
-    /// use rca_core::Effect;
+    /// # use rca_core as rca;
+    /// use rca::Effect;
     /// use std::time::Duration;
     /// let effect = Effect::run(|sender| async move {
     ///     let _ = sender.send(42).await;

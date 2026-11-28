@@ -105,6 +105,8 @@ pub trait RevisionBackend: Backend {
 /// Plain documents use this private marker internally but never report a backend
 /// revision. External code cannot construct it or request a default value.
 ///
+/// Both examples use `rca-persistence` without optional features. Each fails to compile by design.
+///
 /// ```compile_fail,E0423
 /// use rca_persistence::NoBackendRevision;
 /// let revision = NoBackendRevision(());

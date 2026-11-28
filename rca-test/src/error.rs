@@ -407,8 +407,8 @@ impl CaptureCause for SharedCause {
     }
 }
 
-#[cfg(feature = "local")]
 /// Keeps an owner-local cause opaque without adding `Send` or `Sync` bounds.
+#[cfg(feature = "local")]
 pub(crate) struct LocalCause(AssertUnwindSafe<Mutex<Box<dyn Any>>>);
 
 #[cfg(feature = "local")]
@@ -434,8 +434,8 @@ impl CaptureCause for LocalCause {
     }
 }
 
-#[cfg(feature = "local")]
 /// Defines the nominal owner-local facade over the shared failure policy.
+#[cfg(feature = "local")]
 pub(crate) mod local {
     /// Reports a failed owner-local exhaustive Store assertion operation.
     ///

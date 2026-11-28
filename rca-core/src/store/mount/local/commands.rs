@@ -78,8 +78,8 @@ struct Cell<R, A, C, X> {
     mapper: RefCell<Option<Box<dyn FnMut(C) -> X>>>,
     /// Allows declared control input to bypass only the ordinary input gate.
     class: InputClass,
-    #[cfg(feature = "test-util")]
     /// Publishes a weak request slot only while the actor holds that frontier.
+    #[cfg(feature = "test-util")]
     pending: RefCell<Option<(usize, Weak<crate::store::mounted::SendSlot<C>>)>>,
 }
 

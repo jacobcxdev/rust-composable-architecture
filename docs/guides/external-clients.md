@@ -70,7 +70,7 @@ global/task-local registry after suspension:
 ```rust
 let response = (context.dependency::<ClientsKey>().request)(state.id);
 return Effect::run(move |sender| async move {
-    // This one-shot effect ends on either admission or rejection; never retry via root input.
+    // Success means the Store committed the response. Do not retry a rejection through the root.
     let _ = sender.send(FeatureAction::Response(response.await)).await;
 });
 ```
@@ -96,10 +96,14 @@ sends `EventsClosed`. The reducer records each observable outcome.
 | Ended effect-output authority | Effect sender rejects output | Old work cannot commit to a same-identity replacement |
 | Store shutdown | Pending owned work is dropped | Pending completions, event admission and retained output are rejected |
 
-When a send succeeds, the queue has accepted the item. The reducer need not have
-processed it yet. Capacity limits the items in the queue. Each waiting
-`send(value)` still owns one more item outside the queue. The recipe uses
-`try_send` to avoid this wait. On overflow, the application can retry, discard
+When `StreamControl::send(value).await` succeeds, the stream's input queue accepted the item.
+That result does not tell you whether the effect read the item or sent an action to the Store.
+When `EffectSender::send(action).await` succeeds, the Store committed that action.
+Neither result means an independent observer processed the change.
+
+Capacity limits the items in the stream's input queue. Each waiting
+`StreamControl::send` still owns one more item outside the queue. The recipe uses
+`StreamControl::try_send` to avoid this wait. On overflow, the application can retry, discard
 the item, slow the source or report the problem. A full queue does not mean the
 provider denied the request.
 
@@ -133,7 +137,8 @@ shows how removing an ancestor retires a descendant's timer and rejects its late
 
 ## Reproduce
 
-From the repository root:
+Run this test from the repository root.
+On macOS, pass the Cargo arguments to the [build memory guard](../../CONTRIBUTING.md#build-memory-safety).
 
 ```sh
 cargo test -p rca-test --test external_clients

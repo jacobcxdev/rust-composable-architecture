@@ -9,7 +9,7 @@ It is not a smol-rs release. Crediting the original authors does not imply that 
 - Original authors: Stjepan Glavina and John Nunley. The manifest retains the original attribution verbatim.
 - Licence: `Apache-2.0 OR MIT`. The fork keeps the archive copies of `LICENSE-APACHE` and `LICENSE-MIT` unchanged.
 - `Cargo.toml.upstream` contains the exact bytes of the archive's `Cargo.toml.orig`. Cargo generates a new `Cargo.toml.orig` for the fork package.
-- The fork notice precedes the original README. The original `CHANGELOG.md` describes upstream releases only.
+- The fork notice and example precede the historical README. Its Eventcounts link now points to the author's surviving article. The original `CHANGELOG.md` describes upstream releases only.
 
 ## Fork changes
 

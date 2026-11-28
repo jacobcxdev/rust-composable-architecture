@@ -6,32 +6,39 @@
 //! Driver callbacks and wait destructors can panic. These handles propagate
 //! provider panics without converting them into recoverable effect failures.
 //!
+//! Enable the `local` feature on `rca`.
+//!
 //! ```compile_fail
-//! use rca_core::local::Runtime;
+//! # use rca_core as rca;
+//! use rca::local::Runtime;
 //! fn require_send<T: Send>() {}
 //! require_send::<Runtime>();
 //! ```
 //!
 //! ```compile_fail
-//! use rca_core::local::Runtime;
+//! # use rca_core as rca;
+//! use rca::local::Runtime;
 //! fn require_sync<T: Sync>() {}
 //! require_sync::<Runtime>();
 //! ```
 //!
 //! ```compile_fail
-//! use rca_core::local::Clock;
+//! # use rca_core as rca;
+//! use rca::local::Clock;
 //! fn require_send<T: Send>() {}
 //! require_send::<Clock>();
 //! ```
 //!
 //! ```compile_fail
-//! use rca_core::local::Clock;
+//! # use rca_core as rca;
+//! use rca::local::Clock;
 //! fn require_sync<T: Sync>() {}
 //! require_sync::<Clock>();
 //! ```
 //!
 //! ```compile_fail
-//! use rca_core::local::RuntimeFuture;
+//! # use rca_core as rca;
+//! use rca::local::RuntimeFuture;
 //! fn require_send<T: Send>() {}
 //! require_send::<RuntimeFuture>();
 //! ```

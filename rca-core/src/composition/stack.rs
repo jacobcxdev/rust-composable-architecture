@@ -78,7 +78,8 @@ impl fmt::Debug for StackId {
 /// # Examples
 ///
 /// ```
-/// use rca_core::StackState;
+/// # use rca_core as rca;
+/// use rca::StackState;
 /// let mut path = StackState::new();
 /// let first = path.push("detail");
 /// let second = path.push("detail");

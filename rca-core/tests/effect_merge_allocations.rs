@@ -6,8 +6,8 @@ use std::hint::black_box;
 
 use rca_core::Effect;
 
-#[global_allocator]
 /// Counts construction storage in isolated, synchronous windows.
+#[global_allocator]
 static ALLOCATOR: dhat::Alloc = dhat::Alloc;
 
 /// Checks that every non-empty exact-size merge allocates once.

@@ -117,6 +117,67 @@ impl<ParentState, ParentAction, Child, State, Action> fmt::Debug
 }
 
 /// Lifts a required child reducer into parent state and action domains.
+///
+/// On a matching action the child borrows its part of the parent's state.
+/// Its effects send actions back through the same action path.
+/// In [`crate::combine`], put the child before a parent that needs to read the updated value.
+/// To obtain a handle for sending actions without installing behaviour, use [`crate::Store::scope`].
+/// If replacing a required child must cancel its old work, use [`scope_identified`].
+///
+/// # Examples
+///
+/// Pass the application's runtime. This example needs only `rca`, with no optional features.
+/// The parent sees the child's new count on `Add`.
+///
+/// ```
+/// # use rca_core as rca;
+/// use rca::{ActionPath, Effect, Reduce, StatePath, Runtime, Store, combine, scope};
+///
+/// struct State { count: usize, count_seen_by_parent: usize }
+/// enum Action { Add(usize), ResetDisplay }
+///
+/// async fn route_actions(runtime: Runtime) {
+///     let count = StatePath::new(|s: &State| &s.count, |s: &mut State| &mut s.count);
+///     let add = ActionPath::new(
+///         |action: &Action| match action {
+///             Action::Add(amount) => Some(amount),
+///             Action::ResetDisplay => None,
+///         },
+///         Action::Add,
+///     );
+///     let child = Reduce::new(|count: &mut usize, amount: &usize, _| {
+///         *count += amount;
+///         Effect::none()
+///     });
+///     let parent = Reduce::new(|state: &mut State, action: &Action, _| {
+///         state.count_seen_by_parent = match action {
+///             Action::Add(_) => state.count,
+///             Action::ResetDisplay => 0,
+///         };
+///         Effect::none()
+///     });
+///
+///     let reducer = combine((scope(count, add, child), parent));
+///     let store = Store::new(State { count: 0, count_seen_by_parent: 0 }, reducer, runtime);
+///     store.send(Action::Add(3)).await.unwrap().finish().await;
+///     assert_eq!(store.read(|s| s.count_seen_by_parent).await.unwrap(), 3);
+///     store.send(Action::ResetDisplay).await.unwrap().finish().await;
+///     let state = store.shutdown_into_state().await.unwrap();
+///     assert_eq!((state.count, state.count_seen_by_parent), (3, 0));
+/// }
+/// # fn main() {
+/// #     mod support {
+/// #         include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/support/mod.rs"));
+/// #     }
+/// #     let host = support::ManualRuntime::new();
+/// #     let mut work = std::pin::pin!(route_actions(host.runtime()));
+/// #     let mut cx = std::task::Context::from_waker(std::task::Waker::noop());
+/// #     assert!(std::future::Future::poll(work.as_mut(), &mut cx).is_pending());
+/// #     host.start_all();
+/// #     futures_executor::block_on(work);
+/// #     for result in host.join_all() { result.unwrap(); }
+/// # }
+/// ```
 #[must_use]
 #[expect(
     clippy::type_complexity,

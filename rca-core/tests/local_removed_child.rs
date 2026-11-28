@@ -11,9 +11,9 @@ use std::pin::Pin;
 use std::rc::Rc;
 use std::task::{Context, Poll, Waker};
 
+/// Counts allocations inside the isolated removal-cost test.
 #[cfg(feature = "allocation-measurement")]
 #[global_allocator]
-/// Counts allocations inside the isolated removal-cost test.
 static ALLOCATOR: dhat::Alloc = dhat::Alloc;
 
 /// Runs the existing allocation assay in its own process.

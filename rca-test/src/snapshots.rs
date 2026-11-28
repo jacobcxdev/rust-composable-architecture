@@ -27,6 +27,8 @@
 //!
 //! This capture copies the selected bytes. Later input changes cannot alter them.
 //!
+//! Add `rca-test` as a dev-dependency for this example.
+//!
 //! ```
 //! use rca_test::snapshots::SnapshotStrategy;
 //!
@@ -105,6 +107,8 @@ impl<C, M> SnapshotStrategy<C, M> {
     /// Capture propagates callback and projected-value destructor panics.
     ///
     /// # Examples
+    ///
+    /// Add `rca-test` as a dev-dependency for this example.
     ///
     /// ```
     /// use rca_test::snapshots::SnapshotStrategy;
@@ -200,6 +204,8 @@ pub enum FormatRollback {
 /// The codec adds no normalisation, I/O or implicit format detection.
 ///
 /// # Examples
+///
+/// Add `rca-test` as a dev-dependency for this example.
 ///
 /// ```
 /// use rca_test::snapshots::{Codec, CodecContext};
@@ -567,6 +573,8 @@ impl SnapshotNamespace {
     ///
     /// # Examples
     ///
+    /// Add `rca-test` as a dev-dependency for this example.
+    ///
     /// ```
     /// use rca_test::snapshots::SnapshotNamespace;
     ///
@@ -783,6 +791,9 @@ impl<E> std::error::Error for CaptureFailure<E> {}
 /// callbacks. Keep all comparison/writer authority inside `finish`.
 ///
 /// # Examples
+///
+/// Add `rca-test` as a dev-dependency for this example.
+/// Add `futures-executor` as a dev-dependency for this example.
 ///
 /// ```
 /// use std::future::{pending, ready};

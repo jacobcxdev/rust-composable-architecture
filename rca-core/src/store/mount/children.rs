@@ -173,9 +173,10 @@ impl<R: Send + 'static, A: Send + 'static, S: 'static, X: 'static> MountChildren
     /// Own the ID and row-derived values retained by the returned recipe.
     ///
     /// ```
-    /// use rca_core::{EntryMount, KeyedState, MountChildren};
+    /// # use rca_core as rca;
+    /// use rca::{EntryMount, KeyedState, MountChildren};
     /// use std::cell::Cell;
-    /// # use rca_core::{Feature, FeatureContext};
+    /// # use rca::{Feature, FeatureContext};
     /// # struct RowFeature(Cell<usize>);
     /// # impl Feature for RowFeature {
     /// #     type State = usize;

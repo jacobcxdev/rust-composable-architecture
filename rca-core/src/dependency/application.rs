@@ -9,7 +9,8 @@
 //! # Examples
 //!
 //! ```
-//! use rca_core::{ApplicationIds, DependencyKey, DependencyValues};
+//! # use rca_core as rca;
+//! use rca::{ApplicationIds, DependencyKey, DependencyValues};
 //! struct Ids;
 //! impl DependencyKey for Ids {
 //!     type Value = ApplicationIds<u64>;
@@ -188,7 +189,8 @@ impl<E> fmt::Debug for RandomBytes<E> {
 /// Wall time can move backwards and must not schedule runtime timers.
 ///
 /// ```compile_fail
-/// use rca_core::{MonotonicInstant, WallTime};
+/// # use rca_core as rca;
+/// use rca::{MonotonicInstant, WallTime};
 /// use std::time::SystemTime;
 /// let deadline: MonotonicInstant = WallTime::constant(SystemTime::UNIX_EPOCH).now();
 /// ```

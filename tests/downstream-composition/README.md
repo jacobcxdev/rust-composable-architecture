@@ -1,13 +1,22 @@
 # Packaged composition and compiler contracts
 
-This consumer imports the public RCA crate as `architecture`. It uses no
-workspace paths or RCA internals. From the repository root, run the following
-check. It builds the RCA package archives, puts them in an isolated local
-registry, then checks, tests and runs this consumer:
+This consumer imports the public RCA crate as `architecture`. It uses no workspace paths or RCA internals.
+The package check builds RCA archives, puts them in a temporary registry, then checks, tests, and runs the consumers.
+
+On an isolated Linux runner with an OS memory limit, run the package check from the repository root:
 
 ```sh
 scripts/verify-packaged-downstream.sh
 ```
+
+On a shared Mac, use that runner for the package check. The [Mac memory guard](../../CONTRIBUTING.md#build-memory-safety) cannot run this shell script.
+
+The package check also [extracts the library's facade examples](../../scripts/facade_doc_examples.py)
+and tests them against the staged `rca` crate. It tests each combination of features and
+direct dependencies separately, including macro examples with a renamed dependency.
+Examples marked `no_run` only compile. Rejection examples must fail to compile,
+and separate positive checks verify that their imports exist. The compiler tests below
+check the exact diagnostics for their own fixtures.
 
 The `compiler_contracts` target uses `ui_test` only as a development dependency.
 It checks that a scoped read can return an owned value but not a borrowed one.
@@ -15,11 +24,18 @@ It also checks both ways an action task can compile: with the expected warning
 when ignored and without a warning when handled. The test compiles the fixtures
 but does not run their code.
 
-Within a consumer checkout with its `rca-local` registry configured and lockfile
-resolved, run the narrow target with Rust 1.100.0:
+To run only the compiler test, start in a consumer checkout with a configured `rca-local` registry and a resolved lockfile.
+On macOS, set `rca_root` to the absolute path of the RCA checkout:
 
 ```sh
-cargo test --locked --test compiler_contracts -- --check
+python3 "$rca_root/scripts/guard_cargo_memory.py" --receipt "$(mktemp -d)/compiler-contracts.json" -- \
+  test --locked --test compiler_contracts -- --check
+```
+
+On an isolated runner with an OS memory limit, run:
+
+```sh
+rustup run 1.100.0 cargo test --locked --test compiler_contracts -- --check
 ```
 
 `pass/` expects successful compilation. Warning fixtures use source-line `WARN`

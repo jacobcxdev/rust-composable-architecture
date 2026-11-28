@@ -35,8 +35,8 @@ enum Action {
     Response(usize),
 }
 
-#[derive(Default)]
 /// Separates client entry, pending polls and capture disposal across all profiles.
+#[derive(Default)]
 struct Probes {
     entered: AtomicUsize,
     pending: AtomicUsize,

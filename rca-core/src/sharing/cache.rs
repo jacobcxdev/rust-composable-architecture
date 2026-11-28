@@ -401,8 +401,8 @@ impl<Cause> From<SharedAccessError> for SharedKeyError<Cause> {
     }
 }
 
-#[derive(Clone, Eq, PartialEq)]
 /// Stores a provider identity for admission and later full reload checks.
+#[derive(Clone, Eq, PartialEq)]
 struct Compatibility {
     /// Immutable resource address, codec and configuration supplied outside locks.
     identity: SharedKeyIdentity,
@@ -449,7 +449,21 @@ struct KeyResource<Key: SharedReaderKey> {
     loads: Arc<Mutex<Option<Weak<()>>>>,
 }
 
-/// Owns one injected heterogeneous namespace of weak typed value references.
+/// Lets callers find the same live shared value by key.
+///
+/// Clones share the same cache. [`Self::new`] creates a separate cache.
+/// Cache entries do not keep values or subscriptions alive. A reader or writable handle keeps its value alive.
+/// The last reference to the value drops the subscription.
+///
+/// [`Self::reader`] and [`Self::shared`] reuse a live value without loading or subscribing again.
+/// On a miss, each call evaluates its seed, asks the provider to load, then subscribes.
+/// Concurrent misses for a compatible key can both run these steps.
+/// If one call finds the other's live value, it uses that value and drops its own subscription outside the cache lock.
+/// [`Self::require_reader`] and [`Self::require`] always check storage first, even on a cache hit.
+///
+/// The stored value can change between the load and the subscription. The cache does not replay missed updates.
+/// To close this gap, the provider must replay updates, register atomically with a snapshot, or reconcile revisions.
+/// A provider can also deliver a new value during subscription, before the caller receives the handle.
 #[derive(Clone, Default)]
 pub struct SharedKeyCache {
     /// Shares weak lookup metadata between clones, never strong value ownership.
@@ -469,7 +483,11 @@ impl SharedKeyCache {
         Self::default()
     }
 
-    /// Creates an independent writable cohort over a cached or freshly seeded reference.
+    /// Returns a writable handle with its own binding to the shared value.
+    ///
+    /// This method uses the same load and subscription rules as [`Self::reader`].
+    /// Rebinding this handle does not rebind a handle from another call for the same key.
+    /// Clones of this handle do follow the new binding. See [`Shared::rebind`].
     ///
     /// # Errors
     /// Returns collision, metadata poison, or an original load/subscription failure.
@@ -484,7 +502,11 @@ impl SharedKeyCache {
         Ok(cohort(self.reader(key, seed).await?))
     }
 
-    /// Captures a cached reference or seeds, loads and subscribes a fresh owner.
+    /// Returns a reader for a live value or asks the provider for one.
+    ///
+    /// On a cache miss, the seed runs even if storage contains a value.
+    /// If storage has no value, the cache uses the seed as the initial value before it subscribes.
+    /// See [`SharedKeyCache`] for simultaneous misses and updates between load and subscription.
     ///
     /// # Errors
     /// Returns collision, metadata poison, or an original load/subscription failure.
@@ -679,7 +701,7 @@ impl SharedKeyCache {
     /// # Panics
     /// A seed callback panic poisons the captured source value. Provider or
     /// displaced value/resource destructor panics also propagate. The receiving
-    /// cohort may already be rebound and is not rolled back.
+    /// handle and its clones can already refer to the replacement value.
     pub async fn load<Key: SharedKey>(
         &self,
         shared: &Shared<Key::Value>,

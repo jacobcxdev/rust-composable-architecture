@@ -16,8 +16,8 @@ fn main() {
     divan::main();
 }
 
-#[derive(Clone, Copy)]
 /// Selects fixed workload shapes without payload allocation in the benchmark driver.
+#[derive(Clone, Copy)]
 enum Action {
     Commit,
     Effect,

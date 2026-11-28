@@ -6,7 +6,7 @@ This credit does not imply that the upstream authors maintain or endorse the for
 [UPSTREAM.md](UPSTREAM.md) records the source and the changes in RCA.
 
 The fork requires Rust 1.100.0 or later and uses Rust edition 2021.
-To keep the upstream library name in your code, add the fork with an alias:
+After publication, install this package with the upstream import name:
 
 ```sh
 cargo add rca-async-channel --rename async-channel

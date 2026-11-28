@@ -82,8 +82,11 @@ impl<Snapshot> fmt::Debug for Checkpoint<'_, Snapshot> {
 ///
 /// # Examples
 ///
+/// Enable the `diagnostics` feature on `rca`.
+///
 /// ```
-/// use rca_core::diagnostics::{CheckpointOutcome, checkpoint};
+/// # use rca_core as rca;
+/// use rca::diagnostics::{CheckpointOutcome, checkpoint};
 /// let mut count = 0;
 /// let result = checkpoint(&mut count, "increment", |state| *state, |state| {
 ///     *state += 1;
@@ -160,8 +163,11 @@ where
 ///
 /// # Examples
 ///
+/// Enable the `diagnostics` feature on `rca`.
+///
 /// ```
-/// use rca_core::diagnostics::checkpoint_disabled;
+/// # use rca_core as rca;
+/// use rca::diagnostics::checkpoint_disabled;
 /// let mut count = 0;
 /// let result = checkpoint_disabled(&mut count, |state| {
 ///     *state += 1;

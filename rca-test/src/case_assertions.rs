@@ -47,9 +47,12 @@ impl std::error::Error for CaseAssertionFailure {}
 /// a closure. Missing optional or keyed child values also fail this check.
 ///
 /// # Examples
+/// Enable the `test-util` feature on `rca`.
+///
 /// ```
+/// # use rca_test as rca;
 /// let root = Some(String::from("value"));
-/// assert_eq!(rca_test::check_case(&root, Option::as_ref).unwrap(), "value");
+/// assert_eq!(rca::check_case(&root, Option::as_ref).unwrap(), "value");
 /// ```
 ///
 /// # Errors
@@ -77,8 +80,11 @@ pub fn check_case<'a, Root: ?Sized, Value: ?Sized>(
 /// or `'static`. Semantic checks such as [`crate::check_equal`] can check the payload.
 ///
 /// # Examples
+/// Enable the `test-util` feature on `rca`.
+///
 /// ```
-/// let checked = rca_test::check_case_with(
+/// # use rca_test as rca;
+/// let checked = rca::check_case_with(
 ///     &Some(3),
 ///     Option::as_ref,
 ///     |value| Ok::<_, ()>(*value + 1),

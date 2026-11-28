@@ -9,8 +9,8 @@ use futures_executor::block_on;
 use rca_core::{SharedKey, SharedKeyCache, SharedKeyDefault, SharedLoadContext, SharedReaderKey};
 use rca_persistence::{Backend, BackendKey, Codec};
 
-#[derive(Clone)]
 /// Shares stored bytes across independently retained backend aliases.
+#[derive(Clone)]
 struct Memory(
     /// Distinguishes missing storage from an encoded value.
     Arc<Mutex<Option<Vec<u8>>>>,
@@ -29,8 +29,8 @@ impl Backend for Memory {
     }
 }
 
-#[derive(Clone)]
 /// Converts the decimal fixture values without adding backend behaviour.
+#[derive(Clone)]
 struct Integer;
 
 impl Codec<i32> for Integer {
@@ -115,8 +115,8 @@ struct MoveOnly(
     std::cell::Cell<u32>,
 );
 
-#[derive(Clone)]
 /// Encodes the known four-byte move-only fixture.
+#[derive(Clone)]
 struct MoveOnlyCodec;
 
 impl Codec<MoveOnly> for MoveOnlyCodec {
@@ -152,8 +152,8 @@ fn adapter_and_save_future_accept_send_only_move_only_values() {
     assert_eq!(owner.read(|value| value.0.get()).unwrap(), 19);
 }
 
-#[derive(Debug)]
 /// Supplies recognisable private text for the diagnostic-redaction test.
+#[derive(Debug)]
 struct BackendFailure;
 
 impl std::fmt::Display for BackendFailure {

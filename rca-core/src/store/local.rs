@@ -80,6 +80,10 @@ mod frontend {
     /// Clones share the actor and each retain logical Store ownership. Dropping
     /// the final owner closes authority; the host must still dispose of its tasks.
     /// State and actions need neither cloning nor thread-safe sharing.
+    ///
+    /// Reducers, read queries, and observation selectors run on the actor.
+    /// If one panics, the panic propagates on the actor task, not through the request's reply.
+    /// Unwinding closes the Store for all handles. Later requests cannot run.
     pub struct Store<S, A> {
         /// Command endpoint; retained ingress alone does not preserve Store authority.
         ingress: Arc<Ingress<S, A>>,
@@ -471,6 +475,7 @@ mod frontend {
         /// # Errors
         ///
         /// Returns an error if admission fails or the reply channel closes empty.
+        /// If `query` panics on the actor, the Store closes and this read returns [`StoreStopped`].
         pub async fn read<F, T>(&self, query: F) -> Result<T, StoreStopped>
         where
             F: FnOnce(&S) -> T + 'static,
@@ -482,8 +487,9 @@ mod frontend {
 
         /// Registers a clone-free owner-local projection at an ordered position.
         ///
-        /// The selector and its results stay on the owner thread. Selection is
-        /// synchronous; blocking a selector blocks that actor and runtime thread.
+        /// The selector runs synchronously on the owner thread. A blocking selector blocks that thread.
+        /// If the selector panics, it closes the Store, not just this observation.
+        /// The panic propagates on the actor task.
         ///
         /// # Errors
         ///
@@ -522,6 +528,7 @@ mod frontend {
         /// The first value from `next` is the selection at registration.
         /// The actor retains a copy of the last published value for comparison.
         /// The selector and results stay on the owner thread. A slow reader can miss intermediate changes.
+        /// A selector panic closes the Store as in [`Self::observe`].
         ///
         /// # Errors
         ///
@@ -1544,7 +1551,10 @@ impl<A> Effect<A> {
         }
     }
 
-    /// Merges non-empty effects in source order for concurrent execution.
+    /// Combines effects without waiting for one to finish before starting the next.
+    ///
+    /// The Store registers non-empty effects in input order. The runtime decides
+    /// when each task runs. For sequential work, use [`Self::concatenate`].
     ///
     /// Consumes the iterator synchronously without retaining its borrows.
     /// Returns no work without allocating when every effect is empty.
@@ -1735,6 +1745,11 @@ impl<A: 'static> Effect<A> {
     /// The factory runs on the registered body's first poll, not at construction.
     /// Cancellation cannot interrupt a poll that blocks or spins indefinitely.
     /// Long-running work must await or yield so the owner thread can make progress.
+    ///
+    /// # Panics
+    ///
+    /// A panic from the factory or its future propagates on the runtime task.
+    /// When the Store processes that failure, the actor fails. The original action has already committed.
     pub fn run<F, Fut>(run: F) -> Self
     where
         F: FnOnce(EffectSender<A>) -> Fut + 'static,
@@ -1762,6 +1777,13 @@ impl<A: 'static> Effect<A> {
     }
 
     /// Emits the optional result of an owner-local future.
+    ///
+    /// This constructor takes ownership without polling the future. To defer construction too, use [`Self::run`].
+    ///
+    /// # Panics
+    ///
+    /// If the future panics during a poll, the panic propagates on the runtime task.
+    /// The Store handles the failed task as in [`Self::run`].
     pub fn future(future: impl Future<Output = Option<A>> + 'static) -> Self {
         Self {
             program: Program::Runtime(RuntimeLeaf::<A, LocalEffects>::Future(Box::pin(future))),
@@ -1816,9 +1838,12 @@ impl<A: 'static> Effect<A> {
     ///
     /// # Examples
     ///
+    /// Enable the `local` feature on `rca`.
+    ///
     /// ```
+    /// # use rca_core as rca;
     /// use std::rc::Rc;
-    /// use rca_core::{EffectError, Issue, IssueReporter, local::Effect};
+    /// use rca::{EffectError, Issue, IssueReporter, local::Effect};
     /// let cause = Rc::new(7);
     /// let effect: Effect<()> = Effect::try_run_reported(
     ///     move |_| async move { Err(EffectError::Failed(cause)) },
@@ -2103,6 +2128,7 @@ impl<R: Reducer + ?Sized> Feature for R {
         context.effect(effect);
     }
 
+    #[doc(hidden)]
     fn reduce_for_store<'deps>(
         &mut self,
         state: &mut R::State,

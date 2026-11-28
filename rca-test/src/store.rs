@@ -54,9 +54,11 @@ api::test_store_api!(
     [Send],
     [Sync],
     r#"
+Enable the `test-util` feature on `rca`.
+
 ```
-use rca_core::{Clock, DependencyKey, Effect, ReduceContext, Reducer};
-use rca_test::TestStore;
+# mod rca { pub use rca_core::{Clock, DependencyKey, Effect, ReduceContext, Reducer}; pub use rca_test::TestStore; }
+use rca::{Clock, DependencyKey, Effect, ReduceContext, Reducer, TestStore};
 struct Client { clock: Clock }
 struct ClientKey;
 impl DependencyKey for ClientKey {
@@ -77,9 +79,12 @@ let store = TestStore::builder((), Feature)
 ```
 "#,
     r#"
+Enable the `test-util` feature on `rca`.
+
 ```
-# use rca_core::{Effect, ReduceContext, Reducer};
-# use rca_test::TestStore;
+# mod rca { pub use rca_core::{Effect, ReduceContext, Reducer}; pub use rca_test::TestStore; }
+# use rca::{Effect, ReduceContext, Reducer};
+use rca::TestStore;
 # struct Feature;
 # impl Reducer for Feature {
 # type State = (u32, String);

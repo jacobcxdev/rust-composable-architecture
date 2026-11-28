@@ -1,7 +1,13 @@
 // Modified for Rust Composable Architecture; see UPSTREAM.md for provenance and changes.
 
-//! An async multi-producer multi-consumer channel, where each message can be received by only
-//! one of all existing consumers.
+//! Sends each message to one of several competing receivers.
+//!
+//! RCA maintains the `rca-async-channel` package, a fork of `async-channel` 2.5.0.
+//! It is not a smol-rs release. See the [fork provenance] for its authors and changes.
+//! The Rust import is `async_channel`. After publication, use
+//! `cargo add rca-async-channel --rename async-channel` to select this package.
+//!
+//! [fork provenance]: https://github.com/jacobcxdev/rust-composable-architecture/blob/e704e8bc61e19036138dbb565f764866797a0036/dependencies/rca-async-channel/UPSTREAM.md
 //!
 //! There are two kinds of channels:
 //!
@@ -1574,10 +1580,10 @@ mod overflow_tests {
     }
 }
 
-#[cfg(not(feature = "std"))]
 /// Aborts without `std` by panicking again during unwinding.
 ///
 /// With an aborting panic handler, the first panic already terminates execution.
+#[cfg(not(feature = "std"))]
 fn abort() -> ! {
     /// Triggers a second panic if the first panic unwinds through this guard.
     struct PanicOnDrop;

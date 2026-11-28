@@ -206,8 +206,8 @@ pub struct Gate {
     on_drop: bool,
 }
 
-#[cfg(test)]
 /// Observes and releases a reducer gate without relying on elapsed time.
+#[cfg(test)]
 pub struct GateControl {
     entry: mpsc::Receiver<()>,
     release: mpsc::Sender<()>,
@@ -215,8 +215,8 @@ pub struct GateControl {
     timed_out: Arc<AtomicBool>,
 }
 
-#[cfg(test)]
 /// Builds a gate that blocks before reduction starts.
+#[cfg(test)]
 pub fn gate() -> (Gate, GateControl) {
     let (entry_tx, entry_rx) = mpsc::channel();
     let (release_tx, release_rx) = mpsc::channel();
@@ -261,8 +261,8 @@ impl Gate {
     }
 }
 
-#[cfg(test)]
 /// Builds a gate that blocks reducer destruction instead of reduction.
+#[cfg(test)]
 pub fn drop_gate() -> (Gate, GateControl) {
     let (mut gate, control) = gate();
     gate.on_drop = true;

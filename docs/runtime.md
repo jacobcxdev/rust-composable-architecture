@@ -94,12 +94,17 @@ without allowing a sustained mailbox flood to starve them.
 Dropping any runtime future is terminal and must release captured resources.
 Cloned runtimes share one monotonic origin.
 
-The public `RuntimeDriver` rustdoc defines third-party adapter obligations:
-prompt ownership transfer without inline polling, task progress while the host
-is live, cross-thread wake-ups without an actor lock, immediately ready elapsed
-sleeps, and cancellation-safe waits. Host teardown is the exception to task
-progress: it may drop pending tasks, causing abortive Store closure. Retaining
-a `Runtime` handle does not by itself retain host authority.
+An adapter must meet the [`RuntimeDriver` contract](../rca-core/src/runtime.rs):
+
+- Accept the task promptly without polling it inside `spawn`.
+- While the host runs, poll accepted tasks according to Rust's `Future` contract.
+- Accept wake-ups from any thread without an RCA actor lock.
+- If the deadline is in the past, return a ready result on the first poll.
+- If the deadline is in the future, do not complete the wait early. The host can wake the task late.
+- When the caller drops a wait, release its captures and cancel that wait.
+
+During teardown, the host can drop pending tasks. This can close a Store without an orderly shutdown.
+Retaining a `Runtime` handle does not keep the host running.
 
 `TokioRuntime::current` validates an active Tokio runtime and timer driver. It
 works with current-thread and multi-thread runtimes. Construction failure

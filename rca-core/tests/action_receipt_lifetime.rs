@@ -46,8 +46,8 @@ impl Reducer for Feature {
     }
 }
 
-#[derive(Default)]
 /// Observes a receipt wake without driving the actor from the waker.
+#[derive(Default)]
 struct WakeCount(AtomicUsize);
 
 impl Wake for WakeCount {
